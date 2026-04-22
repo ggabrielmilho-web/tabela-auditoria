@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin — Auditoria Receita</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0e17;
+    --surface: #111827;
+    --surface2: #1a2235;
+    --border: #1e293b;
+    --text: #e2e8f0;
+    --text-dim: #94a3b8;
+    --accent: #38bdf8;
+    --accent2: #818cf8;
+    --green: #34d399;
+    --red: #f87171;
+    --orange: #fb923c;
+    --yellow: #fbbf24;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    opacity: 0.03;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    pointer-events: none; z-index: 9999;
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .page { max-width: 1000px; margin: 0 auto; padding: 32px 24px; animation: fadeUp 0.4s ease; }
+
+  /* Top bar */
+  .top-bar {
+    display: flex; justify-content: space-between;
+    align-items: center; margin-bottom: 32px; flex-wrap: wrap; gap: 12px;
+  }
+
+  .top-bar h1 {
+    font-size: 1.3rem; font-weight: 700;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+
+  /* Buttons */
+  .btn {
+    padding: 8px 18px;
+    border-radius: 8px;
+    font-family: 'DM Sans', sans-serif;
+    font-weight: 500;
+    font-size: 0.82rem;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    transition: all 0.15s;
+  }
+
+  .btn-outline {
+    background: var(--surface2);
+    color: var(--text);
+  }
+  .btn-outline:hover { border-color: var(--accent); color: var(--accent); }
+
+  .btn-success {
+    background: var(--green);
+    color: var(--bg);
+    border-color: var(--green);
+    font-weight: 600;
+  }
+  .btn-success:hover { opacity: 0.85; }
+  .btn-success:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .btn-danger {
+    background: rgba(248,113,113,0.12);
+    color: var(--red);
+    border-color: rgba(248,113,113,0.3);
+  }
+  .btn-danger:hover { background: rgba(248,113,113,0.22); }
+
+  .btn-warning {
+    background: rgba(251,146,60,0.12);
+    color: var(--orange);
+    border-color: rgba(251,146,60,0.3);
+    font-size: 0.75rem;
+    padding: 5px 12px;
+  }
+  .btn-warning:hover { background: rgba(251,146,60,0.22); }
+
+  .btn-sm-danger {
+    background: rgba(248,113,113,0.1);
+    color: var(--red);
+    border-color: rgba(248,113,113,0.25);
+    font-size: 0.75rem;
+    padding: 5px 12px;
+  }
+  .btn-sm-danger:hover { background: rgba(248,113,113,0.22); }
+
+  .btn-sm-green {
+    background: rgba(52,211,153,0.1);
+    color: var(--green);
+    border-color: rgba(52,211,153,0.25);
+    font-size: 0.75rem;
+    padding: 5px 12px;
+  }
+  .btn-sm-green:hover { background: rgba(52,211,153,0.22); }
+
+  /* Section card */
+  .section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    margin-bottom: 24px;
+    overflow: hidden;
+  }
+
+  .section-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 10px;
+  }
+
+  .section-header h2 {
+    font-size: 0.9rem; font-weight: 600; color: var(--text);
+  }
+
+  .section-body { padding: 20px; }
+
+  /* Form */
+  .form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin-bottom: 16px;
+  }
+
+  @media (max-width: 600px) { .form-grid { grid-template-columns: 1fr; } }
+
+  .field label {
+    display: block;
+    font-size: 0.72rem; font-weight: 600;
+    color: var(--text-dim);
+    text-transform: uppercase; letter-spacing: 0.05em;
+    margin-bottom: 5px;
+  }
+
+  .field input, .field select {
+    width: 100%; padding: 9px 12px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 0.86rem;
+    transition: border-color 0.2s;
+  }
+
+  .field input:focus, .field select:focus {
+    outline: none; border-color: var(--accent);
+  }
+
+  .field select option { background: var(--surface2); }
+
+  .form-feedback {
+    font-size: 0.8rem;
+    margin-top: 8px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    display: none;
+  }
+
+  .form-feedback.success { background: rgba(52,211,153,0.1); color: var(--green); border: 1px solid rgba(52,211,153,0.25); }
+  .form-feedback.error   { background: rgba(248,113,113,0.1); color: var(--red);   border: 1px solid rgba(248,113,113,0.25); }
+
+  /* Table */
+  table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+
+  thead th {
+    padding: 10px 14px;
+    text-align: left;
+    font-size: 0.7rem; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.05em;
+    color: var(--text-dim);
+    border-bottom: 1px solid var(--border);
+    background: var(--surface2);
+  }
+
+  tbody tr { transition: background 0.1s; }
+  tbody tr:hover { background: rgba(56,189,248,0.04); }
+  tbody tr:nth-child(even) { background: rgba(255,255,255,0.012); }
+  tbody tr:nth-child(even):hover { background: rgba(56,189,248,0.04); }
+
+  td { padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+
+  .badge {
+    display: inline-block; padding: 2px 10px;
+    border-radius: 4px; font-size: 0.7rem; font-weight: 600;
+  }
+
+  .badge-admin  { background: rgba(129,140,248,0.15); color: var(--accent2); }
+  .badge-viewer { background: rgba(56,189,248,0.12); color: var(--accent); }
+  .badge-on     { background: rgba(52,211,153,0.12); color: var(--green); }
+  .badge-off    { background: rgba(248,113,113,0.12); color: var(--red); }
+  .badge-tipo   { background: rgba(251,191,36,0.12); color: var(--yellow); margin: 2px 2px 2px 0; }
+
+  /* Checkboxes de tipo */
+  .tipo-checks { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 4px; }
+  .tipo-checks label {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 0.85rem; color: var(--text);
+    cursor: pointer; user-select: none;
+  }
+  .tipo-checks input[type="checkbox"] {
+    width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer;
+  }
+
+  /* Edição inline de tipos */
+  .tipos-cell { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+  .edit-tipos-btn {
+    background: none; border: none;
+    color: var(--text-dim); font-size: 0.75rem;
+    cursor: pointer; padding: 2px 4px;
+    border-radius: 4px; transition: color 0.15s;
+  }
+  .edit-tipos-btn:hover { color: var(--accent); }
+
+  .tipos-editor {
+    display: flex; gap: 10px; flex-wrap: wrap;
+    align-items: center; margin-top: 6px;
+  }
+  .tipos-editor label { font-size: 0.8rem; color: var(--text); display: flex; gap: 5px; align-items: center; cursor: pointer; }
+  .tipos-editor input[type="checkbox"] { accent-color: var(--accent); }
+
+  .actions { display: flex; gap: 6px; }
+
+  .empty-row td {
+    text-align: center;
+    color: var(--text-dim);
+    padding: 24px;
+  }
+</style>
+</head>
+<body>
+
+<div class="page">
+  <div class="top-bar">
+    <h1>⚙ Gerenciamento de Usuários</h1>
+    <div style="display:flex;gap:8px;">
+      <a href="/" style="text-decoration:none;"><button class="btn btn-outline">← Dashboard</button></a>
+      <a href="/logout" style="text-decoration:none;"><button class="btn btn-outline">Sair</button></a>
+    </div>
+  </div>
+
+  <!-- ── NOVO USUÁRIO ── -->
+  <div class="section">
+    <div class="section-header">
+      <h2>➕ Novo Usuário</h2>
+    </div>
+    <div class="section-body">
+      <div class="form-grid">
+        <div class="field">
+          <label>Nome completo</label>
+          <input type="text" id="newNome" placeholder="João Silva">
+        </div>
+        <div class="field">
+          <label>E-mail</label>
+          <input type="email" id="newEmail" placeholder="joao@rizzalog.com.br">
+        </div>
+        <div class="field">
+          <label>Senha</label>
+          <input type="password" id="newSenha" placeholder="Mínimo 6 caracteres">
+        </div>
+        <div class="field">
+          <label>Perfil</label>
+          <select id="newRole">
+            <option value="viewer">Viewer — só visualiza</option>
+            <option value="admin">Admin — gerencia usuários</option>
+          </select>
+        </div>
+      </div>
+      <div class="field" style="margin-bottom:16px;">
+        <label>Tipos de operação visíveis</label>
+        <div class="tipo-checks">
+          <label><input type="checkbox" id="tipoCarreteiro" value="Carreteiro" checked> Carreteiro</label>
+          <label><input type="checkbox" id="tipoAgregado"   value="Agregado"   checked> Agregado</label>
+          <label><input type="checkbox" id="tipoFrota"      value="Frota"      checked> Frota</label>
+        </div>
+      </div>
+      <button class="btn btn-success" id="btnCriar" onclick="criarUsuario()">Criar Usuário</button>
+      <div class="form-feedback" id="formFeedback"></div>
+    </div>
+  </div>
+
+  <!-- ── LISTA DE USUÁRIOS ── -->
+  <div class="section">
+    <div class="section-header">
+      <h2>👥 Usuários Cadastrados</h2>
+    </div>
+    <div style="overflow-x:auto;">
+      <table>
+        <thead>
+          <tr>
+            <th>Nome</th>
+            <th>E-mail</th>
+            <th>Perfil</th>
+            <th>Tipos Visíveis</th>
+            <th>Status</th>
+            <th>Cadastrado em</th>
+            <th>Ações</th>
+          </tr>
+        </thead>
+        <tbody id="userTableBody">
+          <tr class="empty-row"><td colspan="6">Carregando...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+let users = [];
+
+window.addEventListener('DOMContentLoaded', loadUsers);
+
+async function loadUsers() {
+  try {
+    const resp = await fetch('/api/admin/users', { credentials: 'same-origin' });
+    const json = await resp.json();
+    if (!json.ok) throw new Error(json.error);
+    users = json.users;
+    renderTable();
+  } catch (e) {
+    document.getElementById('userTableBody').innerHTML =
+      `<tr class="empty-row"><td colspan="6">Erro ao carregar: ${e.message}</td></tr>`;
+  }
+}
+
+const TODOS_TIPOS = ['Carreteiro', 'Agregado', 'Frota'];
+
+function renderTable() {
+  const tbody = document.getElementById('userTableBody');
+  if (!users.length) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="7">Nenhum usuário cadastrado.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = users.map(u => {
+    const tipos = u.tipos_permitidos || [];
+    const tiposBadges = tipos.map(t => `<span class="badge badge-tipo">${t}</span>`).join('') || '<span style="color:var(--text-dim);font-size:0.75rem;">Nenhum</span>';
+    const editBtn = `<button class="edit-tipos-btn" onclick="openTiposEditor(${u.id})" title="Editar tipos">✏</button>`;
+    return `
+    <tr id="row-${u.id}">
+      <td>${u.nome}</td>
+      <td style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;">${u.email}</td>
+      <td><span class="badge badge-${u.role}">${u.role === 'admin' ? 'Admin' : 'Viewer'}</span></td>
+      <td>
+        <div class="tipos-cell" id="tipos-cell-${u.id}">
+          ${tiposBadges} ${editBtn}
+        </div>
+      </td>
+      <td><span class="badge ${u.ativo ? 'badge-on' : 'badge-off'}">${u.ativo ? 'Ativo' : 'Inativo'}</span></td>
+      <td style="color:var(--text-dim);font-size:0.75rem;">${u.criado_em}</td>
+      <td>
+        <div class="actions">
+          ${u.ativo
+            ? `<button class="btn btn-warning" onclick="toggleUser(${u.id}, false)">Desativar</button>`
+            : `<button class="btn btn-sm-green" onclick="toggleUser(${u.id}, true)">Ativar</button>`
+          }
+          <button class="btn btn-sm-danger" onclick="deleteUser(${u.id}, '${u.nome}')">Excluir</button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function openTiposEditor(uid) {
+  const user = users.find(u => u.id === uid);
+  if (!user) return;
+  const cell = document.getElementById(`tipos-cell-${uid}`);
+  const tipos = user.tipos_permitidos || [];
+
+  cell.innerHTML = `
+    <div class="tipos-editor">
+      ${TODOS_TIPOS.map(t => `
+        <label>
+          <input type="checkbox" value="${t}" ${tipos.includes(t) ? 'checked' : ''}> ${t}
+        </label>`).join('')}
+      <button class="btn btn-sm-green" style="font-size:0.72rem;padding:4px 10px;" onclick="saveTipos(${uid})">Salvar</button>
+      <button class="edit-tipos-btn" onclick="renderTable()">✕</button>
+    </div>`;
+}
+
+async function saveTipos(uid) {
+  const cell = document.getElementById(`tipos-cell-${uid}`);
+  const checks = cell.querySelectorAll('input[type=checkbox]:checked');
+  const tipos = [...checks].map(c => c.value);
+
+  if (!tipos.length) { alert('Selecione ao menos um tipo.'); return; }
+
+  try {
+    const resp = await fetch(`/api/admin/users/${uid}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ tipos_permitidos: tipos })
+    });
+    const json = await resp.json();
+    if (!json.ok) throw new Error(json.error);
+    await loadUsers();
+  } catch (e) {
+    alert('Erro: ' + e.message);
+  }
+}
+
+async function criarUsuario() {
+  const btn  = document.getElementById('btnCriar');
+  const nome  = document.getElementById('newNome').value.trim();
+  const email = document.getElementById('newEmail').value.trim();
+  const senha = document.getElementById('newSenha').value;
+  const role  = document.getElementById('newRole').value;
+  const tipos_permitidos = ['tipoCarreteiro','tipoAgregado','tipoFrota']
+    .filter(id => document.getElementById(id).checked)
+    .map(id => document.getElementById(id).value);
+
+  hideFeedback();
+
+  if (!nome || !email || !senha) { showFeedback('Preencha todos os campos.', false); return; }
+  if (senha.length < 6) { showFeedback('Senha deve ter no mínimo 6 caracteres.', false); return; }
+  if (!tipos_permitidos.length) { showFeedback('Selecione ao menos um tipo de operação.', false); return; }
+
+  btn.disabled = true;
+  btn.textContent = 'Criando...';
+
+  try {
+    const resp = await fetch('/api/admin/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ nome, email, senha, role, tipos_permitidos })
+    });
+    const json = await resp.json();
+    if (!json.ok) throw new Error(json.error);
+
+    showFeedback(`Usuário "${nome}" criado com sucesso!`, true);
+    document.getElementById('newNome').value  = '';
+    document.getElementById('newEmail').value = '';
+    document.getElementById('newSenha').value = '';
+    document.getElementById('newRole').value  = 'viewer';
+    await loadUsers();
+  } catch (e) {
+    showFeedback(e.message, false);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Criar Usuário';
+  }
+}
+
+async function toggleUser(id, ativo) {
+  try {
+    const resp = await fetch(`/api/admin/users/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ ativo })
+    });
+    const json = await resp.json();
+    if (!json.ok) throw new Error(json.error);
+    await loadUsers();
+  } catch (e) {
+    alert('Erro: ' + e.message);
+  }
+}
+
+async function deleteUser(id, nome) {
+  if (!confirm(`Excluir "${nome}" permanentemente?`)) return;
+  try {
+    const resp = await fetch(`/api/admin/users/${id}`, {
+      method: 'DELETE',
+      credentials: 'same-origin'
+    });
+    const json = await resp.json();
+    if (!json.ok) throw new Error(json.error);
+    await loadUsers();
+  } catch (e) {
+    alert('Erro: ' + e.message);
+  }
+}
+
+function showFeedback(msg, ok) {
+  const el = document.getElementById('formFeedback');
+  el.textContent = msg;
+  el.className = 'form-feedback ' + (ok ? 'success' : 'error');
+  el.style.display = 'block';
+}
+
+function hideFeedback() {
+  document.getElementById('formFeedback').style.display = 'none';
+}
+</script>
+</body>
+</html>
