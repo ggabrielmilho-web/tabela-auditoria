@@ -300,6 +300,7 @@
       <button class="btn-sm" id="btnResetLayout" onclick="resetLayout()" style="display:none;">↺ Resetar Layout</button>
       <button class="btn-sm" onclick="loadData()">↻ Recarregar</button>
       <a href="/tarifas" style="text-decoration:none;"><button class="btn-sm">📋 Tarifas</button></a>
+      <a id="linkReuniao" href="/reuniao" style="display:none;text-decoration:none;"><button class="btn-sm">🎙 Reunião</button></a>
       <a id="linkAdmin" href="/admin" style="display:none;text-decoration:none;"><button class="btn-sm">⚙ Admin</button></a>
       <a href="/logout" style="text-decoration:none;"><button class="btn-sm">Sair</button></a>
     </div>
@@ -594,6 +595,7 @@ async function loadMe() {
       document.getElementById('userInfo').textContent = `👤 ${json.nome}`;
       if (json.role === 'admin') {
         document.getElementById('linkAdmin').style.display = 'inline';
+        document.getElementById('linkReuniao').style.display = 'inline';
       }
     }
   } catch {}
