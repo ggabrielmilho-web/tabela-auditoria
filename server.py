@@ -470,30 +470,58 @@ def _dividir_e_transcrever(caminho_arquivo):
 def _gerar_ata(tema, transcricao):
     from openai import OpenAI
     client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
-    prompt = f"""Você é um assistente especializado em redigir atas de reunião profissionais em português brasileiro.
+
+    prompt_geracao = f"""Você é um assistente especializado em redigir atas de reunião para empresas de transporte rodoviário de cargas.
+
+Contexto da empresa: transportadora com operações em múltiplos estados (SP, RJ, GO, ES, BA e outros), frota própria de carretas, motoristas agregados e carreteiros, clientes industriais (L'Oreal, Nestlé, Heinz, etc.), atuação com cargas spot e contratos fixos.
 
 Tema da reunião: {tema}
 
 Transcrição:
 {transcricao}
 
-Gere uma ata formal e bem estruturada com:
-- Cabeçalho (data/hora extraída da transcrição se disponível, ou deixar em branco para preenchimento)
-- Participantes (se mencionados)
-- Pauta
-- Discussões e deliberações organizadas por tópico
+Instruções importantes:
+- A reunião pode envolver pessoas em campo (motoristas, coordenadores regionais) falando por áudio — nem todos estão numa sala
+- Nomes como "Martins" podem ser terminais/clientes, não pessoas — use o contexto para distinguir
+- Termos do setor são válidos: carreta, frota, agregado, carreteiro, spot, frete líquido, recuperação judicial (RJ), diária, escala, etc.
+- Se a transcrição tiver trechos confusos ou sobreposição de vozes, interprete pelo contexto operacional
+- Linguagem da ata: profissional e objetiva — sem excesso de formalidade, mas clara e bem estruturada
+
+Gere a ata com:
+- Cabeçalho (data/hora se disponível na transcrição, senão deixar em branco)
+- Participantes identificados (distinguindo pessoas de locais/empresas)
+- Pauta abordada
+- Discussões e deliberações por tópico
 - Decisões tomadas
-- Encaminhamentos e responsáveis
-- Próximos passos
+- Encaminhamentos com responsável e prazo (tabela)
+- Próximos passos"""
 
-Use formato profissional, linguagem formal, sem repetições desnecessárias."""
-
-    resposta = client.chat.completions.create(
+    primeira_ata = client.chat.completions.create(
         model='gpt-4.1-mini',
-        messages=[{'role': 'user', 'content': prompt}],
+        messages=[{'role': 'user', 'content': prompt_geracao}],
         max_tokens=4000
-    )
-    return resposta.choices[0].message.content
+    ).choices[0].message.content
+
+    prompt_revisao = f"""Você revisou uma ata de reunião de uma transportadora. Faça uma revisão crítica da ata abaixo e corrija:
+
+1. Nomes de pessoas confundidos com terminais, clientes ou localidades
+2. Informações contraditórias ou que não fazem sentido operacionalmente
+3. Encaminhamentos sem responsável claro ou com responsável incorreto
+4. Trechos vagos que podem ser mais precisos com base no contexto da ata
+5. Repetições ou redundâncias
+
+Retorne apenas a ata final revisada, sem comentários sobre as correções feitas.
+
+Ata a revisar:
+{primeira_ata}"""
+
+    ata_final = client.chat.completions.create(
+        model='gpt-4.1-mini',
+        messages=[{'role': 'user', 'content': prompt_revisao}],
+        max_tokens=4000
+    ).choices[0].message.content
+
+    return ata_final
 
 
 @app.route('/api/reuniao/processar', methods=['POST'])

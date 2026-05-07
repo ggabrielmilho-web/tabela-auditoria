@@ -353,9 +353,10 @@ function estimarCusto(input) {
     const total = custoWhisper + custoGpt;
     const fmt = (v) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const fmtUSD = (v) => '$' + v.toFixed(3);
-    const durStr = minutos >= 60
-      ? `${Math.floor(minutos/60)}h ${Math.round(minutos%60)}min`
-      : `${Math.round(minutos)} min`;
+    const totalSeg = Math.round(audio.duration);
+    const durStr = totalSeg >= 3600
+      ? `${Math.floor(totalSeg/3600)}h ${Math.floor((totalSeg%3600)/60)}min`
+      : `${Math.floor(totalSeg/60)}min ${totalSeg%60}seg`;
     box.innerHTML =
       `⏱ Duração: <strong>${durStr}</strong> &nbsp;|&nbsp; ` +
       `Whisper: <strong>${fmtUSD(custoWhisper)}</strong> &nbsp;|&nbsp; ` +
