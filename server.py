@@ -428,14 +428,17 @@ def admin_delete_user(uid):
 # ROTAS REUNIÃO — TRANSCRIÇÃO + ATA
 # ════════════════════════════════════════
 
-def _transcrever_com_assemblyai(caminho_arquivo):
+def _transcrever_com_assemblyai(caminho_arquivo, speakers_expected=None):
     import assemblyai as aai
     aai.settings.api_key = os.getenv('ASSEMBLYAI_API_KEY')
-    config = aai.TranscriptionConfig(
+    config_args = dict(
         speech_models=['universal-3-pro', 'universal-2'],
         language_detection=True,
-        speaker_labels=True
+        speaker_labels=True,
     )
+    if speakers_expected:
+        config_args['speakers_expected'] = int(speakers_expected)
+    config = aai.TranscriptionConfig(**config_args)
     transcriber = aai.Transcriber(config=config)
     transcript = transcriber.transcribe(caminho_arquivo)
     if transcript.status == aai.TranscriptStatus.error:
@@ -511,6 +514,7 @@ def processar_reuniao():
 
     audio_file = request.files['audio']
     tema = request.form.get('tema', 'Reunião').strip()
+    participantes = request.form.get('participantes')
 
     ext = os.path.splitext(audio_file.filename)[1].lower() or '.mp3'
     with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
@@ -518,7 +522,7 @@ def processar_reuniao():
         tmp_path = tmp.name
 
     try:
-        transcricao = _transcrever_com_assemblyai(tmp_path)
+        transcricao = _transcrever_com_assemblyai(tmp_path, speakers_expected=participantes)
         ata = _gerar_ata(tema, transcricao)
         return jsonify({'ok': True, 'ata': ata, 'transcricao': transcricao})
     except Exception as e:

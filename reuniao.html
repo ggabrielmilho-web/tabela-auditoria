@@ -276,6 +276,11 @@
         <span class="hint">Formatos aceitos: mp3, mp4, wav, m4a, webm, ogg, flac. Arquivos grandes são divididos automaticamente.</span>
         <div class="custo-estimado" id="custoBox"></div>
       </div>
+      <div class="field" style="max-width: 200px;">
+        <label>Nº de Participantes</label>
+        <input type="number" id="inputParticipantes" min="2" max="10" step="1" placeholder="Automático">
+        <span class="hint">Preencha para melhorar a identificação de quem fala. Deixe em branco para detecção automática.</span>
+      </div>
       <div>
         <button class="btn-processar" id="btnProcessar" onclick="processar()">Gerar Ata</button>
       </div>
@@ -382,9 +387,12 @@ async function processar() {
   setProcessando(true);
   setStatus('Enviando áudio...', 15);
 
+  const participantes = document.getElementById('inputParticipantes').value;
+
   const formData = new FormData();
   formData.append('audio', audioFile);
   formData.append('tema', tema);
+  if (participantes) formData.append('participantes', participantes);
 
   const progressTimer = simularProgresso();
 
@@ -493,6 +501,7 @@ function novaAta() {
   temaAtual = '';
   document.getElementById('inputTema').value = '';
   document.getElementById('inputAudio').value = '';
+  document.getElementById('inputParticipantes').value = '';
   document.getElementById('custoBox').classList.remove('ativo');
   document.getElementById('resultadoBox').classList.remove('ativo');
   limparErro();
