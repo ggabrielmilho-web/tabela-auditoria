@@ -4,6 +4,7 @@ requests
 python-dotenv
 psycopg2-binary
 openai
+assemblyai
 pydub
 python-docx
 reportlab

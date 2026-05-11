@@ -6,7 +6,6 @@ Acesse: http://localhost:5000
 
 import os
 import io
-import math
 import tempfile
 import functools
 import psycopg2
@@ -429,42 +428,21 @@ def admin_delete_user(uid):
 # ROTAS REUNIÃO — TRANSCRIÇÃO + ATA
 # ════════════════════════════════════════
 
-WHISPER_MAX_BYTES = 24 * 1024 * 1024  # 24MB por chunk (limite Whisper é 25MB)
-
-def _transcrever_audio(caminho_arquivo):
-    from openai import OpenAI
-    client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
-    with open(caminho_arquivo, 'rb') as f:
-        resultado = client.audio.transcriptions.create(
-            model='whisper-1',
-            file=f,
-            language='pt'
-        )
-    return resultado.text
-
-
-def _dividir_e_transcrever(caminho_arquivo):
-    from pydub import AudioSegment
-    audio = AudioSegment.from_file(caminho_arquivo)
-    tamanho_total = os.path.getsize(caminho_arquivo)
-
-    if tamanho_total <= WHISPER_MAX_BYTES:
-        return _transcrever_audio(caminho_arquivo)
-
-    n_chunks = math.ceil(tamanho_total / WHISPER_MAX_BYTES)
-    duracao_chunk_ms = len(audio) // n_chunks
-    transcricoes = []
-
-    for i in range(n_chunks):
-        inicio = i * duracao_chunk_ms
-        fim = min((i + 1) * duracao_chunk_ms, len(audio))
-        chunk = audio[inicio:fim]
-        with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as tmp:
-            chunk.export(tmp.name, format='mp3')
-            transcricoes.append(_transcrever_audio(tmp.name))
-            os.unlink(tmp.name)
-
-    return ' '.join(transcricoes)
+def _transcrever_com_assemblyai(caminho_arquivo):
+    import assemblyai as aai
+    aai.settings.api_key = os.getenv('ASSEMBLYAI_API_KEY')
+    config = aai.TranscriptionConfig(
+        language_code='pt',
+        speaker_labels=True
+    )
+    transcriber = aai.Transcriber(config=config)
+    transcript = transcriber.transcribe(caminho_arquivo)
+    if transcript.status == aai.TranscriptStatus.error:
+        raise Exception(f'AssemblyAI erro: {transcript.error}')
+    if transcript.utterances:
+        linhas = [f'Speaker {u.speaker}: {u.text}' for u in transcript.utterances]
+        return '\n'.join(linhas)
+    return transcript.text
 
 
 def _gerar_ata(tema, transcricao):
@@ -539,7 +517,7 @@ def processar_reuniao():
         tmp_path = tmp.name
 
     try:
-        transcricao = _dividir_e_transcrever(tmp_path)
+        transcricao = _transcrever_com_assemblyai(tmp_path)
         ata = _gerar_ata(tema, transcricao)
         return jsonify({'ok': True, 'ata': ata, 'transcricao': transcricao})
     except Exception as e:
