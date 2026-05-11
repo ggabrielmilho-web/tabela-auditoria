@@ -463,7 +463,9 @@ Transcrição:
 {transcricao}
 
 Instruções importantes:
-- A reunião pode envolver pessoas em campo (motoristas, coordenadores regionais) falando por áudio — nem todos estão numa sala
+- A transcrição foi gerada com identificação de falantes (Speaker A, Speaker B, etc.) — cada Speaker é uma pessoa que REALMENTE participou da reunião
+- **Participantes** = apenas os Speakers identificados na transcrição. Não inclua outros nomes como participantes
+- Nomes citados durante a conversa (ex: "vou mandar o Joaquim", "fala com o Renato") são **pessoas mencionadas**, não participantes
 - Nomes como "Martins" podem ser terminais/clientes, não pessoas — use o contexto para distinguir
 - Termos do setor são válidos: carreta, frota, agregado, carreteiro, spot, frete líquido, recuperação judicial (RJ), diária, escala, etc.
 - Se a transcrição tiver trechos confusos ou sobreposição de vozes, interprete pelo contexto operacional
@@ -471,7 +473,8 @@ Instruções importantes:
 
 Gere a ata com:
 - Cabeçalho (data/hora se disponível na transcrição, senão deixar em branco)
-- Participantes identificados (distinguindo pessoas de locais/empresas)
+- Participantes: apenas os Speakers identificados (ex: Speaker A, Speaker B) — se souber o nome pelo contexto, use-o; caso contrário, deixe como "Speaker A"
+- Pessoas mencionadas: nomes citados durante a reunião mas que não são falantes identificados
 - Pauta abordada
 - Discussões e deliberações por tópico
 - Decisões tomadas
