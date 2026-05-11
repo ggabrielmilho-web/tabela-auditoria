@@ -546,25 +546,67 @@ def exportar_reuniao():
     if not ata:
         return jsonify({'ok': False, 'error': 'Conteúdo da ata não informado'}), 400
 
+    def _parse_md_linha(texto):
+        import re
+        texto = re.sub(r'\*\*(.+?)\*\*', r'\1', texto)
+        texto = re.sub(r'\*(.+?)\*', r'\1', texto)
+        return texto.strip()
+
+    def _e_separador_tabela(linha):
+        return all(c in '|- :' for c in linha) and '|' in linha
+
+    def _extrair_tabela(linhas, idx):
+        rows = []
+        while idx < len(linhas) and '|' in linhas[idx]:
+            celulas = [c.strip() for c in linhas[idx].strip().strip('|').split('|')]
+            if not _e_separador_tabela(linhas[idx]):
+                rows.append(celulas)
+            idx += 1
+        return rows, idx
+
     if formato == 'docx':
         from docx import Document
-        from docx.shared import Pt
+        from docx.shared import Pt, RGBColor
+        from docx.oxml.ns import qn
+        from docx.oxml import OxmlElement
+
         doc = Document()
         doc.add_heading(tema, level=1)
-        for linha in ata.split('\n'):
-            linha = linha.strip()
-            if not linha:
-                doc.add_paragraph('')
+        linhas = ata.split('\n')
+        i = 0
+        while i < len(linhas):
+            linha = linhas[i].strip()
+            if not linha or linha == '---':
+                i += 1
+                continue
+            if linha.startswith('### '):
+                doc.add_heading(_parse_md_linha(linha[4:]), level=3)
             elif linha.startswith('## '):
-                doc.add_heading(linha[3:], level=2)
+                doc.add_heading(_parse_md_linha(linha[3:]), level=2)
             elif linha.startswith('# '):
-                doc.add_heading(linha[2:], level=1)
-            elif linha.startswith('**') and linha.endswith('**'):
-                p = doc.add_paragraph()
-                run = p.add_run(linha.strip('*'))
-                run.bold = True
+                doc.add_heading(_parse_md_linha(linha[2:]), level=1)
+            elif '|' in linha and not _e_separador_tabela(linha):
+                rows, i = _extrair_tabela(linhas, i)
+                if rows:
+                    table = doc.add_table(rows=len(rows), cols=len(rows[0]))
+                    table.style = 'Table Grid'
+                    for r_idx, row in enumerate(rows):
+                        for c_idx, cell_text in enumerate(row):
+                            cell = table.cell(r_idx, c_idx)
+                            cell.text = _parse_md_linha(cell_text)
+                            if r_idx == 0:
+                                for run in cell.paragraphs[0].runs:
+                                    run.bold = True
+                continue
+            elif linha.startswith('- ') or linha.startswith('* '):
+                doc.add_paragraph(_parse_md_linha(linha[2:]), style='List Bullet')
             else:
-                doc.add_paragraph(linha)
+                p = doc.add_paragraph()
+                partes = linha.split('**')
+                for j, parte in enumerate(partes):
+                    run = p.add_run(parte)
+                    run.bold = (j % 2 == 1)
+            i += 1
 
         buf = io.BytesIO()
         doc.save(buf)
@@ -577,33 +619,66 @@ def exportar_reuniao():
         from reportlab.lib.pagesizes import A4
         from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
         from reportlab.lib.units import cm
-        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-        from reportlab.lib.enums import TA_JUSTIFY
+        from reportlab.lib import colors
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+        from reportlab.lib.enums import TA_LEFT
 
         buf = io.BytesIO()
         doc = SimpleDocTemplate(buf, pagesize=A4,
                                 leftMargin=2.5*cm, rightMargin=2.5*cm,
                                 topMargin=2.5*cm, bottomMargin=2.5*cm)
         styles = getSampleStyleSheet()
-        style_normal = ParagraphStyle('normal_pt', parent=styles['Normal'],
-                                      fontSize=11, leading=16, alignment=TA_JUSTIFY)
-        style_heading = ParagraphStyle('heading_pt', parent=styles['Heading2'],
-                                       fontSize=13, leading=18, spaceAfter=6)
-        style_title = ParagraphStyle('title_pt', parent=styles['Title'],
-                                     fontSize=16, leading=22, spaceAfter=12)
+        s_normal  = ParagraphStyle('n', parent=styles['Normal'], fontSize=10, leading=15, spaceAfter=3)
+        s_h1      = ParagraphStyle('h1', parent=styles['Heading1'], fontSize=15, spaceAfter=8)
+        s_h2      = ParagraphStyle('h2', parent=styles['Heading2'], fontSize=12, spaceAfter=6, spaceBefore=10)
+        s_h3      = ParagraphStyle('h3', parent=styles['Heading3'], fontSize=11, spaceAfter=4, spaceBefore=8)
+        s_bullet  = ParagraphStyle('b', parent=s_normal, leftIndent=14, bulletIndent=4)
+        s_title   = ParagraphStyle('t', parent=styles['Title'], fontSize=16, spaceAfter=12)
+        s_cell    = ParagraphStyle('c', parent=s_normal, fontSize=9, leading=13)
+        s_cell_h  = ParagraphStyle('ch', parent=s_cell, fontName='Helvetica-Bold')
 
-        story = [Paragraph(tema, style_title), Spacer(1, 12)]
-        for linha in ata.split('\n'):
-            linha = linha.strip()
-            if not linha:
-                story.append(Spacer(1, 8))
-            elif linha.startswith('## ') or linha.startswith('# '):
-                texto = linha.lstrip('#').strip()
-                story.append(Paragraph(texto, style_heading))
-            elif linha.startswith('**') and linha.endswith('**'):
-                story.append(Paragraph(f'<b>{linha.strip("*")}</b>', style_normal))
+        story = [Paragraph(tema, s_title), Spacer(1, 8)]
+        linhas = ata.split('\n')
+        i = 0
+        while i < len(linhas):
+            linha = linhas[i].strip()
+            if not linha or linha == '---':
+                story.append(Spacer(1, 6))
+                i += 1
+                continue
+            if linha.startswith('### '):
+                story.append(Paragraph(_parse_md_linha(linha[4:]), s_h3))
+            elif linha.startswith('## '):
+                story.append(Paragraph(_parse_md_linha(linha[3:]), s_h2))
+            elif linha.startswith('# '):
+                story.append(Paragraph(_parse_md_linha(linha[2:]), s_h1))
+            elif '|' in linha and not _e_separador_tabela(linha):
+                rows, i = _extrair_tabela(linhas, i)
+                if rows:
+                    col_w = (A4[0] - 5*cm) / max(len(rows[0]), 1)
+                    data = []
+                    for r_idx, row in enumerate(rows):
+                        estilo = s_cell_h if r_idx == 0 else s_cell
+                        data.append([Paragraph(_parse_md_linha(c), estilo) for c in row])
+                    t = Table(data, colWidths=[col_w]*len(rows[0]))
+                    t.setStyle(TableStyle([
+                        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1a2235')),
+                        ('TEXTCOLOR', (0,0), (-1,0), colors.HexColor('#94a3b8')),
+                        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#1e293b')),
+                        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor('#f8fafc')]),
+                        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+                        ('PADDING', (0,0), (-1,-1), 6),
+                    ]))
+                    story.append(t)
+                    story.append(Spacer(1, 8))
+                continue
+            elif linha.startswith('- ') or linha.startswith('* '):
+                story.append(Paragraph(f'• {_parse_md_linha(linha[2:])}', s_bullet))
             else:
-                story.append(Paragraph(linha, style_normal))
+                import re
+                texto_html = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', linha)
+                story.append(Paragraph(texto_html, s_normal))
+            i += 1
 
         doc.build(story)
         buf.seek(0)
