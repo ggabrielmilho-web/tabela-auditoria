@@ -462,24 +462,23 @@ Tema da reunião: {tema}
 Transcrição:
 {transcricao}
 
-Instruções importantes:
-- A transcrição foi gerada com identificação de falantes (Speaker A, Speaker B, etc.) — cada Speaker é uma pessoa que REALMENTE participou da reunião
-- **Participantes** = apenas os Speakers identificados na transcrição. Não inclua outros nomes como participantes
-- Nomes citados durante a conversa (ex: "vou mandar o Joaquim", "fala com o Renato") são **pessoas mencionadas**, não participantes
-- Nomes como "Martins" podem ser terminais/clientes, não pessoas — use o contexto para distinguir
+Instruções obrigatórias:
+- Speakers identificados (Speaker A, Speaker B, etc.) = participantes reais da reunião. NENHUM outro nome deve aparecer como participante
+- Tente inferir o nome real de cada Speaker pelo contexto (ex: se alguém chama "João" e Speaker A responde, provavelmente é João). Se não for possível inferir, use "Speaker A"
+- Nomes citados na conversa (motoristas, coordenadores, clientes) aparecem APENAS no corpo do texto, nunca como participantes
+- Nomes como "Martins" podem ser terminais/clientes — use o contexto para distinguir pessoas de empresas/localidades
+- Prazos: use apenas datas mencionadas explicitamente na transcrição. Se não houver data, escreva "A definir". NUNCA invente datas
 - Termos do setor são válidos: carreta, frota, agregado, carreteiro, spot, frete líquido, recuperação judicial (RJ), diária, escala, etc.
-- Se a transcrição tiver trechos confusos ou sobreposição de vozes, interprete pelo contexto operacional
-- Linguagem da ata: profissional e objetiva — sem excesso de formalidade, mas clara e bem estruturada
+- Linguagem: profissional e objetiva, sem excesso de formalidade
 
-Gere a ata com:
-- Cabeçalho (data/hora se disponível na transcrição, senão deixar em branco)
-- Participantes: apenas os Speakers identificados (ex: Speaker A, Speaker B) — se souber o nome pelo contexto, use-o; caso contrário, deixe como "Speaker A"
-- Pessoas mencionadas: nomes citados durante a reunião mas que não são falantes identificados
-- Pauta abordada
-- Discussões e deliberações por tópico
-- Decisões tomadas
-- Encaminhamentos com responsável e prazo (tabela)
-- Próximos passos"""
+Estrutura obrigatória da ata (nesta ordem):
+1. **Cabeçalho** — data/hora se mencionada, senão deixar em branco; tema; local se mencionado
+2. **Participantes** — apenas os Speakers com nome inferido ou label (ex: "João (Speaker A)")
+3. **Resumo Executivo** — 3 a 5 decisões/pontos principais em bullets, para leitura rápida
+4. **Encaminhamentos** — tabela com: Encaminhamento | Responsável | Prazo
+5. **Pauta abordada** — tópicos discutidos
+6. **Discussões e Deliberações** — detalhamento por tópico
+7. **Próximos Passos** — se houver"""
 
     primeira_ata = client.chat.completions.create(
         model='gpt-4.1-mini',
@@ -487,15 +486,16 @@ Gere a ata com:
         max_tokens=4000
     ).choices[0].message.content
 
-    prompt_revisao = f"""Você revisou uma ata de reunião de uma transportadora. Faça uma revisão crítica da ata abaixo e corrija:
+    prompt_revisao = f"""Revise a ata de reunião de uma transportadora abaixo. Corrija especificamente:
 
-1. Nomes de pessoas confundidos com terminais, clientes ou localidades
-2. Informações contraditórias ou que não fazem sentido operacionalmente
-3. Encaminhamentos sem responsável claro ou com responsável incorreto
-4. Trechos vagos que podem ser mais precisos com base no contexto da ata
-5. Repetições ou redundâncias
+1. **Participantes incorretos** — remova qualquer nome que não seja um Speaker identificado na transcrição original
+2. **Datas inventadas** — substitua por "A definir" qualquer prazo que não foi mencionado explicitamente na reunião
+3. **Pessoas vs empresas/terminais** — confirme que "Martins", "Raiz", "Start" e similares estão como clientes/terminais, não como pessoas
+4. **Encaminhamentos sem responsável real** — se o responsável for desconhecido, use o Speaker mais provável pelo contexto
+5. **Repetições e redundâncias** entre seções
+6. **Ordem da estrutura** — garanta que Resumo Executivo e Encaminhamentos vêm ANTES das discussões detalhadas
 
-Retorne apenas a ata final revisada, sem comentários sobre as correções feitas.
+Retorne apenas a ata final revisada, sem comentários.
 
 Ata a revisar:
 {primeira_ata}"""
