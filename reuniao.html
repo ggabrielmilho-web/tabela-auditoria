@@ -361,7 +361,7 @@ let ataGerada = '';
 let temaAtual = '';
 
 const USD_BRL = 5.75;
-const WHISPER_POR_MIN = 0.006;
+const ASSEMBLYAI_POR_MIN = 0.00283; // $0.17/hora (transcrição + diarização)
 const GPT_INPUT_POR_1M = 0.40;
 const GPT_OUTPUT_POR_1M = 1.60;
 const PALAVRAS_POR_MIN = 150;
@@ -379,10 +379,10 @@ function estimarCusto(input) {
   audio.onloadedmetadata = () => {
     URL.revokeObjectURL(url);
     const minutos = audio.duration / 60;
-    const custoWhisper = minutos * WHISPER_POR_MIN;
+    const custoAssemblyAI = minutos * ASSEMBLYAI_POR_MIN;
     const tokensInput = minutos * PALAVRAS_POR_MIN * TOKENS_POR_PALAVRA + 300;
     const custoGpt = (tokensInput / 1e6) * GPT_INPUT_POR_1M + (TOKENS_ATA_SAIDA / 1e6) * GPT_OUTPUT_POR_1M;
-    const total = custoWhisper + custoGpt;
+    const total = custoAssemblyAI + custoGpt;
     const fmt = (v) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const fmtUSD = (v) => '$' + v.toFixed(3);
     const totalSeg = Math.round(audio.duration);
@@ -391,14 +391,14 @@ function estimarCusto(input) {
       : `${Math.floor(totalSeg/60)}min ${totalSeg%60}seg`;
     box.innerHTML =
       `⏱ Duração: <strong>${durStr}</strong> &nbsp;|&nbsp; ` +
-      `Whisper: <strong>${fmtUSD(custoWhisper)}</strong> &nbsp;|&nbsp; ` +
+      `AssemblyAI: <strong>${fmtUSD(custoAssemblyAI)}</strong> &nbsp;|&nbsp; ` +
       `GPT-4.1-mini: <strong>${fmtUSD(custoGpt)}</strong><br>` +
       `💰 Custo estimado total: <strong>${fmtUSD(total)} ≈ ${fmt(total * USD_BRL)}</strong>`;
     box.classList.add('ativo');
   };
   audio.onerror = () => {
     URL.revokeObjectURL(url);
-    box.innerHTML = 'Não foi possível estimar a duração deste formato. O custo depende da duração do áudio (Whisper: $0,006/min).';
+    box.innerHTML = 'Não foi possível estimar a duração deste formato. O custo depende da duração do áudio (AssemblyAI: ~$0,17/hora).';
     box.classList.add('ativo');
   };
 }
@@ -424,7 +424,7 @@ async function processar() {
   const progressTimer = simularProgresso();
 
   try {
-    setStatus('Transcrevendo áudio com Whisper...', 30);
+    setStatus('Transcrevendo áudio com AssemblyAI...', 30);
     const resp = await fetch('/api/reuniao/processar', {
       method: 'POST',
       body: formData,
@@ -457,7 +457,7 @@ function simularProgresso() {
   return setInterval(() => {
     if (pct < 75) {
       pct += Math.random() * 3;
-      setStatus(pct < 50 ? 'Transcrevendo áudio com Whisper...' : 'Processando transcrição...', pct);
+      setStatus(pct < 50 ? 'Transcrevendo áudio com AssemblyAI...' : 'Processando transcrição...', pct);
     }
   }, 1200);
 }
