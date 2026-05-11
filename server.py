@@ -432,8 +432,8 @@ def _transcrever_com_assemblyai(caminho_arquivo):
     import assemblyai as aai
     aai.settings.api_key = os.getenv('ASSEMBLYAI_API_KEY')
     config = aai.TranscriptionConfig(
-        speech_model=aai.SpeechModel.best,
-        language_code='pt',
+        speech_models=['universal-3-pro', 'universal-2'],
+        language_detection=True,
         speaker_labels=True
     )
     transcriber = aai.Transcriber(config=config)
