@@ -179,6 +179,16 @@ window.addEventListener('DOMContentLoaded', () => {
 let dadosAtuais = { cols: [], data: [] };
 const MAX_DISPLAY = 2000;
 
+function reordenarColunas(cols) {
+  const idxDescr = cols.indexOf('descr_evento');
+  const idxHist = cols.indexOf('historico_da_despesa');
+  if (idxDescr === -1 || idxHist === -1 || idxHist === idxDescr + 1) return cols;
+  const novo = cols.filter(c => c !== 'historico_da_despesa');
+  const pos = novo.indexOf('descr_evento') + 1;
+  novo.splice(pos, 0, 'historico_da_despesa');
+  return novo;
+}
+
 function gerarMeses(start, end) {
   const [ys, ms] = start.split('-').map(Number);
   const [ye, me] = end.split('-').map(Number);
@@ -229,6 +239,8 @@ async function carregar() {
       }
     }
 
+    // Reordena: move historico_da_despesa logo após descr_evento
+    cols = reordenarColunas(cols);
     dadosAtuais = { cols, data: allData };
     renderTabela(cols, allData);
     let totalVlr = allData.reduce((s, r) => s + Number(r.vlr_final || 0), 0);
