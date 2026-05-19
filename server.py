@@ -1364,13 +1364,26 @@ def _fmt_brl(v):
     return f"R$ {v:,.2f}".replace(',', '_').replace('.', ',').replace('_', '.')
 
 
+_DESCRICAO_PADRAO = {
+    'unico': 'Mês único — análise pontual.',
+    'contiguo': 'Período contíguo (meses consecutivos no mesmo ano) — analise como série temporal sequencial. Cite o período inteiro e variação MoM.',
+    'mesmo_mes_varios_anos': 'COMPARATIVO ANUAL: o mesmo mês selecionado em vários anos (ex: Mai/21, Mai/22, ..., Mai/26). NÃO analise como se fosse só o último mês. Faça comparação ano-a-ano: identifique tendência (melhorou/piorou ao longo dos anos), mês com melhor/pior performance, evolução das margens.',
+    'multi_anos_multi_meses': 'COMPARATIVO MISTO: múltiplos meses em múltiplos anos. Analise cada bloco de ano separadamente. Identifique padrões sazonais (mesmo mês comporta-se igual entre anos?) e tendências (cada ano melhor ou pior que o anterior?).',
+    'esparso_mesmo_ano': 'MESES NÃO-CONSECUTIVOS NO MESMO ANO. Analise cada mês como ponto independente, não como série contínua.',
+    'esparso': 'Seleção esparsa. Analise mês a mês.',
+}
+
+
 def _montar_prompt_chat(contexto):
     """Monta system prompt com dados financeiros estruturados (todos pré-calculados)."""
     partes = []
     periodo = contexto.get('periodo', [])
     modo = contexto.get('modo', 'acumulado')
+    padrao = contexto.get('padrao', 'contiguo')
     partes.append(f"PERÍODO ANALISADO: {', '.join(periodo) if periodo else 'não informado'}")
-    partes.append(f"MODO: {modo}\n")
+    partes.append(f"MODO: {modo}")
+    partes.append(f"PADRÃO DE SELEÇÃO: {padrao}")
+    partes.append(f"COMO INTERPRETAR: {_DESCRICAO_PADRAO.get(padrao, '')}\n")
 
     dre = contexto.get('dre') or {}
     if modo == 'acumulado' and dre:
@@ -1404,18 +1417,18 @@ def _montar_prompt_chat(contexto):
                 if k != 'mes' and isinstance(v, (int, float)):
                     partes.append(f"  {k}: {_fmt_brl(v)}")
 
-    margens = contexto.get('margens') or {}
+    margens = contexto.get('margens_agregadas') or contexto.get('margens') or {}
     if margens:
-        partes.append("\n--- MARGENS (%) ---")
+        partes.append("\n--- MARGENS AGREGADAS DO PERÍODO TOTAL (%) ---")
         for k, v in margens.items():
             try:
                 partes.append(f"{k.replace('_', ' ').title()}: {float(v):.1f}%".replace('.', ','))
             except (TypeError, ValueError):
                 pass
 
-    variacoes = contexto.get('variacoes_mom') or {}
+    variacoes = contexto.get('variacao_ultimo_vs_anterior') or {}
     if variacoes:
-        partes.append("\n--- VARIAÇÃO MoM (último vs anterior) ---")
+        partes.append("\n--- VARIAÇÃO ENTRE ÚLTIMO MÊS E O ANTERIOR DA SELEÇÃO ---")
         for k, v in variacoes.items():
             try:
                 seta = '↑' if v > 0 else ('↓' if v < 0 else '→')
@@ -1451,6 +1464,13 @@ REGRAS INVIOLÁVEIS:
 6. Tom: direto, profissional, sem rodeios.
 7. Se identificar problema (margem negativa, queda, custo alto), DESTAQUE em negrito.
 8. Perguntas fora de finanças/DRE → responda: "Só consigo analisar dados financeiros da DRE."
+
+REGRA CRÍTICA SOBRE SELEÇÕES MÚLTIPLAS:
+- Quando "PADRÃO DE SELEÇÃO" for DIFERENTE de 'unico' ou 'contiguo', você DEVE percorrer TODOS os meses listados em "DRE POR MÊS" — não foque só no último mês.
+- Em 'mesmo_mes_varios_anos' (ex: Mai/21 a Mai/26): trate como COMPARATIVO ANUAL. Identifique evolução, melhor/pior ano, tendência.
+- Em 'multi_anos_multi_meses' (ex: Mar+Abr+Mai de 24/25/26): trate como COMPARATIVO MISTO. Compare blocos de ano, identifique padrões sazonais.
+- Em 'esparso_mesmo_ano': analise cada mês como ponto independente.
+- NUNCA responda como se o período fosse apenas o último mês quando há vários meses na seleção.
 
 CONTEXTO DA EMPRESA:
 - Operação "fretes-pesada": terceiriza muita carga (subgrupo Fretes domina ~38%)

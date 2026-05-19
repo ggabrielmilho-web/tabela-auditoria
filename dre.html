@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>DRE Rizza</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%2338bdf8'/%3E%3Ctext x='50' y='72' font-family='Arial,sans-serif' font-size='68' font-weight='900' text-anchor='middle' fill='%230a0e17'%3ER%3C/text%3E%3C/svg%3E">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
@@ -404,6 +405,14 @@
     padding: 6px 16px 0; text-align: center;
   }
 
+  .chat-msg.sistema {
+    background: rgba(251,191,36,0.08);
+    border: 1px dashed rgba(251,191,36,0.3);
+    color: var(--yellow); align-self: center;
+    font-size: 0.75rem; font-style: italic;
+    text-align: center; max-width: 100%;
+  }
+
   @media (max-width: 600px) {
     .chat-container { width: calc(100vw - 32px); right: 16px; left: 16px; }
     .chat-fab { right: 16px; bottom: 16px; }
@@ -622,6 +631,12 @@ async function carregarDRE() {
       `<div class="status-box erro">Erro: ${e.message}</div>`;
   } finally {
     btn.disabled = false;
+    // Se o chat está aberto, atualizar sugestões e avisar
+    const chatAberto = document.getElementById('chatContainer')?.classList.contains('aberto');
+    if (chatAberto) {
+      atualizarSugestoes();
+      avisarFiltroAtualizado();
+    }
   }
 }
 
@@ -1175,15 +1190,32 @@ function atualizarSugestoes() {
   const estrutura = window.dreData?.estrutura || [];
   const resultadoFinal = estrutura.find(e => e.key === 'resultado_final');
   const ebitda = estrutura.find(e => e.key === 'ebitda');
+  const padrao = detectarPadraoSelecao(mesesAtuais);
 
   const valorResultado = acumulado ? resultadoFinal?.valor : resultadoFinal?.total;
   const valorEbitda = acumulado ? ebitda?.valor : ebitda?.total;
 
-  const sugestoes = ['Como foi o resultado deste período?', 'Quais os maiores custos?'];
+  const sugestoes = [];
+
+  if (padrao === 'mesmo_mes_varios_anos') {
+    sugestoes.push('Compare este mês ao longo dos anos');
+    sugestoes.push('Em qual ano este mês foi melhor?');
+    sugestoes.push('Qual a tendência ano a ano?');
+  } else if (padrao === 'multi_anos_multi_meses') {
+    sugestoes.push('Compare os anos selecionados');
+    sugestoes.push('Algum padrão sazonal entre os meses?');
+    sugestoes.push('Qual ano teve melhor desempenho?');
+  } else if (padrao === 'contiguo' && meses.length >= 2) {
+    sugestoes.push('Como foi o resultado deste período?');
+    sugestoes.push('Compare os meses selecionados');
+    sugestoes.push('Qual mês foi melhor e por quê?');
+  } else {
+    sugestoes.push('Como foi o resultado deste período?');
+    sugestoes.push('Quais os maiores custos?');
+  }
+
   if (valorResultado != null && valorResultado < 0) sugestoes.push('Por que estamos no prejuízo?');
   if (valorEbitda != null && valorEbitda < 0) sugestoes.push('O que está consumindo a margem EBITDA?');
-  if (!acumulado && meses.length >= 2) sugestoes.push('Compare os meses selecionados');
-  if (!acumulado && meses.length >= 2) sugestoes.push('Qual mês foi melhor e por quê?');
   if (sugestoes.length < 5) sugestoes.push('Onde focar para reduzir custos?');
 
   cont.innerHTML = sugestoes.slice(0, 5).map(s =>
@@ -1196,6 +1228,35 @@ function usarSugestao(btn) {
   enviarPergunta();
 }
 
+function avisarFiltroAtualizado() {
+  const body = document.getElementById('chatBody');
+  // Remove aviso anterior se existir (evita acumular)
+  body.querySelectorAll('.chat-msg.sistema').forEach(el => el.remove());
+  const div = document.createElement('div');
+  div.className = 'chat-msg sistema';
+  div.textContent = '⟳ Filtros atualizados — sugestões refeitas. Faça uma nova pergunta com base no novo período.';
+  body.appendChild(div);
+  body.scrollTop = body.scrollHeight;
+}
+
+function detectarPadraoSelecao(mesesLista) {
+  if (!mesesLista || mesesLista.length === 0) return 'vazio';
+  if (mesesLista.length === 1) return 'unico';
+  const anos = new Set(mesesLista.map(m => m.split('-')[0]));
+  const meses = new Set(mesesLista.map(m => m.split('-')[1]));
+  if (meses.size === 1 && anos.size > 1) return 'mesmo_mes_varios_anos';
+  if (anos.size > 1 && meses.size > 1) return 'multi_anos_multi_meses';
+  if (anos.size === 1) {
+    const mesNums = mesesLista.map(m => parseInt(m.split('-')[1])).sort((a, b) => a - b);
+    let contiguo = true;
+    for (let i = 1; i < mesNums.length; i++) {
+      if (mesNums[i] - mesNums[i-1] !== 1) { contiguo = false; break; }
+    }
+    return contiguo ? 'contiguo' : 'esparso_mesmo_ano';
+  }
+  return 'esparso';
+}
+
 function coletarContexto() {
   const dre = window.dreData;
   if (!dre) return {};
@@ -1203,8 +1264,9 @@ function coletarContexto() {
   const periodo = dre.meses || mesesAtuais;
   const modo = dre.modo;
   const estrutura = dre.estrutura || [];
+  const padrao = detectarPadraoSelecao(mesesAtuais);
 
-  const ctx = { periodo, modo };
+  const ctx = { periodo, modo, padrao };
 
   const getVal = item => modo === 'acumulado' ? item?.valor : item?.total;
   const dreDict = {};
@@ -1225,7 +1287,7 @@ function coletarContexto() {
 
   const rb = dreDict.receita_bruta || 0;
   if (rb > 0) {
-    ctx.margens = {
+    ctx.margens_agregadas = {
       margem_bruta: ((dreDict.receita_liquida || 0) / rb * 100),
       margem_ebitda: ((dreDict.ebitda || 0) / rb * 100),
       margem_liquida: ((dreDict.lucro_liquido || 0) / rb * 100),
@@ -1233,8 +1295,8 @@ function coletarContexto() {
     };
   }
 
-  // Variação MoM se mensal
-  if (modo === 'mensal' && ctx.dre_por_mes?.length >= 2) {
+  // Variação só faz sentido em seleções contíguas
+  if (modo === 'mensal' && padrao === 'contiguo' && ctx.dre_por_mes?.length >= 2) {
     const last = ctx.dre_por_mes[ctx.dre_por_mes.length - 1];
     const prev = ctx.dre_por_mes[ctx.dre_por_mes.length - 2];
     const variacoes = {};
@@ -1242,7 +1304,7 @@ function coletarContexto() {
       const a = last[k], b = prev[k];
       if (b && Math.abs(b) > 0) variacoes[k] = ((a - b) / Math.abs(b)) * 100;
     });
-    ctx.variacoes_mom = variacoes;
+    ctx.variacao_ultimo_vs_anterior = variacoes;
   }
 
   // Top subgrupos + Pareto a partir do detalhamento
