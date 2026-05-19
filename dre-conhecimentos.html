@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Auditoria — Conhecimentos</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0e17; --surface: #111827; --surface2: #1a2235;
+    --border: #1e293b; --text: #e2e8f0; --text-dim: #94a3b8;
+    --accent: #38bdf8; --accent2: #818cf8;
+    --green: #34d399; --red: #f87171; --orange: #fb923c;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); }
+  .page { padding: 24px; max-width: 1900px; margin: 0 auto; }
+
+  .top-bar {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 24px; gap: 16px; flex-wrap: wrap;
+  }
+  .top-bar h1 {
+    font-size: 1.4rem; font-weight: 700;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .nav-links { display: flex; gap: 8px; }
+  .nav-btn {
+    padding: 7px 14px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; color: var(--text-dim); font-size: 0.8rem;
+    text-decoration: none; transition: all 0.2s;
+  }
+  .nav-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .nav-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(56,189,248,0.08); }
+
+  .filtros-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px; margin-bottom: 20px;
+    display: flex; gap: 16px; align-items: end; flex-wrap: wrap;
+  }
+  .campo { display: flex; flex-direction: column; gap: 6px; }
+  .campo label {
+    font-size: 0.7rem; font-weight: 600; color: var(--text-dim);
+    text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  .campo input {
+    padding: 9px 14px; background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 8px; color: var(--text);
+    font-family: 'DM Sans', sans-serif; font-size: 0.85rem;
+    color-scheme: dark; min-width: 160px;
+  }
+  .campo input:focus { outline: none; border-color: var(--accent); }
+
+  .btn {
+    padding: 9px 18px; background: var(--surface2);
+    border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text); font-weight: 500; font-size: 0.85rem;
+    cursor: pointer; transition: all 0.2s;
+  }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn.primary {
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border: none; color: #0a0e17; font-weight: 700;
+  }
+  .btn.primary:hover { opacity: 0.85; }
+
+  .info-bar {
+    margin-left: auto; font-size: 0.78rem; color: var(--text-dim);
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .status-box { padding: 30px; text-align: center; color: var(--text-dim); }
+  .status-box.erro { color: var(--red); }
+
+  .tabela-wrapper {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; overflow: auto;
+    max-height: calc(100vh - 240px);
+  }
+  table.dados {
+    border-collapse: collapse; font-size: 0.78rem; white-space: nowrap;
+  }
+  table.dados thead th {
+    padding: 10px 12px; text-align: left; background: var(--surface2);
+    color: var(--text-dim); font-size: 0.7rem; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.05em;
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; z-index: 2;
+  }
+  table.dados tbody td {
+    padding: 8px 12px; border-bottom: 1px solid var(--border);
+    font-family: 'JetBrains Mono', monospace; font-size: 0.76rem;
+  }
+  table.dados tbody tr:hover { background: rgba(255,255,255,0.03); }
+  td.moeda { text-align: right; }
+</style>
+</head>
+<body>
+
+<div class="page">
+  <div class="top-bar">
+    <h1>📦 Auditoria — Conhecimentos</h1>
+    <div class="nav-links">
+      <a href="/" class="nav-btn">Auditoria</a>
+      <a href="/tarifas" class="nav-btn">Tarifas</a>
+      <a href="/reuniao" class="nav-btn">Reunião</a>
+      <a href="/dre" class="nav-btn">DRE</a>
+      <a href="/dre/despesas" class="nav-btn">Despesas</a>
+      <a href="/dre/conhecimentos" class="nav-btn active">Conhecimentos</a>
+      <a href="/admin" class="nav-btn">Admin</a>
+      <a href="/logout" class="nav-btn">Sair</a>
+    </div>
+  </div>
+
+  <div class="filtros-card">
+    <div class="campo">
+      <label>Data Início</label>
+      <input type="date" id="dtInicio">
+    </div>
+    <div class="campo">
+      <label>Data Fim</label>
+      <input type="date" id="dtFim">
+    </div>
+    <button class="btn primary" onclick="carregar()">Aplicar</button>
+    <button class="btn" onclick="exportar()">Exportar CSV</button>
+    <div class="info-bar" id="infoBar"></div>
+  </div>
+
+  <div id="conteudo">
+    <div class="status-box">Selecione o período e clique em Aplicar</div>
+  </div>
+</div>
+
+<script>
+const COLS_MOEDA = ['valor_frete', 'valor_mercadoria', 'valor_frete_sem_icms', 'frete_peso', 'frete_valor',
+  'frete_ntc', 'frete_entrega', 'adicional_frete', 'despacho', 'cat', 'itr', 'gris', 'pedagio', 'tas',
+  'tda', 'suframa', 'dev_canhoto_nf', 'reembolso', 'outros', 'coleta', 'tdc', 'tde', 'tar', 'trt', 'pos',
+  'separacao', 'capatazia', 'veiculo_dedicado', 'paletizacao', 'co2', 'rdc', 'seguro_fluvial',
+  'redespacho_fluvial', 'imposto_repassado', 'base_calculo_icms_iss', 'valor_icms', 'valor_iss',
+  'base_calculo_ibs_cbs', 'valor_ibs_municipal', 'valor_ibs_estadual', 'valor_cbs', 'valor_liquidado',
+  'valor_enviado'];
+const COLS_DATA = ['data_emissao', 'data_autorizacao', 'data_primeiro_manifesto', 'data_ultimo_manifesto',
+  'data_ultimo_romaneio', 'data_liquidacao', 'data_retorno_averbacao', 'data_importacao'];
+
+const fmtMoeda = v => Number(v || 0).toLocaleString('pt-BR', {
+  minimumFractionDigits: 2, maximumFractionDigits: 2
+});
+const fmtData = v => {
+  if (!v) return '';
+  try {
+    const d = new Date(v);
+    return isNaN(d) ? v : d.toLocaleDateString('pt-BR');
+  } catch { return v; }
+};
+
+window.addEventListener('DOMContentLoaded', () => {
+  const params = new URLSearchParams(window.location.search);
+  const hoje = new Date();
+  const primeiro = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+  const ultimo = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0);
+  document.getElementById('dtInicio').value = params.get('start') || primeiro.toISOString().slice(0, 10);
+  document.getElementById('dtFim').value = params.get('end') || ultimo.toISOString().slice(0, 10);
+  carregar();
+});
+
+let dadosAtuais = { cols: [], data: [] };
+const MAX_DISPLAY = 2000;
+
+function gerarMeses(start, end) {
+  const [ys, ms] = start.split('-').map(Number);
+  const [ye, me] = end.split('-').map(Number);
+  const meses = [];
+  let y = ys, m = ms;
+  while (y < ye || (y === ye && m <= me)) {
+    const firstDay = `${y}-${String(m).padStart(2, '0')}-01`;
+    const lastDayDate = new Date(y, m, 0);
+    const lastDay = `${y}-${String(m).padStart(2, '0')}-${String(lastDayDate.getDate()).padStart(2, '0')}`;
+    const efetivoInicio = (y === ys && m === ms) ? start : firstDay;
+    const efetivoFim = (y === ye && m === me) ? end : lastDay;
+    const nome = `${String(m).padStart(2, '0')}/${y}`;
+    meses.push({ start: efetivoInicio, end: efetivoFim, nome });
+    m++;
+    if (m > 12) { m = 1; y++; }
+  }
+  return meses;
+}
+
+async function carregar() {
+  const start = document.getElementById('dtInicio').value;
+  const end = document.getElementById('dtFim').value;
+  if (!start || !end) return;
+
+  const meses = gerarMeses(start, end);
+  let cols = [];
+  let allData = [];
+  let truncado = false;
+
+  try {
+    for (let i = 0; i < meses.length; i++) {
+      const m = meses[i];
+      document.getElementById('conteudo').innerHTML =
+        `<div class="status-box">Carregando mês ${i + 1} de ${meses.length} (${m.nome})...</div>`;
+      const resp = await fetch(`/api/dre/conhecimentos?start=${m.start}&end=${m.end}`,
+                               { credentials: 'same-origin' });
+      const json = await resp.json();
+      if (!json.ok) throw new Error(json.error || 'Erro');
+      if (json.columns.length > cols.length) cols = json.columns;
+      allData = allData.concat(json.data);
+      if (allData.length >= MAX_DISPLAY) {
+        allData = allData.slice(0, MAX_DISPLAY);
+        truncado = true;
+        break;
+      }
+    }
+
+    dadosAtuais = { cols, data: allData };
+    renderTabela(cols, allData);
+    let totalFrete = allData.reduce((s, r) => s + Number(r.valor_frete || 0), 0);
+    const aviso = truncado
+      ? `<span style="background:rgba(251,146,60,0.1);color:var(--orange);padding:2px 8px;border-radius:4px;margin-left:8px;">⚠ Exibindo primeiros ${MAX_DISPLAY} — use Exportar CSV para todos</span>`
+      : '';
+    document.getElementById('infoBar').innerHTML =
+      `${allData.length.toLocaleString('pt-BR')} registros &nbsp;|&nbsp; Total Frete: <strong style="color:var(--accent)">R$ ${fmtMoeda(totalFrete)}</strong>${aviso}`;
+  } catch (e) {
+    document.getElementById('conteudo').innerHTML =
+      `<div class="status-box erro">Erro: ${e.message}</div>`;
+  }
+}
+
+function renderTabela(cols, data) {
+  if (!data.length) {
+    document.getElementById('conteudo').innerHTML =
+      '<div class="status-box">Nenhum registro no período</div>';
+    return;
+  }
+  const thead = cols.map(c => `<th>${c}</th>`).join('');
+  const tbody = data.map(row => {
+    const tds = cols.map(c => {
+      const v = row[c];
+      if (COLS_MOEDA.includes(c)) return `<td class="moeda">${fmtMoeda(v)}</td>`;
+      if (COLS_DATA.includes(c)) return `<td>${fmtData(v)}</td>`;
+      return `<td>${v == null ? '' : v}</td>`;
+    }).join('');
+    return `<tr>${tds}</tr>`;
+  }).join('');
+  document.getElementById('conteudo').innerHTML = `
+    <div class="tabela-wrapper">
+      <table class="dados">
+        <thead><tr>${thead}</tr></thead>
+        <tbody>${tbody}</tbody>
+      </table>
+    </div>`;
+}
+
+function exportar() {
+  const start = document.getElementById('dtInicio').value;
+  const end = document.getElementById('dtFim').value;
+  if (!start || !end) return;
+  window.location.href = `/api/dre/conhecimentos/csv?start=${start}&end=${end}`;
+}
+</script>
+</body>
+</html>

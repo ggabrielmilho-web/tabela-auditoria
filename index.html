@@ -301,6 +301,9 @@
       <button class="btn-sm" onclick="loadData()">↻ Recarregar</button>
       <a href="/tarifas" style="text-decoration:none;"><button class="btn-sm">📋 Tarifas</button></a>
       <a id="linkReuniao" href="/reuniao" style="display:none;text-decoration:none;"><button class="btn-sm">🎙 Reunião</button></a>
+      <a id="linkDre" href="/dre" style="display:none;text-decoration:none;"><button class="btn-sm">📊 DRE</button></a>
+      <a id="linkReceita" href="/dre/conhecimentos" style="display:none;text-decoration:none;"><button class="btn-sm">📦 Receita</button></a>
+      <a id="linkDespesa" href="/dre/despesas" style="display:none;text-decoration:none;"><button class="btn-sm">💰 Despesa</button></a>
       <a id="linkAdmin" href="/admin" style="display:none;text-decoration:none;"><button class="btn-sm">⚙ Admin</button></a>
       <a href="/logout" style="text-decoration:none;"><button class="btn-sm">Sair</button></a>
     </div>
@@ -596,6 +599,9 @@ async function loadMe() {
       if (json.role === 'admin') {
         document.getElementById('linkAdmin').style.display = 'inline';
         document.getElementById('linkReuniao').style.display = 'inline';
+        document.getElementById('linkDre').style.display = 'inline';
+        document.getElementById('linkReceita').style.display = 'inline';
+        document.getElementById('linkDespesa').style.display = 'inline';
       }
     }
   } catch {}

@@ -6,11 +6,12 @@ Acesse: http://localhost:5000
 
 import os
 import io
+import json
 import tempfile
 import functools
 import psycopg2
 import requests
-from flask import Flask, jsonify, send_from_directory, request, session, redirect, url_for, send_file
+from flask import Flask, Response, jsonify, send_from_directory, request, session, redirect, url_for, send_file, stream_with_context
 from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
@@ -23,11 +24,12 @@ CORS(app, supports_credentials=True)
 
 # ── Config Power BI ──
 CONFIG = {
-    'tenant_id':     os.getenv('POWERBI_TENANT_ID', ''),
-    'client_id':     os.getenv('POWERBI_CLIENT_ID', ''),
-    'client_secret': os.getenv('POWERBI_CLIENT_SECRET', ''),
-    'dataset_id':    os.getenv('POWERBI_DATASET_ID', ''),
-    'group_id':      os.getenv('POWERBI_GROUP_ID', ''),
+    'tenant_id':       os.getenv('POWERBI_TENANT_ID', ''),
+    'client_id':       os.getenv('POWERBI_CLIENT_ID', ''),
+    'client_secret':   os.getenv('POWERBI_CLIENT_SECRET', ''),
+    'dataset_id':      os.getenv('POWERBI_DATASET_ID', ''),       # Auditoria + Tarifas
+    'group_id':        os.getenv('POWERBI_GROUP_ID', ''),
+    'dre_dataset_id':  os.getenv('POWERBI_DRE_DATASET_ID', ''),   # DRE
 }
 
 # ── Banco de dados ──
@@ -80,10 +82,11 @@ def get_token():
     return resp.json()['access_token']
 
 
-def execute_dax(token, query):
+def execute_dax(token, query, dataset_id=None):
+    ds = dataset_id or CONFIG['dataset_id']
     url = (
         f"https://api.powerbi.com/v1.0/myorg/groups/"
-        f"{CONFIG['group_id']}/datasets/{CONFIG['dataset_id']}/executeQueries"
+        f"{CONFIG['group_id']}/datasets/{ds}/executeQueries"
     )
     headers = {
         'Authorization': f'Bearer {token}',
@@ -192,6 +195,24 @@ def tarifas_page():
 @admin_required
 def reuniao_page():
     return send_from_directory('.', 'reuniao.html')
+
+
+@app.route('/dre')
+@admin_required
+def dre_page():
+    return send_from_directory('.', 'dre.html')
+
+
+@app.route('/dre/despesas')
+@admin_required
+def dre_despesas_page():
+    return send_from_directory('.', 'dre-despesas.html')
+
+
+@app.route('/dre/conhecimentos')
+@admin_required
+def dre_conhecimentos_page():
+    return send_from_directory('.', 'dre-conhecimentos.html')
 
 
 @app.route('/api/tarifas')
@@ -687,6 +708,804 @@ def exportar_reuniao():
                          as_attachment=True, download_name=nome_arquivo)
 
     return jsonify({'ok': False, 'error': 'Formato inválido. Use docx ou pdf'}), 400
+
+
+# ════════════════════════════════════════
+# DRE — Demonstrativo do Resultado do Exercício
+# ════════════════════════════════════════
+
+# Mapeamento de cada descr_evento para (Grupo, Subgrupo) — traduzido do DAX Mapa_DRE
+MAPA_DRE = {
+    # OPERACIONAL — FRETES
+    'FRETE COLETA/ENTREGA DE VEICULOS TERCEIROS': ('Operacional', 'Fretes'),
+    'FRETE TRANSFERENCIA C/ AGREGADOS': ('Operacional', 'Fretes'),
+    'FRETE TRANSFERENCIA C/ TERCEIROS': ('Operacional', 'Fretes'),
+    'FRETE FLUVIAL': ('Operacional', 'Fretes'),
+    # COMBUSTÍVEL
+    'COMBUSTIVEIS E LUBRIFICANTES': ('Operacional', 'Combustível'),
+    # MANUTENÇÃO
+    'MANUTENCAO E CONSERVACAO DE VEICULOS': ('Operacional', 'Manutenção'),
+    'SERVICO MANUTENCAO CAVALOS': ('Operacional', 'Manutenção'),
+    'SERVICOS MANUTENCAO CARRETA': ('Operacional', 'Manutenção'),
+    'PECAS MANUTENCAO CAVALO': ('Operacional', 'Manutenção'),
+    'PECAS MANUTENCAO CARRETA': ('Operacional', 'Manutenção'),
+    'PECAS E ACESSORIOS': ('Operacional', 'Manutenção'),
+    # PNEUS
+    'PNEUS E CAMARAS': ('Operacional', 'Pneus'),
+    'RECAPAGEM DE PNEUS': ('Operacional', 'Pneus'),
+    # DESLOCAMENTO
+    'PEDAGIOS': ('Operacional', 'Deslocamento'),
+    'ESTACIONAMENTOS': ('Operacional', 'Deslocamento'),
+    'DIARIAS': ('Operacional', 'Deslocamento'),
+    # SEGUROS
+    'SEGURO DE CARGAS': ('Operacional', 'Seguros'),
+    'SEGURO DE VEICULOS': ('Operacional', 'Seguros'),
+    'GERENCIAMENTO DE RISCO': ('Operacional', 'Seguros'),
+    # MÃO DE OBRA OPERACIONAL
+    'SALARIO MENSAL - OPERACIONAL': ('Operacional', 'Mão de Obra'),
+    'SALARIO MENSAL - APOIO OPERACIONAL': ('Operacional', 'Mão de Obra'),
+    'ADIANTAMENTO SALARIAL OPERACIONAL': ('Operacional', 'Mão de Obra'),
+    'ADIANTAMENTO SALARIAL - APOIO OPERACIONAL': ('Operacional', 'Mão de Obra'),
+    'SALARIOS': ('Operacional', 'Mão de Obra'),
+    'ADIANTAMENTO SALARIOS': ('Operacional', 'Mão de Obra'),
+    'RPA- RECIBO DE PAGAMENTO AUTONOMO': ('Operacional', 'Mão de Obra'),
+    'ADIANTAMENTO SALARIAL - ADMINISTRATIVO/ APOIO': ('Operacional', 'Mão de Obra'),
+    # OUTROS OPERACIONAIS
+    'CARGA E DESCARGA C/ TERCEIROS': ('Operacional', 'Outros'),
+    'INDENIZACAO DE MERCADORIAS - ONUS DE CONTRATO': ('Operacional', 'Outros'),
+    'LOCACAO DE CARRETA': ('Operacional', 'Outros'),
+    'DESPESAS PJ - OPERACIONAL': ('Operacional', 'Outros'),
+    'OUTRAS DESPESAS OPERACIONAIS': ('Operacional', 'Outros'),
+    'ACERTO CONTA FORNECEDOR': ('Operacional', 'Outros'),
+    # ADMINISTRATIVO — MÃO DE OBRA
+    'SALARIOS ADMINISTRATIVOS - APOIO': ('Administrativo', 'Mão de Obra'),
+    'PRO-LABORE': ('Administrativo', 'Mão de Obra'),
+    'FERIAS': ('Administrativo', 'Mão de Obra'),
+    'RESCISOES': ('Administrativo', 'Mão de Obra'),
+    '13O SALARIOS': ('Administrativo', 'Mão de Obra'),
+    'PENSAO ALIMENTICIA': ('Administrativo', 'Mão de Obra'),
+    # ENCARGOS
+    'INSS': ('Administrativo', 'Encargos'),
+    'FGTS': ('Administrativo', 'Encargos'),
+    'IRRF- AUTONOMOS - CLT': ('Administrativo', 'Encargos'),
+    # ESTRUTURA
+    'ALUGUEL DO IMOVEL': ('Administrativo', 'Estrutura'),
+    'ENERGIA ELETRICA': ('Administrativo', 'Estrutura'),
+    'AGUA E ESGOTO': ('Administrativo', 'Estrutura'),
+    'MANUTENCAO E CONSERVACAO DO IMOVEL': ('Administrativo', 'Estrutura'),
+    'DESPESAS COM HIGIENE E LIMPEZA': ('Administrativo', 'Estrutura'),
+    # SISTEMAS
+    'SOFTWARE E LICENCAS': ('Administrativo', 'Sistemas'),
+    'TELEFONIA E COMUNICACAO DE DADOS': ('Administrativo', 'Sistemas'),
+    'DESPESAS CONTABEIS': ('Administrativo', 'Sistemas'),
+    'DESPESAS PJ - APOIO ADMINISTRATIVO E COMERCIAL': ('Administrativo', 'Sistemas'),
+    'OUTROS SERVICOS PJ': ('Administrativo', 'Sistemas'),
+    # JURÍDICO
+    'DESPESAS JURIDICAS - INDENIZAACAOES TRABALHISTAS': ('Administrativo', 'Jurídico'),
+    'DESPESAS SINDICAIS': ('Administrativo', 'Jurídico'),
+    # SAÚDE E SEGURANÇA
+    'PLANO DE SAUDE': ('Administrativo', 'Saúde'),
+    'SAUDE OCUPACIONAL - EXAMES LTCAT PPRA PCMSO': ('Administrativo', 'Saúde'),
+    'SEGURO DE VIDA': ('Administrativo', 'Saúde'),
+    'SEGURANCA DO TRABALHO - BRIGADA - EPIS - UNIFORME': ('Administrativo', 'Segurança'),
+    'SEGURANCA E VIGILANCIA PATRIMONIAL': ('Administrativo', 'Segurança'),
+    'SEGURO DE IMOVEIS': ('Administrativo', 'Segurança'),
+    # TAXAS
+    'LICENCAS- SUATRANS - ANVISA- BOMBEIRO': ('Administrativo', 'Taxas'),
+    'TAXAS PREFEITURA - TAXA INCENDIO RENOVACAO': ('Administrativo', 'Taxas'),
+    'IPVA': ('Administrativo', 'Taxas'),
+    'IPTU': ('Administrativo', 'Taxas'),
+    'MULTAS E INFRACOES JUNTO AOS ORGAOS FEDERAIS MUNIC': ('Administrativo', 'Taxas'),
+    'INFRACOES DE TRANSITO': ('Administrativo', 'Taxas'),
+    'LICENCIAMENTO DE VEICULOS': ('Administrativo', 'Taxas'),
+    # COMERCIAL
+    'COMISSAO AGENTE': ('Administrativo', 'Comercial'),
+    'DESPESA COMERCIAL - VIAGENS E RELATORIO DESPESA': ('Administrativo', 'Comercial'),
+    'CORREIOS E TELEGRAFOS': ('Administrativo', 'Comercial'),
+    'BRINDES DOACOES CONFRATERNIZACOES': ('Administrativo', 'Comercial'),
+    # BENEFÍCIOS
+    'VALE REFEICAO': ('Administrativo', 'Benefícios'),
+    'VALE TRANSPORTE': ('Administrativo', 'Benefícios'),
+    'ALIMENTACAO': ('Administrativo', 'Benefícios'),
+    # OUTROS ADM
+    'DESPACHANTE': ('Administrativo', 'Outros'),
+    'MATERIAL DE ESCRITORIO': ('Administrativo', 'Outros'),
+    'TARIFA - PEF CTRB': ('Administrativo', 'Outros'),
+    'TREINAMENTO DESENVOLVIMENTO BENEFICIOS': ('Administrativo', 'Outros'),
+    # FINANCEIRO
+    'EMPRESTIMOS': ('Financeiro', 'Dívida'),
+    'CAPITAL DE GIRO': ('Financeiro', 'Dívida'),
+    'JUROS E ENCARGOS': ('Financeiro', 'Custos Financeiros'),
+    'IOF': ('Financeiro', 'Custos Financeiros'),
+    'TARIFA BANCARIA': ('Financeiro', 'Custos Financeiros'),
+    # IMPOSTOS
+    'IR': ('Impostos', 'Impostos'),
+    'CSLL': ('Impostos', 'Impostos'),
+    # DEDUÇÕES
+    'ICMS': ('Deduções', 'Deduções'),
+    'PIS': ('Deduções', 'Deduções'),
+    'COFINS': ('Deduções', 'Deduções'),
+    'ISS': ('Deduções', 'Deduções'),
+    # INVESTIMENTOS
+    'ATIVO IMOBILIZADO - IMOVEIS': ('Investimento', 'Investimentos'),
+    'ATIVO IMOBILIZADO- VEICULOS': ('Investimento', 'Investimentos'),
+    'INVESTIMENTO - CONSORCIO': ('Investimento', 'Investimentos'),
+    'INVESTIMENTO- CDC': ('Investimento', 'Investimentos'),
+    'INVESTIMENTO- FINAME': ('Investimento', 'Investimentos'),
+    # RETIRADAS
+    'RETIRADA CLEIVON': ('Retirada', 'Retirada'),
+    'RETIRADA SOCIOS': ('Retirada', 'Retirada'),
+    'RETIRADA PATRICIA': ('Retirada', 'Retirada'),
+    'MANUTENCAO DE MAQUINAS E EQUIPAMENTOS': ('Retirada', 'Retirada'),
+}
+
+# Filtragem das tabelas (via Power BI DAX, igual /api/tarifas e /api/auditoria):
+# - despesas: filtra pela coluna REF (formato 'YYYY/MM') — competência
+# - conhecimentos: filtra por data_autorizacao
+
+
+def _dre_zerado(receita_bruta=0.0):
+    return {
+        'receita_bruta': receita_bruta, 'deducoes': 0.0, 'receita_liquida': receita_bruta,
+        'custo_operacional': 0.0, 'despesas_administrativas': 0.0, 'ebitda': receita_bruta,
+        'despesas_financeiras': 0.0, 'lair': receita_bruta, 'impostos': 0.0,
+        'lucro_liquido': receita_bruta, 'investimentos': 0.0, 'pos_investimento': receita_bruta,
+        'retiradas': 0.0, 'resultado_final': receita_bruta,
+    }
+
+
+def _gerar_refs_periodo(start_date, end_date):
+    """Gera lista de strings YYYY/MM cobrindo o período."""
+    refs = []
+    cur_y, cur_m = start_date.year, start_date.month
+    end_y, end_m = end_date.year, end_date.month
+    while (cur_y, cur_m) <= (end_y, end_m):
+        refs.append(f"{cur_y:04d}/{cur_m:02d}")
+        cur_m += 1
+        if cur_m > 12:
+            cur_m = 1
+            cur_y += 1
+    return refs
+
+DRE_LINHAS = [
+    ('Receita Bruta',                'Subtotal', 'receita_bruta'),
+    ('(-) Deduções',                 'Grupo',    'deducoes'),
+    ('= Receita Líquida',            'Subtotal', 'receita_liquida'),
+    ('(-) Custo Operacional',        'Grupo',    'custo_operacional'),
+    ('(-) Despesas Administrativas', 'Grupo',    'despesas_administrativas'),
+    ('= EBITDA',                     'Subtotal', 'ebitda'),
+    ('(-) Despesas Financeiras',     'Grupo',    'despesas_financeiras'),
+    ('= LAIR',                       'Subtotal', 'lair'),
+    ('(-) Impostos',                 'Grupo',    'impostos'),
+    ('= Lucro Líquido',              'Subtotal', 'lucro_liquido'),
+    ('(-) Investimentos',            'Grupo',    'investimentos'),
+    ('= Pós Investimento',           'Subtotal', 'pos_investimento'),
+    ('(-) Retiradas',                'Grupo',    'retiradas'),
+    ('= Resultado Final',            'Subtotal', 'resultado_final'),
+]
+
+# Mapeamento: linha da DRE → Grupo do MAPA_DRE (para drilldown)
+DRE_LINHA_GRUPO = {
+    '(-) Deduções':                 'Deduções',
+    '(-) Custo Operacional':        'Operacional',
+    '(-) Despesas Administrativas': 'Administrativo',
+    '(-) Despesas Financeiras':     'Financeiro',
+    '(-) Impostos':                 'Impostos',
+    '(-) Investimentos':            'Investimento',
+    '(-) Retiradas':                'Retirada',
+}
+
+
+def _dax_lista_refs(refs):
+    """Formata lista Python ['2026/01','2026/02'] como literal DAX: { "2026/01", "2026/02" }"""
+    return '{ ' + ', '.join(f'"{r}"' for r in refs) + ' }'
+
+
+def _dax_data(d):
+    """Formata date como literal DAX: DATE(2026,3,1)"""
+    return f'DATE({d.year},{d.month},{d.day})'
+
+
+def _calcular_dre_periodo(start_date, end_date):
+    """Calcula uma DRE para um período fechado via Power BI DAX."""
+    token = get_token()
+
+    # Receita Bruta = SUM(valor_frete) filtrado por data_autorizacao
+    dax_receita = (
+        f'EVALUATE ROW("total", '
+        f'CALCULATE(SUM(\'public conhecimentos_emitidos\'[valor_frete]), '
+        f'FILTER(\'public conhecimentos_emitidos\', '
+        f'\'public conhecimentos_emitidos\'[data_autorizacao] >= {_dax_data(start_date)} && '
+        f'\'public conhecimentos_emitidos\'[data_autorizacao] <= {_dax_data(end_date)})))'
+    )
+    result = execute_dax(token, dax_receita, dataset_id=CONFIG['dre_dataset_id'])
+    rows = result.get('results', [{}])[0].get('tables', [{}])[0].get('rows', [])
+    receita_bruta = float((rows[0].get('[total]') if rows else 0) or 0)
+
+    # Despesas filtradas por REF (YYYY/MM)
+    refs = _gerar_refs_periodo(start_date, end_date)
+    grupos = {'Deduções': 0.0, 'Operacional': 0.0, 'Administrativo': 0.0,
+              'Financeiro': 0.0, 'Impostos': 0.0, 'Investimento': 0.0, 'Retirada': 0.0}
+    if refs:
+        dax_despesas = (
+            f'EVALUATE CALCULATETABLE('
+            f'SUMMARIZE(\'public consulta_despesas_477\', '
+            f'\'public consulta_despesas_477\'[descr_evento], '
+            f'"Total", SUM(\'public consulta_despesas_477\'[vlr_final])), '
+            f'\'public consulta_despesas_477\'[REF] IN {_dax_lista_refs(refs)})'
+        )
+        result = execute_dax(token, dax_despesas, dataset_id=CONFIG['dre_dataset_id'])
+        rows = result.get('results', [{}])[0].get('tables', [{}])[0].get('rows', [])
+        data = clean_rows(rows)
+        for r in data:
+            descr = r.get('descr_evento')
+            valor = float(r.get('Total') or 0)
+            if descr in MAPA_DRE:
+                grupo = MAPA_DRE[descr][0]
+                grupos[grupo] += valor
+
+    receita_liquida   = receita_bruta - grupos['Deduções']
+    ebitda            = receita_liquida - grupos['Operacional'] - grupos['Administrativo']
+    lair              = ebitda - grupos['Financeiro']
+    lucro_liquido     = lair - grupos['Impostos']
+    pos_investimento  = lucro_liquido - grupos['Investimento']
+    resultado_final   = pos_investimento - grupos['Retirada']
+
+    return {
+        'receita_bruta':            receita_bruta,
+        'deducoes':                 grupos['Deduções'],
+        'receita_liquida':          receita_liquida,
+        'custo_operacional':        grupos['Operacional'],
+        'despesas_administrativas': grupos['Administrativo'],
+        'ebitda':                   ebitda,
+        'despesas_financeiras':     grupos['Financeiro'],
+        'lair':                     lair,
+        'impostos':                 grupos['Impostos'],
+        'lucro_liquido':            lucro_liquido,
+        'investimentos':            grupos['Investimento'],
+        'pos_investimento':         pos_investimento,
+        'retiradas':                grupos['Retirada'],
+        'resultado_final':          resultado_final,
+    }
+
+
+def _parse_meses_param(meses_str):
+    """'2025-01,2025-03,2026-01' → lista ordenada [(2025,1),(2025,3),(2026,1)]"""
+    pares = []
+    for m in meses_str.split(','):
+        m = m.strip()
+        if not m: continue
+        y, mo = m.split('-')
+        pares.append((int(y), int(mo)))
+    return sorted(set(pares))
+
+
+def _meses_para_periodos(pares):
+    """[(2025,1),(2025,3)] → [(y, m, nome_curto, primeiro_dia, ultimo_dia), ...]"""
+    from datetime import date
+    from calendar import monthrange
+    nomes_curtos = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun',
+                    'jul', 'ago', 'set', 'out', 'nov', 'dez']
+    result = []
+    for y, m in pares:
+        ult = monthrange(y, m)[1]
+        nome = f"{nomes_curtos[m-1]}/{str(y)[2:]}"
+        result.append((y, m, nome, date(y, m, 1), date(y, m, ult)))
+    return result
+
+
+def _iterar_meses(start_date, end_date):
+    """Gera tuplas (ano, mes, nome_mes, primeiro_dia, ultimo_dia) entre as datas."""
+    from datetime import date
+    from calendar import monthrange
+    nomes = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
+             'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
+    cur_y, cur_m = start_date.year, start_date.month
+    end_y, end_m = end_date.year, end_date.month
+    while (cur_y, cur_m) <= (end_y, end_m):
+        ult_dia = monthrange(cur_y, cur_m)[1]
+        primeiro = date(cur_y, cur_m, 1)
+        ultimo = date(cur_y, cur_m, ult_dia)
+        if primeiro < start_date: primeiro = start_date
+        if ultimo > end_date: ultimo = end_date
+        yield (cur_y, cur_m, nomes[cur_m - 1], primeiro, ultimo)
+        cur_m += 1
+        if cur_m > 12:
+            cur_m = 1
+            cur_y += 1
+
+
+@app.route('/api/dre')
+@admin_required
+def api_dre():
+    from datetime import datetime
+    meses_param = request.args.get('meses')
+    if meses_param:
+        try:
+            pares = _parse_meses_param(meses_param)
+            if not pares:
+                raise ValueError('lista vazia')
+            meses = _meses_para_periodos(pares)
+        except Exception:
+            return jsonify({'ok': False, 'error': 'Parâmetro meses inválido. Use YYYY-MM,YYYY-MM,...'}), 400
+    else:
+        try:
+            start = datetime.strptime(request.args.get('start'), '%Y-%m-%d').date()
+            end   = datetime.strptime(request.args.get('end'), '%Y-%m-%d').date()
+        except (TypeError, ValueError):
+            return jsonify({'ok': False, 'error': 'Informe meses=YYYY-MM,... ou start/end'}), 400
+        meses = list(_iterar_meses(start, end))
+
+    estrutura = [{'linha': l, 'tipo': t, 'key': k} for l, t, k in DRE_LINHAS]
+
+    if len(meses) == 1:
+        (_, _, _, prim, ult) = meses[0]
+        totais = _calcular_dre_periodo(prim, ult)
+        rb = totais['receita_bruta']
+        for item in estrutura:
+            v = totais[item['key']]
+            item['valor'] = v
+            item['pct'] = (v / rb) if (item['tipo'] == 'Subtotal' and rb) else None
+        return jsonify({'ok': True, 'modo': 'acumulado', 'estrutura': estrutura})
+
+    # Modo mensal
+    totais_por_mes = []
+    totais_geral = {k: 0.0 for _, _, k in DRE_LINHAS}
+    for (_, _, nome, prim, ult) in meses:
+        t = _calcular_dre_periodo(prim, ult)
+        totais_por_mes.append({'nome': nome, 'totais': t})
+        for k in totais_geral:
+            totais_geral[k] += t[k]
+
+    for item in estrutura:
+        item['meses'] = []
+        for tm in totais_por_mes:
+            v = tm['totais'][item['key']]
+            rb = tm['totais']['receita_bruta']
+            item['meses'].append({
+                'nome': tm['nome'],
+                'valor': v,
+                'pct': (v / rb) if (item['tipo'] == 'Subtotal' and rb) else None
+            })
+        v = totais_geral[item['key']]
+        rb_total = totais_geral['receita_bruta']
+        item['total'] = v
+        item['total_pct'] = (v / rb_total) if (item['tipo'] == 'Subtotal' and rb_total) else None
+
+    return jsonify({'ok': True, 'modo': 'mensal', 'meses': [m[2] for m in meses], 'estrutura': estrutura})
+
+
+def _query_despesas_periodo(start, end, grupo=None, evento=None):
+    """Filtra consulta_despesas_477 via DAX por REF (YYYY/MM), opcionalmente por grupo ou evento específico."""
+    from datetime import datetime
+    if isinstance(start, str):
+        start = datetime.strptime(start, '%Y-%m-%d').date()
+    if isinstance(end, str):
+        end = datetime.strptime(end, '%Y-%m-%d').date()
+
+    refs = _gerar_refs_periodo(start, end)
+    if not refs:
+        return [], []
+
+    filtro_ref = f"'public consulta_despesas_477'[REF] IN {_dax_lista_refs(refs)}"
+
+    if evento:
+        dax = (
+            f'EVALUATE FILTER(\'public consulta_despesas_477\', '
+            f'{filtro_ref} && \'public consulta_despesas_477\'[descr_evento] = "{evento}")'
+        )
+    elif grupo:
+        eventos = [e for e, (g, _) in MAPA_DRE.items() if g == grupo]
+        if not eventos:
+            return [], []
+        lista_eventos = '{ ' + ', '.join(f'"{e}"' for e in eventos) + ' }'
+        dax = (
+            f'EVALUATE FILTER(\'public consulta_despesas_477\', '
+            f'{filtro_ref} && \'public consulta_despesas_477\'[descr_evento] IN {lista_eventos})'
+        )
+    else:
+        dax = f'EVALUATE FILTER(\'public consulta_despesas_477\', {filtro_ref})'
+
+    token = get_token()
+    result = execute_dax(token, dax, dataset_id=CONFIG['dre_dataset_id'])
+    rows = result.get('results', [{}])[0].get('tables', [{}])[0].get('rows', [])
+    data = clean_rows(rows)
+    cols = list(data[0].keys()) if data else []
+    return cols, data
+
+
+def _query_conhecimentos_periodo(start, end):
+    """Filtra conhecimentos_emitidos via DAX por data_autorizacao."""
+    from datetime import datetime
+    if isinstance(start, str):
+        start = datetime.strptime(start, '%Y-%m-%d').date()
+    if isinstance(end, str):
+        end = datetime.strptime(end, '%Y-%m-%d').date()
+
+    dax = (
+        f'EVALUATE FILTER(\'public conhecimentos_emitidos\', '
+        f'\'public conhecimentos_emitidos\'[data_autorizacao] >= {_dax_data(start)} && '
+        f'\'public conhecimentos_emitidos\'[data_autorizacao] <= {_dax_data(end)})'
+    )
+    token = get_token()
+    result = execute_dax(token, dax, dataset_id=CONFIG['dre_dataset_id'])
+    rows = result.get('results', [{}])[0].get('tables', [{}])[0].get('rows', [])
+    data = clean_rows(rows)
+    cols = list(data[0].keys()) if data else []
+    return cols, data
+
+
+@app.route('/api/dre/detalhamento')
+@admin_required
+def api_dre_detalhamento():
+    """Retorna despesas agrupadas por Subgrupo (com eventos dentro) para o período/lista de meses."""
+    from datetime import datetime
+    meses_param = request.args.get('meses')
+    if meses_param:
+        try:
+            pares = _parse_meses_param(meses_param)
+        except Exception:
+            return jsonify({'ok': False, 'error': 'Parâmetro meses inválido'}), 400
+        refs = [f"{y:04d}/{m:02d}" for y, m in pares]
+    else:
+        try:
+            start = datetime.strptime(request.args.get('start'), '%Y-%m-%d').date()
+            end   = datetime.strptime(request.args.get('end'), '%Y-%m-%d').date()
+        except (TypeError, ValueError):
+            return jsonify({'ok': False, 'error': 'Datas inválidas'}), 400
+        refs = _gerar_refs_periodo(start, end)
+
+    if not refs:
+        return jsonify({'ok': True, 'subgrupos': []})
+
+    try:
+        dax = (
+            f'EVALUATE CALCULATETABLE('
+            f'SUMMARIZE(\'public consulta_despesas_477\', '
+            f'\'public consulta_despesas_477\'[descr_evento], '
+            f'"Total", SUM(\'public consulta_despesas_477\'[vlr_final])), '
+            f'\'public consulta_despesas_477\'[REF] IN {_dax_lista_refs(refs)})'
+        )
+        token = get_token()
+        result = execute_dax(token, dax, dataset_id=CONFIG['dre_dataset_id'])
+        rows = result.get('results', [{}])[0].get('tables', [{}])[0].get('rows', [])
+        data = clean_rows(rows)
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+    # Agrupa por Subgrupo
+    subgrupos = {}
+    for r in data:
+        descr = r.get('descr_evento')
+        valor = float(r.get('Total') or 0)
+        if descr in MAPA_DRE:
+            grupo, sub = MAPA_DRE[descr]
+            if sub not in subgrupos:
+                subgrupos[sub] = {'nome': sub, 'grupo': grupo, 'total': 0.0, 'eventos': []}
+            subgrupos[sub]['total'] += valor
+            subgrupos[sub]['eventos'].append({'descr_evento': descr, 'total': valor})
+
+    # Ordena: subgrupos por nome, eventos por valor desc
+    lista = sorted(subgrupos.values(), key=lambda x: x['nome'])
+    for s in lista:
+        s['eventos'].sort(key=lambda e: e['total'], reverse=True)
+
+    total_geral = sum(s['total'] for s in lista)
+    return jsonify({'ok': True, 'subgrupos': lista, 'total_geral': total_geral})
+
+
+@app.route('/api/dre/despesas')
+@admin_required
+def api_dre_despesas():
+    start = request.args.get('start')
+    end = request.args.get('end')
+    grupo = request.args.get('grupo')
+    evento = request.args.get('evento')
+    if not start or not end:
+        return jsonify({'ok': False, 'error': 'Informe start e end (YYYY-MM-DD)'}), 400
+    try:
+        cols, data = _query_despesas_periodo(start, end, grupo, evento)
+        return jsonify({'ok': True, 'columns': cols, 'data': data, 'count': len(data),
+                        'grupo': grupo, 'evento': evento})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/dre/conhecimentos')
+@admin_required
+def api_dre_conhecimentos():
+    start = request.args.get('start')
+    end = request.args.get('end')
+    if not start or not end:
+        return jsonify({'ok': False, 'error': 'Informe start e end (YYYY-MM-DD)'}), 400
+    try:
+        cols, data = _query_conhecimentos_periodo(start, end)
+        return jsonify({'ok': True, 'columns': cols, 'data': data, 'count': len(data)})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+def _gerar_csv(cols, data):
+    import csv
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=cols, delimiter=';')
+    writer.writeheader()
+    for row in data:
+        writer.writerow({c: ('' if row.get(c) is None else row.get(c)) for c in cols})
+    csv_bytes = '﻿'.encode('utf-8') + buf.getvalue().encode('utf-8')
+    return io.BytesIO(csv_bytes)
+
+
+def _csv_linha(valores):
+    """Formata lista de valores em uma linha CSV com separador ; e BOM-safe."""
+    out = []
+    for v in valores:
+        if v is None:
+            out.append('')
+        else:
+            s = str(v).replace('"', '""')
+            if ';' in s or '"' in s or '\n' in s:
+                s = f'"{s}"'
+            out.append(s)
+    return ';'.join(out) + '\n'
+
+
+@app.route('/api/dre/despesas/csv')
+@admin_required
+def api_dre_despesas_csv():
+    from datetime import datetime
+    start = request.args.get('start')
+    end = request.args.get('end')
+    grupo = request.args.get('grupo')
+    evento = request.args.get('evento')
+    if not start or not end:
+        return jsonify({'ok': False, 'error': 'Informe start e end (YYYY-MM-DD)'}), 400
+
+    start_d = datetime.strptime(start, '%Y-%m-%d').date()
+    end_d   = datetime.strptime(end, '%Y-%m-%d').date()
+    meses = list(_iterar_meses(start_d, end_d))
+
+    sufixo = ('_' + evento.replace(' ', '_')[:30]) if evento else (('_' + grupo) if grupo else '')
+    nome = f"despesas_{start}_{end}{sufixo}.csv"
+
+    def gerar():
+        yield '﻿'  # BOM para Excel reconhecer UTF-8
+        token = get_token()
+        cols = None
+        for (y, m, _, _, _) in meses:
+            ref = f"{y:04d}/{m:02d}"
+            dax = f'EVALUATE FILTER(\'public consulta_despesas_477\', \'public consulta_despesas_477\'[REF] = "{ref}"'
+            if evento:
+                dax += f' && \'public consulta_despesas_477\'[descr_evento] = "{evento}"'
+            elif grupo:
+                eventos = [e for e, (g, _) in MAPA_DRE.items() if g == grupo]
+                if eventos:
+                    lista = '{ ' + ', '.join(f'"{e}"' for e in eventos) + ' }'
+                    dax += f' && \'public consulta_despesas_477\'[descr_evento] IN {lista}'
+            dax += ')'
+
+            try:
+                result = execute_dax(token, dax, dataset_id=CONFIG['dre_dataset_id'])
+            except Exception:
+                # Renovar token e tentar de novo
+                token = get_token()
+                result = execute_dax(token, dax, dataset_id=CONFIG['dre_dataset_id'])
+
+            rows = result.get('results', [{}])[0].get('tables', [{}])[0].get('rows', [])
+            data = clean_rows(rows)
+            if not cols and data:
+                cols = list(data[0].keys())
+                yield _csv_linha(cols)
+            for row in data:
+                yield _csv_linha([row.get(c) for c in cols] if cols else [])
+
+    return Response(
+        stream_with_context(gerar()),
+        mimetype='text/csv; charset=utf-8',
+        headers={'Content-Disposition': f'attachment; filename="{nome}"'}
+    )
+
+
+@app.route('/api/dre/conhecimentos/csv')
+@admin_required
+def api_dre_conhecimentos_csv():
+    from datetime import datetime
+    start = request.args.get('start')
+    end = request.args.get('end')
+    if not start or not end:
+        return jsonify({'ok': False, 'error': 'Informe start e end (YYYY-MM-DD)'}), 400
+
+    start_d = datetime.strptime(start, '%Y-%m-%d').date()
+    end_d   = datetime.strptime(end, '%Y-%m-%d').date()
+    meses = list(_iterar_meses(start_d, end_d))
+
+    nome = f"conhecimentos_{start}_{end}.csv"
+
+    def gerar():
+        yield '﻿'
+        token = get_token()
+        cols = None
+        for (_, _, _, prim, ult) in meses:
+            dax = (
+                f'EVALUATE FILTER(\'public conhecimentos_emitidos\', '
+                f'\'public conhecimentos_emitidos\'[data_autorizacao] >= {_dax_data(prim)} && '
+                f'\'public conhecimentos_emitidos\'[data_autorizacao] <= {_dax_data(ult)})'
+            )
+            try:
+                result = execute_dax(token, dax, dataset_id=CONFIG['dre_dataset_id'])
+            except Exception:
+                token = get_token()
+                result = execute_dax(token, dax, dataset_id=CONFIG['dre_dataset_id'])
+
+            rows = result.get('results', [{}])[0].get('tables', [{}])[0].get('rows', [])
+            data = clean_rows(rows)
+            if not cols and data:
+                cols = list(data[0].keys())
+                yield _csv_linha(cols)
+            for row in data:
+                yield _csv_linha([row.get(c) for c in cols] if cols else [])
+
+    return Response(
+        stream_with_context(gerar()),
+        mimetype='text/csv; charset=utf-8',
+        headers={'Content-Disposition': f'attachment; filename="{nome}"'}
+    )
+
+
+# ════════════════════════════════════════
+# CHAT IA — Analista Financeiro DRE
+# ════════════════════════════════════════
+
+def _fmt_brl(v):
+    try:
+        v = float(v or 0)
+    except (TypeError, ValueError):
+        return 'R$ 0,00'
+    return f"R$ {v:,.2f}".replace(',', '_').replace('.', ',').replace('_', '.')
+
+
+def _montar_prompt_chat(contexto):
+    """Monta system prompt com dados financeiros estruturados (todos pré-calculados)."""
+    partes = []
+    periodo = contexto.get('periodo', [])
+    modo = contexto.get('modo', 'acumulado')
+    partes.append(f"PERÍODO ANALISADO: {', '.join(periodo) if periodo else 'não informado'}")
+    partes.append(f"MODO: {modo}\n")
+
+    dre = contexto.get('dre') or {}
+    if modo == 'acumulado' and dre:
+        partes.append("--- DRE (ACUMULADO) ---")
+        labels = [
+            ('receita_bruta',            'Receita Bruta'),
+            ('deducoes',                 '(-) Deduções'),
+            ('receita_liquida',          '= Receita Líquida'),
+            ('custo_operacional',        '(-) Custo Operacional'),
+            ('despesas_administrativas', '(-) Despesas Administrativas'),
+            ('ebitda',                   '= EBITDA'),
+            ('despesas_financeiras',     '(-) Despesas Financeiras'),
+            ('lair',                     '= LAIR'),
+            ('impostos',                 '(-) Impostos'),
+            ('lucro_liquido',            '= Lucro Líquido'),
+            ('investimentos',            '(-) Investimentos'),
+            ('pos_investimento',         '= Pós Investimento'),
+            ('retiradas',                '(-) Retiradas'),
+            ('resultado_final',          '= Resultado Final'),
+        ]
+        for key, label in labels:
+            if key in dre:
+                partes.append(f"{label}: {_fmt_brl(dre[key])}")
+
+    elif modo == 'mensal':
+        dre_meses = contexto.get('dre_por_mes', [])
+        partes.append("--- DRE POR MÊS ---")
+        for d in dre_meses:
+            partes.append(f"\n[{d.get('mes', '?')}]")
+            for k, v in d.items():
+                if k != 'mes' and isinstance(v, (int, float)):
+                    partes.append(f"  {k}: {_fmt_brl(v)}")
+
+    margens = contexto.get('margens') or {}
+    if margens:
+        partes.append("\n--- MARGENS (%) ---")
+        for k, v in margens.items():
+            try:
+                partes.append(f"{k.replace('_', ' ').title()}: {float(v):.1f}%".replace('.', ','))
+            except (TypeError, ValueError):
+                pass
+
+    variacoes = contexto.get('variacoes_mom') or {}
+    if variacoes:
+        partes.append("\n--- VARIAÇÃO MoM (último vs anterior) ---")
+        for k, v in variacoes.items():
+            try:
+                seta = '↑' if v > 0 else ('↓' if v < 0 else '→')
+                partes.append(f"{k}: {seta} {float(v):.1f}%".replace('.', ','))
+            except (TypeError, ValueError):
+                pass
+
+    top_sub = contexto.get('top_subgrupos') or []
+    if top_sub:
+        partes.append("\n--- TOP SUBGRUPOS DE DESPESA ---")
+        for s in top_sub:
+            partes.append(f"- {s.get('nome')} ({s.get('grupo')}): {_fmt_brl(s.get('valor'))} ({s.get('pct', 0):.1f}%)".replace('.', ','))
+
+    pareto = contexto.get('pareto_80') or []
+    if pareto:
+        partes.append(f"\n--- PARETO 80% ({len(pareto)} subgrupos respondem por 80% das despesas) ---")
+        partes.append(', '.join(pareto))
+
+    total_desp = contexto.get('total_despesas')
+    if total_desp is not None:
+        partes.append(f"\nTOTAL DE DESPESAS: {_fmt_brl(total_desp)}")
+
+    dados_texto = '\n'.join(partes)
+
+    return f"""Você é o Analista Financeiro da Rizza Transportes — uma transportadora rodoviária de cargas com operações em SP, RJ, GO, ES, BA. Você analisa DRE e despesas.
+
+REGRAS INVIOLÁVEIS:
+1. Use APENAS os números fornecidos abaixo — todos JÁ CALCULADOS. Não recalcule.
+2. Não invente nada. Se a pergunta exigir dado que não foi enviado, diga "essa informação não está no período selecionado".
+3. Máximo 3 parágrafos curtos. Diretor não lê longo.
+4. Formate em **markdown**: use **negrito** para destacar números/conclusões críticas.
+5. Sempre cite valores em R$ (formato brasileiro) e %.
+6. Tom: direto, profissional, sem rodeios.
+7. Se identificar problema (margem negativa, queda, custo alto), DESTAQUE em negrito.
+8. Perguntas fora de finanças/DRE → responda: "Só consigo analisar dados financeiros da DRE."
+
+CONTEXTO DA EMPRESA:
+- Operação "fretes-pesada": terceiriza muita carga (subgrupo Fretes domina ~38%)
+- Margens saudáveis para o setor: EBITDA acima de 10%, Líquida acima de 5%
+- Resultado negativo é alerta vermelho
+
+DADOS DO PERÍODO ATUAL:
+{dados_texto}
+"""
+
+
+@app.route('/api/chat-dre', methods=['POST'])
+@admin_required
+def chat_dre():
+    from openai import OpenAI
+    data = request.get_json() or {}
+    pergunta = (data.get('pergunta') or '').strip()
+    contexto = data.get('contexto') or {}
+    historico = data.get('historico') or []
+
+    if not pergunta:
+        return jsonify({'ok': False, 'error': 'Pergunta vazia'}), 400
+
+    system_prompt = _montar_prompt_chat(contexto)
+    messages = [{'role': 'system', 'content': system_prompt}]
+    for m in historico[-6:]:
+        role = m.get('role')
+        content = m.get('content', '')
+        if role in ('user', 'assistant') and content:
+            messages.append({'role': role, 'content': content})
+    if not messages or messages[-1].get('content') != pergunta:
+        messages.append({'role': 'user', 'content': pergunta})
+
+    def gerar():
+        try:
+            client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+            stream = client.chat.completions.create(
+                model='gpt-4.1-mini',
+                messages=messages,
+                max_tokens=800,
+                temperature=0.3,
+                stream=True,
+            )
+            for chunk in stream:
+                if not chunk.choices: continue
+                delta = chunk.choices[0].delta.content
+                if delta:
+                    yield f"data: {json.dumps({'token': delta})}\n\n"
+            yield "data: [DONE]\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'erro': str(e)})}\n\n"
+
+    return Response(stream_with_context(gerar()),
+                    mimetype='text/event-stream',
+                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
 
 if __name__ == '__main__':
