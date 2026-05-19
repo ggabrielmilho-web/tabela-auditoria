@@ -181,11 +181,11 @@ const MAX_DISPLAY = 2000;
 
 function reordenarColunas(cols) {
   const idxDescr = cols.indexOf('descr_evento');
-  const idxHist = cols.indexOf('historico_da_despesa');
+  const idxHist = cols.indexOf('historico_despesa');
   if (idxDescr === -1 || idxHist === -1 || idxHist === idxDescr + 1) return cols;
-  const novo = cols.filter(c => c !== 'historico_da_despesa');
+  const novo = cols.filter(c => c !== 'historico_despesa');
   const pos = novo.indexOf('descr_evento') + 1;
-  novo.splice(pos, 0, 'historico_da_despesa');
+  novo.splice(pos, 0, 'historico_despesa');
   return novo;
 }
 
@@ -239,7 +239,7 @@ async function carregar() {
       }
     }
 
-    // Reordena: move historico_da_despesa logo após descr_evento
+    // Reordena: move historico_despesa logo após descr_evento
     cols = reordenarColunas(cols);
     dadosAtuais = { cols, data: allData };
     renderTabela(cols, allData);
