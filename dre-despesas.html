@@ -137,7 +137,7 @@
         <option value="Retirada">Retirada</option>
       </select>
     </div>
-    <button class="btn primary" onclick="carregar()">Aplicar</button>
+    <button class="btn primary" onclick="aplicarManual()">Aplicar</button>
     <button class="btn" onclick="exportar()">Exportar CSV</button>
     <div class="info-bar" id="infoBar"></div>
   </div>
@@ -163,14 +163,43 @@ const fmtData = v => {
 };
 
 let eventoFiltro = '';
+let mesesEspecificos = null; // ['2021-02','2022-02',...] quando vem de drilldown não-contíguo
+
+function mesesParaPeriodos(lista) {
+  return lista.map(ym => {
+    const [y, m] = ym.split('-').map(Number);
+    const ultDia = new Date(y, m, 0).getDate();
+    return {
+      start: `${y}-${String(m).padStart(2,'0')}-01`,
+      end: `${y}-${String(m).padStart(2,'0')}-${String(ultDia).padStart(2,'0')}`,
+      nome: `${String(m).padStart(2,'0')}/${y}`,
+      ref: `${y}/${String(m).padStart(2,'0')}`,
+    };
+  });
+}
 
 window.addEventListener('DOMContentLoaded', () => {
   const params = new URLSearchParams(window.location.search);
-  const hoje = new Date();
-  const primeiro = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
-  const ultimo = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0);
-  document.getElementById('dtInicio').value = params.get('start') || primeiro.toISOString().slice(0, 10);
-  document.getElementById('dtFim').value = params.get('end') || ultimo.toISOString().slice(0, 10);
+  const mesesParam = params.get('meses');
+
+  if (mesesParam) {
+    mesesEspecificos = mesesParam.split(',').filter(Boolean).sort();
+    const sorted = [...mesesEspecificos];
+    const first = sorted[0];
+    const last = sorted[sorted.length - 1];
+    const [fy, fm] = first.split('-').map(Number);
+    const [ly, lm] = last.split('-').map(Number);
+    const ultDia = new Date(ly, lm, 0).getDate();
+    document.getElementById('dtInicio').value = `${fy}-${String(fm).padStart(2,'0')}-01`;
+    document.getElementById('dtFim').value = `${ly}-${String(lm).padStart(2,'0')}-${String(ultDia).padStart(2,'0')}`;
+  } else {
+    const hoje = new Date();
+    const primeiro = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+    const ultimo = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0);
+    document.getElementById('dtInicio').value = params.get('start') || primeiro.toISOString().slice(0, 10);
+    document.getElementById('dtFim').value = params.get('end') || ultimo.toISOString().slice(0, 10);
+  }
+
   if (params.get('grupo')) document.getElementById('selGrupo').value = params.get('grupo');
   eventoFiltro = params.get('evento') || '';
   carregar();
@@ -208,13 +237,22 @@ function gerarMeses(start, end) {
   return meses;
 }
 
+function aplicarManual() {
+  // Clicar Aplicar reseta o filtro específico — usa range de data
+  mesesEspecificos = null;
+  carregar();
+}
+
 async function carregar() {
   const start = document.getElementById('dtInicio').value;
   const end = document.getElementById('dtFim').value;
   const grupo = document.getElementById('selGrupo').value;
   if (!start || !end) return;
 
-  const meses = gerarMeses(start, end);
+  // Se veio lista específica de meses (drilldown), usa ela; senão gera do range
+  const meses = mesesEspecificos
+    ? mesesParaPeriodos(mesesEspecificos)
+    : gerarMeses(start, end);
   let cols = [];
   let allData = [];
   let truncado = false;
@@ -288,7 +326,12 @@ function exportar() {
   const end = document.getElementById('dtFim').value;
   const grupo = document.getElementById('selGrupo').value;
   if (!start || !end) return;
-  let url = `/api/dre/despesas/csv?start=${start}&end=${end}`;
+  let url;
+  if (mesesEspecificos && mesesEspecificos.length) {
+    url = `/api/dre/despesas/csv?meses=${encodeURIComponent(mesesEspecificos.join(','))}`;
+  } else {
+    url = `/api/dre/despesas/csv?start=${start}&end=${end}`;
+  }
   if (eventoFiltro) url += '&evento=' + encodeURIComponent(eventoFiltro);
   else if (grupo) url += '&grupo=' + encodeURIComponent(grupo);
   window.location.href = url;

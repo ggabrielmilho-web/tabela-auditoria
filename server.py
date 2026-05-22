@@ -1256,14 +1256,24 @@ def api_dre_despesas_csv():
     from datetime import datetime
     start = request.args.get('start')
     end = request.args.get('end')
+    meses_param = request.args.get('meses')
     grupo = request.args.get('grupo')
     evento = request.args.get('evento')
-    if not start or not end:
-        return jsonify({'ok': False, 'error': 'Informe start e end (YYYY-MM-DD)'}), 400
 
-    start_d = datetime.strptime(start, '%Y-%m-%d').date()
-    end_d   = datetime.strptime(end, '%Y-%m-%d').date()
-    meses = list(_iterar_meses(start_d, end_d))
+    if meses_param:
+        pares = _parse_meses_param(meses_param)
+        if not pares:
+            return jsonify({'ok': False, 'error': 'Parâmetro meses inválido'}), 400
+        meses = _meses_para_periodos(pares)
+        sorted_meses = sorted(pares)
+        start = f"{sorted_meses[0][0]}-{sorted_meses[0][1]:02d}-01"
+        end = f"{sorted_meses[-1][0]}-{sorted_meses[-1][1]:02d}"
+    elif start and end:
+        start_d = datetime.strptime(start, '%Y-%m-%d').date()
+        end_d   = datetime.strptime(end, '%Y-%m-%d').date()
+        meses = list(_iterar_meses(start_d, end_d))
+    else:
+        return jsonify({'ok': False, 'error': 'Informe meses ou start/end'}), 400
 
     sufixo = ('_' + evento.replace(' ', '_')[:30]) if evento else (('_' + grupo) if grupo else '')
     nome = f"despesas_{start}_{end}{sufixo}.csv"
@@ -1312,12 +1322,22 @@ def api_dre_conhecimentos_csv():
     from datetime import datetime
     start = request.args.get('start')
     end = request.args.get('end')
-    if not start or not end:
-        return jsonify({'ok': False, 'error': 'Informe start e end (YYYY-MM-DD)'}), 400
+    meses_param = request.args.get('meses')
 
-    start_d = datetime.strptime(start, '%Y-%m-%d').date()
-    end_d   = datetime.strptime(end, '%Y-%m-%d').date()
-    meses = list(_iterar_meses(start_d, end_d))
+    if meses_param:
+        pares = _parse_meses_param(meses_param)
+        if not pares:
+            return jsonify({'ok': False, 'error': 'Parâmetro meses inválido'}), 400
+        meses = _meses_para_periodos(pares)
+        sorted_meses = sorted(pares)
+        start = f"{sorted_meses[0][0]}-{sorted_meses[0][1]:02d}-01"
+        end = f"{sorted_meses[-1][0]}-{sorted_meses[-1][1]:02d}"
+    elif start and end:
+        start_d = datetime.strptime(start, '%Y-%m-%d').date()
+        end_d   = datetime.strptime(end, '%Y-%m-%d').date()
+        meses = list(_iterar_meses(start_d, end_d))
+    else:
+        return jsonify({'ok': False, 'error': 'Informe meses ou start/end'}), 400
 
     nome = f"conhecimentos_{start}_{end}.csv"
 

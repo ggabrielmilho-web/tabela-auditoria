@@ -784,14 +784,14 @@ function toggleSubgrupo(i) {
 
 function abrirEvento(descr_evento) {
   event.stopPropagation();
-  const [s, e] = periodoStartEnd(mesesAtuais);
-  window.location.href = `/dre/despesas?start=${s}&end=${e}&evento=${encodeURIComponent(descr_evento)}`;
+  const mesesStr = mesesAtuais.join(',');
+  window.location.href = `/dre/despesas?meses=${encodeURIComponent(mesesStr)}&evento=${encodeURIComponent(descr_evento)}`;
 }
 
 function drilldown(linha) {
-  const [start, end] = periodoStartEnd(mesesAtuais);
+  const mesesStr = mesesAtuais.join(',');
   if (linha === 'Receita Bruta') {
-    window.location.href = `/dre/conhecimentos?start=${start}&end=${end}`;
+    window.location.href = `/dre/conhecimentos?meses=${encodeURIComponent(mesesStr)}`;
   } else {
     const grupos = {
       '(-) Deduções': 'Deduções',
@@ -803,7 +803,7 @@ function drilldown(linha) {
       '(-) Retiradas': 'Retirada',
     };
     const g = grupos[linha];
-    if (g) window.location.href = `/dre/despesas?start=${start}&end=${end}&grupo=${encodeURIComponent(g)}`;
+    if (g) window.location.href = `/dre/despesas?meses=${encodeURIComponent(mesesStr)}&grupo=${encodeURIComponent(g)}`;
   }
 }
 
