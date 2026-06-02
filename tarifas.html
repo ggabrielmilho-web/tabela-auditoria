@@ -307,6 +307,8 @@
       <button class="btn-sm" id="btnLayout" onclick="toggleLayout()" style="display:none;">✦ Editar Layout</button>
       <button class="btn-sm" id="btnResetLayout" onclick="resetLayout()" style="display:none;">↺ Resetar</button>
       <a href="/" class="btn-sm">← Auditoria</a>
+      <a href="/embarques" class="btn-sm">🚚 Embarques</a>
+      <a href="/embarques/mapa" class="btn-sm">🗺️ Mapa</a>
       <a href="/logout" class="btn-sm">Sair</a>
     </div>
   </div>
@@ -756,8 +758,9 @@ function calcSimulador() {
   const balsa             = Number(row['balsa'])             || 0;
   const adicional_entrega = Number(row['adicional_entrega']) || 0;
 
-  const baseFrete      = valor_multiparada > 0 ? valor_multiparada : frete_liquido;
-  const baseLabel      = valor_multiparada > 0 ? 'Frete Multiparada' : 'Frete Líquido';
+  const usarMultiparada = valor_multiparada > 0 && qtdEntregas > 1;
+  const baseFrete       = usarMultiparada ? valor_multiparada : frete_liquido;
+  const baseLabel       = usarMultiparada ? 'Frete Multiparada' : 'Frete Líquido';
   const valorGris      = valorNF * gris;
   const valorAdVal     = valorNF * ad_valorem;
   const valorAdicional = Math.max(0, qtdEntregas - 1) * adicional_entrega;

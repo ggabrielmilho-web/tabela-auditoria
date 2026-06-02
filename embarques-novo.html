@@ -1,0 +1,1059 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nova carga — Embarques</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%2338bdf8'/%3E%3Ctext x='50' y='72' font-family='Arial,sans-serif' font-size='68' font-weight='900' text-anchor='middle' fill='%230a0e17'%3ER%3C/text%3E%3C/svg%3E">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0e17; --surface: #111827; --surface2: #1a2235; --border: #1e293b;
+    --text: #e2e8f0; --text-dim: #94a3b8; --accent: #38bdf8; --accent2: #818cf8;
+    --green: #34d399; --red: #f87171; --orange: #fb923c; --yellow: #fbbf24;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+  body::before {
+    content: ''; position: fixed; inset: 0; opacity: 0.03;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    pointer-events: none; z-index: 9999;
+  }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+  .dashboard { padding: 24px; max-width: 1200px; margin: 0 auto; animation: fadeUp 0.4s ease; }
+  .top-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 16px; }
+  .top-bar h1 {
+    font-size: 1.4rem; font-weight: 700;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .meta { font-size: 0.78rem; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; }
+  .btn-sm {
+    padding: 8px 18px; background: var(--surface2); border: 1px solid var(--border);
+    color: var(--text); font-family: 'DM Sans', sans-serif; font-weight: 500;
+    font-size: 0.82rem; border-radius: 8px; cursor: pointer; transition: all 0.15s;
+    text-decoration: none; display: inline-block;
+  }
+  .btn-sm:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-primary {
+    padding: 11px 26px; background: linear-gradient(135deg, var(--accent), var(--accent2));
+    color: var(--bg); font-family: 'DM Sans', sans-serif; font-weight: 700;
+    font-size: 0.92rem; border: none; border-radius: 8px;
+    cursor: pointer; transition: opacity 0.15s;
+  }
+  .btn-primary:hover { opacity: 0.9; }
+  .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-ghost {
+    padding: 11px 26px; background: transparent; border: 1px solid var(--border);
+    color: var(--text-dim); font-family: 'DM Sans', sans-serif; font-weight: 500;
+    font-size: 0.92rem; border-radius: 8px; cursor: pointer; text-decoration: none; display: inline-block;
+  }
+  .btn-ghost:hover { color: var(--text); border-color: var(--accent); }
+
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 900px) { .form-grid { grid-template-columns: 1fr; } }
+
+  .form-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 18px 20px; margin-bottom: 16px;
+  }
+  .form-card .titulo {
+    font-size: 0.78rem; font-weight: 600; color: var(--text-dim);
+    text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 14px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+  .field label { font-size: 0.78rem; color: var(--text-dim); font-weight: 500; }
+  .field label .req { color: var(--red); }
+  .field input, .field select, .field textarea {
+    padding: 10px 12px; background: var(--surface2); border: 1px solid var(--border);
+    color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 0.88rem;
+    border-radius: 8px; transition: border-color 0.15s; width: 100%;
+  }
+  .field input:focus, .field select:focus, .field textarea:focus {
+    outline: none; border-color: var(--accent);
+  }
+  .field input[type="date"] { color-scheme: dark; }
+  .field textarea { resize: vertical; min-height: 70px; font-family: 'DM Sans', sans-serif; }
+  .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .row-uf-cidade { display: grid; grid-template-columns: 100px 1fr; gap: 12px; }
+
+  .veiculo-card {
+    margin-top: 10px; padding: 12px 14px;
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+    font-size: 0.82rem;
+  }
+  .veiculo-card.empty { color: var(--text-dim); font-style: italic; }
+  .veiculo-card .linha { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; }
+  .veiculo-card .linha .k { color: var(--text-dim); font-size: 0.76rem; }
+  .veiculo-card .linha .v { font-weight: 500; }
+  .badge-prop { padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.03em; }
+  .badge-rizza { background: rgba(52,211,153,0.18); color: var(--green); }
+  .badge-terc  { background: rgba(148,163,184,0.16); color: var(--text-dim); }
+
+  .destino-row {
+    display: grid; grid-template-columns: 100px 1fr 36px; gap: 8px;
+    align-items: center; margin-bottom: 8px;
+    padding: 10px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+  }
+  .destino-row select, .destino-row input {
+    padding: 8px 10px; background: var(--surface); border: 1px solid var(--border);
+    color: var(--text); font-size: 0.82rem; border-radius: 6px;
+  }
+  .destino-row select:focus, .destino-row input:focus { outline: none; border-color: var(--accent); }
+  .destino-rm {
+    background: transparent; border: 1px solid var(--border); color: var(--red);
+    border-radius: 6px; font-size: 1rem; cursor: pointer; padding: 6px 10px;
+  }
+  .destino-rm:hover { background: rgba(248,113,113,0.1); }
+  .btn-add {
+    background: transparent; border: 1px dashed var(--border); color: var(--accent);
+    border-radius: 8px; padding: 8px 16px; cursor: pointer;
+    font-size: 0.82rem; margin-top: 4px;
+  }
+  .btn-add:hover { border-color: var(--accent); background: rgba(56,189,248,0.05); }
+
+  .cliente-novo {
+    background: var(--surface2); border: 1px dashed var(--accent);
+    border-radius: 8px; padding: 12px; margin-top: 8px;
+  }
+  .cliente-novo .field { margin-bottom: 8px; }
+
+  .alerta-warn {
+    background: rgba(251,191,36,0.08); border: 1px solid rgba(251,191,36,0.3);
+    border-radius: 8px; padding: 10px 14px; margin-top: 8px;
+    color: var(--yellow); font-size: 0.8rem;
+  }
+  .alerta-bloq {
+    background: rgba(248,113,113,0.08); border: 1px solid rgba(248,113,113,0.35);
+    border-radius: 10px; padding: 14px 16px; margin-bottom: 14px;
+    color: var(--red); font-size: 0.85rem;
+  }
+  .alerta-bloq .head { font-weight: 700; margin-bottom: 8px; font-size: 0.92rem; }
+  .alerta-bloq ul { margin: 6px 0 6px 18px; padding: 0; }
+  .alerta-bloq li { margin-bottom: 4px; line-height: 1.5; }
+  .alerta-bloq a { color: var(--accent); text-decoration: none; font-weight: 600; }
+  .alerta-bloq a:hover { text-decoration: underline; }
+  .alerta-bloq .dica { margin-top: 8px; color: var(--text-dim); font-size: 0.78rem; }
+  .feedback {
+    margin-top: 10px; padding: 10px 14px; border-radius: 8px; font-size: 0.85rem;
+  }
+  .feedback.ok { background: rgba(52,211,153,0.1); border: 1px solid rgba(52,211,153,0.3); color: var(--green); }
+  .feedback.err { background: rgba(248,113,113,0.1); border: 1px solid rgba(248,113,113,0.3); color: var(--red); }
+  .feedback code { display: block; margin-top: 6px; font-family: 'JetBrains Mono', monospace; font-size: 0.74rem; opacity: 0.85; }
+
+  .acoes-rodape { display: flex; justify-content: space-between; align-items: center; margin-top: 18px; gap: 12px; flex-wrap: wrap; }
+
+  .skel { color: var(--text-dim); font-style: italic; font-size: 0.85rem; }
+  select option { background: var(--surface2); }
+</style>
+</head>
+<body>
+
+<div class="dashboard">
+  <div class="top-bar">
+    <div>
+      <h1>➕ Lançar carga</h1>
+      <span class="meta" id="userInfo"></span>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;">
+      <a href="/embarques" class="btn-sm">← Voltar</a>
+      <a href="/embarques/relatorio" class="btn-sm">📋 Relatório</a>
+      <button class="btn-sm" onclick="recarregarBases()">↻ Atualizar bases</button>
+      <a href="/logout" class="btn-sm">Sair</a>
+    </div>
+  </div>
+
+  <form id="formCarga" onsubmit="return false;">
+    <div class="form-grid">
+
+      <!-- Coluna esquerda -->
+      <div>
+        <div class="form-card">
+          <div class="titulo">👤 Cliente</div>
+          <div class="field">
+            <label>Cliente <span class="req">*</span></label>
+            <select id="selCliente" onchange="onClienteChange()">
+              <option value="">Carregando...</option>
+            </select>
+          </div>
+          <div id="boxClienteNovo" class="cliente-novo" style="display:none;">
+            <div class="field">
+              <label>Nome do novo cliente <span class="req">*</span></label>
+              <input type="text" id="inpClienteNovo" placeholder="Ex: Nestlé Brasil">
+            </div>
+            <div style="display:flex;gap:8px;">
+              <button type="button" class="btn-sm" onclick="salvarClienteNovo()">💾 Salvar cliente</button>
+              <button type="button" class="btn-sm" onclick="cancelarClienteNovo()">Cancelar</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-card">
+          <div class="titulo">🚦 Tipo de operação</div>
+          <div class="field">
+            <label>Tipo <span class="req">*</span></label>
+            <select id="selTipo">
+              <option value="">— Selecione —</option>
+              <option value="Frota">Frota</option>
+              <option value="Agregado">Agregado</option>
+              <option value="Terceiro">Terceiro</option>
+            </select>
+            <div id="alertaTipo" class="alerta-warn" style="display:none;"></div>
+          </div>
+        </div>
+
+        <div class="form-card">
+          <div class="titulo">📍 Origem</div>
+          <div class="row-uf-cidade">
+            <div class="field">
+              <label>UF <span class="req">*</span></label>
+              <select id="selOrigemUF" onchange="onUfOrigemChange()">
+                <option value="">—</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Cidade <span class="req">*</span></label>
+              <select id="selOrigemCidade" disabled>
+                <option value="">Selecione a UF primeiro</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-card">
+          <div class="titulo">🎯 Destinos <span style="color:var(--text-dim);font-weight:400;">(mín. 1)</span></div>
+          <div id="destinosList"></div>
+          <button type="button" class="btn-add" onclick="addDestino()">+ Adicionar destino</button>
+        </div>
+
+        <div class="form-card">
+          <div class="titulo">📅 Datas</div>
+          <div class="row-2">
+            <div class="field">
+              <label>Data carregamento <span class="req">*</span></label>
+              <input type="date" id="inpDataCarregamento">
+            </div>
+            <div class="field">
+              <label>Previsão entrega</label>
+              <input type="date" id="inpPrevisaoEntrega">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Coluna direita -->
+      <div>
+        <div class="form-card">
+          <div class="titulo">🧑‍✈️ Motorista</div>
+          <div class="field">
+            <label>Nome ou CPF <span class="req">*</span> <span class="skel" id="skelMot"></span></label>
+            <input type="text" id="inpMotorista" list="dlMotoristas" placeholder="Digite nome ou CPF..." oninput="onMotoristaInput()">
+            <datalist id="dlMotoristas"></datalist>
+            <div class="veiculo-card empty" id="cardMotorista">Nenhum motorista selecionado.</div>
+          </div>
+        </div>
+
+        <div class="form-card">
+          <div class="titulo">🚛 Cavalo</div>
+          <div class="field">
+            <label>Placa <span class="req">*</span> <span class="skel" id="skelVeic"></span></label>
+            <input type="text" id="inpCavalo" list="dlCavalos" placeholder="Ex: ABC1D23" oninput="onCavaloInput()" style="text-transform:uppercase;">
+            <datalist id="dlCavalos"></datalist>
+            <div class="veiculo-card empty" id="cardCavalo">Nenhum cavalo selecionado.</div>
+          </div>
+        </div>
+
+        <div class="form-card">
+          <div class="titulo">🛻 Carreta 1 <span id="labelCarreta1Opcional" style="color:var(--text-dim);font-weight:400;">(obrigatória)</span></div>
+          <div class="field">
+            <input type="text" id="inpCarreta1" list="dlCarretas" placeholder="Ex: XYZ4E56" oninput="onCarreta1Input()" style="text-transform:uppercase;">
+            <datalist id="dlCarretas"></datalist>
+            <div class="veiculo-card empty" id="cardCarreta1">Nenhuma carreta selecionada.</div>
+          </div>
+        </div>
+
+        <div class="form-card" id="boxCarreta2" style="display:none;">
+          <div class="titulo">🛻 Carreta 2 <span style="color:var(--text-dim);font-weight:400;">(bi-trem, opcional)</span></div>
+          <div class="field">
+            <input type="text" id="inpCarreta2" list="dlCarretas" placeholder="Ex: ABC5F78" oninput="onCarreta2Input()" style="text-transform:uppercase;">
+            <div class="veiculo-card empty" id="cardCarreta2">Nenhuma carreta selecionada.</div>
+          </div>
+        </div>
+
+        <div class="form-card">
+          <div class="titulo">📝 Observações</div>
+          <textarea id="inpObservacoes" placeholder="Anotações livres..."></textarea>
+        </div>
+      </div>
+    </div>
+
+    <div id="conflitosArea"></div>
+    <div id="feedbackArea"></div>
+
+    <div class="acoes-rodape">
+      <a href="/embarques" class="btn-ghost">Cancelar</a>
+      <button type="button" id="btnSalvar" class="btn-primary" onclick="salvarCarga()">💾 Lançar carga</button>
+    </div>
+  </form>
+</div>
+
+<script>
+  const UFs = ['AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS','MT','PA','PB','PE','PI','PR','RJ','RN','RO','RR','RS','SC','SE','SP','TO'];
+
+  // Detectar modo edição via URL /embarques/<id>/editar
+  const _mEdit = window.location.pathname.match(/^\/embarques\/(\d+)\/editar/);
+  const EDIT_ID = _mEdit ? parseInt(_mEdit[1], 10) : null;
+  const MODO_EDICAO = EDIT_ID !== null;
+
+  // Estados globais
+  let MOTORISTAS = [];   // [{nome, cpf, telefone}]
+  let VEICULOS = [];     // [{placa, tipo, marca_modelo, carroceria, proprietario, eh_rizza}]
+  let CLIENTES = [];     // [{id, nome}]
+  let MOTORISTA_SEL = null;
+  let CAVALO_SEL = null;
+  let CARRETA1_SEL = null;
+  let CARRETA2_SEL = null;
+  let DESTINOS = [];     // [{uf, cidade}]
+  let TIPO_USUARIO_FORCOU = false;  // se true, não auto-preenche tipo
+
+  function digits(s) { return (s || '').replace(/\D/g, ''); }
+  function maskCpf(c) {
+    const d = digits(c);
+    if (d.length !== 11) return c;
+    return d.slice(0,3) + '.' + d.slice(3,6) + '.' + d.slice(6,9) + '-' + d.slice(9);
+  }
+
+  async function loadMe() {
+    try {
+      const r = await fetch('/api/me', { credentials: 'same-origin' });
+      const j = await r.json();
+      if (j.ok) document.getElementById('userInfo').textContent = '👤 ' + j.nome;
+    } catch (e) {}
+  }
+
+  function popularUFs() {
+    const sel = document.getElementById('selOrigemUF');
+    sel.innerHTML = '<option value="">—</option>' + UFs.map(u => `<option value="${u}">${u}</option>`).join('');
+  }
+
+  async function loadClientes() {
+    const sel = document.getElementById('selCliente');
+    sel.innerHTML = '<option value="">Carregando...</option>';
+    try {
+      const r = await fetch('/api/embarques/clientes', { credentials: 'same-origin' });
+      const j = await r.json();
+      if (j.ok) {
+        CLIENTES = j.data;
+        renderClientes();
+      }
+    } catch (e) {
+      sel.innerHTML = '<option value="">Erro ao carregar</option>';
+    }
+  }
+
+  function renderClientes(selecionarId) {
+    const sel = document.getElementById('selCliente');
+    const opts = ['<option value="">— Selecione um cliente —</option>'];
+    for (const c of CLIENTES) {
+      opts.push(`<option value="${c.id}">${c.nome}</option>`);
+    }
+    opts.push('<option value="__novo">+ Cadastrar novo cliente</option>');
+    sel.innerHTML = opts.join('');
+    if (selecionarId) sel.value = String(selecionarId);
+  }
+
+  function onClienteChange() {
+    const sel = document.getElementById('selCliente');
+    const box = document.getElementById('boxClienteNovo');
+    if (sel.value === '__novo') {
+      box.style.display = 'block';
+      document.getElementById('inpClienteNovo').focus();
+    } else {
+      box.style.display = 'none';
+    }
+  }
+
+  async function salvarClienteNovo() {
+    const nome = document.getElementById('inpClienteNovo').value.trim();
+    if (nome.length < 3) { alert('Nome muito curto (mínimo 3 caracteres).'); return; }
+    try {
+      const r = await fetch('/api/embarques/clientes', {
+        method: 'POST', credentials: 'same-origin',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ nome })
+      });
+      const j = await r.json();
+      if (!j.ok) { alert('Erro: ' + j.error); return; }
+      await loadClientes();
+      // Adiciona ao array local caso ainda não esteja
+      if (!CLIENTES.find(c => c.id === j.id)) {
+        CLIENTES.push({ id: j.id, nome });
+      }
+      renderClientes(j.id);
+      document.getElementById('inpClienteNovo').value = '';
+      document.getElementById('boxClienteNovo').style.display = 'none';
+    } catch (e) {
+      alert('Erro: ' + e.message);
+    }
+  }
+
+  function cancelarClienteNovo() {
+    document.getElementById('inpClienteNovo').value = '';
+    document.getElementById('boxClienteNovo').style.display = 'none';
+    document.getElementById('selCliente').value = '';
+  }
+
+  // ── Motoristas ──
+  async function loadMotoristas(refresh) {
+    const sk = document.getElementById('skelMot');
+    sk.textContent = '(carregando do Power BI...)';
+    try {
+      const url = '/api/embarques/motoristas' + (refresh ? '?refresh=1' : '');
+      const r = await fetch(url, { credentials: 'same-origin' });
+      const j = await r.json();
+      if (j.ok) {
+        MOTORISTAS = j.data;
+        const dl = document.getElementById('dlMotoristas');
+        dl.innerHTML = MOTORISTAS.map(m => {
+          const cpfFmt = maskCpf(m.cpf);
+          return `<option value="${m.nome} — ${cpfFmt}">`;
+        }).join('');
+        sk.textContent = `(${MOTORISTAS.length} motoristas${j.cached ? ' — cache' : ''})`;
+      } else {
+        sk.textContent = '(erro: ' + (j.error || 'desconhecido') + ')';
+      }
+    } catch (e) {
+      sk.textContent = '(erro)';
+    }
+  }
+
+  // ── Conflitos (motorista/veículo em carga ativa) ──
+  let CONFLITOS = [];
+  let _conflitoTimer = null;
+
+  function agendarVerificacaoConflitos() {
+    clearTimeout(_conflitoTimer);
+    _conflitoTimer = setTimeout(verificarConflitos, 300);
+  }
+
+  async function verificarConflitos() {
+    const cpf = MOTORISTA_SEL ? digits(MOTORISTA_SEL.cpf) : '';
+    const placas = [
+      CAVALO_SEL && CAVALO_SEL.placa,
+      CARRETA1_SEL && CARRETA1_SEL.placa,
+      CARRETA2_SEL && CARRETA2_SEL.placa,
+    ].filter(Boolean);
+    if (!cpf && placas.length === 0) {
+      CONFLITOS = [];
+      renderConflitos();
+      return;
+    }
+    const params = new URLSearchParams();
+    if (cpf) params.set('cpf', cpf);
+    if (placas.length) params.set('placas', placas.join(','));
+    if (MODO_EDICAO && EDIT_ID) params.set('exclude_id', EDIT_ID);
+    try {
+      const r = await fetch('/api/embarques/conflitos?' + params.toString(), { credentials: 'same-origin' });
+      const j = await r.json();
+      CONFLITOS = j.ok ? j.data : [];
+    } catch (e) {
+      CONFLITOS = [];
+    }
+    renderConflitos();
+  }
+
+  function renderConflitos() {
+    const box = document.getElementById('conflitosArea');
+    const btn = document.getElementById('btnSalvar');
+    if (!CONFLITOS || CONFLITOS.length === 0) {
+      box.innerHTML = '';
+      btn.disabled = false;
+      btn.textContent = '💾 Lançar carga';
+      return;
+    }
+    // Agrupa por carga conflitante (mesma carga pode ter motorista + placa conflitando)
+    const porCarga = {};
+    for (const c of CONFLITOS) {
+      const k = c.carga_id;
+      if (!porCarga[k]) porCarga[k] = { numero: c.numero, status: c.status, data: c.data_carregamento, motivos: [] };
+      const tipoLbl = c.tipo === 'motorista' ? 'Motorista' : (c.tipo === 'cavalo' ? 'Cavalo' : 'Carreta');
+      porCarga[k].motivos.push(`${tipoLbl} <strong>${c.recurso}</strong>`);
+    }
+    const items = Object.entries(porCarga).map(([id, info]) => {
+      const dt = info.data ? info.data.split('T')[0].split('-').reverse().join('/') : '';
+      return `<li>${info.motivos.join(' e ')} já está na carga <a href="/embarques/relatorio?destacar=${id}" target="_blank">${info.numero}</a> (${info.status}${dt ? ' desde ' + dt : ''})</li>`;
+    });
+    box.innerHTML = `
+      <div class="alerta-bloq">
+        <div class="head">⛔ Conflito detectado — não dá pra lançar esta carga</div>
+        <ul>${items.join('')}</ul>
+        <div class="dica">Conclua ou cancele a carga anterior antes de lançar uma nova com esse recurso. Você pode mudar o status no relatório.</div>
+      </div>`;
+    btn.disabled = true;
+    btn.textContent = '⛔ Resolva o conflito acima';
+  }
+
+  function onMotoristaInput() {
+    const v = document.getElementById('inpMotorista').value.trim();
+    const vDigits = digits(v);
+    // Procura por CPF exato (sem máscara) ou nome — pega o primeiro match único
+    let achados;
+    if (vDigits.length === 11) {
+      achados = MOTORISTAS.filter(m => digits(m.cpf) === vDigits);
+    } else {
+      const vUp = v.toUpperCase();
+      achados = MOTORISTAS.filter(m =>
+        (m.nome || '').toUpperCase().includes(vUp.split(' — ')[0]) ||
+        digits(m.cpf).startsWith(vDigits)
+      );
+    }
+    if (v.includes(' — ')) {
+      const [nm, cpf] = v.split(' — ');
+      achados = MOTORISTAS.filter(m => m.nome === nm.trim() && maskCpf(m.cpf) === cpf.trim());
+    }
+    MOTORISTA_SEL = achados.length === 1 ? achados[0] : null;
+    renderCardMotorista();
+    agendarVerificacaoConflitos();
+  }
+
+  function renderCardMotorista() {
+    const c = document.getElementById('cardMotorista');
+    if (!MOTORISTA_SEL) {
+      c.className = 'veiculo-card empty';
+      c.textContent = 'Nenhum motorista selecionado.';
+      return;
+    }
+    c.className = 'veiculo-card';
+    c.innerHTML =
+      `<div class="linha"><span class="k">Nome</span><span class="v">${MOTORISTA_SEL.nome}</span></div>` +
+      `<div class="linha"><span class="k">CPF</span><span class="v" style="font-family:'JetBrains Mono',monospace;">${maskCpf(MOTORISTA_SEL.cpf)}</span></div>` +
+      (MOTORISTA_SEL.telefone ? `<div class="linha"><span class="k">Telefone</span><span class="v">${MOTORISTA_SEL.telefone}</span></div>` : '');
+  }
+
+  // ── Veículos ──
+  async function loadVeiculos(refresh) {
+    const sk = document.getElementById('skelVeic');
+    sk.textContent = '(carregando do Power BI...)';
+    try {
+      const url = '/api/embarques/veiculos' + (refresh ? '?refresh=1' : '');
+      const r = await fetch(url, { credentials: 'same-origin' });
+      const j = await r.json();
+      if (j.ok) {
+        VEICULOS = j.data;
+        renderDatalistsVeiculos();
+        sk.textContent = `(${VEICULOS.length} veículos${j.cached ? ' — cache' : ''})`;
+      } else {
+        sk.textContent = '(erro: ' + (j.error || 'desconhecido') + ')';
+      }
+    } catch (e) {
+      sk.textContent = '(erro)';
+    }
+  }
+
+  function renderDatalistsVeiculos() {
+    const tipoCavalo = VEICULOS.filter(v => v.tipo === 'Cavalo' || v.tipo === 'Truck');
+    const tipoCarreta = VEICULOS.filter(v => v.tipo === 'Carreta');
+    document.getElementById('dlCavalos').innerHTML = tipoCavalo.map(v =>
+      `<option value="${v.placa}">${v.tipo} — ${v.marca_modelo || ''} — ${v.proprietario || ''}</option>`
+    ).join('');
+    document.getElementById('dlCarretas').innerHTML = tipoCarreta.map(v =>
+      `<option value="${v.placa}">${v.marca_modelo || ''} — ${v.carroceria || ''} — ${v.proprietario || ''}</option>`
+    ).join('');
+  }
+
+  function buscarVeiculo(placa) {
+    const p = (placa || '').toUpperCase().replace(/\s/g, '');
+    return VEICULOS.find(v => v.placa === p) || null;
+  }
+
+  function renderCardVeiculo(elId, veic) {
+    const c = document.getElementById(elId);
+    if (!veic) {
+      c.className = 'veiculo-card empty';
+      c.textContent = 'Nenhum veículo selecionado.';
+      return;
+    }
+    c.className = 'veiculo-card';
+    const badge = veic.eh_rizza
+      ? ' <span class="badge-prop badge-rizza">RIZZA</span>'
+      : '';
+    c.innerHTML =
+      `<div class="linha"><span class="k">Placa</span><span class="v" style="font-family:'JetBrains Mono',monospace;">${veic.placa}</span></div>` +
+      `<div class="linha"><span class="k">Tipo</span><span class="v">${veic.tipo}</span></div>` +
+      (veic.marca_modelo ? `<div class="linha"><span class="k">Marca/Modelo</span><span class="v">${veic.marca_modelo}</span></div>` : '') +
+      (veic.carroceria ? `<div class="linha"><span class="k">Carroceria</span><span class="v">${veic.carroceria}</span></div>` : '') +
+      `<div class="linha"><span class="k">Proprietário</span><span class="v">${(veic.proprietario || '—')}${badge}</span></div>`;
+  }
+
+  function onCavaloInput() {
+    const placa = document.getElementById('inpCavalo').value.trim().toUpperCase();
+    CAVALO_SEL = buscarVeiculo(placa);
+    renderCardVeiculo('cardCavalo', CAVALO_SEL);
+    aplicarRegrasRizza();
+    atualizarObrigatoriedadeCarreta();
+    agendarVerificacaoConflitos();
+  }
+
+  function onCarreta1Input() {
+    const placa = document.getElementById('inpCarreta1').value.trim().toUpperCase();
+    const v = buscarVeiculo(placa);
+    CARRETA1_SEL = (v && v.tipo === 'Carreta') ? v : null;
+    renderCardVeiculo('cardCarreta1', CARRETA1_SEL);
+    aplicarRegrasRizza();
+    // Carreta 2 aparece quando Carreta 1 está preenchida
+    document.getElementById('boxCarreta2').style.display = CARRETA1_SEL ? 'block' : 'none';
+    if (!CARRETA1_SEL) {
+      CARRETA2_SEL = null;
+      document.getElementById('inpCarreta2').value = '';
+      renderCardVeiculo('cardCarreta2', null);
+    }
+    agendarVerificacaoConflitos();
+  }
+
+  function onCarreta2Input() {
+    const placa = document.getElementById('inpCarreta2').value.trim().toUpperCase();
+    const v = buscarVeiculo(placa);
+    CARRETA2_SEL = (v && v.tipo === 'Carreta') ? v : null;
+    renderCardVeiculo('cardCarreta2', CARRETA2_SEL);
+    agendarVerificacaoConflitos();
+  }
+
+  function atualizarObrigatoriedadeCarreta() {
+    const lbl = document.getElementById('labelCarreta1Opcional');
+    if (CAVALO_SEL && CAVALO_SEL.tipo === 'Truck') {
+      lbl.textContent = '(opcional — veículo é Truck)';
+      lbl.style.color = 'var(--text-dim)';
+    } else {
+      lbl.textContent = '(obrigatória)';
+      lbl.style.color = 'var(--text-dim)';
+    }
+  }
+
+  function aplicarRegrasRizza() {
+    const sel = document.getElementById('selTipo');
+    const alerta = document.getElementById('alertaTipo');
+    const cavRizza = CAVALO_SEL && CAVALO_SEL.eh_rizza;
+    const carRizza = CARRETA1_SEL && CARRETA1_SEL.eh_rizza;
+
+    // Reset opções
+    [...sel.options].forEach(o => o.disabled = false);
+
+    // Se algum lado é Rizza, "Terceiro" some
+    if (cavRizza || carRizza) {
+      const optT = [...sel.options].find(o => o.value === 'Terceiro');
+      if (optT) optT.disabled = true;
+      if (sel.value === 'Terceiro' && !TIPO_USUARIO_FORCOU) sel.value = '';
+    }
+
+    // Auto-preenchimento (só se o usuário não forçou nada)
+    if (!TIPO_USUARIO_FORCOU) {
+      if (cavRizza && carRizza) { sel.value = 'Frota'; }
+      else if (cavRizza && CARRETA1_SEL && !carRizza) { sel.value = 'Agregado'; }
+      else if (cavRizza && !CARRETA1_SEL) { sel.value = 'Frota'; }
+      else if (!cavRizza && carRizza) { sel.value = 'Agregado'; }
+    }
+
+    // Alerta de divergência — só faz sentido depois que pelo menos o cavalo foi escolhido,
+    // porque sem veículo não dá pra inferir nada sobre proprietário.
+    if (!CAVALO_SEL) {
+      alerta.style.display = 'none';
+      return;
+    }
+    // Se o cavalo é tipo 'Cavalo' (não Truck), também precisamos da carreta1 pra inferir corretamente
+    if (CAVALO_SEL.tipo === 'Cavalo' && !CARRETA1_SEL) {
+      alerta.style.display = 'none';
+      return;
+    }
+    const esperado = cavRizza && carRizza ? 'Frota'
+                   : (cavRizza || carRizza) ? 'Agregado'
+                   : 'Terceiro';
+    if (sel.value && sel.value !== esperado) {
+      alerta.style.display = 'block';
+      alerta.innerHTML = `⚠ O tipo selecionado <strong>${sel.value}</strong> diverge do esperado <strong>${esperado}</strong> pelos proprietários. Você pode salvar mesmo assim.`;
+    } else {
+      alerta.style.display = 'none';
+    }
+  }
+
+  document.addEventListener('change', e => {
+    if (e.target.id === 'selTipo') {
+      TIPO_USUARIO_FORCOU = !!e.target.value;
+      aplicarRegrasRizza();
+    }
+  });
+
+  // ── Origem (IBGE) ──
+  async function onUfOrigemChange() {
+    const uf = document.getElementById('selOrigemUF').value;
+    const selCidade = document.getElementById('selOrigemCidade');
+    if (!uf) {
+      selCidade.disabled = true;
+      selCidade.innerHTML = '<option value="">Selecione a UF primeiro</option>';
+      return;
+    }
+    selCidade.disabled = true;
+    selCidade.innerHTML = '<option value="">Carregando cidades...</option>';
+    try {
+      const r = await fetch(`https://servicodados.ibge.gov.br/api/v1/localidades/estados/${uf}/municipios`);
+      const arr = await r.json();
+      selCidade.innerHTML = '<option value="">— Selecione —</option>' +
+        arr.map(c => `<option value="${c.nome}">${c.nome}</option>`).join('');
+      selCidade.disabled = false;
+    } catch (e) {
+      selCidade.innerHTML = '<option value="">Erro IBGE</option>';
+    }
+  }
+
+  // ── Destinos ──
+  function addDestino() {
+    const idx = DESTINOS.length;
+    DESTINOS.push({ uf: '', cidade: '', cidades: [] });
+    renderDestinos();
+    // foca no select UF do destino recém adicionado
+    setTimeout(() => {
+      const el = document.getElementById(`dest-uf-${idx}`);
+      if (el) el.focus();
+    }, 10);
+  }
+
+  function removerDestino(i) {
+    DESTINOS.splice(i, 1);
+    renderDestinos();
+  }
+
+  function renderDestinos() {
+    const box = document.getElementById('destinosList');
+    box.innerHTML = DESTINOS.map((d, i) => `
+      <div class="destino-row">
+        <select id="dest-uf-${i}" onchange="onUfDestinoChange(${i})">
+          <option value="">UF</option>
+          ${UFs.map(u => `<option value="${u}" ${d.uf === u ? 'selected' : ''}>${u}</option>`).join('')}
+        </select>
+        <select id="dest-cidade-${i}" ${d.uf ? '' : 'disabled'} onchange="DESTINOS[${i}].cidade = this.value;">
+          ${d.uf ? (d.cidades.length === 0
+              ? '<option value="">Carregando...</option>'
+              : '<option value="">— Selecione —</option>' + d.cidades.map(c => `<option value="${c}" ${d.cidade === c ? 'selected' : ''}>${c}</option>`).join(''))
+            : '<option value="">Selecione a UF</option>'}
+        </select>
+        <button type="button" class="destino-rm" onclick="removerDestino(${i})" title="Remover">✕</button>
+      </div>
+    `).join('');
+  }
+
+  async function onUfDestinoChange(i) {
+    const uf = document.getElementById(`dest-uf-${i}`).value;
+    DESTINOS[i].uf = uf;
+    DESTINOS[i].cidade = '';
+    DESTINOS[i].cidades = [];
+    renderDestinos();
+    if (!uf) return;
+    try {
+      const r = await fetch(`https://servicodados.ibge.gov.br/api/v1/localidades/estados/${uf}/municipios`);
+      const arr = await r.json();
+      DESTINOS[i].cidades = arr.map(c => c.nome);
+      renderDestinos();
+    } catch (e) {}
+  }
+
+  // ── Salvar ──
+  async function salvarCarga() {
+    const fb = document.getElementById('feedbackArea');
+    fb.innerHTML = '';
+
+    // Validações client-side
+    const clienteId = document.getElementById('selCliente').value;
+    if (!clienteId || clienteId === '__novo') return showErr('Selecione um cliente.');
+    const cliente = CLIENTES.find(c => String(c.id) === clienteId);
+    if (!cliente) return showErr('Cliente inválido.');
+
+    const tipo = document.getElementById('selTipo').value;
+    if (!tipo) return showErr('Selecione o tipo de operação.');
+
+    const oriUf = document.getElementById('selOrigemUF').value;
+    const oriCidade = document.getElementById('selOrigemCidade').value;
+    if (!oriUf || !oriCidade) return showErr('Informe a origem (UF + cidade).');
+
+    if (DESTINOS.length < 1) return showErr('Adicione pelo menos 1 destino.');
+    for (let i = 0; i < DESTINOS.length; i++) {
+      if (!DESTINOS[i].uf || !DESTINOS[i].cidade) return showErr(`Destino ${i+1} incompleto.`);
+    }
+
+    if (!MOTORISTA_SEL) return showErr('Selecione um motorista válido.');
+    if (!CAVALO_SEL) return showErr('Selecione uma placa de cavalo válida.');
+    if (CAVALO_SEL.tipo === 'Cavalo' && !CARRETA1_SEL) return showErr('Carreta 1 é obrigatória para veículo tipo Cavalo.');
+
+    const dataCar = document.getElementById('inpDataCarregamento').value;
+    if (!dataCar) return showErr('Informe a data de carregamento.');
+
+    const previsao = document.getElementById('inpPrevisaoEntrega').value || null;
+    const obs = document.getElementById('inpObservacoes').value.trim() || null;
+
+    let payload;
+    if (MODO_EDICAO) {
+      // PATCH: campos flat (whitelist do backend)
+      payload = {
+        tipo_operacao: tipo,
+        cliente_id: parseInt(clienteId, 10),
+        cliente_nome: cliente.nome,
+        origem_cidade: oriCidade,
+        origem_uf: oriUf,
+        destinos: DESTINOS.map(d => ({ cidade: d.cidade, uf: d.uf })),
+        motorista_nome: MOTORISTA_SEL.nome,
+        motorista_cpf: MOTORISTA_SEL.cpf,
+        motorista_telefone: MOTORISTA_SEL.telefone || null,
+        cavalo_placa: CAVALO_SEL.placa,
+        cavalo_tipo: CAVALO_SEL.tipo,
+        cavalo_marca_modelo: CAVALO_SEL.marca_modelo,
+        cavalo_carroceria: CAVALO_SEL.carroceria,
+        cavalo_proprietario: CAVALO_SEL.proprietario,
+        cavalo_eh_rizza: !!CAVALO_SEL.eh_rizza,
+        carreta1_placa: CARRETA1_SEL ? CARRETA1_SEL.placa : null,
+        carreta1_marca_modelo: CARRETA1_SEL ? CARRETA1_SEL.marca_modelo : null,
+        carreta1_carroceria: CARRETA1_SEL ? CARRETA1_SEL.carroceria : null,
+        carreta1_proprietario: CARRETA1_SEL ? CARRETA1_SEL.proprietario : null,
+        carreta1_eh_rizza: CARRETA1_SEL ? !!CARRETA1_SEL.eh_rizza : false,
+        carreta2_placa: CARRETA2_SEL ? CARRETA2_SEL.placa : null,
+        carreta2_marca_modelo: CARRETA2_SEL ? CARRETA2_SEL.marca_modelo : null,
+        carreta2_carroceria: CARRETA2_SEL ? CARRETA2_SEL.carroceria : null,
+        carreta2_proprietario: CARRETA2_SEL ? CARRETA2_SEL.proprietario : null,
+        carreta2_eh_rizza: CARRETA2_SEL ? !!CARRETA2_SEL.eh_rizza : false,
+        data_carregamento: dataCar,
+        previsao_entrega: previsao,
+        observacoes: obs,
+      };
+    } else {
+      payload = {
+        tipo_operacao: tipo,
+        cliente_id: parseInt(clienteId, 10),
+        cliente_nome: cliente.nome,
+        origem: { cidade: oriCidade, uf: oriUf },
+        destinos: DESTINOS.map(d => ({ cidade: d.cidade, uf: d.uf })),
+        motorista: { nome: MOTORISTA_SEL.nome, cpf: MOTORISTA_SEL.cpf, telefone: MOTORISTA_SEL.telefone || null },
+        cavalo: {
+          placa: CAVALO_SEL.placa, tipo: CAVALO_SEL.tipo,
+          marca_modelo: CAVALO_SEL.marca_modelo, carroceria: CAVALO_SEL.carroceria,
+          proprietario: CAVALO_SEL.proprietario, eh_rizza: !!CAVALO_SEL.eh_rizza,
+        },
+        carreta1: CARRETA1_SEL ? {
+          placa: CARRETA1_SEL.placa,
+          marca_modelo: CARRETA1_SEL.marca_modelo, carroceria: CARRETA1_SEL.carroceria,
+          proprietario: CARRETA1_SEL.proprietario, eh_rizza: !!CARRETA1_SEL.eh_rizza,
+        } : null,
+        carreta2: CARRETA2_SEL ? {
+          placa: CARRETA2_SEL.placa,
+          marca_modelo: CARRETA2_SEL.marca_modelo, carroceria: CARRETA2_SEL.carroceria,
+          proprietario: CARRETA2_SEL.proprietario, eh_rizza: !!CARRETA2_SEL.eh_rizza,
+        } : null,
+        data_carregamento: dataCar,
+        previsao_entrega: previsao,
+        observacoes: obs,
+      };
+    }
+
+    const btn = document.getElementById('btnSalvar');
+    const txtSalvar = MODO_EDICAO ? '💾 Salvar alterações' : '💾 Lançar carga';
+    btn.disabled = true; btn.textContent = 'Salvando...';
+    try {
+      const url = MODO_EDICAO ? `/api/embarques/cargas/${EDIT_ID}` : '/api/embarques/cargas';
+      const method = MODO_EDICAO ? 'PATCH' : 'POST';
+      const r = await fetch(url, {
+        method, credentials: 'same-origin',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+      });
+      const j = await r.json();
+      if (!j.ok) {
+        if (j.tipo === 'conflito') {
+          CONFLITOS = j.conflitos || [];
+          renderConflitos();
+          return showErr('Conflito detectado entre a sua tentativa e outra carga ativa. Veja o aviso acima.', true);
+        }
+        if (r.status === 403) {
+          return showErr('⛔ ' + j.error, true);
+        }
+        const det = j.detail ? '<code>' + (Array.isArray(j.detail) ? j.detail.join(' | ') : JSON.stringify(j.detail)) + '</code>' : '';
+        return showErr('Erro ao salvar: ' + j.error + det, true);
+      }
+      // Sucesso
+      let msg;
+      if (MODO_EDICAO) {
+        msg = `✅ ${j.alteracoes || 0} alteração(ões) salva(s).`;
+      } else {
+        msg = `✅ Carga <strong>${j.numero}</strong> lançada com sucesso!`;
+        if (j.warnings && j.warnings.length) {
+          msg += '<br><span style="color:var(--yellow);font-size:0.8rem;">⚠ ' + j.warnings.join(' / ') + '</span>';
+        }
+      }
+      fb.innerHTML = `<div class="feedback ok">${msg}</div>`;
+      const destacar = MODO_EDICAO ? EDIT_ID : j.id;
+      setTimeout(() => {
+        window.location.href = '/embarques/relatorio?destacar=' + destacar;
+      }, 1200);
+    } catch (e) {
+      showErr('Erro de rede: ' + e.message, true);
+    } finally {
+      btn.disabled = false; btn.textContent = txtSalvar;
+    }
+  }
+
+  function showErr(msg, keepBtn) {
+    document.getElementById('feedbackArea').innerHTML = `<div class="feedback err">${msg}</div>`;
+    if (!keepBtn) {
+      const btn = document.getElementById('btnSalvar');
+      btn.disabled = false;
+      btn.textContent = MODO_EDICAO ? '💾 Salvar alterações' : '💾 Lançar carga';
+    }
+    return false;
+  }
+
+  async function recarregarBases() {
+    await Promise.all([loadMotoristas(true), loadVeiculos(true)]);
+  }
+
+  // ── Modo edição: carrega carga e pré-preenche ──
+  async function carregarParaEdicao() {
+    if (!MODO_EDICAO) return;
+    try {
+      const r = await fetch(`/api/embarques/cargas/${EDIT_ID}`, { credentials: 'same-origin' });
+      const j = await r.json();
+      if (!j.ok) {
+        document.querySelector('.dashboard').innerHTML =
+          `<div style="padding:40px;text-align:center;color:var(--red);font-size:1rem;">
+             ⛔ ${j.error || 'Carga não encontrada.'}
+             <br><br><a href="/embarques/relatorio" class="btn-sm">Voltar ao relatório</a>
+           </div>`;
+        return;
+      }
+      const c = j.data;
+      if (!c.pode_editar) {
+        document.querySelector('.dashboard').innerHTML =
+          `<div style="padding:40px;text-align:center;color:var(--red);font-size:1rem;">
+             ⛔ Você não pode editar esta carga. Apenas quem lançou ou um administrador.
+             <br><br><a href="/embarques/relatorio" class="btn-sm">Voltar ao relatório</a>
+           </div>`;
+        return;
+      }
+      // Título e botão
+      document.querySelector('.top-bar h1').textContent = `✏ Editar carga ${c.numero || ''}`;
+      document.title = `Editar ${c.numero || ''} — Embarques`;
+      document.getElementById('btnSalvar').textContent = '💾 Salvar alterações';
+
+      // Cliente
+      if (c.cliente_id) {
+        const sel = document.getElementById('selCliente');
+        // Aguarda CLIENTES estarem carregados
+        const tentar = () => {
+          if (CLIENTES.length === 0) { setTimeout(tentar, 50); return; }
+          sel.value = String(c.cliente_id);
+        };
+        tentar();
+      }
+
+      // Tipo (marca como forçado pelo usuário pra não auto-mudar)
+      if (c.tipo_operacao) {
+        document.getElementById('selTipo').value = c.tipo_operacao;
+        TIPO_USUARIO_FORCOU = true;
+      }
+
+      // Origem
+      if (c.origem_uf) {
+        document.getElementById('selOrigemUF').value = c.origem_uf;
+        await onUfOrigemChange();
+        if (c.origem_cidade) document.getElementById('selOrigemCidade').value = c.origem_cidade;
+      }
+
+      // Destinos
+      DESTINOS = (c.destinos || []).map(d => ({ uf: d.uf, cidade: d.cidade, cidades: [] }));
+      if (DESTINOS.length === 0) DESTINOS.push({ uf: '', cidade: '', cidades: [] });
+      renderDestinos();
+      for (let i = 0; i < DESTINOS.length; i++) {
+        if (DESTINOS[i].uf) {
+          const cidadeSalva = DESTINOS[i].cidade;
+          await onUfDestinoChange(i);
+          DESTINOS[i].cidade = cidadeSalva;
+          const selCi = document.getElementById(`dest-cidade-${i}`);
+          if (selCi) selCi.value = cidadeSalva;
+        }
+      }
+
+      // Motorista (snapshot pode não estar mais no PBI, então monta a partir dos campos da carga)
+      if (c.motorista_cpf) {
+        const cpfFmt = maskCpf(c.motorista_cpf);
+        document.getElementById('inpMotorista').value = `${c.motorista_nome || ''} — ${cpfFmt}`;
+        MOTORISTA_SEL = {
+          nome: c.motorista_nome,
+          cpf: c.motorista_cpf,
+          telefone: c.motorista_telefone || null
+        };
+        renderCardMotorista();
+      }
+
+      // Cavalo
+      if (c.cavalo_placa) {
+        document.getElementById('inpCavalo').value = c.cavalo_placa;
+        CAVALO_SEL = buscarVeiculo(c.cavalo_placa) || {
+          placa: c.cavalo_placa, tipo: c.cavalo_tipo || 'Cavalo',
+          marca_modelo: c.cavalo_marca_modelo, carroceria: c.cavalo_carroceria,
+          proprietario: c.cavalo_proprietario, eh_rizza: !!c.cavalo_eh_rizza
+        };
+        renderCardVeiculo('cardCavalo', CAVALO_SEL);
+        atualizarObrigatoriedadeCarreta();
+      }
+
+      // Carreta 1
+      if (c.carreta1_placa) {
+        document.getElementById('inpCarreta1').value = c.carreta1_placa;
+        CARRETA1_SEL = buscarVeiculo(c.carreta1_placa) || {
+          placa: c.carreta1_placa, tipo: 'Carreta',
+          marca_modelo: c.carreta1_marca_modelo, carroceria: c.carreta1_carroceria,
+          proprietario: c.carreta1_proprietario, eh_rizza: !!c.carreta1_eh_rizza
+        };
+        renderCardVeiculo('cardCarreta1', CARRETA1_SEL);
+        document.getElementById('boxCarreta2').style.display = 'block';
+      }
+
+      // Carreta 2
+      if (c.carreta2_placa) {
+        document.getElementById('inpCarreta2').value = c.carreta2_placa;
+        CARRETA2_SEL = buscarVeiculo(c.carreta2_placa) || {
+          placa: c.carreta2_placa, tipo: 'Carreta',
+          marca_modelo: c.carreta2_marca_modelo, carroceria: c.carreta2_carroceria,
+          proprietario: c.carreta2_proprietario, eh_rizza: !!c.carreta2_eh_rizza
+        };
+        renderCardVeiculo('cardCarreta2', CARRETA2_SEL);
+      }
+
+      // Datas
+      if (c.data_carregamento) document.getElementById('inpDataCarregamento').value = c.data_carregamento.slice(0, 10);
+      if (c.previsao_entrega)  document.getElementById('inpPrevisaoEntrega').value  = c.previsao_entrega.slice(0, 10);
+
+      // Observações
+      document.getElementById('inpObservacoes').value = c.observacoes || '';
+
+      // Re-aplica regras (com TIPO_USUARIO_FORCOU=true não vai mudar o tipo)
+      aplicarRegrasRizza();
+      verificarConflitos();
+    } catch (e) {
+      console.error(e);
+      showErr('Erro ao carregar carga para edição: ' + e.message, true);
+    }
+  }
+
+  // Inicialização
+  loadMe();
+  popularUFs();
+  loadClientes();
+  // Em modo edição, aguarda dados estarem carregados antes de aplicar
+  Promise.all([loadMotoristas(false), loadVeiculos(false)]).then(() => {
+    if (MODO_EDICAO) carregarParaEdicao();
+  });
+  if (!MODO_EDICAO) {
+    addDestino();  // criação começa com 1 destino vazio
+    // Data default = hoje
+    const hoje = new Date().toISOString().slice(0, 10);
+    document.getElementById('inpDataCarregamento').value = hoje;
+  }
+</script>
+</body>
+</html>

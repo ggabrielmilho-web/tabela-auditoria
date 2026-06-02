@@ -261,6 +261,8 @@
     <h1>⚙ Gerenciamento de Usuários</h1>
     <div style="display:flex;gap:8px;">
       <a href="/" style="text-decoration:none;"><button class="btn btn-outline">← Dashboard</button></a>
+      <a href="/embarques" style="text-decoration:none;"><button class="btn btn-outline">🚚 Embarques</button></a>
+      <a href="/embarques/mapa" style="text-decoration:none;"><button class="btn btn-outline">🗺️ Mapa</button></a>
       <a href="/logout" style="text-decoration:none;"><button class="btn btn-outline">Sair</button></a>
     </div>
   </div>
@@ -329,12 +331,141 @@
       </table>
     </div>
   </div>
+
+  <!-- ── RASTREAMENTO ── -->
+  <div class="section">
+    <div class="section-header" style="display:flex;justify-content:space-between;align-items:center;">
+      <h2>🛰️ Rastreamento</h2>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-outline" onclick="rastrSync()">↻ Sincronizar veículos da 3S</button>
+        <button class="btn btn-outline" onclick="rastrLoad()">↻ Atualizar</button>
+      </div>
+    </div>
+    <div class="section-body">
+      <div id="rastrHealth" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:14px;margin-bottom:18px;">
+        <div style="background:#1a2235;border:1px solid #1e293b;border-radius:8px;padding:12px 14px;">
+          <div style="font-size:0.7rem;color:#94a3b8;text-transform:uppercase;font-weight:600;">Worker</div>
+          <div style="font-size:1.1rem;font-weight:700;margin-top:4px;" id="hWorker">—</div>
+        </div>
+        <div style="background:#1a2235;border:1px solid #1e293b;border-radius:8px;padding:12px 14px;">
+          <div style="font-size:0.7rem;color:#94a3b8;text-transform:uppercase;font-weight:600;">Modo</div>
+          <div style="font-size:1.1rem;font-weight:700;margin-top:4px;" id="hModo">—</div>
+        </div>
+        <div style="background:#1a2235;border:1px solid #1e293b;border-radius:8px;padding:12px 14px;">
+          <div style="font-size:0.7rem;color:#94a3b8;text-transform:uppercase;font-weight:600;">Última sync</div>
+          <div style="font-size:1.1rem;font-weight:700;margin-top:4px;font-family:'JetBrains Mono',monospace;" id="hSync">—</div>
+        </div>
+        <div style="background:#1a2235;border:1px solid #1e293b;border-radius:8px;padding:12px 14px;">
+          <div style="font-size:0.7rem;color:#94a3b8;text-transform:uppercase;font-weight:600;">Chamadas (60s)</div>
+          <div style="font-size:1.1rem;font-weight:700;margin-top:4px;font-family:'JetBrains Mono',monospace;" id="hChamadas">—</div>
+        </div>
+        <div style="background:#1a2235;border:1px solid #1e293b;border-radius:8px;padding:12px 14px;">
+          <div style="font-size:0.7rem;color:#94a3b8;text-transform:uppercase;font-weight:600;">ORS 24h</div>
+          <div style="font-size:1.1rem;font-weight:700;margin-top:4px;font-family:'JetBrains Mono',monospace;" id="hOrs">—</div>
+        </div>
+        <div style="background:#1a2235;border:1px solid #1e293b;border-radius:8px;padding:12px 14px;">
+          <div style="font-size:0.7rem;color:#94a3b8;text-transform:uppercase;font-weight:600;">Erros 24h</div>
+          <div style="font-size:1.1rem;font-weight:700;margin-top:4px;font-family:'JetBrains Mono',monospace;" id="hErros">—</div>
+        </div>
+      </div>
+
+      <div style="font-size:0.85rem;color:#94a3b8;text-transform:uppercase;font-weight:600;margin-bottom:8px;">📋 Log de chamadas (últimas 100)</div>
+      <div style="overflow:auto;max-height:340px;border:1px solid #1e293b;border-radius:8px;">
+        <table style="font-size:0.78rem;">
+          <thead>
+            <tr>
+              <th style="white-space:nowrap;">Quando</th>
+              <th>Provider</th>
+              <th>Endpoint</th>
+              <th>Status</th>
+              <th>Duração</th>
+              <th>Erro</th>
+            </tr>
+          </thead>
+          <tbody id="rastrLogBody"><tr><td colspan="6" style="padding:20px;text-align:center;color:#94a3b8;">Carregando...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script>
 let users = [];
 
-window.addEventListener('DOMContentLoaded', loadUsers);
+window.addEventListener('DOMContentLoaded', () => {
+  loadUsers();
+  rastrLoad();
+  setInterval(rastrLoad, 30000);
+});
+
+// ── Rastreamento ───────────────────────────────────────
+function fmtTempo(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  const s = Math.floor((Date.now() - d.getTime()) / 1000);
+  if (s < 60) return 'há ' + s + 's';
+  if (s < 3600) return 'há ' + Math.floor(s/60) + 'min';
+  if (s < 86400) return 'há ' + Math.floor(s/3600) + 'h';
+  return 'há ' + Math.floor(s/86400) + 'd';
+}
+
+async function rastrLoad() {
+  try {
+    const r1 = await fetch('/api/rastreamento/health', { credentials: 'same-origin' });
+    const h = await r1.json();
+    if (h.ok) {
+      document.getElementById('hWorker').innerHTML = h.worker_running
+        ? '<span style="color:#34d399;">● rodando</span>'
+        : '<span style="color:#f87171;">● parado</span>';
+      document.getElementById('hModo').innerHTML = h.modo_simulado
+        ? '<span style="color:#fbbf24;">SIMULADO</span>'
+        : '<span style="color:#34d399;">REAL (3S)</span>';
+      document.getElementById('hSync').textContent = fmtTempo(h.ultima_sync);
+      document.getElementById('hChamadas').textContent = h.chamadas_60s || 0;
+      document.getElementById('hOrs').textContent = h.ors_chamadas_24h || 0;
+      document.getElementById('hErros').textContent = h.erros_24h || 0;
+    }
+
+    const r2 = await fetch('/api/rastreamento/log', { credentials: 'same-origin' });
+    const l = await r2.json();
+    if (l.ok) {
+      const tb = document.getElementById('rastrLogBody');
+      if (l.data.length === 0) {
+        tb.innerHTML = '<tr><td colspan="6" style="padding:20px;text-align:center;color:#94a3b8;">Sem chamadas registradas</td></tr>';
+        return;
+      }
+      tb.innerHTML = l.data.slice(0, 100).map(row => {
+        const tempo = new Date(row.chamado_em).toLocaleTimeString('pt-BR');
+        const provCor = row.provider === '3S' ? '#38bdf8' : row.provider === 'ORS' ? '#818cf8' : '#fbbf24';
+        const statusCor = (row.status_http >= 200 && row.status_http < 300) ? '#34d399' : '#f87171';
+        const erro = row.erro_msg ? `<span title="${row.erro_msg.replace(/"/g,'&quot;')}" style="color:#f87171;">${row.erro_codigo || 'ERRO'}</span>` : '';
+        return `<tr>
+          <td style="white-space:nowrap;font-family:'JetBrains Mono',monospace;">${tempo}</td>
+          <td><span style="color:${provCor};font-weight:600;">${row.provider}</span></td>
+          <td style="font-family:'JetBrains Mono',monospace;">${row.endpoint || '—'}</td>
+          <td style="color:${statusCor};font-family:'JetBrains Mono',monospace;">${row.status_http}</td>
+          <td style="font-family:'JetBrains Mono',monospace;">${row.duracao_ms || 0}ms</td>
+          <td>${erro}</td>
+        </tr>`;
+      }).join('');
+    }
+  } catch (e) {
+    console.error('rastrLoad falhou', e);
+  }
+}
+
+async function rastrSync() {
+  if (!confirm('Forçar sincronização de veículos com a 3S?')) return;
+  try {
+    const r = await fetch('/api/rastreamento/sync-veiculos', { method: 'POST', credentials: 'same-origin' });
+    const d = await r.json();
+    if (!d.ok) { alert('Erro: ' + d.error); return; }
+    alert(`Sync OK!\nTotal: ${d.total}\nNovos: ${d.novos}\nAtualizados: ${d.atualizados}`);
+    rastrLoad();
+  } catch (e) {
+    alert('Erro: ' + e.message);
+  }
+}
 
 async function loadUsers() {
   try {

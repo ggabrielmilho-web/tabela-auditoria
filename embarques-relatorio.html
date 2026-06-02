@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Relatório de cargas — Embarques</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%2338bdf8'/%3E%3Ctext x='50' y='72' font-family='Arial,sans-serif' font-size='68' font-weight='900' text-anchor='middle' fill='%230a0e17'%3ER%3C/text%3E%3C/svg%3E">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0e17; --surface: #111827; --surface2: #1a2235; --border: #1e293b;
+    --text: #e2e8f0; --text-dim: #94a3b8; --accent: #38bdf8; --accent2: #818cf8;
+    --green: #34d399; --red: #f87171; --orange: #fb923c; --yellow: #fbbf24;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+  body::before {
+    content: ''; position: fixed; inset: 0; opacity: 0.03;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    pointer-events: none; z-index: 9999;
+  }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+  .dashboard { padding: 20px; max-width: 1700px; margin: 0 auto; animation: fadeUp 0.4s ease; }
+  .top-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; flex-wrap: wrap; gap: 12px; }
+  .top-bar h1 {
+    font-size: 1.35rem; font-weight: 700;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .meta { font-size: 0.78rem; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; }
+  .btn-sm {
+    padding: 8px 18px; background: var(--surface2); border: 1px solid var(--border);
+    color: var(--text); font-family: 'DM Sans', sans-serif; font-weight: 500;
+    font-size: 0.82rem; border-radius: 8px; cursor: pointer; transition: all 0.15s;
+    text-decoration: none; display: inline-block;
+  }
+  .btn-sm:hover { border-color: var(--accent); color: var(--accent); }
+  .export-btn {
+    padding: 8px 18px; background: var(--green); color: var(--bg);
+    font-family: 'DM Sans', sans-serif; font-weight: 600; font-size: 0.82rem;
+    border: none; border-radius: 8px; cursor: pointer; transition: opacity 0.15s;
+    text-decoration: none; display: inline-block;
+  }
+  .export-btn:hover { opacity: 0.85; }
+
+  .filtros-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 14px 16px; margin-bottom: 16px;
+  }
+  .filtros-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 10px 12px;
+  }
+  .ff label { display: block; font-size: 0.7rem; color: var(--text-dim); margin-bottom: 4px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em; }
+  .ff input, .ff select {
+    width: 100%; padding: 7px 10px; background: var(--surface2);
+    border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 0.8rem;
+  }
+  .ff input:focus, .ff select:focus { outline: none; border-color: var(--accent); }
+  .ff input[type="date"] { color-scheme: dark; }
+
+  .filtros-acoes { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  .barra-acoes { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 10px; }
+
+  .table-wrapper { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .table-scroll { overflow-x: auto; max-height: calc(100vh - 320px); overflow-y: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.78rem; white-space: nowrap; }
+  thead th {
+    position: sticky; top: 0; background: var(--surface2);
+    padding: 10px 12px; text-align: left;
+    font-weight: 600; font-size: 0.7rem;
+    text-transform: uppercase; letter-spacing: 0.05em;
+    color: var(--text-dim); border-bottom: 1px solid var(--border);
+    cursor: pointer; user-select: none; z-index: 2;
+  }
+  thead th:hover { color: var(--accent); }
+  thead th.asc::after { content: ' ▲'; color: var(--accent); font-size: 0.6rem; }
+  thead th.desc::after { content: ' ▼'; color: var(--accent); font-size: 0.6rem; }
+  tbody tr { transition: background 0.12s; }
+  tbody tr:hover { background: rgba(56,189,248,0.04); }
+  tbody tr:nth-child(even) { background: rgba(255,255,255,0.012); }
+  tbody tr.destacar { background: rgba(56,189,248,0.12) !important; }
+  td { padding: 8px 12px; border-bottom: 1px solid var(--border); color: var(--text); max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+  td.acoes { white-space: nowrap; }
+  td.acoes button { margin-right: 4px; padding: 4px 8px; background: transparent; border: 1px solid var(--border); border-radius: 6px; color: var(--text); cursor: pointer; font-size: 0.78rem; }
+  td.acoes button:hover { border-color: var(--accent); color: var(--accent); }
+
+  .badge { padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; }
+  .badge-Aberta   { background: rgba(56,189,248,0.15); color: var(--accent); }
+  .badge-Em.rota  { background: rgba(251,146,60,0.15); color: var(--orange); }
+  .badge-Entregue { background: rgba(52,211,153,0.15); color: var(--green); }
+  .badge-Cancelada{ background: rgba(248,113,113,0.15); color: var(--red); }
+
+  .info-vazio { padding: 40px; text-align: center; color: var(--text-dim); }
+
+  /* Modal */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+    display: none; align-items: center; justify-content: center;
+    z-index: 1000; padding: 20px;
+  }
+  .modal-overlay.active { display: flex; }
+  .modal {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 22px; max-width: 700px; width: 100%;
+    max-height: 88vh; overflow-y: auto;
+  }
+  .modal h2 {
+    font-size: 1.1rem; margin-bottom: 16px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .modal .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+  .modal .field label { font-size: 0.75rem; color: var(--text-dim); }
+  .modal .field input, .modal .field select, .modal .field textarea {
+    padding: 8px 11px; background: var(--surface2); border: 1px solid var(--border);
+    color: var(--text); border-radius: 6px; font-size: 0.86rem;
+  }
+  .modal .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .modal .acoes { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+  .btn-primary {
+    padding: 9px 22px; background: linear-gradient(135deg, var(--accent), var(--accent2));
+    color: var(--bg); font-family: 'DM Sans', sans-serif; font-weight: 700;
+    font-size: 0.86rem; border: none; border-radius: 8px; cursor: pointer;
+  }
+  .btn-primary:hover { opacity: 0.9; }
+
+  .log-item {
+    padding: 10px 12px; border-left: 2px solid var(--accent);
+    background: var(--surface2); margin-bottom: 8px; border-radius: 6px;
+    font-size: 0.85rem;
+  }
+  .log-item .head { color: var(--text-dim); font-size: 0.75rem; margin-bottom: 4px; }
+  .log-item .body { font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; }
+  .log-item .body .ant { color: var(--red); text-decoration: line-through; opacity: 0.7; }
+  .log-item .body .nov { color: var(--green); }
+</style>
+</head>
+<body>
+
+<div class="dashboard">
+  <div class="top-bar">
+    <div>
+      <h1>📋 Relatório de cargas</h1>
+      <span class="meta" id="userInfo"></span>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      <a href="/embarques" class="btn-sm">← Voltar</a>
+      <a href="/embarques/novo" class="btn-sm">➕ Nova carga</a>
+      <a href="/logout" class="btn-sm">Sair</a>
+    </div>
+  </div>
+
+  <div class="filtros-card">
+    <div class="filtros-grid">
+      <div class="ff"><label>De</label><input type="date" id="fStart"></div>
+      <div class="ff"><label>Até</label><input type="date" id="fEnd"></div>
+      <div class="ff"><label>Tipo de data</label>
+        <select id="fDataCampo">
+          <option value="carregamento">Carregamento</option>
+          <option value="previsao">Previsão entrega</option>
+        </select>
+      </div>
+      <div class="ff"><label>Tipo de operação</label>
+        <select id="fTipo">
+          <option value="">Todos</option>
+          <option value="Frota">Frota</option>
+          <option value="Agregado">Agregado</option>
+          <option value="Terceiro">Terceiro</option>
+        </select>
+      </div>
+      <div class="ff"><label>Status</label>
+        <select id="fStatus">
+          <option value="">Todos</option>
+          <option value="Aberta">Aberta</option>
+          <option value="Em rota">Em rota</option>
+          <option value="Entregue">Entregue</option>
+          <option value="Cancelada">Cancelada</option>
+        </select>
+      </div>
+      <div class="ff"><label>Cliente</label>
+        <select id="fCliente"><option value="">Todos</option></select>
+      </div>
+      <div class="ff"><label>Embarcador</label>
+        <select id="fEmbarcador"><option value="">Todos</option></select>
+      </div>
+      <div class="ff"><label>Motorista (contém)</label><input type="text" id="fMotorista" placeholder="Nome..."></div>
+      <div class="ff"><label>Origem UF</label>
+        <select id="fOrigemUF"><option value="">Todas</option></select>
+      </div>
+      <div class="ff"><label>Destino UF</label>
+        <select id="fDestinoUF"><option value="">Todas</option></select>
+      </div>
+      <div class="ff" style="grid-column: span 2;"><label>Busca livre (Nº, placa, cliente, motorista)</label><input type="text" id="fQ" placeholder="Digite e clique aplicar..."></div>
+    </div>
+    <div class="filtros-acoes">
+      <button class="btn-sm" onclick="aplicarFiltros()">🔍 Aplicar</button>
+      <button class="btn-sm" onclick="limparFiltros()">✕ Limpar</button>
+    </div>
+  </div>
+
+  <div class="barra-acoes">
+    <div class="meta" id="contagem">—</div>
+    <a id="btnCsv" href="#" class="export-btn" onclick="exportarCsv(event)">↓ Exportar CSV</a>
+  </div>
+
+  <div class="table-wrapper">
+    <div class="table-scroll">
+      <table id="tabelaCargas">
+        <thead>
+          <tr>
+            <th onclick="ordenar('numero')">Nº</th>
+            <th onclick="ordenar('data_carregamento')" class="desc">Data</th>
+            <th onclick="ordenar('status')">Status</th>
+            <th onclick="ordenar('tipo_operacao')">Tipo</th>
+            <th onclick="ordenar('cliente_nome')">Cliente</th>
+            <th>Origem → Destinos</th>
+            <th onclick="ordenar('motorista_nome')">Motorista</th>
+            <th>Cavalo</th>
+            <th>Carreta(s)</th>
+            <th onclick="ordenar('previsao_entrega')">Previsão</th>
+            <th onclick="ordenar('criado_por_nome')">Embarcador</th>
+            <th>Ações</th>
+          </tr>
+        </thead>
+        <tbody id="tbody">
+          <tr><td colspan="12" class="info-vazio">Carregando...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Editar -->
+<div class="modal-overlay" id="modalEdit">
+  <div class="modal">
+    <h2 id="modalEditTitulo">Editar carga</h2>
+    <div class="row-2">
+      <div class="field">
+        <label>Status</label>
+        <select id="edStatus">
+          <option value="Aberta">Aberta</option>
+          <option value="Em rota">Em rota</option>
+          <option value="Entregue">Entregue</option>
+          <option value="Cancelada">Cancelada</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Tipo de operação</label>
+        <select id="edTipo">
+          <option value="Frota">Frota</option>
+          <option value="Agregado">Agregado</option>
+          <option value="Terceiro">Terceiro</option>
+        </select>
+      </div>
+    </div>
+    <div class="row-2">
+      <div class="field"><label>Data carregamento</label><input type="date" id="edDataCar"></div>
+      <div class="field"><label>Previsão entrega</label><input type="date" id="edPrevisao"></div>
+    </div>
+    <div class="field"><label>Observações</label><textarea id="edObs" rows="3"></textarea></div>
+    <div id="edFeedback"></div>
+    <div class="acoes">
+      <a id="linkEdicaoCompleta" href="#" class="btn-sm" target="_blank" title="Abre página completa para editar todos os campos">✏ Edição completa →</a>
+      <div style="flex:1;"></div>
+      <button class="btn-sm" onclick="fecharModal('modalEdit')">Cancelar</button>
+      <button class="btn-primary" onclick="salvarEdicao()">💾 Salvar alterações</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Histórico -->
+<div class="modal-overlay" id="modalHist">
+  <div class="modal">
+    <h2 id="modalHistTitulo">Histórico de edições</h2>
+    <div id="histLista"><div class="info-vazio">Carregando...</div></div>
+    <div class="acoes">
+      <button class="btn-sm" onclick="fecharModal('modalHist')">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const UFs = ['AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS','MT','PA','PB','PE','PI','PR','RJ','RN','RO','RR','RS','SC','SE','SP','TO'];
+
+  let CARGAS = [];
+  let ORDEM = { campo: 'data_carregamento', dir: 'desc' };
+  let CARGA_EDIT = null;
+  const URL = new URLSearchParams(window.location.search);
+  const DESTACAR_ID = URL.get('destacar');
+
+  function fmtData(iso) {
+    if (!iso) return '—';
+    const [y, m, d] = iso.split('T')[0].split('-');
+    return d + '/' + m + '/' + y;
+  }
+  function fmtDateTime(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    if (isNaN(d)) return iso;
+    return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  }
+  function badge(status) {
+    const cls = 'badge-' + (status || '').replace(' ', '.');
+    return `<span class="badge ${cls}">${status || '—'}</span>`;
+  }
+
+  function tempoCurto(iso) {
+    if (!iso) return '';
+    const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+    if (s < 60) return s + 's';
+    if (s < 3600) return Math.floor(s/60) + 'min';
+    if (s < 86400) return Math.floor(s/3600) + 'h';
+    return Math.floor(s/86400) + 'd';
+  }
+
+  function indicadoresStatus(c) {
+    let html = badge(c.status);
+    if (c.no_local_desde && c.status === 'Em rota') {
+      html += ` <span style="cursor:help;" title="Na cidade da descarga há ${tempoCurto(c.no_local_desde)}">📦</span>`;
+    }
+    if (c.entregue_auto && c.status === 'Entregue') {
+      html += ` <span style="color:var(--yellow);font-size:0.85em;cursor:help;" title="Entrega detectada automaticamente">⚡</span>`;
+    }
+    if (c.saida_auto && c.status === 'Em rota') {
+      html += ` <span style="color:var(--yellow);font-size:0.85em;cursor:help;" title="Saída da origem detectada automaticamente">⚡</span>`;
+    }
+    return html;
+  }
+
+  async function loadMe() {
+    try {
+      const r = await fetch('/api/me', { credentials: 'same-origin' });
+      const j = await r.json();
+      if (j.ok) document.getElementById('userInfo').textContent = '👤 ' + j.nome;
+    } catch (e) {}
+  }
+
+  function popularUFsFiltros() {
+    for (const sel of ['fOrigemUF', 'fDestinoUF']) {
+      const e = document.getElementById(sel);
+      for (const u of UFs) {
+        const o = document.createElement('option');
+        o.value = u; o.textContent = u;
+        e.appendChild(o);
+      }
+    }
+  }
+
+  async function loadClientesFiltro() {
+    try {
+      const r = await fetch('/api/embarques/clientes', { credentials: 'same-origin' });
+      const j = await r.json();
+      if (j.ok) {
+        const sel = document.getElementById('fCliente');
+        for (const c of j.data) {
+          const o = document.createElement('option');
+          o.value = c.id; o.textContent = c.nome;
+          sel.appendChild(o);
+        }
+      }
+    } catch (e) {}
+  }
+
+  async function loadEmbarcadoresFiltro() {
+    try {
+      const r = await fetch('/api/embarques/embarcadores', { credentials: 'same-origin' });
+      const j = await r.json();
+      if (j.ok) {
+        const sel = document.getElementById('fEmbarcador');
+        for (const u of j.data) {
+          const o = document.createElement('option');
+          o.value = u.id; o.textContent = u.nome;
+          sel.appendChild(o);
+        }
+      }
+    } catch (e) {}
+  }
+
+  function montaQuery() {
+    const params = new URLSearchParams();
+    const map = {
+      fStart: 'start', fEnd: 'end',
+      fDataCampo: 'data_campo', fTipo: 'tipo_operacao', fStatus: 'status',
+      fCliente: 'cliente_id', fEmbarcador: 'criado_por_id',
+      fMotorista: 'motorista', fOrigemUF: 'origem_uf', fDestinoUF: 'destino_uf',
+      fQ: 'q'
+    };
+    for (const id in map) {
+      const v = document.getElementById(id).value;
+      if (v) params.set(map[id], v);
+    }
+    return params;
+  }
+
+  async function aplicarFiltros() {
+    document.getElementById('tbody').innerHTML = '<tr><td colspan="12" class="info-vazio">Carregando...</td></tr>';
+    const params = montaQuery();
+    try {
+      const r = await fetch('/api/embarques/cargas?' + params.toString(), { credentials: 'same-origin' });
+      const j = await r.json();
+      if (j.ok) {
+        CARGAS = j.data;
+        renderTabela();
+        document.getElementById('contagem').textContent = `${j.count} ${j.count === 1 ? 'carga' : 'cargas'}`;
+        // CSV link
+        document.getElementById('btnCsv').href = '/api/embarques/cargas/csv?' + params.toString();
+      } else {
+        document.getElementById('tbody').innerHTML = `<tr><td colspan="12" class="info-vazio">Erro: ${j.error}</td></tr>`;
+      }
+    } catch (e) {
+      document.getElementById('tbody').innerHTML = `<tr><td colspan="12" class="info-vazio">Erro de rede: ${e.message}</td></tr>`;
+    }
+  }
+
+  function limparFiltros() {
+    for (const id of ['fStart','fEnd','fTipo','fStatus','fCliente','fEmbarcador','fMotorista','fOrigemUF','fDestinoUF','fQ']) {
+      document.getElementById(id).value = '';
+    }
+    document.getElementById('fDataCampo').value = 'carregamento';
+    aplicarFiltros();
+  }
+
+  function ordenar(campo) {
+    if (ORDEM.campo === campo) {
+      ORDEM.dir = ORDEM.dir === 'asc' ? 'desc' : 'asc';
+    } else {
+      ORDEM.campo = campo;
+      ORDEM.dir = 'asc';
+    }
+    // Atualiza classes nos th
+    document.querySelectorAll('thead th').forEach(th => { th.classList.remove('asc', 'desc'); });
+    const ths = document.querySelectorAll('thead th');
+    const idx = ['numero','data_carregamento','status','tipo_operacao','cliente_nome','','motorista_nome','','','previsao_entrega','criado_por_nome',''].indexOf(campo);
+    if (idx >= 0 && ths[idx]) ths[idx].classList.add(ORDEM.dir);
+    renderTabela();
+  }
+
+  function renderTabela() {
+    const arr = [...CARGAS].sort((a, b) => {
+      const va = a[ORDEM.campo]; const vb = b[ORDEM.campo];
+      if (va == null && vb == null) return 0;
+      if (va == null) return 1; if (vb == null) return -1;
+      if (va < vb) return ORDEM.dir === 'asc' ? -1 : 1;
+      if (va > vb) return ORDEM.dir === 'asc' ? 1 : -1;
+      return 0;
+    });
+    const tb = document.getElementById('tbody');
+    if (arr.length === 0) {
+      tb.innerHTML = '<tr><td colspan="12" class="info-vazio">Nenhuma carga encontrada com os filtros aplicados.</td></tr>';
+      return;
+    }
+    tb.innerHTML = arr.map(c => {
+      const carretas = [c.carreta1_placa, c.carreta2_placa].filter(Boolean).join(' + ') || '—';
+      const destacar = (DESTACAR_ID && String(c.id) === DESTACAR_ID) ? 'destacar' : '';
+      const btnEditar = c.pode_editar
+        ? `<button title="Editar" onclick="abrirEdit(${c.id})">✏</button>`
+        : `<button title="Apenas quem lançou ou admin pode editar" disabled style="opacity:0.3;cursor:not-allowed;">✏</button>`;
+      return `<tr class="${destacar}">
+        <td><strong>${c.numero || '—'}</strong></td>
+        <td>${fmtData(c.data_carregamento)}</td>
+        <td>${indicadoresStatus(c)}</td>
+        <td>${c.tipo_operacao || '—'}</td>
+        <td title="${c.cliente_nome || ''}">${c.cliente_nome || '—'}</td>
+        <td title="${(c.origem_cidade||'')+'/'+(c.origem_uf||'')+' → '+(c.destinos||'')}">${(c.origem_cidade||'')+'/'+(c.origem_uf||'')} → ${c.destinos || '—'}</td>
+        <td title="${c.motorista_nome || ''}">${c.motorista_nome || '—'}</td>
+        <td>${c.cavalo_placa || '—'} <span style="color:var(--text-dim);font-size:0.72rem;">(${c.cavalo_tipo || '?'})</span></td>
+        <td>${carretas}</td>
+        <td>${fmtData(c.previsao_entrega)}</td>
+        <td>${c.criado_por_nome || '—'}</td>
+        <td class="acoes">
+          ${btnEditar}
+          <button title="Histórico" onclick="abrirHist(${c.id}, '${c.numero || ''}')">🕐</button>
+          <a href="/embarques/cargas/${c.id}/mapa" target="_blank" title="Ver mapa" style="text-decoration:none;"><button style="cursor:pointer;">🗺️</button></a>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+
+  function exportarCsv(e) {
+    // Link já está atualizado; só deixa o navegador baixar
+  }
+
+  // ── Modal Editar ──
+  async function abrirEdit(id) {
+    try {
+      const r = await fetch(`/api/embarques/cargas/${id}`, { credentials: 'same-origin' });
+      const j = await r.json();
+      if (!j.ok) { alert('Erro: ' + j.error); return; }
+      CARGA_EDIT = j.data;
+      document.getElementById('modalEditTitulo').textContent = `Editar carga ${CARGA_EDIT.numero}`;
+      document.getElementById('linkEdicaoCompleta').href = `/embarques/${CARGA_EDIT.id}/editar`;
+      document.getElementById('edStatus').value = CARGA_EDIT.status || 'Aberta';
+      document.getElementById('edTipo').value = CARGA_EDIT.tipo_operacao || '';
+      document.getElementById('edDataCar').value = (CARGA_EDIT.data_carregamento || '').slice(0,10);
+      document.getElementById('edPrevisao').value = (CARGA_EDIT.previsao_entrega || '').slice(0,10);
+      document.getElementById('edObs').value = CARGA_EDIT.observacoes || '';
+      document.getElementById('edFeedback').innerHTML = '';
+      document.getElementById('modalEdit').classList.add('active');
+    } catch (e) {
+      alert('Erro: ' + e.message);
+    }
+  }
+
+  async function salvarEdicao() {
+    if (!CARGA_EDIT) return;
+    const payload = {
+      status: document.getElementById('edStatus').value,
+      tipo_operacao: document.getElementById('edTipo').value,
+      data_carregamento: document.getElementById('edDataCar').value || null,
+      previsao_entrega: document.getElementById('edPrevisao').value || null,
+      observacoes: document.getElementById('edObs').value.trim() || null,
+    };
+    try {
+      const r = await fetch(`/api/embarques/cargas/${CARGA_EDIT.id}`, {
+        method: 'PATCH', credentials: 'same-origin',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+      });
+      const j = await r.json();
+      if (!j.ok) {
+        document.getElementById('edFeedback').innerHTML = `<div style="color:var(--red);font-size:0.85rem;margin-top:8px;">Erro: ${j.error}</div>`;
+        return;
+      }
+      document.getElementById('edFeedback').innerHTML = `<div style="color:var(--green);font-size:0.85rem;margin-top:8px;">✓ ${j.alteracoes} alteração(ões) salva(s).</div>`;
+      setTimeout(() => {
+        fecharModal('modalEdit');
+        aplicarFiltros();
+      }, 700);
+    } catch (e) {
+      document.getElementById('edFeedback').innerHTML = `<div style="color:var(--red);font-size:0.85rem;margin-top:8px;">Erro de rede</div>`;
+    }
+  }
+
+  // ── Modal Histórico ──
+  async function abrirHist(id, numero) {
+    document.getElementById('modalHistTitulo').textContent = `Histórico — ${numero}`;
+    document.getElementById('histLista').innerHTML = '<div class="info-vazio">Carregando...</div>';
+    document.getElementById('modalHist').classList.add('active');
+    try {
+      const r = await fetch(`/api/embarques/cargas/${id}/log`, { credentials: 'same-origin' });
+      const j = await r.json();
+      if (!j.ok) { document.getElementById('histLista').innerHTML = `<div class="info-vazio">Erro: ${j.error}</div>`; return; }
+      if (j.count === 0) { document.getElementById('histLista').innerHTML = '<div class="info-vazio">Sem edições registradas ainda.</div>'; return; }
+      document.getElementById('histLista').innerHTML = j.data.map(l => `
+        <div class="log-item">
+          <div class="head">${fmtDateTime(l.editado_em)} — ${l.usuario_nome || 'sistema'}</div>
+          <div class="body">${l.campo}: <span class="ant">${l.valor_anterior ?? '∅'}</span> → <span class="nov">${l.valor_novo ?? '∅'}</span></div>
+        </div>
+      `).join('');
+    } catch (e) {
+      document.getElementById('histLista').innerHTML = `<div class="info-vazio">Erro de rede</div>`;
+    }
+  }
+
+  function fecharModal(id) {
+    document.getElementById(id).classList.remove('active');
+  }
+  document.addEventListener('click', e => {
+    if (e.target.classList.contains('modal-overlay')) {
+      e.target.classList.remove('active');
+    }
+  });
+
+  // Init
+  loadMe();
+  popularUFsFiltros();
+  loadClientesFiltro();
+  loadEmbarcadoresFiltro();
+  aplicarFiltros();
+</script>
+</body>
+</html>

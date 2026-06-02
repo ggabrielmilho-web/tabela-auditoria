@@ -7,6 +7,7 @@ Acesse: http://localhost:5000
 import os
 import io
 import json
+import time
 import tempfile
 import functools
 import psycopg2
@@ -213,6 +214,43 @@ def dre_despesas_page():
 @admin_required
 def dre_conhecimentos_page():
     return send_from_directory('.', 'dre-conhecimentos.html')
+
+
+@app.route('/embarques')
+@login_required
+def embarques_page():
+    return send_from_directory('.', 'embarques.html')
+
+
+@app.route('/embarques/novo')
+@login_required
+def embarques_novo_page():
+    return send_from_directory('.', 'embarques-novo.html')
+
+
+@app.route('/embarques/relatorio')
+@login_required
+def embarques_relatorio_page():
+    return send_from_directory('.', 'embarques-relatorio.html')
+
+
+@app.route('/embarques/<int:carga_id>/editar')
+@login_required
+def embarques_editar_page(carga_id):
+    # A permissão é verificada na API ao buscar a carga; aqui só serve o HTML
+    return send_from_directory('.', 'embarques-novo.html')
+
+
+@app.route('/embarques/mapa')
+@login_required
+def embarques_mapa_page():
+    return send_from_directory('.', 'mapa.html')
+
+
+@app.route('/embarques/cargas/<int:carga_id>/mapa')
+@login_required
+def embarques_mapa_carga_page(carga_id):
+    return send_from_directory('.', 'mapa-carga.html')
 
 
 @app.route('/api/tarifas')
@@ -1548,6 +1586,1204 @@ def chat_dre():
                     headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
 
+# ════════════════════════════════════════════════════════════════════════
+# EMBARQUES — Módulo operacional de lançamento de cargas
+# ════════════════════════════════════════════════════════════════════════
+
+# Cache em memória (5min) para motoristas/veículos vindos do Power BI
+_EMBARQUES_CACHE = {}
+_CACHE_TTL_SEG = 300
+
+def _cache_get(key):
+    entry = _EMBARQUES_CACHE.get(key)
+    if entry and (time.time() - entry['ts']) < _CACHE_TTL_SEG:
+        return entry['data']
+    return None
+
+def _cache_set(key, data):
+    _EMBARQUES_CACHE[key] = {'data': data, 'ts': time.time()}
+
+
+def _eh_rizza(proprietario):
+    """Identifica se o proprietário é Rizza (busca parcial case-insensitive)."""
+    return 'RIZZA' in (proprietario or '').upper()
+
+
+def _pode_editar_carga(criado_por_id):
+    """Admin ou quem criou a carga pode editar."""
+    if session.get('role') == 'admin':
+        return True
+    return session.get('user_id') == criado_por_id
+
+
+def _classifica_tipo_operacao(cavalo_eh_rizza, carreta_eh_rizza):
+    """Tipo de operação esperado conforme proprietários do cavalo e carreta1."""
+    if cavalo_eh_rizza and carreta_eh_rizza:
+        return 'Frota'
+    if cavalo_eh_rizza or carreta_eh_rizza:
+        return 'Agregado'
+    return 'Terceiro'
+
+
+def _pick(row, *keys):
+    """Pega o primeiro valor não-vazio entre variações de nome de coluna."""
+    for k in keys:
+        v = row.get(k)
+        if v not in (None, ''):
+            return v
+    return None
+
+
+def _csv_linha_embarques(valores):
+    """Wrapper local em torno de _csv_linha para clareza."""
+    return _csv_linha(valores)
+
+
+def _buscar_conflitos(cpf, placas, exclude_id=0):
+    """Retorna lista de conflitos com cargas ativas (Aberta/Em rota).
+       'placas' é lista de strings uppercase (cavalo, carreta1, carreta2 — sem nulls).
+       'exclude_id' permite ignorar a própria carga ao editar."""
+    placas = [p for p in (placas or []) if p]
+    cpf = (cpf or '').strip()
+    if not cpf and not placas:
+        return []
+    conn = get_db(); cur = conn.cursor()
+    try:
+        conflitos = []
+
+        if cpf:
+            cur.execute("""
+                SELECT id, numero, status, data_carregamento, motorista_nome
+                FROM embarques_cargas
+                WHERE motorista_cpf = %s
+                  AND status IN ('Aberta', 'Em rota')
+                  AND id <> %s
+                ORDER BY data_carregamento DESC
+                LIMIT 5
+            """, (cpf, exclude_id))
+            for r in cur.fetchall():
+                conflitos.append({
+                    'tipo': 'motorista',
+                    'recurso': r[4] or cpf,
+                    'carga_id': r[0],
+                    'numero': r[1],
+                    'status': r[2],
+                    'data_carregamento': r[3].isoformat() if r[3] else None,
+                })
+
+        if placas:
+            ph = ','.join(['%s'] * len(placas))
+            cur.execute(f"""
+                SELECT id, numero, status, data_carregamento,
+                       cavalo_placa, carreta1_placa, carreta2_placa
+                FROM embarques_cargas
+                WHERE status IN ('Aberta', 'Em rota')
+                  AND id <> %s
+                  AND (cavalo_placa IN ({ph})
+                       OR carreta1_placa IN ({ph})
+                       OR carreta2_placa IN ({ph}))
+                ORDER BY data_carregamento DESC
+                LIMIT 10
+            """, (exclude_id, *placas, *placas, *placas))
+            for r in cur.fetchall():
+                cid, num, st, dt, cav, c1, c2 = r
+                dt_iso = dt.isoformat() if dt else None
+                for placa in placas:
+                    if cav == placa:
+                        conflitos.append({'tipo': 'cavalo',  'recurso': placa, 'carga_id': cid, 'numero': num, 'status': st, 'data_carregamento': dt_iso})
+                    if c1 == placa or c2 == placa:
+                        conflitos.append({'tipo': 'carreta', 'recurso': placa, 'carga_id': cid, 'numero': num, 'status': st, 'data_carregamento': dt_iso})
+        return conflitos
+    finally:
+        cur.close(); conn.close()
+
+
+@app.route('/api/embarques/conflitos')
+@login_required
+def api_embarques_conflitos():
+    cpf = (request.args.get('cpf') or '').strip()
+    placas_raw = (request.args.get('placas') or '').strip()
+    placas = [p.strip().upper() for p in placas_raw.split(',') if p.strip()]
+    try:
+        exclude_id = int(request.args.get('exclude_id') or 0)
+    except (TypeError, ValueError):
+        exclude_id = 0
+    try:
+        data = _buscar_conflitos(cpf, placas, exclude_id)
+        return jsonify({'ok': True, 'data': data, 'count': len(data)})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+# ── Leitura DAX: motoristas ─────────────────────────────────────────────
+@app.route('/api/embarques/motoristas')
+@login_required
+def api_embarques_motoristas():
+    if request.args.get('refresh') != '1':
+        cached = _cache_get('motoristas')
+        if cached is not None:
+            return jsonify({'ok': True, 'data': cached, 'count': len(cached), 'cached': True})
+    try:
+        token = get_token()
+        result = execute_dax(token, "EVALUATE 'public motoristas_047'")
+        rows = result.get('results', [{}])[0].get('tables', [{}])[0].get('rows', [])
+        data = clean_rows(rows)
+
+        normalizados = []
+        for r in data:
+            nome = _pick(r, 'nome', 'Nome', 'NOME')
+            cpf  = _pick(r, 'cpf', 'CPF', 'Cpf')
+            tel  = _pick(r, 'telefone', 'Telefone', 'TELEFONE', 'celular', 'Celular')
+            if not nome or not cpf:
+                continue
+            normalizados.append({
+                'nome':      str(nome).strip(),
+                'cpf':       str(cpf).strip(),
+                'telefone':  str(tel).strip() if tel else None,
+            })
+        # Dedup por CPF (única chave confiável)
+        vistos = {}
+        for m in normalizados:
+            vistos[m['cpf']] = m
+        final = sorted(vistos.values(), key=lambda x: x['nome'])
+
+        _cache_set('motoristas', final)
+        return jsonify({'ok': True, 'data': final, 'count': len(final), 'cached': False})
+
+    except requests.exceptions.HTTPError as e:
+        detail = ''
+        try: detail = e.response.json()
+        except Exception: detail = e.response.text
+        return jsonify({'ok': False, 'error': str(e), 'detail': detail}), 500
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+# ── Leitura DAX: veículos ───────────────────────────────────────────────
+@app.route('/api/embarques/veiculos')
+@login_required
+def api_embarques_veiculos():
+    if request.args.get('refresh') != '1':
+        cached = _cache_get('veiculos')
+        if cached is not None:
+            return jsonify({'ok': True, 'data': cached, 'count': len(cached), 'cached': True})
+    try:
+        token = get_token()
+        # EVALUATE simples — filtro feito em Python (mais robusto que IN no DAX)
+        result = execute_dax(token, "EVALUATE 'public veiculos_045'")
+        rows = result.get('results', [{}])[0].get('tables', [{}])[0].get('rows', [])
+        data = clean_rows(rows)
+
+        tipos_map = {'CAVALO': 'Cavalo', 'CARRETA': 'Carreta', 'TRUCK': 'Truck'}
+        normalizados = []
+        for r in data:
+            placa        = _pick(r, 'placa', 'PLACA', 'Placa')
+            tipo         = _pick(r, 'TIPO', 'tipo', 'Tipo')
+            marca        = _pick(r, 'marca', 'MARCA', 'Marca')
+            modelo       = _pick(r, 'modelo', 'MODELO', 'Modelo')
+            carroceria   = _pick(r, 'carroceria', 'CARROCERIA', 'Carroceria')
+            proprietario = _pick(r, 'proprietario', 'PROPRIETARIO', 'Proprietario', 'proprietário', 'Proprietário')
+            if not placa or not tipo:
+                continue
+            tipo_norm = tipos_map.get(str(tipo).strip().upper())
+            if not tipo_norm:
+                continue
+            partes = [str(marca or '').strip(), str(modelo or '').strip()]
+            marca_modelo = ' '.join(p for p in partes if p) or None
+            normalizados.append({
+                'placa':        str(placa).strip().upper(),
+                'tipo':         tipo_norm,
+                'marca_modelo': marca_modelo,
+                'carroceria':   str(carroceria).strip() if carroceria else None,
+                'proprietario': str(proprietario).strip() if proprietario else None,
+                'eh_rizza':     _eh_rizza(proprietario),
+            })
+        vistos = {}
+        for v in normalizados:
+            vistos[v['placa']] = v
+        final = sorted(vistos.values(), key=lambda x: x['placa'])
+
+        _cache_set('veiculos', final)
+        return jsonify({'ok': True, 'data': final, 'count': len(final), 'cached': False})
+
+    except requests.exceptions.HTTPError as e:
+        detail = ''
+        try: detail = e.response.json()
+        except Exception: detail = e.response.text
+        return jsonify({'ok': False, 'error': str(e), 'detail': detail}), 500
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+# ── Clientes (Postgres local) ───────────────────────────────────────────
+@app.route('/api/embarques/clientes')
+@login_required
+def api_embarques_clientes_list():
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("SELECT id, nome, importado_em FROM clientes ORDER BY nome")
+        data = [
+            {'id': r[0], 'nome': r[1], 'importado_em': r[2].isoformat() if r[2] else None}
+            for r in cur.fetchall()
+        ]
+        cur.close(); conn.close()
+        return jsonify({'ok': True, 'data': data, 'count': len(data)})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/embarques/clientes', methods=['POST'])
+@login_required
+def api_embarques_clientes_create():
+    body = request.get_json(silent=True) or {}
+    nome = (body.get('nome') or '').strip()
+    if len(nome) < 3:
+        return jsonify({'ok': False, 'error': 'Nome inválido (mínimo 3 caracteres)'}), 400
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        # Tenta inserir; se conflita com índice case-insensitive, pega o existente
+        cur.execute(
+            "INSERT INTO clientes (nome) VALUES (%s) "
+            "ON CONFLICT ON CONSTRAINT ux_clientes_nome_ci DO NOTHING RETURNING id",
+            (nome,)
+        )
+        row = cur.fetchone()
+        if row:
+            new_id = row[0]
+            ja_existia = False
+        else:
+            cur.execute(
+                "SELECT id FROM clientes WHERE LOWER(TRIM(nome)) = LOWER(TRIM(%s))",
+                (nome,)
+            )
+            r = cur.fetchone()
+            new_id = r[0] if r else None
+            ja_existia = True
+        conn.commit()
+        cur.close(); conn.close()
+        return jsonify({'ok': True, 'id': new_id, 'ja_existia': ja_existia})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+# ── Cargas: criação ─────────────────────────────────────────────────────
+def _validar_carga_payload(b):
+    erros = []
+    obrig = ['tipo_operacao', 'cliente_id', 'cliente_nome', 'origem', 'destinos',
+             'motorista', 'cavalo', 'data_carregamento']
+    for c in obrig:
+        if c not in b or b.get(c) in (None, '', []):
+            erros.append(f'Campo obrigatório ausente: {c}')
+    if not erros:
+        if b['tipo_operacao'] not in ('Frota', 'Agregado', 'Terceiro'):
+            erros.append('tipo_operacao inválido')
+        if not isinstance(b['destinos'], list) or len(b['destinos']) < 1:
+            erros.append('Informe pelo menos 1 destino')
+        ori = b.get('origem') or {}
+        if not ori.get('cidade') or not ori.get('uf'):
+            erros.append('Origem incompleta (cidade + uf)')
+        for i, d in enumerate(b.get('destinos') or []):
+            if not d.get('cidade') or not d.get('uf'):
+                erros.append(f'Destino {i+1} incompleto')
+        mot = b.get('motorista') or {}
+        if not mot.get('nome') or not mot.get('cpf'):
+            erros.append('Motorista incompleto (nome + cpf)')
+        cav = b.get('cavalo') or {}
+        if not cav.get('placa') or not cav.get('tipo'):
+            erros.append('Cavalo incompleto (placa + tipo)')
+        if cav.get('tipo') == 'Cavalo' and not (b.get('carreta1') or {}).get('placa'):
+            erros.append('Carreta 1 obrigatória quando o tipo do veículo é Cavalo')
+    return erros
+
+
+@app.route('/api/embarques/cargas', methods=['POST'])
+@login_required
+def api_embarques_cargas_create():
+    b = request.get_json(silent=True) or {}
+    erros = _validar_carga_payload(b)
+    if erros:
+        return jsonify({'ok': False, 'error': 'Validação falhou', 'detail': erros}), 400
+
+    warnings = []
+    cav = b.get('cavalo') or {}
+    c1  = b.get('carreta1') or {}
+    c2  = b.get('carreta2') or {}
+    esperado = _classifica_tipo_operacao(bool(cav.get('eh_rizza')), bool(c1.get('eh_rizza')))
+    if b['tipo_operacao'] != esperado:
+        warnings.append(f"tipo_operacao '{b['tipo_operacao']}' diverge do esperado '{esperado}' pelos proprietários.")
+
+    # Bloqueio de conflito (motorista/veículos em carga ativa)
+    mot_pre = b.get('motorista') or {}
+    placas_check = [
+        (cav.get('placa') or '').upper().strip(),
+        (c1.get('placa') or '').upper().strip(),
+        (c2.get('placa') or '').upper().strip(),
+    ]
+    conflitos = _buscar_conflitos(mot_pre.get('cpf'), [p for p in placas_check if p])
+    if conflitos:
+        # Constrói mensagem detalhada (útil mesmo se o frontend ignorar o campo 'conflitos')
+        nums = sorted({c['numero'] for c in conflitos if c.get('numero')})
+        msg = 'Recurso já em uso na(s) carga(s) ativa(s): ' + ', '.join(nums)
+        return jsonify({
+            'ok': False,
+            'error': msg,
+            'tipo': 'conflito',
+            'conflitos': conflitos
+        }), 409
+
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        mot = b['motorista']
+        ori = b['origem']
+        cur.execute("""
+            INSERT INTO embarques_cargas (
+                tipo_operacao, status,
+                cliente_id, cliente_nome,
+                origem_cidade, origem_uf,
+                motorista_nome, motorista_cpf, motorista_telefone,
+                cavalo_placa, cavalo_tipo, cavalo_marca_modelo, cavalo_carroceria, cavalo_proprietario, cavalo_eh_rizza,
+                carreta1_placa, carreta1_marca_modelo, carreta1_carroceria, carreta1_proprietario, carreta1_eh_rizza,
+                carreta2_placa, carreta2_marca_modelo, carreta2_carroceria, carreta2_proprietario, carreta2_eh_rizza,
+                data_carregamento, previsao_entrega, observacoes,
+                criado_por_id, criado_por_nome
+            ) VALUES (
+                %s, 'Aberta',
+                %s, %s,
+                %s, %s,
+                %s, %s, %s,
+                %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s,
+                %s, %s, %s,
+                %s, %s
+            ) RETURNING id, criado_em
+        """, (
+            b['tipo_operacao'],
+            b['cliente_id'], b['cliente_nome'],
+            ori['cidade'], ori['uf'],
+            mot['nome'], mot['cpf'], mot.get('telefone'),
+            cav['placa'], cav['tipo'], cav.get('marca_modelo'), cav.get('carroceria'), cav.get('proprietario'), bool(cav.get('eh_rizza')),
+            c1.get('placa'), c1.get('marca_modelo'), c1.get('carroceria'), c1.get('proprietario'), bool(c1.get('eh_rizza')),
+            c2.get('placa'), c2.get('marca_modelo'), c2.get('carroceria'), c2.get('proprietario'), bool(c2.get('eh_rizza')),
+            b['data_carregamento'], b.get('previsao_entrega'), b.get('observacoes'),
+            session.get('user_id'), session.get('nome'),
+        ))
+        carga_id, criado_em = cur.fetchone()
+
+        # Destinos + geocoding (centroide IBGE)
+        import geocoding
+        destinos_inseridos = []
+        for i, d in enumerate(b['destinos'], start=1):
+            dlat, dlng = geocoding.geocoder_municipio(d['cidade'], d['uf'], conn=conn)
+            cur.execute(
+                "INSERT INTO embarques_cargas_destinos (carga_id, ordem, cidade, uf, latitude, longitude) "
+                "VALUES (%s, %s, %s, %s, %s, %s)",
+                (carga_id, i, d['cidade'], d['uf'], dlat, dlng)
+            )
+            destinos_inseridos.append({'cidade': d['cidade'], 'uf': d['uf'], 'lat': dlat, 'lng': dlng})
+
+        # Geocoding origem
+        olat, olng = geocoding.geocoder_municipio(ori['cidade'], ori['uf'], conn=conn)
+        cur.execute(
+            "UPDATE embarques_cargas SET origem_latitude=%s, origem_longitude=%s WHERE id=%s",
+            (olat, olng, carga_id)
+        )
+
+        # Gera numero
+        ano = criado_em.year
+        numero = f"C-{ano}-{carga_id:06d}"
+        cur.execute("UPDATE embarques_cargas SET numero = %s WHERE id = %s", (numero, carga_id))
+
+        conn.commit()
+        cur.close(); conn.close()
+
+        # Calcula rota planejada via ORS (após commit; falha não derruba o POST)
+        ors_warn = None
+        if olat is not None and destinos_inseridos and destinos_inseridos[-1]['lat'] is not None:
+            try:
+                import ors_client
+                dest_final = destinos_inseridos[-1]
+                rota = ors_client.tracar_rota(
+                    {'lat': olat, 'lng': olng},
+                    {'lat': dest_final['lat'], 'lng': dest_final['lng']}
+                )
+                conn2 = get_db()
+                cur2 = conn2.cursor()
+                cur2.execute("""
+                    UPDATE embarques_cargas SET
+                        rota_planejada_polyline=%s,
+                        distancia_planejada_km=%s,
+                        duracao_estimada_min=%s,
+                        rota_recalculada_em=NOW()
+                    WHERE id=%s
+                """, (rota['polyline'], rota['distancia_km'], rota['duracao_min'], carga_id))
+                conn2.commit()
+                cur2.close(); conn2.close()
+            except Exception as e:
+                ors_warn = f'ORS falhou: {e}'
+        elif olat is None:
+            ors_warn = 'Origem sem coordenadas IBGE (cidade não encontrada)'
+        elif not destinos_inseridos or destinos_inseridos[-1]['lat'] is None:
+            ors_warn = 'Destino final sem coordenadas IBGE'
+
+        if ors_warn:
+            warnings.append(ors_warn)
+
+        return jsonify({'ok': True, 'id': carga_id, 'numero': numero, 'warnings': warnings})
+
+    except Exception as e:
+        try: conn.rollback()
+        except Exception: pass
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+# ── Cargas: listagem com filtros ────────────────────────────────────────
+@app.route('/api/embarques/cargas')
+@login_required
+def api_embarques_cargas_list():
+    args = request.args
+    where = ["1=1"]
+    params = []
+
+    data_campo = 'data_carregamento' if args.get('data_campo', 'carregamento') == 'carregamento' else 'previsao_entrega'
+
+    if args.get('start'):
+        where.append(f"c.{data_campo} >= %s"); params.append(args['start'])
+    if args.get('end'):
+        where.append(f"c.{data_campo} <= %s"); params.append(args['end'])
+    if args.get('tipo_operacao'):
+        where.append("c.tipo_operacao = %s"); params.append(args['tipo_operacao'])
+    if args.get('cliente_id'):
+        where.append("c.cliente_id = %s"); params.append(args['cliente_id'])
+    if args.get('criado_por_id'):
+        where.append("c.criado_por_id = %s"); params.append(args['criado_por_id'])
+    if args.get('motorista'):
+        where.append("c.motorista_nome ILIKE %s"); params.append(f"%{args['motorista']}%")
+    if args.get('origem_uf'):
+        where.append("c.origem_uf = %s"); params.append(args['origem_uf'])
+    if args.get('destino_uf'):
+        where.append("EXISTS (SELECT 1 FROM embarques_cargas_destinos d WHERE d.carga_id = c.id AND d.uf = %s)")
+        params.append(args['destino_uf'])
+    if args.get('status'):
+        where.append("c.status = %s"); params.append(args['status'])
+    if args.get('q'):
+        q = f"%{args['q']}%"
+        where.append("(c.numero ILIKE %s OR c.motorista_nome ILIKE %s OR c.cliente_nome ILIKE %s OR c.cavalo_placa ILIKE %s OR c.carreta1_placa ILIKE %s OR c.carreta2_placa ILIKE %s)")
+        params.extend([q, q, q, q, q, q])
+
+    try:
+        limite = int(args.get('limit', 1000))
+    except Exception:
+        limite = 1000
+    limite = max(1, min(limite, 1000))
+
+    sql = f"""
+        SELECT c.id, c.numero, c.status, c.tipo_operacao,
+               c.cliente_id, c.cliente_nome,
+               c.origem_cidade, c.origem_uf,
+               c.motorista_nome, c.motorista_cpf,
+               c.cavalo_placa, c.cavalo_tipo, c.cavalo_marca_modelo, c.cavalo_proprietario,
+               c.carreta1_placa, c.carreta2_placa,
+               c.data_carregamento, c.previsao_entrega, c.data_conclusao,
+               c.observacoes,
+               c.criado_em, c.criado_por_id, c.criado_por_nome, c.atualizado_em,
+               c.no_local_desde, c.saida_auto, c.entregue_auto,
+               c.distancia_planejada_km, c.duracao_estimada_min,
+               (
+                 SELECT string_agg(d.cidade || '/' || d.uf, '; ' ORDER BY d.ordem)
+                 FROM embarques_cargas_destinos d WHERE d.carga_id = c.id
+               ) AS destinos
+        FROM embarques_cargas c
+        WHERE {' AND '.join(where)}
+        ORDER BY c.data_carregamento DESC, c.id DESC
+        LIMIT {limite}
+    """
+
+    try:
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(sql, params)
+        cols = [d[0] for d in cur.description]
+        rows = cur.fetchall()
+        data = []
+        for r in rows:
+            obj = dict(zip(cols, r))
+            for k in ('data_carregamento', 'previsao_entrega'):
+                if obj.get(k): obj[k] = obj[k].isoformat()
+            for k in ('data_conclusao', 'criado_em', 'atualizado_em'):
+                if obj.get(k): obj[k] = obj[k].isoformat()
+            obj['pode_editar'] = _pode_editar_carga(obj.get('criado_por_id'))
+            data.append(obj)
+        cur.close(); conn.close()
+        return jsonify({'ok': True, 'data': data, 'count': len(data)})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+# ── Carga: detalhe ──────────────────────────────────────────────────────
+@app.route('/api/embarques/cargas/<int:carga_id>')
+@login_required
+def api_embarques_carga_detail(carga_id):
+    try:
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("SELECT * FROM embarques_cargas WHERE id = %s", (carga_id,))
+        row = cur.fetchone()
+        if not row:
+            cur.close(); conn.close()
+            return jsonify({'ok': False, 'error': 'Carga não encontrada'}), 404
+        cols = [d[0] for d in cur.description]
+        carga = dict(zip(cols, row))
+        for k in ('data_carregamento', 'previsao_entrega'):
+            if carga.get(k): carga[k] = carga[k].isoformat()
+        for k in ('data_conclusao', 'criado_em', 'atualizado_em'):
+            if carga.get(k): carga[k] = carga[k].isoformat()
+
+        cur.execute("SELECT id, ordem, cidade, uf FROM embarques_cargas_destinos WHERE carga_id = %s ORDER BY ordem", (carga_id,))
+        destinos = [{'id': r[0], 'ordem': r[1], 'cidade': r[2], 'uf': r[3]} for r in cur.fetchall()]
+        carga['destinos'] = destinos
+        carga['pode_editar'] = _pode_editar_carga(carga.get('criado_por_id'))
+        cur.close(); conn.close()
+        return jsonify({'ok': True, 'data': carga})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+# ── Carga: edição com log ───────────────────────────────────────────────
+_PATCH_WHITELIST = (
+    'status', 'observacoes', 'previsao_entrega', 'data_carregamento',
+    'cliente_id', 'cliente_nome', 'tipo_operacao',
+    'motorista_nome', 'motorista_cpf', 'motorista_telefone',
+    'cavalo_placa', 'cavalo_tipo', 'cavalo_marca_modelo', 'cavalo_carroceria', 'cavalo_proprietario', 'cavalo_eh_rizza',
+    'carreta1_placa', 'carreta1_marca_modelo', 'carreta1_carroceria', 'carreta1_proprietario', 'carreta1_eh_rizza',
+    'carreta2_placa', 'carreta2_marca_modelo', 'carreta2_carroceria', 'carreta2_proprietario', 'carreta2_eh_rizza',
+    'origem_cidade', 'origem_uf',
+)
+
+
+@app.route('/api/embarques/cargas/<int:carga_id>', methods=['PATCH'])
+@login_required
+def api_embarques_carga_patch(carga_id):
+    b = request.get_json(silent=True) or {}
+    campos = {k: b[k] for k in b if k in _PATCH_WHITELIST}
+    if not campos and 'destinos' not in b:
+        return jsonify({'ok': False, 'error': 'Nada a atualizar'}), 400
+
+    try:
+        conn = get_db(); cur = conn.cursor()
+        # Estado atual
+        cur.execute("SELECT * FROM embarques_cargas WHERE id = %s", (carga_id,))
+        row = cur.fetchone()
+        if not row:
+            cur.close(); conn.close()
+            return jsonify({'ok': False, 'error': 'Carga não encontrada'}), 404
+        cols_atuais = [d[0] for d in cur.description]
+        atual = dict(zip(cols_atuais, row))
+
+        # Permissão: admin ou criador da carga
+        if not _pode_editar_carga(atual.get('criado_por_id')):
+            cur.close(); conn.close()
+            return jsonify({
+                'ok': False,
+                'error': 'Você não pode editar esta carga. Apenas quem lançou ou um administrador.'
+            }), 403
+
+        # Bloqueio de conflito quando o novo estado fica/continua ativo
+        novo_status = campos.get('status', atual.get('status'))
+        if novo_status in ('Aberta', 'Em rota'):
+            novo_cpf = campos.get('motorista_cpf', atual.get('motorista_cpf'))
+            placas_novas = [
+                (campos.get('cavalo_placa',   atual.get('cavalo_placa'))   or '').upper().strip(),
+                (campos.get('carreta1_placa', atual.get('carreta1_placa')) or '').upper().strip(),
+                (campos.get('carreta2_placa', atual.get('carreta2_placa')) or '').upper().strip(),
+            ]
+            conflitos = _buscar_conflitos(novo_cpf, [p for p in placas_novas if p], exclude_id=carga_id)
+            if conflitos:
+                cur.close(); conn.close()
+                nums = sorted({c['numero'] for c in conflitos if c.get('numero')})
+                msg = 'Recurso já em uso na(s) carga(s) ativa(s): ' + ', '.join(nums)
+                return jsonify({'ok': False, 'error': msg, 'tipo': 'conflito', 'conflitos': conflitos}), 409
+
+        # Diff: só campos cujo valor mudou
+        diffs = []
+        sets = []
+        params = []
+        for k, v in campos.items():
+            antigo = atual.get(k)
+            if isinstance(antigo, (bool,)):
+                novo_norm = bool(v)
+            elif hasattr(antigo, 'isoformat'):
+                novo_norm = v  # comparar como veio
+                antigo = antigo.isoformat() if antigo else None
+            else:
+                novo_norm = v
+            if str(antigo) != str(novo_norm) and not (antigo is None and novo_norm in (None, '')):
+                diffs.append((k, antigo, novo_norm))
+                sets.append(f"{k} = %s")
+                params.append(novo_norm)
+
+        # Auto data_conclusao quando muda para Entregue
+        if campos.get('status') == 'Entregue' and atual.get('status') != 'Entregue':
+            sets.append("data_conclusao = NOW()")
+
+        # Destinos — substituir lista inteira se fornecida
+        destinos_mudaram = False
+        novos_destinos = b.get('destinos')
+        if isinstance(novos_destinos, list):
+            cur.execute(
+                "SELECT ordem, cidade, uf FROM embarques_cargas_destinos WHERE carga_id = %s ORDER BY ordem",
+                (carga_id,)
+            )
+            atuais = [{'ordem': r[0], 'cidade': r[1], 'uf': r[2]} for r in cur.fetchall()]
+            atuais_repr = '; '.join(f"{d['cidade']}/{d['uf']}" for d in atuais)
+            novos_repr  = '; '.join(f"{d.get('cidade','?')}/{d.get('uf','?')}" for d in novos_destinos)
+            if atuais_repr != novos_repr:
+                destinos_mudaram = True
+                cur.execute("DELETE FROM embarques_cargas_destinos WHERE carga_id = %s", (carga_id,))
+                for i, d in enumerate(novos_destinos, start=1):
+                    if not d.get('cidade') or not d.get('uf'):
+                        continue
+                    cur.execute(
+                        "INSERT INTO embarques_cargas_destinos (carga_id, ordem, cidade, uf) VALUES (%s, %s, %s, %s)",
+                        (carga_id, i, d['cidade'], d['uf'])
+                    )
+
+        if sets or destinos_mudaram:
+            if sets:
+                sets.append("atualizado_em = NOW()")
+                params.append(carga_id)
+                cur.execute(f"UPDATE embarques_cargas SET {', '.join(sets)} WHERE id = %s", params)
+            elif destinos_mudaram:
+                cur.execute("UPDATE embarques_cargas SET atualizado_em = NOW() WHERE id = %s", (carga_id,))
+            for campo, va, vn in diffs:
+                cur.execute("""
+                    INSERT INTO embarques_cargas_log
+                    (carga_id, usuario_id, usuario_nome, campo, valor_anterior, valor_novo)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                """, (carga_id, session.get('user_id'), session.get('nome'),
+                      campo,
+                      None if va is None else str(va),
+                      None if vn is None else str(vn)))
+            if destinos_mudaram:
+                cur.execute("""
+                    INSERT INTO embarques_cargas_log
+                    (carga_id, usuario_id, usuario_nome, campo, valor_anterior, valor_novo)
+                    VALUES (%s, %s, %s, 'destinos', %s, %s)
+                """, (carga_id, session.get('user_id'), session.get('nome'),
+                      atuais_repr, novos_repr))
+
+        conn.commit()
+        cur.close(); conn.close()
+        total_alt = len(diffs) + (1 if destinos_mudaram else 0)
+        return jsonify({'ok': True, 'alteracoes': total_alt})
+    except Exception as e:
+        try: conn.rollback()
+        except Exception: pass
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+# ── Carga: log de edição ────────────────────────────────────────────────
+@app.route('/api/embarques/cargas/<int:carga_id>/log')
+@login_required
+def api_embarques_carga_log(carga_id):
+    try:
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("""
+            SELECT id, usuario_id, usuario_nome, editado_em, campo, valor_anterior, valor_novo
+            FROM embarques_cargas_log
+            WHERE carga_id = %s
+            ORDER BY editado_em DESC, id DESC
+        """, (carga_id,))
+        data = [{
+            'id': r[0], 'usuario_id': r[1], 'usuario_nome': r[2],
+            'editado_em': r[3].isoformat() if r[3] else None,
+            'campo': r[4], 'valor_anterior': r[5], 'valor_novo': r[6],
+        } for r in cur.fetchall()]
+        cur.close(); conn.close()
+        return jsonify({'ok': True, 'data': data, 'count': len(data)})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+# ── Cargas: CSV streaming ───────────────────────────────────────────────
+@app.route('/api/embarques/cargas/csv')
+@login_required
+def api_embarques_cargas_csv():
+    args = request.args
+    where = ["1=1"]
+    params = []
+    data_campo = 'data_carregamento' if args.get('data_campo', 'carregamento') == 'carregamento' else 'previsao_entrega'
+    if args.get('start'):
+        where.append(f"c.{data_campo} >= %s"); params.append(args['start'])
+    if args.get('end'):
+        where.append(f"c.{data_campo} <= %s"); params.append(args['end'])
+    if args.get('tipo_operacao'):
+        where.append("c.tipo_operacao = %s"); params.append(args['tipo_operacao'])
+    if args.get('cliente_id'):
+        where.append("c.cliente_id = %s"); params.append(args['cliente_id'])
+    if args.get('criado_por_id'):
+        where.append("c.criado_por_id = %s"); params.append(args['criado_por_id'])
+    if args.get('motorista'):
+        where.append("c.motorista_nome ILIKE %s"); params.append(f"%{args['motorista']}%")
+    if args.get('origem_uf'):
+        where.append("c.origem_uf = %s"); params.append(args['origem_uf'])
+    if args.get('destino_uf'):
+        where.append("EXISTS (SELECT 1 FROM embarques_cargas_destinos d WHERE d.carga_id = c.id AND d.uf = %s)")
+        params.append(args['destino_uf'])
+    if args.get('status'):
+        where.append("c.status = %s"); params.append(args['status'])
+
+    nome = f"cargas_{args.get('start','')}_{args.get('end','')}.csv".strip('_')
+
+    sql = f"""
+        SELECT c.numero, c.data_carregamento, c.previsao_entrega, c.status, c.tipo_operacao,
+               c.cliente_nome,
+               c.origem_cidade || '/' || c.origem_uf AS origem,
+               (SELECT string_agg(d.cidade || '/' || d.uf, '; ' ORDER BY d.ordem)
+                FROM embarques_cargas_destinos d WHERE d.carga_id = c.id) AS destinos,
+               c.motorista_nome, c.motorista_cpf,
+               c.cavalo_placa, c.cavalo_marca_modelo, c.cavalo_proprietario,
+               c.carreta1_placa, c.carreta1_proprietario,
+               c.carreta2_placa, c.carreta2_proprietario,
+               c.observacoes,
+               c.criado_por_nome, c.criado_em
+        FROM embarques_cargas c
+        WHERE {' AND '.join(where)}
+        ORDER BY c.data_carregamento DESC, c.id DESC
+    """
+    headers_csv = [
+        'numero', 'data_carregamento', 'previsao_entrega', 'status', 'tipo_operacao',
+        'cliente', 'origem', 'destinos',
+        'motorista', 'motorista_cpf',
+        'cavalo_placa', 'cavalo_marca_modelo', 'cavalo_proprietario',
+        'carreta1_placa', 'carreta1_proprietario',
+        'carreta2_placa', 'carreta2_proprietario',
+        'observacoes', 'lancado_por', 'lancado_em'
+    ]
+
+    def gerar():
+        yield '﻿'
+        yield _csv_linha(headers_csv)
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(sql, params)
+        for r in cur.fetchall():
+            valores = []
+            for v in r:
+                if hasattr(v, 'isoformat'):
+                    valores.append(v.isoformat())
+                else:
+                    valores.append(v)
+            yield _csv_linha(valores)
+        cur.close(); conn.close()
+
+    return Response(
+        stream_with_context(gerar()),
+        mimetype='text/csv; charset=utf-8',
+        headers={'Content-Disposition': f'attachment; filename="{nome}"'}
+    )
+
+
+# ── KPIs da landing ─────────────────────────────────────────────────────
+@app.route('/api/embarques/kpis')
+@login_required
+def api_embarques_kpis():
+    try:
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("""
+            SELECT
+              COUNT(*) FILTER (WHERE data_carregamento = CURRENT_DATE) AS hoje,
+              COUNT(*) FILTER (WHERE status = 'Em rota')                AS em_rota,
+              COUNT(*) FILTER (WHERE status = 'Entregue'
+                               AND date_trunc('month', data_conclusao) = date_trunc('month', CURRENT_DATE)) AS entregues_mes,
+              COUNT(*) FILTER (WHERE status = 'Aberta')                 AS abertas
+            FROM embarques_cargas
+        """)
+        r = cur.fetchone()
+        cur.close(); conn.close()
+        return jsonify({
+            'ok': True,
+            'data': {
+                'hoje':           r[0] or 0,
+                'em_rota':        r[1] or 0,
+                'entregues_mes':  r[2] or 0,
+                'abertas':        r[3] or 0,
+            }
+        })
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+# ── Lista de embarcadores (usuários do sistema) p/ filtro do relatório ─
+@app.route('/api/embarques/embarcadores')
+@login_required
+def api_embarques_embarcadores():
+    try:
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("""
+            SELECT DISTINCT criado_por_id, criado_por_nome
+            FROM embarques_cargas
+            WHERE criado_por_id IS NOT NULL AND criado_por_nome IS NOT NULL
+            ORDER BY criado_por_nome
+        """)
+        data = [{'id': r[0], 'nome': r[1]} for r in cur.fetchall()]
+        cur.close(); conn.close()
+        return jsonify({'ok': True, 'data': data, 'count': len(data)})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# RASTREAMENTO — Endpoints API (todos @login_required)
+# ════════════════════════════════════════════════════════════════════════════
+
+import tres_s_client
+import rastreamento_worker
+
+
+@app.route('/api/rastreamento/posicoes')
+@login_required
+def api_rastreamento_posicoes():
+    """Lista posições atuais com info da carga ativa (se houver).
+    Filtros: carregado=1|0, eh_rizza=1, q (placa/motorista).
+    """
+    args = request.args
+    where = ["1=1"]
+    params = []
+
+    carregado = args.get('carregado')
+    eh_rizza = args.get('eh_rizza')
+    q = (args.get('q') or '').strip()
+
+    base_join = """
+        FROM embarques_posicoes_atuais p
+        LEFT JOIN embarques_veiculos_rastreio v ON v.placa = p.placa
+        LEFT JOIN LATERAL (
+            SELECT id, numero, status, cliente_nome, motorista_nome, cavalo_proprietario, cavalo_eh_rizza,
+                   no_local_desde, saida_auto, entregue_auto, data_carregamento, origem_cidade, origem_uf
+            FROM embarques_cargas c
+            WHERE c.cavalo_placa = p.placa AND c.status IN ('Aberta','Em rota')
+            ORDER BY c.id DESC LIMIT 1
+        ) ca ON true
+    """
+
+    if carregado == '1':
+        where.append("ca.id IS NOT NULL")
+    elif carregado == '0':
+        where.append("ca.id IS NULL")
+
+    if eh_rizza == '1':
+        where.append("(ca.cavalo_eh_rizza = TRUE OR v.frota ILIKE %s)")
+        params.append('%RIZZA%')
+
+    if q:
+        where.append("(p.placa ILIKE %s OR ca.motorista_nome ILIKE %s)")
+        params.extend([f'%{q}%', f'%{q}%'])
+
+    sql = f"""
+        SELECT p.placa, p.latitude, p.longitude, p.velocidade, p.ignicao, p.direcao,
+               p.cidade, p.uf, p.data_posicao, p.bloqueio, p.atualizado_em,
+               v.frota, v.modelo, v.tipo,
+               ca.id AS carga_id, ca.numero, ca.status, ca.cliente_nome, ca.motorista_nome,
+               ca.cavalo_proprietario, ca.cavalo_eh_rizza, ca.no_local_desde, ca.saida_auto,
+               ca.origem_cidade, ca.origem_uf
+        {base_join}
+        WHERE {' AND '.join(where)}
+        ORDER BY p.placa
+        LIMIT 2000
+    """
+
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(sql, params)
+        rows = cur.fetchall()
+        cols = [c[0] for c in cur.description]
+        data = [dict(zip(cols, r)) for r in rows]
+        # Normalização: lat/lng → float, data → ISO
+        for d in data:
+            d['latitude'] = float(d['latitude']) if d['latitude'] is not None else None
+            d['longitude'] = float(d['longitude']) if d['longitude'] is not None else None
+            for k in ('data_posicao', 'atualizado_em', 'no_local_desde'):
+                if d.get(k) is not None:
+                    d[k] = d[k].isoformat()
+            d['carregado'] = d.get('carga_id') is not None
+        cur.close(); conn.close()
+        return jsonify({'ok': True, 'data': data, 'count': len(data)})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/rastreamento/cargas/<int:carga_id>/trajeto')
+@login_required
+def api_rastreamento_trajeto(carga_id):
+    """Retorna trajeto + rota planejada + KPIs + raios."""
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+
+        cur.execute("""
+            SELECT id, numero, status, cliente_nome, motorista_nome, cavalo_placa,
+                   carreta1_placa, carreta2_placa,
+                   origem_cidade, origem_uf, origem_latitude, origem_longitude,
+                   data_carregamento, data_saida_real, data_conclusao,
+                   no_local_desde, saida_auto, entregue_auto,
+                   rota_planejada_polyline, distancia_planejada_km, duracao_estimada_min,
+                   rota_recalculada_em
+            FROM embarques_cargas WHERE id=%s
+        """, (carga_id,))
+        r = cur.fetchone()
+        if not r:
+            cur.close(); conn.close()
+            return jsonify({'ok': False, 'error': 'Carga não encontrada'}), 404
+        cols = [c[0] for c in cur.description]
+        carga = dict(zip(cols, r))
+
+        cur.execute("""
+            SELECT ordem, cidade, uf, latitude, longitude
+            FROM embarques_cargas_destinos WHERE carga_id=%s ORDER BY ordem
+        """, (carga_id,))
+        destinos = []
+        for ord_, cidade, uf, lat, lng in cur.fetchall():
+            destinos.append({
+                'ordem': ord_, 'cidade': cidade, 'uf': uf,
+                'latitude': float(lat) if lat is not None else None,
+                'longitude': float(lng) if lng is not None else None,
+            })
+
+        # Período pra buscar histórico
+        inicio = carga.get('data_saida_real') or carga.get('data_carregamento')
+        from datetime import datetime as _dt
+        fim = carga.get('data_conclusao') or _dt.now()
+
+        def _buscar_trajeto(placa):
+            if not placa:
+                return []
+            cur.execute("""
+                SELECT data_posicao, latitude, longitude, velocidade, ignicao, cidade, uf
+                FROM embarques_posicoes_historico
+                WHERE placa=%s AND data_posicao BETWEEN %s AND %s
+                ORDER BY data_posicao
+            """, (placa, inicio, fim))
+            return [{
+                'data': dp.isoformat(),
+                'lat': float(la),
+                'lng': float(ln),
+                'velocidade': vel,
+                'ignicao': ig,
+                'cidade': cid,
+                'uf': uff,
+            } for (dp, la, ln, vel, ig, cid, uff) in cur.fetchall()]
+
+        traj_cavalo = _buscar_trajeto(carga['cavalo_placa'])
+        traj_c1 = _buscar_trajeto(carga.get('carreta1_placa')) if carga.get('carreta1_placa') else []
+        traj_c2 = _buscar_trajeto(carga.get('carreta2_placa')) if carga.get('carreta2_placa') else []
+
+        # KPIs já consolidados?
+        cur.execute("""
+            SELECT distancia_metros, velocidade_max, velocidade_media,
+                   tempo_movimento_seg, tempo_parado_seg, consolidado_final
+            FROM embarques_cargas_rastreio_kpi WHERE carga_id=%s
+        """, (carga_id,))
+        rk = cur.fetchone()
+        kpi = None
+        if rk:
+            kpi = {
+                'distancia_km': round((rk[0] or 0) / 1000, 1),
+                'velocidade_max': rk[1],
+                'velocidade_media': float(rk[2]) if rk[2] is not None else None,
+                'tempo_movimento_seg': rk[3],
+                'tempo_parado_seg': rk[4],
+                'consolidado_final': rk[5],
+            }
+
+        cur.close(); conn.close()
+
+        # Última posição = último ponto do trajeto cavalo
+        ultima = traj_cavalo[-1] if traj_cavalo else None
+
+        # Format origem/destinos pra JSON
+        origem = {
+            'cidade': carga['origem_cidade'], 'uf': carga['origem_uf'],
+            'latitude': float(carga['origem_latitude']) if carga['origem_latitude'] is not None else None,
+            'longitude': float(carga['origem_longitude']) if carga['origem_longitude'] is not None else None,
+        }
+
+        resp = {
+            'ok': True,
+            'carga': {
+                'id': carga['id'],
+                'numero': carga['numero'],
+                'status': carga['status'],
+                'cliente_nome': carga['cliente_nome'],
+                'motorista_nome': carga['motorista_nome'],
+                'cavalo_placa': carga['cavalo_placa'],
+                'carreta1_placa': carga.get('carreta1_placa'),
+                'carreta2_placa': carga.get('carreta2_placa'),
+                'data_carregamento': carga['data_carregamento'].isoformat() if carga['data_carregamento'] else None,
+                'data_saida_real': carga['data_saida_real'].isoformat() if carga['data_saida_real'] else None,
+                'data_conclusao': carga['data_conclusao'].isoformat() if carga['data_conclusao'] else None,
+                'no_local_desde': carga['no_local_desde'].isoformat() if carga['no_local_desde'] else None,
+                'saida_auto': carga['saida_auto'],
+                'entregue_auto': carga['entregue_auto'],
+            },
+            'origem': origem,
+            'destinos': destinos,
+            'trajeto': {
+                'cavalo': traj_cavalo,
+                'carreta1': traj_c1,
+                'carreta2': traj_c2,
+            },
+            'rota_planejada': {
+                'polyline': carga.get('rota_planejada_polyline'),
+                'distancia_km': float(carga['distancia_planejada_km']) if carga.get('distancia_planejada_km') is not None else None,
+                'duracao_min': carga.get('duracao_estimada_min'),
+                'recalculada_em': carga['rota_recalculada_em'].isoformat() if carga.get('rota_recalculada_em') else None,
+            },
+            'ultima_posicao': ultima,
+            'kpi': kpi,
+        }
+        return jsonify(resp)
+    except Exception as e:
+        try: conn.close()
+        except Exception: pass
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/rastreamento/cargas/<int:carga_id>/confirmar-entrega', methods=['POST'])
+@login_required
+def api_rastreamento_confirmar_entrega(carga_id):
+    """Confirma manualmente a entrega. status='Entregue', entregue_auto=false."""
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("SELECT status FROM embarques_cargas WHERE id=%s", (carga_id,))
+        r = cur.fetchone()
+        if not r:
+            cur.close(); conn.close()
+            return jsonify({'ok': False, 'error': 'Carga não encontrada'}), 404
+        if r[0] in ('Entregue', 'Cancelada'):
+            cur.close(); conn.close()
+            return jsonify({'ok': False, 'error': f'Carga já está {r[0]}'}), 400
+        cur.execute("""
+            UPDATE embarques_cargas
+            SET status='Entregue', entregue_auto=FALSE, data_conclusao=NOW(), atualizado_em=NOW()
+            WHERE id=%s
+        """, (carga_id,))
+        # Log no embarques_cargas_log
+        cur.execute("""
+            INSERT INTO embarques_cargas_log (carga_id, usuario_id, usuario_nome, campo, valor_anterior, valor_novo)
+            VALUES (%s, %s, %s, 'status', %s, 'Entregue')
+        """, (carga_id, session.get('user_id'), session.get('nome'), r[0]))
+        # Consolida KPI
+        rastreamento_worker._consolidar_kpi(cur, carga_id, final=True)
+        conn.commit()
+        cur.close(); conn.close()
+        return jsonify({'ok': True})
+    except Exception as e:
+        try: conn.rollback(); conn.close()
+        except Exception: pass
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/rastreamento/sync-veiculos', methods=['POST'])
+@admin_required
+def api_rastreamento_sync_veiculos():
+    """Força sync com /ListaVeiculos da 3S. UPSERT em embarques_veiculos_rastreio."""
+    try:
+        veiculos = tres_s_client.lista_veiculos()
+        conn = get_db()
+        cur = conn.cursor()
+        novos = 0
+        atualizados = 0
+        for v in veiculos:
+            placa = (v.get('placa') or '').strip().upper()
+            id_veiculo = v.get('idVeiculo')
+            if not placa or not id_veiculo:
+                continue
+            cur.execute("SELECT id FROM embarques_veiculos_rastreio WHERE placa=%s", (placa,))
+            existe = cur.fetchone() is not None
+            cur.execute("""
+                INSERT INTO embarques_veiculos_rastreio
+                    (placa, id_veiculo_3s, id_equipamento, frota, modelo, tipo, sincronizado_em)
+                VALUES (%s, %s, %s, %s, %s, %s, NOW())
+                ON CONFLICT (placa) DO UPDATE SET
+                    id_veiculo_3s = EXCLUDED.id_veiculo_3s,
+                    id_equipamento = EXCLUDED.id_equipamento,
+                    frota = EXCLUDED.frota,
+                    modelo = EXCLUDED.modelo,
+                    tipo = EXCLUDED.tipo,
+                    sincronizado_em = NOW()
+            """, (placa, id_veiculo, v.get('idEquipamento'), v.get('frota'),
+                  v.get('modelo'), v.get('tipo')))
+            if existe:
+                atualizados += 1
+            else:
+                novos += 1
+        conn.commit()
+        cur.close(); conn.close()
+        return jsonify({'ok': True, 'total': len(veiculos), 'novos': novos, 'atualizados': atualizados})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/rastreamento/health')
+@admin_required
+def api_rastreamento_health():
+    """Status do worker, última sync, token, contadores."""
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("SELECT MAX(atualizado_em) FROM embarques_posicoes_atuais")
+        ultima_sync = cur.fetchone()[0]
+        cur.execute("SELECT expiration FROM embarques_3s_token WHERE id=1")
+        r = cur.fetchone()
+        token_valido_ate = r[0].isoformat() if r else None
+        cur.execute("SELECT COUNT(*) FROM embarques_3s_log WHERE chamado_em > NOW() - INTERVAL '60 seconds'")
+        chamadas_60s = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM embarques_3s_log WHERE provider='ORS' AND chamado_em > NOW() - INTERVAL '24 hours'")
+        ors_24h = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM embarques_3s_log WHERE erro_codigo IS NOT NULL AND chamado_em > NOW() - INTERVAL '24 hours'")
+        erros_24h = cur.fetchone()[0]
+        cur.close(); conn.close()
+        return jsonify({
+            'ok': True,
+            'worker_running': rastreamento_worker.is_running(),
+            'modo_simulado': tres_s_client.is_modo_simulado(),
+            'ultima_sync': ultima_sync.isoformat() if ultima_sync else None,
+            'token_valido_ate': token_valido_ate,
+            'chamadas_60s': chamadas_60s,
+            'ors_chamadas_24h': ors_24h,
+            'erros_24h': erros_24h,
+        })
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/rastreamento/log')
+@admin_required
+def api_rastreamento_log():
+    """Últimas 200 linhas do log (3S + ORS + SIM)."""
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT chamado_em, provider, endpoint, duracao_ms, status_http, erro_codigo, erro_msg
+            FROM embarques_3s_log
+            ORDER BY chamado_em DESC LIMIT 200
+        """)
+        cols = ['chamado_em', 'provider', 'endpoint', 'duracao_ms', 'status_http', 'erro_codigo', 'erro_msg']
+        data = []
+        for r in cur.fetchall():
+            d = dict(zip(cols, r))
+            d['chamado_em'] = d['chamado_em'].isoformat()
+            data.append(d)
+        cur.close(); conn.close()
+        return jsonify({'ok': True, 'data': data, 'count': len(data)})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
 if __name__ == '__main__':
     print("\n⚡ Auditoria Receita — Backend")
     print("=" * 40)
@@ -1558,5 +2794,16 @@ if __name__ == '__main__':
     else:
         print("✅ Configuração Power BI OK")
 
+    # Boot do worker de rastreamento
+    if os.getenv('START_WORKER', '').lower() == 'true':
+        try:
+            rastreamento_worker.start()
+            modo = 'SIMULADO' if tres_s_client.is_modo_simulado() else 'REAL'
+            print(f"✅ Worker de rastreamento iniciado (modo {modo})")
+        except Exception as e:
+            print(f"⚠️  Worker não iniciou: {e}")
+    else:
+        print("ℹ️  Worker de rastreamento desligado (START_WORKER != true)")
+
     print(f"\n🌐 Acesse: http://localhost:5000\n")
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
