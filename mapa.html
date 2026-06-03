@@ -155,6 +155,11 @@
       <div class="label">Buscar placa ou motorista</div>
       <input class="search-input" id="busca" placeholder="ex: AAA1234 ou João">
     </div>
+    <div class="sidebar-section">
+      <div class="label">Cidade</div>
+      <input class="search-input" id="buscaCidade" list="listaCidades" placeholder="Todas">
+      <datalist id="listaCidades"></datalist>
+    </div>
     <div class="sidebar-section" style="display:flex;justify-content:space-between;align-items:center;">
       <span class="label" style="margin-bottom:0;">Veículos visíveis</span>
       <span style="font-family:'JetBrains Mono',monospace;font-size:0.78rem;color:var(--accent);" id="contador">—</span>
@@ -206,6 +211,7 @@
   let markers = {};  // placa → marker
   let filtro = 'todos';
   let buscaQ = '';
+  let filtroCidade = '';
   let soRizza = false;
 
   // ── Cor do marker ──────────────────────────────────
@@ -266,12 +272,22 @@
   }
 
   // ── Render: aplica filtros + atualiza markers e lista ──
+  function normalizar(s) {
+    return (s || '').toString().toLowerCase()
+      .normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+  }
   function aplicarFiltros() {
     const buscaNorm = buscaQ.toLowerCase().trim();
+    const cidadeFiltro = normalizar(filtroCidade);
     return posicoes.filter(p => {
       if (filtro === 'carregados' && !p.carregado) return false;
       if (filtro === 'vazios' && p.carregado) return false;
       if (soRizza && !p.cavalo_eh_rizza) return false;
+      if (cidadeFiltro) {
+        const label = normalizar(`${p.cidade || ''}/${p.uf || ''}`);
+        const so_cidade = normalizar(p.cidade || '');
+        if (!label.includes(cidadeFiltro) && !so_cidade.includes(cidadeFiltro)) return false;
+      }
       if (buscaNorm) {
         const match = (p.placa || '').toLowerCase().includes(buscaNorm)
           || (p.motorista_nome || '').toLowerCase().includes(buscaNorm);
@@ -337,6 +353,16 @@
     renderLista(filt);
   }
 
+  // ── Datalist de cidades (alimentado pelos dados atuais) ──
+  function popularDatalistCidades() {
+    const pares = new Set();
+    posicoes.forEach(p => {
+      if (p.cidade) pares.add(`${p.cidade}/${p.uf || ''}`);
+    });
+    const dl = document.getElementById('listaCidades');
+    dl.innerHTML = [...pares].sort().map(x => `<option value="${x}">`).join('');
+  }
+
   // ── Fetch ──────────────────────────────────────────
   async function atualizar(force=false) {
     try {
@@ -345,6 +371,7 @@
       if (!d.ok) throw new Error(d.error || 'erro');
       posicoes = d.data || [];
       document.getElementById('ultimaAtualizacao').textContent = 'Atualizado ' + new Date().toLocaleTimeString('pt-BR');
+      popularDatalistCidades();
       render();
     } catch (e) {
       document.getElementById('ultimaAtualizacao').textContent = 'Erro: ' + e.message;
@@ -362,6 +389,10 @@
   });
   document.getElementById('busca').addEventListener('input', e => {
     buscaQ = e.target.value;
+    render();
+  });
+  document.getElementById('buscaCidade').addEventListener('input', e => {
+    filtroCidade = e.target.value;
     render();
   });
   document.getElementById('toggleRizza').addEventListener('change', e => {
