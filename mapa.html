@@ -215,11 +215,13 @@
   let soRizza = false;
 
   // ── Cor do marker ──────────────────────────────────
+  // Usa data_posicao (timestamp REAL do GPS), não atualizado_em
+  // (quando nosso worker gravou — esse é sempre fresco).
   function statusVeiculo(p) {
-    if (!p.atualizado_em) return 'sem-sinal';
-    const agora = Date.now();
-    const ts = new Date(p.atualizado_em).getTime();
-    if (agora - ts > 15 * 60 * 1000) return 'sem-sinal';
+    const ref = p.data_posicao || p.atualizado_em;
+    if (!ref) return 'sem-sinal';
+    const agoraSeg = Math.floor((Date.now() - new Date(ref).getTime()) / 1000);
+    if (agoraSeg > 15 * 60) return 'sem-sinal';
     if ((p.velocidade || 0) > 5) return 'mov';
     if (p.ignicao) return 'parado-ign';
     return 'parado';
@@ -259,7 +261,11 @@
     html += `<div class="popup-row"><strong>${p.cidade || '—'}/${p.uf || '—'}</strong></div>`;
     html += `<div class="popup-row">Velocidade: ${p.velocidade || 0} km/h</div>`;
     html += `<div class="popup-row">Ignição: ${p.ignicao ? 'Ligada' : 'Desligada'}</div>`;
-    html += `<div class="popup-row" style="color:var(--text-dim);font-size:0.75rem;">Atualizado ${tempoDesde(p.atualizado_em)}</div>`;
+    const segGps = p.data_posicao ? Math.floor((Date.now() - new Date(p.data_posicao).getTime()) / 1000) : null;
+    const corGps = (segGps != null && segGps > 15*60) ? 'var(--red)'
+                : (segGps != null && segGps > 5*60) ? 'var(--yellow)' : 'var(--text-dim)';
+    html += `<div class="popup-row" style="color:${corGps};font-size:0.75rem;">📡 GPS reportou ${tempoDesde(p.data_posicao)}</div>`;
+    html += `<div class="popup-row" style="color:var(--text-dim);font-size:0.7rem;">Sistema gravou ${tempoDesde(p.atualizado_em)}</div>`;
     if (p.carregado && p.carga_id) {
       html += `<div class="popup-row" style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px;">`;
       html += `<strong>Carga:</strong> ${p.numero || '—'}`;
@@ -326,13 +332,16 @@
     lista.innerHTML = filtradas.map(p => {
       const s = statusVeiculo(p);
       const motorista = p.motorista_nome ? ' · ' + p.motorista_nome : '';
+      const segGps = p.data_posicao ? Math.floor((Date.now() - new Date(p.data_posicao).getTime()) / 1000) : null;
+      const corTempo = (segGps != null && segGps > 15*60) ? 'color:var(--red);font-weight:600;'
+                    : (segGps != null && segGps > 5*60) ? 'color:var(--yellow);font-weight:600;' : '';
       return `
         <div class="veic-item ${p.carregado ? 'veic-carregado' : ''}" onclick="zoomPlaca('${p.placa}')">
           <div class="veic-status s-${s}"></div>
           <div class="veic-info">
             <div class="veic-placa">${p.placa}</div>
             <div class="veic-meta">${p.cidade || '—'}/${p.uf || '—'}${motorista}</div>
-            <div class="veic-extra">${p.velocidade || 0} km/h · ${tempoDesde(p.atualizado_em)}</div>
+            <div class="veic-extra">${p.velocidade || 0} km/h · <span style="${corTempo}">${tempoDesde(p.data_posicao)}</span></div>
           </div>
         </div>`;
     }).join('');
