@@ -264,9 +264,15 @@
   function popupHTML(p) {
     let html = `<div class="popup-placa">${p.placa}</div>`;
     html += `<div class="popup-row"><strong>${p.cidade || '—'}/${p.uf || '—'}</strong></div>`;
-    html += `<div class="popup-row">Velocidade: ${p.velocidade || 0} km/h</div>`;
-    html += `<div class="popup-row">Ignição: ${p.ignicao ? 'Ligada' : 'Desligada'}</div>`;
-    const segGps = p.data_posicao ? Math.floor((Date.now() - new Date(p.data_posicao).getTime()) / 1000) : null;
+    const segGpsPopup = p.data_posicao ? Math.floor((Date.now() - new Date(p.data_posicao).getTime()) / 1000) : null;
+    const dadoVelho = segGpsPopup != null && segGpsPopup > 24*60*60;
+    if (!dadoVelho) {
+      html += `<div class="popup-row">Velocidade: ${p.velocidade || 0} km/h</div>`;
+      html += `<div class="popup-row">Ignição: ${p.ignicao ? 'Ligada' : 'Desligada'}</div>`;
+    } else {
+      html += `<div class="popup-row" style="color:var(--text-dim);font-size:0.75rem;font-style:italic;">Última posição conhecida (dado pode estar desatualizado)</div>`;
+    }
+    const segGps = segGpsPopup;
     const corGps = (segGps != null && segGps > 15*60) ? 'var(--red)'
                 : (segGps != null && segGps > 5*60) ? 'var(--yellow)' : 'var(--text-dim)';
     html += `<div class="popup-row" style="color:${corGps};font-size:0.75rem;">📡 GPS reportou ${tempoDesde(p.data_posicao)}</div>`;
@@ -345,13 +351,15 @@
       const segGps = p.data_posicao ? Math.floor((Date.now() - new Date(p.data_posicao).getTime()) / 1000) : null;
       const corTempo = (segGps != null && segGps > 15*60) ? 'color:var(--red);font-weight:600;'
                     : (segGps != null && segGps > 5*60) ? 'color:var(--yellow);font-weight:600;' : '';
+      // Se GPS > 24h, esconde velocidade (dado congelado, atrapalha em relatório)
+      const velStr = (segGps != null && segGps > 24*60*60) ? '' : `${p.velocidade || 0} km/h · `;
       return `
         <div class="veic-item ${p.carregado ? 'veic-carregado' : ''}" onclick="zoomPlaca('${p.placa}')">
           <div class="veic-status s-${s}"></div>
           <div class="veic-info">
             <div class="veic-placa">${p.placa}</div>
             <div class="veic-meta">${p.cidade || '—'}/${p.uf || '—'}${motorista}</div>
-            <div class="veic-extra">${p.velocidade || 0} km/h · <span style="${corTempo}">${tempoDesde(p.data_posicao)}</span></div>
+            <div class="veic-extra">${velStr}<span style="${corTempo}">${tempoDesde(p.data_posicao)}</span></div>
           </div>
         </div>`;
     }).join('');
