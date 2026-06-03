@@ -184,15 +184,92 @@ def _call(method, path, *, json_body=None, params=None, _retry=False):
         raise TresSError('EXCEPTION', str(e))
 
 
+# ── Normalização da resposta real da 3S ────────────────────────────
+# A API retorna campos em PascalCase, lat/lng como string com vírgula,
+# Data em formato BR e Odometro em vez de odometer. Normalizamos pra
+# que o resto do código (worker, endpoints) trate igual ao simulador.
+
+def _to_float_br(s):
+    """'-22,487853' → -22.487853 ; aceita None/float/str."""
+    if s is None or s == '':
+        return None
+    if isinstance(s, (int, float)):
+        return float(s)
+    try:
+        return float(str(s).replace(',', '.'))
+    except (ValueError, TypeError):
+        return None
+
+
+def _parse_data_br(s):
+    """'23/06/2025 17:13:22' → '2025-06-23T17:13:22'. Aceita ISO se já vier."""
+    if not s:
+        return None
+    s = str(s).strip()
+    if 'T' in s or '-' in s[:4]:
+        return s.replace('Z', '')
+    try:
+        from datetime import datetime
+        return datetime.strptime(s, '%d/%m/%Y %H:%M:%S').isoformat()
+    except ValueError:
+        return s
+
+
+def _normalizar_veiculo(v):
+    """PascalCase → minúsculo. Preserva idVeiculo/idEquipamento/idCliente em camelCase."""
+    return {
+        'frota': v.get('Frota') or v.get('frota'),
+        'placa': (v.get('Placa') or v.get('placa') or '').replace(' ', '').replace('-', '').strip().upper(),
+        'modelo': v.get('Modelo') or v.get('modelo'),
+        'chassis': v.get('Chassis') or v.get('chassis'),
+        'renavam': v.get('Renavam') or v.get('renavam'),
+        'idEquipamento': v.get('idEquipamento'),
+        'idCliente': v.get('idCliente'),
+        'numSerie': v.get('NumSerie') or v.get('numSerie'),
+        'idVeiculo': v.get('idVeiculo'),
+        'tipo': v.get('Tipo') or v.get('tipo'),
+    }
+
+
+def _normalizar_posicao(p):
+    """PascalCase → minúsculo. Converte lat/lng/data."""
+    return {
+        'idPosicao':     p.get('idPosicao'),
+        'frota':         p.get('Frota') or p.get('frota'),
+        'placa':         (p.get('Placa') or p.get('placa') or '').strip(),
+        'modelo':        p.get('Modelo') or p.get('modelo'),
+        'data':          _parse_data_br(p.get('Data') or p.get('data')),
+        'velocidade':    p.get('Velocidade') if p.get('Velocidade') is not None else p.get('velocidade'),
+        'satelite':      p.get('Satelite') or p.get('satelite'),
+        'ignicao':       p.get('Ignicao') or p.get('ignicao'),
+        'direcao':       p.get('Direcao') or p.get('direcao'),
+        'uf':            p.get('UF') or p.get('uf'),
+        'cidade':        p.get('Cidade') or p.get('cidade'),
+        'bairro':        p.get('Bairro') or p.get('bairro'),
+        'endereco':      p.get('Endereco') or p.get('endereco'),
+        'numero':        p.get('Numero') or p.get('numero'),
+        'cep':           p.get('CEP') or p.get('cep'),
+        'latitude':      _to_float_br(p.get('Latitude') or p.get('latitude')),
+        'longitude':     _to_float_br(p.get('Longitude') or p.get('longitude')),
+        'idEquipamento': p.get('idEquipamento'),
+        'idVeiculo':     p.get('idVeiculo'),
+        'bloqueio':      p.get('Bloqueio') or p.get('bloqueio'),
+        'odometer':      p.get('Odometro') if p.get('Odometro') is not None else p.get('odometer'),
+        'hourmeter':     p.get('Hourmeter') or p.get('hourmeter'),
+    }
+
+
 # ── Wrappers públicos ──
 if MODO_SIMULADO:
     from simulador_3s import lista_veiculos, lista_ultima_posicao  # noqa: F401
 else:
     def lista_veiculos():
-        return _call('GET', '/ListaVeiculos')
+        data = _call('GET', '/ListaVeiculos')
+        return [_normalizar_veiculo(v) for v in (data or [])]
 
     def lista_ultima_posicao(id_veiculo=0):
-        return _call('GET', f'/ListaUltimaPosicaoVeiculos/{id_veiculo}')
+        data = _call('GET', f'/ListaUltimaPosicaoVeiculos/{id_veiculo}')
+        return [_normalizar_posicao(p) for p in (data or [])]
 
 
 def is_modo_simulado():
