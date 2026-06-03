@@ -160,6 +160,10 @@
       <input class="search-input" id="buscaCidade" list="listaCidades" placeholder="Todas">
       <datalist id="listaCidades"></datalist>
     </div>
+    <div class="sidebar-section">
+      <div class="label">Sem GPS há (dias)</div>
+      <input class="search-input" id="filtroDias" type="number" min="0" step="1" placeholder="ex: 10">
+    </div>
     <div class="sidebar-section" style="display:flex;justify-content:space-between;align-items:center;">
       <span class="label" style="margin-bottom:0;">Veículos visíveis</span>
       <span style="font-family:'JetBrains Mono',monospace;font-size:0.78rem;color:var(--accent);" id="contador">—</span>
@@ -212,6 +216,7 @@
   let filtro = 'todos';
   let buscaQ = '';
   let filtroCidade = '';
+  let filtroDiasMin = 0;
   let soRizza = false;
 
   // ── Cor do marker ──────────────────────────────────
@@ -293,6 +298,11 @@
         const label = normalizar(`${p.cidade || ''}/${p.uf || ''}`);
         const so_cidade = normalizar(p.cidade || '');
         if (!label.includes(cidadeFiltro) && !so_cidade.includes(cidadeFiltro)) return false;
+      }
+      if (filtroDiasMin > 0) {
+        if (!p.data_posicao) return false;
+        const dias = (Date.now() - new Date(p.data_posicao).getTime()) / (1000 * 60 * 60 * 24);
+        if (dias < filtroDiasMin) return false;
       }
       if (buscaNorm) {
         const match = (p.placa || '').toLowerCase().includes(buscaNorm)
@@ -402,6 +412,11 @@
   });
   document.getElementById('buscaCidade').addEventListener('input', e => {
     filtroCidade = e.target.value;
+    render();
+  });
+  document.getElementById('filtroDias').addEventListener('input', e => {
+    const n = parseInt(e.target.value, 10);
+    filtroDiasMin = (isNaN(n) || n < 0) ? 0 : n;
     render();
   });
   document.getElementById('toggleRizza').addEventListener('change', e => {
