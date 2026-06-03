@@ -86,7 +86,7 @@ def _parse_data(d):
     if isinstance(d, datetime):
         return d
     if not d:
-        return datetime.now()
+        return datetime.utcnow()
     s = str(d).replace('Z', '')
     try:
         return datetime.fromisoformat(s)
@@ -94,7 +94,7 @@ def _parse_data(d):
         try:
             return datetime.strptime(s[:19], '%Y-%m-%dT%H:%M:%S')
         except ValueError:
-            return datetime.now()
+            return datetime.utcnow()
 
 
 # ── Persistência de posição ──────────────────────────────────────────
@@ -266,7 +266,7 @@ def _consolidar_kpi(cur, carga_id, final=False):
         return
     placa, data_carreg, data_saida_real, data_conclusao = r
     inicio = data_saida_real or data_carreg
-    fim = data_conclusao or datetime.now()
+    fim = data_conclusao or datetime.utcnow()
 
     cur.execute("""
         SELECT latitude, longitude, velocidade, data_posicao
@@ -382,7 +382,7 @@ def _processar_cargas(cur):
             if _mesma_cidade(pos_cidade, pos_uf, dest_cidade, dest_uf):
                 cur.execute("UPDATE embarques_cargas SET no_local_desde=NOW(), atualizado_em=NOW() WHERE id=%s", (carga_id,))
                 _logger.info(f'[Carga {carga_id}/{placa}] Chegou na cidade do destino ({dest_cidade}/{dest_uf})')
-                no_local_desde = datetime.now()
+                no_local_desde = datetime.utcnow()
 
         # ── SAÍDA DO DESTINO (= entrega automática)
         elif status == 'Em rota' and no_local_desde is not None:
@@ -414,7 +414,7 @@ def _processar_cargas(cur):
                     ponto_origem = (pos_lat, pos_lng)
             elif status == 'Em rota':
                 # Recálculo dinâmico só pra Em rota
-                if rota_rec_em is None or (datetime.now() - rota_rec_em).total_seconds() / 60 >= RECALCULO_INTERVALO_MIN:
+                if rota_rec_em is None or (datetime.utcnow() - rota_rec_em).total_seconds() / 60 >= RECALCULO_INTERVALO_MIN:
                     deve_calcular = True
                     ponto_origem = (pos_lat, pos_lng)
                 else:
@@ -468,7 +468,7 @@ def _deve_rodar_retencao():
     global _ultima_retencao
     if _ultima_retencao is None:
         return True
-    return (datetime.now() - _ultima_retencao).total_seconds() > 86400  # 1×/dia
+    return (datetime.utcnow() - _ultima_retencao).total_seconds() > 86400  # 1×/dia
 
 
 # ── Loop principal ───────────────────────────────────────────────────
@@ -490,7 +490,7 @@ def _ciclo():
 
                 if _deve_rodar_retencao():
                     _purgar_posicoes_antigas(cur)
-                    _ultima_retencao = datetime.now()
+                    _ultima_retencao = datetime.utcnow()
 
                 conn.commit()
             except Exception:

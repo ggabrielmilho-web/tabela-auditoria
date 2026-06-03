@@ -202,15 +202,24 @@ def _to_float_br(s):
 
 
 def _parse_data_br(s):
-    """'23/06/2025 17:13:22' → '2025-06-23T17:13:22'. Aceita ISO se já vier."""
+    """A 3S retorna data em horário de Brasília (UTC-3). Convertemos pra UTC
+    e devolvemos string ISO **com Z**, pra que o JS no frontend interprete
+    corretamente como UTC e o '*há X min*' bata.
+    Ex: '23/06/2025 17:13:22' (BR) → '2025-06-23T20:13:22Z' (UTC).
+    """
     if not s:
         return None
     s = str(s).strip()
-    if 'T' in s or '-' in s[:4]:
-        return s.replace('Z', '')
+    from datetime import datetime, timezone, timedelta
+    BRT = timezone(timedelta(hours=-3))
     try:
-        from datetime import datetime
-        return datetime.strptime(s, '%d/%m/%Y %H:%M:%S').isoformat()
+        if 'T' in s or '-' in s[:4]:
+            dt = datetime.fromisoformat(s.replace('Z', ''))
+        else:
+            dt = datetime.strptime(s, '%d/%m/%Y %H:%M:%S')
+        # Trata como BR e converte pra UTC
+        dt_utc = dt.replace(tzinfo=BRT).astimezone(timezone.utc)
+        return dt_utc.strftime('%Y-%m-%dT%H:%M:%SZ')
     except ValueError:
         return s
 
@@ -236,7 +245,7 @@ def _normalizar_posicao(p):
     return {
         'idPosicao':     p.get('idPosicao'),
         'frota':         p.get('Frota') or p.get('frota'),
-        'placa':         (p.get('Placa') or p.get('placa') or '').strip(),
+        'placa':         (p.get('Placa') or p.get('placa') or '').replace(' ', '').replace('-', '').strip().upper(),
         'modelo':        p.get('Modelo') or p.get('modelo'),
         'data':          _parse_data_br(p.get('Data') or p.get('data')),
         'velocidade':    p.get('Velocidade') if p.get('Velocidade') is not None else p.get('velocidade'),

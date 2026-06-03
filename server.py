@@ -2500,13 +2500,13 @@ def api_rastreamento_posicoes():
         rows = cur.fetchall()
         cols = [c[0] for c in cur.description]
         data = [dict(zip(cols, r)) for r in rows]
-        # Normalização: lat/lng → float, data → ISO
+        # Normalização: lat/lng → float, data → ISO UTC (com Z)
         for d in data:
             d['latitude'] = float(d['latitude']) if d['latitude'] is not None else None
             d['longitude'] = float(d['longitude']) if d['longitude'] is not None else None
             for k in ('data_posicao', 'atualizado_em', 'no_local_desde'):
                 if d.get(k) is not None:
-                    d[k] = d[k].isoformat()
+                    d[k] = d[k].isoformat() + 'Z'
             d['carregado'] = d.get('carga_id') is not None
         cur.close(); conn.close()
         return jsonify({'ok': True, 'data': data, 'count': len(data)})
@@ -2554,7 +2554,7 @@ def api_rastreamento_trajeto(carga_id):
         # Período pra buscar histórico
         inicio = carga.get('data_saida_real') or carga.get('data_carregamento')
         from datetime import datetime as _dt
-        fim = carga.get('data_conclusao') or _dt.now()
+        fim = carga.get('data_conclusao') or _dt.utcnow()
 
         def _buscar_trajeto(placa):
             if not placa:
@@ -2566,7 +2566,7 @@ def api_rastreamento_trajeto(carga_id):
                 ORDER BY data_posicao
             """, (placa, inicio, fim))
             return [{
-                'data': dp.isoformat(),
+                'data': dp.isoformat() + 'Z',
                 'lat': float(la),
                 'lng': float(ln),
                 'velocidade': vel,
@@ -2621,9 +2621,9 @@ def api_rastreamento_trajeto(carga_id):
                 'carreta1_placa': carga.get('carreta1_placa'),
                 'carreta2_placa': carga.get('carreta2_placa'),
                 'data_carregamento': carga['data_carregamento'].isoformat() if carga['data_carregamento'] else None,
-                'data_saida_real': carga['data_saida_real'].isoformat() if carga['data_saida_real'] else None,
-                'data_conclusao': carga['data_conclusao'].isoformat() if carga['data_conclusao'] else None,
-                'no_local_desde': carga['no_local_desde'].isoformat() if carga['no_local_desde'] else None,
+                'data_saida_real': (carga['data_saida_real'].isoformat() + 'Z') if carga['data_saida_real'] else None,
+                'data_conclusao': (carga['data_conclusao'].isoformat() + 'Z') if carga['data_conclusao'] else None,
+                'no_local_desde': (carga['no_local_desde'].isoformat() + 'Z') if carga['no_local_desde'] else None,
                 'saida_auto': carga['saida_auto'],
                 'entregue_auto': carga['entregue_auto'],
             },
@@ -2638,7 +2638,7 @@ def api_rastreamento_trajeto(carga_id):
                 'polyline': carga.get('rota_planejada_polyline'),
                 'distancia_km': float(carga['distancia_planejada_km']) if carga.get('distancia_planejada_km') is not None else None,
                 'duracao_min': carga.get('duracao_estimada_min'),
-                'recalculada_em': carga['rota_recalculada_em'].isoformat() if carga.get('rota_recalculada_em') else None,
+                'recalculada_em': (carga['rota_recalculada_em'].isoformat() + 'Z') if carga.get('rota_recalculada_em') else None,
             },
             'ultima_posicao': ultima,
             'kpi': kpi,
@@ -2738,7 +2738,7 @@ def api_rastreamento_health():
         ultima_sync = cur.fetchone()[0]
         cur.execute("SELECT expiration FROM embarques_3s_token WHERE id=1")
         r = cur.fetchone()
-        token_valido_ate = r[0].isoformat() if r else None
+        token_valido_ate = (r[0].isoformat() + 'Z') if r else None
         cur.execute("SELECT COUNT(*) FROM embarques_3s_log WHERE chamado_em > NOW() - INTERVAL '60 seconds'")
         chamadas_60s = cur.fetchone()[0]
         cur.execute("SELECT COUNT(*) FROM embarques_3s_log WHERE provider='ORS' AND chamado_em > NOW() - INTERVAL '24 hours'")
@@ -2750,7 +2750,7 @@ def api_rastreamento_health():
             'ok': True,
             'worker_running': rastreamento_worker.is_running(),
             'modo_simulado': tres_s_client.is_modo_simulado(),
-            'ultima_sync': ultima_sync.isoformat() if ultima_sync else None,
+            'ultima_sync': (ultima_sync.isoformat() + 'Z') if ultima_sync else None,
             'token_valido_ate': token_valido_ate,
             'chamadas_60s': chamadas_60s,
             'ors_chamadas_24h': ors_24h,
@@ -2776,7 +2776,7 @@ def api_rastreamento_log():
         data = []
         for r in cur.fetchall():
             d = dict(zip(cols, r))
-            d['chamado_em'] = d['chamado_em'].isoformat()
+            d['chamado_em'] = d['chamado_em'].isoformat() + 'Z'
             data.append(d)
         cur.close(); conn.close()
         return jsonify({'ok': True, 'data': data, 'count': len(data)})
