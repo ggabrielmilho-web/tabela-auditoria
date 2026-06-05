@@ -216,6 +216,12 @@ def dre_conhecimentos_page():
     return send_from_directory('.', 'dre-conhecimentos.html')
 
 
+@app.route('/faturamento')
+@admin_required
+def faturamento_page():
+    return send_from_directory('.', 'faturamento.html')
+
+
 @app.route('/embarques')
 @login_required
 def embarques_page():
@@ -1292,6 +1298,93 @@ def api_dre_conhecimentos():
         return jsonify({'ok': True, 'columns': cols, 'data': data, 'count': len(data)})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/faturamento/tomadores')
+@admin_required
+def api_faturamento_tomadores():
+    """Matriz faturamento por tomador (cliente_pagador) × mês, consolidado por raiz de CNPJ.
+    Fonte: conhecimentos_emitidos (valor_frete + distinct primeiro_manifesto), filtrado por ano."""
+    try:
+        ano = int(request.args.get('ano', 2026))
+    except Exception:
+        ano = 2026
+
+    # DAX agregado: 1 linha por (cnpj_pagador, cliente_pagador, mês). Mês derivado via ADDCOLUMNS.
+    dax = (
+        "EVALUATE SUMMARIZE("
+        "ADDCOLUMNS("
+        f"FILTER('public conhecimentos_emitidos', "
+        f"'public conhecimentos_emitidos'[data_autorizacao] >= DATE({ano},1,1) && "
+        f"'public conhecimentos_emitidos'[data_autorizacao] <= DATE({ano},12,31)), "
+        "\"@mes\", FORMAT('public conhecimentos_emitidos'[data_autorizacao], \"MM\")), "
+        "'public conhecimentos_emitidos'[cnpj_pagador], "
+        "'public conhecimentos_emitidos'[cliente_pagador], "
+        "[@mes], "
+        "\"faturamento\", SUM('public conhecimentos_emitidos'[valor_frete]), "
+        "\"cargas\", DISTINCTCOUNT('public conhecimentos_emitidos'[primeiro_manifesto]))"
+    )
+
+    try:
+        token = get_token()
+        result = execute_dax(token, dax)
+        rows = result.get('results', [{}])[0].get('tables', [{}])[0].get('rows', [])
+        linhas = clean_rows(rows)
+    except requests.exceptions.HTTPError as e:
+        detail = ''
+        try: detail = e.response.json()
+        except Exception: detail = e.response.text
+        return jsonify({'ok': False, 'error': str(e), 'detail': detail}), 500
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+    # Consolida por raiz de CNPJ (8 primeiros dígitos). Sem CNPJ → cai no nome (fallback).
+    import re as _re
+    tomadores = {}          # chave -> {cnpj_raiz, nome, _nomes:{nome:freq}, meses:{1..12:{fat,cargas}}, total_*}
+    totais_mes = {m: {'faturamento': 0.0, 'cargas': 0} for m in range(1, 13)}
+
+    for r in linhas:
+        cnpj = _re.sub(r'\D', '', str(r.get('cnpj_pagador') or ''))
+        nome = (str(r.get('cliente_pagador') or '').strip()) or '(sem nome)'
+        raiz = cnpj[:8] if len(cnpj) >= 8 else None
+        chave = raiz or f"nome::{nome.upper()}"
+        try:
+            mes = int(r.get('@mes'))
+        except Exception:
+            continue
+        fat = float(r.get('faturamento') or 0)
+        carg = int(r.get('cargas') or 0)
+
+        t = tomadores.get(chave)
+        if not t:
+            t = {'cnpj_raiz': raiz, 'nome': nome, '_nomes': {},
+                 'meses': {m: {'faturamento': 0.0, 'cargas': 0} for m in range(1, 13)},
+                 'total_faturamento': 0.0, 'total_cargas': 0}
+            tomadores[chave] = t
+        t['_nomes'][nome] = t['_nomes'].get(nome, 0) + 1
+        if 1 <= mes <= 12:
+            t['meses'][mes]['faturamento'] += fat
+            t['meses'][mes]['cargas'] += carg
+            t['total_faturamento'] += fat
+            t['total_cargas'] += carg
+            totais_mes[mes]['faturamento'] += fat
+            totais_mes[mes]['cargas'] += carg
+
+    saida = []
+    for t in tomadores.values():
+        # rótulo = nome mais frequente da raiz
+        t['nome'] = max(t['_nomes'].items(), key=lambda kv: kv[1])[0]
+        del t['_nomes']
+        t['total_faturamento'] = round(t['total_faturamento'], 2)
+        for m in range(1, 13):
+            t['meses'][m]['faturamento'] = round(t['meses'][m]['faturamento'], 2)
+        saida.append(t)
+    saida.sort(key=lambda x: x['total_faturamento'], reverse=True)
+    for m in range(1, 13):
+        totais_mes[m]['faturamento'] = round(totais_mes[m]['faturamento'], 2)
+
+    return jsonify({'ok': True, 'ano': ano, 'tomadores': saida, 'totais_mes': totais_mes,
+                    'count': len(saida)})
 
 
 def _gerar_csv(cols, data):

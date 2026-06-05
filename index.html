@@ -307,6 +307,7 @@
       <a id="linkDre" href="/dre" style="display:none;text-decoration:none;"><button class="btn-sm">📊 DRE</button></a>
       <a id="linkReceita" href="/dre/conhecimentos" style="display:none;text-decoration:none;"><button class="btn-sm">📦 Receita</button></a>
       <a id="linkDespesa" href="/dre/despesas" style="display:none;text-decoration:none;"><button class="btn-sm">💰 Despesa</button></a>
+      <a id="linkTomadores" href="/faturamento" style="display:none;text-decoration:none;"><button class="btn-sm">📊 Tomadores</button></a>
       <a id="linkAdmin" href="/admin" style="display:none;text-decoration:none;"><button class="btn-sm">⚙ Admin</button></a>
       <a href="/logout" style="text-decoration:none;"><button class="btn-sm">Sair</button></a>
     </div>
@@ -475,7 +476,7 @@ async function loadData() {
     document.getElementById('dashboard').classList.add('active');
 
     populateFilters();
-    applyFilters();
+    aplicarMesPadrao();
 
   } catch (err) {
     const box = document.getElementById('errorBox');
@@ -519,6 +520,17 @@ function populateFilters() {
     const label = `${MESES[parseInt(mes,10)-1]} ${ano}`;
     const o = document.createElement('option'); o.value = m; o.textContent = label; selM.appendChild(o);
   });
+}
+
+// Abre já filtrado no mês corrente; se não houver dados nele, usa o mês mais recente
+function aplicarMesPadrao() {
+  const selM = document.getElementById('filterMes');
+  const opts = [...selM.options].map(o => o.value).filter(Boolean);  // 'YYYY-MM' disponíveis
+  if (opts.length === 0) { applyFilters(); return; }
+  const hoje = new Date();
+  const atual = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}`;
+  selM.value = opts.includes(atual) ? atual : opts[opts.length - 1];  // opts já ordenado asc
+  onMesChange();  // preenche datas De/Até e aplica o filtro
 }
 
 // Quando seleciona mês: preenche o intervalo de datas e filtra
@@ -605,6 +617,7 @@ async function loadMe() {
         document.getElementById('linkDre').style.display = 'inline';
         document.getElementById('linkReceita').style.display = 'inline';
         document.getElementById('linkDespesa').style.display = 'inline';
+        document.getElementById('linkTomadores').style.display = 'inline';
       }
     }
   } catch {}
