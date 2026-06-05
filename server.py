@@ -2626,6 +2626,48 @@ def eta_realista(distancia_km, partida_dt, duracao_ors_min=None, km_dia=KM_DIA_P
     return partida_dt + timedelta(days=dias)
 
 
+def _decode_polyline(s, precision=5):
+    """Decodifica polyline (algoritmo Google/ORS) → lista de (lat, lng)."""
+    if not s:
+        return []
+    coords = []; index = lat = lng = 0; factor = 10 ** precision
+    while index < len(s):
+        for alvo in range(2):
+            shift = result = 0
+            while True:
+                b = ord(s[index]) - 63; index += 1
+                result |= (b & 0x1f) << shift; shift += 5
+                if b < 0x20:
+                    break
+            delta = ~(result >> 1) if (result & 1) else (result >> 1)
+            if alvo == 0: lat += delta
+            else: lng += delta
+        coords.append((lat / factor, lng / factor))
+    return coords
+
+
+def _km_restante(polyline_enc, pos_lat, pos_lng):
+    """Distância restante (km) ao longo da rota a partir da posição atual:
+    projeta no vértice mais próximo da rota e soma os segmentos até o destino."""
+    if pos_lat is None or pos_lng is None:
+        return None
+    pts = _decode_polyline(polyline_enc)
+    if len(pts) < 2:
+        return None
+    import geocoding
+    best_i, best_d = 0, None
+    for i, (la, ln) in enumerate(pts):
+        d = geocoding.km_entre(pos_lat, pos_lng, la, ln)
+        if d is not None and (best_d is None or d < best_d):
+            best_d, best_i = d, i
+    rem = best_d or 0.0
+    for i in range(best_i, len(pts) - 1):
+        seg = geocoding.km_entre(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1])
+        if seg:
+            rem += seg
+    return round(rem, 1)
+
+
 def _kpi_ao_vivo(traj):
     """KPIs calculados ao vivo a partir dos pontos do trajeto da viagem (só da viagem,
     pois traj já vem filtrado por data_saida_real). Espelha _consolidar_kpi do worker."""
@@ -2851,13 +2893,22 @@ def api_rastreamento_trajeto(carga_id):
         # Última posição = último ponto do trajeto da placa rastreada (carreta primeiro)
         ultima = traj_principal[-1] if traj_principal else None
 
-        # ETA realista (500 km/dia) a partir da saída real (ou carregamento)
-        from datetime import datetime as _dt3, date as _date3, time as _time3
-        partida = carga.get('data_saida_real') or carga.get('data_carregamento')
-        if isinstance(partida, _date3) and not isinstance(partida, _dt3):
-            partida = _dt3.combine(partida, _time3())
-        _dist_km = float(carga['distancia_planejada_km']) if carga.get('distancia_planejada_km') is not None else None
-        _eta = eta_realista(_dist_km, partida, carga.get('duracao_estimada_min'))
+        # Rota é sempre origem→destino (completa). O que falta é derivado da posição atual
+        # projetada nessa rota — assim a linha do mapa fica completa e o "km faltando" certo.
+        from datetime import datetime as _dt3, timedelta as _td3
+        pos_la = ultima['lat'] if ultima else None
+        pos_ln = ultima['lng'] if ultima else None
+        km_total = float(carga['distancia_planejada_km']) if carga.get('distancia_planejada_km') is not None else None
+        dur_total = carga.get('duracao_estimada_min')
+        km_restante = _km_restante(carga.get('rota_planejada_polyline'), pos_la, pos_ln)
+        if km_restante is None:
+            km_restante = km_total
+        dur_restante = None
+        if dur_total and km_total:
+            dur_restante = max(0, round(dur_total * (km_restante / km_total)))
+        agora = _dt3.utcnow()
+        eta_chegada_iso = ((agora + _td3(minutes=dur_restante)).isoformat() + 'Z') if dur_restante is not None else None
+        _eta = eta_realista(km_restante, agora, dur_restante)
         eta_iso = (_eta.isoformat() + 'Z') if _eta else None
 
         # Format origem/destinos pra JSON
@@ -2894,9 +2945,12 @@ def api_rastreamento_trajeto(carga_id):
             },
             'rota_planejada': {
                 'polyline': carga.get('rota_planejada_polyline'),
-                'distancia_km': float(carga['distancia_planejada_km']) if carga.get('distancia_planejada_km') is not None else None,
-                'duracao_min': carga.get('duracao_estimada_min'),
+                'distancia_km': km_total,
+                'duracao_min': dur_total,
+                'distancia_restante_km': km_restante,
+                'duracao_restante_min': dur_restante,
                 'recalculada_em': (carga['rota_recalculada_em'].isoformat() + 'Z') if carga.get('rota_recalculada_em') else None,
+                'eta_chegada_iso': eta_chegada_iso,
                 'eta_realista_iso': eta_iso,
             },
             'ultima_posicao': ultima,

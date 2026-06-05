@@ -398,7 +398,6 @@ def _processar_cargas(cur):
         centroide_origem = (float(origem_lat), float(origem_lng)) if origem_lat is not None else (None, None)
 
         # ── SAÍDA DA ORIGEM (status Aberta → Em rota)
-        saiu_agora = False
         if status == 'Aberta':
             if _saiu_da_cidade(cur, placa, pos_cidade, origem_cid, origem_uf, centroide_origem):
                 # data_saida_real = horário GPS da posição (não NOW do worker), pra alinhar
@@ -411,7 +410,6 @@ def _processar_cargas(cur):
                 """, (pos_data, carga_id))
                 _logger.info(f'[Carga {carga_id}/{placa}] Saída automática da origem detectada')
                 status = 'Em rota'
-                saiu_agora = True  # força recálculo imediato (carga lançada no meio da viagem)
 
         # ── CHEGADA NA CIDADE DO DESTINO
         if status == 'Em rota' and no_local_desde is None:
@@ -433,51 +431,29 @@ def _processar_cargas(cur):
                 _consolidar_kpi(cur, carga_id, final=True)
                 continue  # Pula recálculo ORS pra carga já fechada
 
-        # ── CÁLCULO/RECÁLCULO ORS
-        # Aberta: calcula 1× origem→destino (não recalcula depois)
-        # Em rota: calcula 1× se nunca rodou OR recalcula a cada 30min OR se desviou >10km
-        if status in ('Aberta', 'Em rota'):
-            deve_calcular = False
-            ponto_origem = None  # de onde calcular a rota
-            if polyline is None:
-                deve_calcular = True
-                if status == 'Aberta':
-                    # Carga ainda parada na origem — calcula rota planejada origem→destino
-                    if centroide_origem[0] is not None:
-                        ponto_origem = centroide_origem
-                else:
-                    # Em rota — calcula da posição atual ao destino
-                    ponto_origem = (pos_lat, pos_lng)
-            elif status == 'Em rota':
-                # Recálculo dinâmico: imediato ao sair (carga no meio da viagem), depois a cada 30min
-                if saiu_agora or rota_rec_em is None or (datetime.utcnow() - rota_rec_em).total_seconds() / 60 >= RECALCULO_INTERVALO_MIN:
-                    deve_calcular = True
-                    ponto_origem = (pos_lat, pos_lng)
-                else:
-                    dist_rota = _km_min_ponto_rota(pos_lat, pos_lng, polyline)
-                    if dist_rota is not None and dist_rota > DESVIO_MAX_KM:
-                        deve_calcular = True
-                        ponto_origem = (pos_lat, pos_lng)
-
-            if deve_calcular and ponto_origem and centroide_dest[0] is not None:
-                try:
-                    import ors_client
-                    nova = ors_client.tracar_rota(
-                        {'lat': ponto_origem[0], 'lng': ponto_origem[1]},
-                        {'lat': centroide_dest[0], 'lng': centroide_dest[1]}
-                    )
-                    cur.execute("""
-                        UPDATE embarques_cargas SET
-                            rota_planejada_polyline=%s,
-                            distancia_planejada_km=%s,
-                            duracao_estimada_min=%s,
-                            rota_recalculada_em=NOW(),
-                            atualizado_em=NOW()
-                        WHERE id=%s
-                    """, (nova['polyline'], nova['distancia_km'], nova['duracao_min'], carga_id))
-                    _logger.info(f'[Carga {carga_id}/{placa}] Rota {"inicial" if polyline is None else "recalculada"} ({status}): {nova["distancia_km"]}km, {nova["duracao_min"]}min')
-                except Exception as e:
-                    _logger.warning(f'[Carga {carga_id}/{placa}] Falha ao calcular ORS: {e}')
+        # ── CÁLCULO ORS — rota planejada SEMPRE origem→destino (linha completa no mapa).
+        # Calcula 1× quando ainda não há rota (criação ou reset/regeneração). NÃO recalcula
+        # "da posição atual" (era isso que truncava a rota e deixava a origem solta no mapa);
+        # o "km faltando" é derivado da posição sobre esta rota completa, no endpoint.
+        if polyline is None and centroide_origem[0] is not None and centroide_dest[0] is not None:
+            try:
+                import ors_client
+                nova = ors_client.tracar_rota(
+                    {'lat': centroide_origem[0], 'lng': centroide_origem[1]},
+                    {'lat': centroide_dest[0], 'lng': centroide_dest[1]}
+                )
+                cur.execute("""
+                    UPDATE embarques_cargas SET
+                        rota_planejada_polyline=%s,
+                        distancia_planejada_km=%s,
+                        duracao_estimada_min=%s,
+                        rota_recalculada_em=NOW(),
+                        atualizado_em=NOW()
+                    WHERE id=%s
+                """, (nova['polyline'], nova['distancia_km'], nova['duracao_min'], carga_id))
+                _logger.info(f'[Carga {carga_id}/{placa}] Rota planejada origem→destino: {nova["distancia_km"]}km, {nova["duracao_min"]}min')
+            except Exception as e:
+                _logger.warning(f'[Carga {carga_id}/{placa}] Falha ao calcular ORS: {e}')
 
 
 # ── Retenção ─────────────────────────────────────────────────────────

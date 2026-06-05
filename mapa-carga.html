@@ -381,15 +381,17 @@
       document.getElementById('kTpar').textContent = fmtTempoSeg(d.kpi.tempo_parado_seg);
     }
 
-    // KM faltando = rota planejada (recalculada constantemente, é "rota desde a posição atual")
+    // Rota completa origem→destino; "km faltando" = restante a partir da posição atual
     if (d.rota_planejada.distancia_km != null) {
-      document.getElementById('kKmFalta').textContent = d.rota_planejada.distancia_km.toFixed(1) + ' km';
-      document.getElementById('rDist').textContent = d.rota_planejada.distancia_km.toFixed(1) + ' km';
-      document.getElementById('rDur').textContent = fmtDuracao(d.rota_planejada.duracao_min);
+      const rp = d.rota_planejada;
+      const kmFalta = (rp.distancia_restante_km != null) ? rp.distancia_restante_km : rp.distancia_km;
+      document.getElementById('kKmFalta').textContent = kmFalta.toFixed(1) + ' km';
+      document.getElementById('rDist').textContent = rp.distancia_km.toFixed(1) + ' km';
+      document.getElementById('rDur').textContent = fmtDuracao(rp.duracao_min);
 
-      if (d.rota_planejada.duracao_min) {
-        const eta = new Date(Date.now() + d.rota_planejada.duracao_min * 60 * 1000);
-        document.getElementById('rEta').textContent = eta.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+      if (rp.eta_chegada_iso) {
+        document.getElementById('rEta').textContent = new Date(rp.eta_chegada_iso)
+          .toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
       }
       if (d.rota_planejada.recalculada_em) {
         document.getElementById('rRec').textContent = tempoDesde(d.rota_planejada.recalculada_em);
