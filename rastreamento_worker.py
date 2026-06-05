@@ -285,9 +285,9 @@ def _consolidar_kpi(cur, carga_id, final=False):
     placa = _placa_tracking(cavalo_placa, carreta1_placa, carreta2_placa, cur)
     if not placa:
         return
-    # Piso = data_carregamento (sempre <= às posições da viagem). Evita perder o histórico
-    # quando data_saida_real (NOW do worker na detecção) fica à frente do último ponto do 3S.
-    inicio = data_carreg or data_saida_real
+    # Piso = data_saida_real (saída da origem desta carga) — KPIs só da viagem, nada de antes.
+    # data_saida_real agora é gravado com o horário GPS da saída, então não exclui o histórico.
+    inicio = data_saida_real or data_carreg
     fim = data_conclusao or datetime.utcnow()
 
     cur.execute("""
@@ -398,16 +398,20 @@ def _processar_cargas(cur):
         centroide_origem = (float(origem_lat), float(origem_lng)) if origem_lat is not None else (None, None)
 
         # ── SAÍDA DA ORIGEM (status Aberta → Em rota)
+        saiu_agora = False
         if status == 'Aberta':
             if _saiu_da_cidade(cur, placa, pos_cidade, origem_cid, origem_uf, centroide_origem):
+                # data_saida_real = horário GPS da posição (não NOW do worker), pra alinhar
+                # com os pontos e nunca excluir o histórico da viagem na janela.
                 cur.execute("""
                     UPDATE embarques_cargas
-                    SET status='Em rota', saida_auto=TRUE, data_saida_real=NOW(),
+                    SET status='Em rota', saida_auto=TRUE, data_saida_real=%s,
                         atualizado_em=NOW()
                     WHERE id=%s
-                """, (carga_id,))
+                """, (pos_data, carga_id))
                 _logger.info(f'[Carga {carga_id}/{placa}] Saída automática da origem detectada')
                 status = 'Em rota'
+                saiu_agora = True  # força recálculo imediato (carga lançada no meio da viagem)
 
         # ── CHEGADA NA CIDADE DO DESTINO
         if status == 'Em rota' and no_local_desde is None:
@@ -445,8 +449,8 @@ def _processar_cargas(cur):
                     # Em rota — calcula da posição atual ao destino
                     ponto_origem = (pos_lat, pos_lng)
             elif status == 'Em rota':
-                # Recálculo dinâmico só pra Em rota
-                if rota_rec_em is None or (datetime.utcnow() - rota_rec_em).total_seconds() / 60 >= RECALCULO_INTERVALO_MIN:
+                # Recálculo dinâmico: imediato ao sair (carga no meio da viagem), depois a cada 30min
+                if saiu_agora or rota_rec_em is None or (datetime.utcnow() - rota_rec_em).total_seconds() / 60 >= RECALCULO_INTERVALO_MIN:
                     deve_calcular = True
                     ponto_origem = (pos_lat, pos_lng)
                 else:

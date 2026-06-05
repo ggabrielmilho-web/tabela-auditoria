@@ -2626,6 +2626,47 @@ def eta_realista(distancia_km, partida_dt, duracao_ors_min=None, km_dia=KM_DIA_P
     return partida_dt + timedelta(days=dias)
 
 
+def _kpi_ao_vivo(traj):
+    """KPIs calculados ao vivo a partir dos pontos do trajeto da viagem (só da viagem,
+    pois traj já vem filtrado por data_saida_real). Espelha _consolidar_kpi do worker."""
+    base = {'distancia_km': 0.0, 'velocidade_max': 0, 'velocidade_media': None,
+            'tempo_movimento_seg': 0, 'tempo_parado_seg': 0, 'consolidado_final': False}
+    if not traj:
+        return base
+    import geocoding
+    from datetime import datetime as _d
+
+    def _pt(s):
+        try: return _d.fromisoformat(str(s).replace('Z', ''))
+        except Exception: return None
+
+    total_m = 0.0; vmax = 0; vsum = 0; vn = 0; tmov = 0; tpar = 0
+    for i in range(len(traj) - 1):
+        a, b = traj[i], traj[i + 1]
+        seg = geocoding.km_entre(a['lat'], a['lng'], b['lat'], b['lng'])
+        if seg is not None:
+            total_m += seg * 1000
+        av = a.get('velocidade')
+        if av is not None:
+            vmax = max(vmax, int(av)); vsum += int(av); vn += 1
+        da, db = _pt(a['data']), _pt(b['data'])
+        delta = (db - da).total_seconds() if (da and db) else 0
+        if (av or 0) > 3: tmov += delta
+        else: tpar += delta
+    # vel do último ponto também conta pro máximo
+    lv = traj[-1].get('velocidade')
+    if lv is not None:
+        vmax = max(vmax, int(lv))
+    base.update({
+        'distancia_km': round(total_m / 1000, 1),
+        'velocidade_max': vmax,
+        'velocidade_media': round(vsum / vn, 1) if vn else None,
+        'tempo_movimento_seg': int(tmov),
+        'tempo_parado_seg': int(tpar),
+    })
+    return base
+
+
 @app.route('/api/rastreamento/posicoes')
 @login_required
 def api_rastreamento_posicoes():
@@ -2738,11 +2779,10 @@ def api_rastreamento_trajeto(carga_id):
                 'data_agendamento': (ag.isoformat() + 'Z') if ag else None,
             })
 
-        # Período pra buscar histórico — piso = data_carregamento (sempre <= às posições
-        # da viagem). NÃO usar data_saida_real como piso: ela é gravada com o NOW() do
-        # worker no instante da detecção de saída, que pode ficar à frente do último ponto
-        # do 3S (atraso do GPS) e excluir todo o trajeto → caminhão "some" do mapa.
-        inicio = carga.get('data_carregamento') or carga.get('data_saida_real')
+        # Período = a partir da saída da origem desta carga (data_saida_real), nunca antes —
+        # trajeto e KPIs só da viagem. data_saida_real é gravado com o horário GPS da saída,
+        # então a janela inclui o histórico da viagem sem skew. Fallback: data_carregamento.
+        inicio = carga.get('data_saida_real') or carga.get('data_carregamento')
         from datetime import datetime as _dt
         fim = carga.get('data_conclusao') or _dt.utcnow()
 
@@ -2792,16 +2832,19 @@ def api_rastreamento_trajeto(carga_id):
             FROM embarques_cargas_rastreio_kpi WHERE carga_id=%s
         """, (carga_id,))
         rk = cur.fetchone()
-        kpi = None
-        if rk:
+        if rk and rk[5]:
+            # KPI final consolidado (carga entregue) — usa o valor persistido
             kpi = {
                 'distancia_km': round((rk[0] or 0) / 1000, 1),
                 'velocidade_max': rk[1],
                 'velocidade_media': float(rk[2]) if rk[2] is not None else None,
                 'tempo_movimento_seg': rk[3],
                 'tempo_parado_seg': rk[4],
-                'consolidado_final': rk[5],
+                'consolidado_final': True,
             }
+        else:
+            # Em viagem: calcula ao vivo a partir do trajeto da placa rastreada (só da viagem)
+            kpi = _kpi_ao_vivo(traj_principal)
 
         cur.close(); conn.close()
 
