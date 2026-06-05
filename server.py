@@ -2738,8 +2738,11 @@ def api_rastreamento_trajeto(carga_id):
                 'data_agendamento': (ag.isoformat() + 'Z') if ag else None,
             })
 
-        # Período pra buscar histórico
-        inicio = carga.get('data_saida_real') or carga.get('data_carregamento')
+        # Período pra buscar histórico — piso = data_carregamento (sempre <= às posições
+        # da viagem). NÃO usar data_saida_real como piso: ela é gravada com o NOW() do
+        # worker no instante da detecção de saída, que pode ficar à frente do último ponto
+        # do 3S (atraso do GPS) e excluir todo o trajeto → caminhão "some" do mapa.
+        inicio = carga.get('data_carregamento') or carga.get('data_saida_real')
         from datetime import datetime as _dt
         fim = carga.get('data_conclusao') or _dt.utcnow()
 

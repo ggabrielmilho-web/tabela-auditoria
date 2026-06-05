@@ -285,7 +285,9 @@ def _consolidar_kpi(cur, carga_id, final=False):
     placa = _placa_tracking(cavalo_placa, carreta1_placa, carreta2_placa, cur)
     if not placa:
         return
-    inicio = data_saida_real or data_carreg
+    # Piso = data_carregamento (sempre <= às posições da viagem). Evita perder o histórico
+    # quando data_saida_real (NOW do worker na detecção) fica à frente do último ponto do 3S.
+    inicio = data_carreg or data_saida_real
     fim = data_conclusao or datetime.utcnow()
 
     cur.execute("""
