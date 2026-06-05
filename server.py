@@ -286,6 +286,37 @@ def tarifas():
         return jsonify({'ok': False, 'error': str(e)}), 500
 
 
+@app.route('/api/icms')
+@login_required
+def api_icms():
+    """Consulta a matriz de ICMS de transporte por UF (icms_aliquota).
+    GET /api/icms?origem=XX&destino=YY -> {aliquota, tipo, isento, observacao}."""
+    origem  = (request.args.get('origem')  or '').upper().strip()
+    destino = (request.args.get('destino') or '').upper().strip()
+    if len(origem) != 2 or len(destino) != 2:
+        return jsonify({'ok': False, 'error': 'Informe origem e destino (UF de 2 letras)'}), 400
+    try:
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(
+            "SELECT aliquota, tipo, isento, observacao FROM icms_aliquota WHERE uf_origem=%s AND uf_destino=%s",
+            (origem, destino)
+        )
+        r = cur.fetchone()
+        cur.close(); conn.close()
+        if not r:
+            return jsonify({'ok': False, 'error': f'Par {origem}->{destino} não encontrado'}), 404
+        return jsonify({
+            'ok': True,
+            'origem': origem, 'destino': destino,
+            'aliquota': float(r[0]) if r[0] is not None else None,
+            'tipo': r[1],
+            'isento': bool(r[2]),
+            'observacao': r[3],
+        })
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
 @app.route('/api/me')
 @login_required
 def me():
@@ -1979,9 +2010,9 @@ def api_embarques_cargas_create():
         for i, d in enumerate(b['destinos'], start=1):
             dlat, dlng = geocoding.geocoder_municipio(d['cidade'], d['uf'], conn=conn)
             cur.execute(
-                "INSERT INTO embarques_cargas_destinos (carga_id, ordem, cidade, uf, latitude, longitude) "
-                "VALUES (%s, %s, %s, %s, %s, %s)",
-                (carga_id, i, d['cidade'], d['uf'], dlat, dlng)
+                "INSERT INTO embarques_cargas_destinos (carga_id, ordem, cidade, uf, latitude, longitude, data_agendamento) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                (carga_id, i, d['cidade'], d['uf'], dlat, dlng, d.get('data_agendamento') or None)
             )
             destinos_inseridos.append({'cidade': d['cidade'], 'uf': d['uf'], 'lat': dlat, 'lng': dlng})
 
@@ -2040,6 +2071,27 @@ def api_embarques_cargas_create():
         return jsonify({'ok': False, 'error': str(e)}), 500
 
 
+def _aplica_periodo_where(args, where, params):
+    """Adiciona filtro de período em where/params conforme data_campo:
+    'carregamento'|'previsao' filtram colunas da carga; 'agendamento' faz EXISTS
+    em embarques_cargas_destinos. Datas em UTC; date-only vira [00:00, 23:59:59]."""
+    campo = args.get('data_campo', 'carregamento')
+    start, end = args.get('start'), args.get('end')
+    if campo == 'agendamento':
+        cond = ["d.carga_id = c.id", "d.data_agendamento IS NOT NULL"]
+        if start: cond.append("d.data_agendamento >= %s")
+        if end:   cond.append("d.data_agendamento <= %s")
+        where.append("EXISTS (SELECT 1 FROM embarques_cargas_destinos d WHERE " + " AND ".join(cond) + ")")
+        if start: params.append(start if len(start) > 10 else start + ' 00:00:00')
+        if end:   params.append(end if len(end) > 10 else end + ' 23:59:59')
+    else:
+        col = 'data_carregamento' if campo == 'carregamento' else 'previsao_entrega'
+        if start:
+            where.append(f"c.{col} >= %s"); params.append(start)
+        if end:
+            where.append(f"c.{col} <= %s"); params.append(end)
+
+
 # ── Cargas: listagem com filtros ────────────────────────────────────────
 @app.route('/api/embarques/cargas')
 @login_required
@@ -2048,12 +2100,7 @@ def api_embarques_cargas_list():
     where = ["1=1"]
     params = []
 
-    data_campo = 'data_carregamento' if args.get('data_campo', 'carregamento') == 'carregamento' else 'previsao_entrega'
-
-    if args.get('start'):
-        where.append(f"c.{data_campo} >= %s"); params.append(args['start'])
-    if args.get('end'):
-        where.append(f"c.{data_campo} <= %s"); params.append(args['end'])
+    _aplica_periodo_where(args, where, params)
     if args.get('tipo_operacao'):
         where.append("c.tipo_operacao = %s"); params.append(args['tipo_operacao'])
     if args.get('cliente_id'):
@@ -2090,12 +2137,23 @@ def api_embarques_cargas_list():
                c.data_carregamento, c.previsao_entrega, c.data_conclusao,
                c.observacoes,
                c.criado_em, c.criado_por_id, c.criado_por_nome, c.atualizado_em,
-               c.no_local_desde, c.saida_auto, c.entregue_auto,
+               c.no_local_desde, c.saida_auto, c.entregue_auto, c.data_saida_real,
                c.distancia_planejada_km, c.duracao_estimada_min,
                (
                  SELECT string_agg(d.cidade || '/' || d.uf, '; ' ORDER BY d.ordem)
                  FROM embarques_cargas_destinos d WHERE d.carga_id = c.id
-               ) AS destinos
+               ) AS destinos,
+               (SELECT d.data_agendamento FROM embarques_cargas_destinos d
+                 WHERE d.carga_id = c.id ORDER BY d.ordem DESC LIMIT 1) AS agendamento_final,
+               (c.status IN ('Aberta','Em rota') AND EXISTS (
+                 SELECT 1 FROM embarques_cargas_destinos d
+                 WHERE d.carga_id = c.id AND d.data_agendamento IS NOT NULL
+                   AND d.data_agendamento < (NOW() AT TIME ZONE 'UTC')
+               )) AS tem_agendamento_vencido,
+               (SELECT json_agg(json_build_object(
+                   'ordem', d.ordem, 'cidade', d.cidade, 'uf', d.uf,
+                   'data_agendamento', d.data_agendamento) ORDER BY d.ordem)
+                 FROM embarques_cargas_destinos d WHERE d.carga_id = c.id) AS agendamentos_destinos
         FROM embarques_cargas c
         WHERE {' AND '.join(where)}
         ORDER BY c.data_carregamento DESC, c.id DESC
@@ -2114,6 +2172,18 @@ def api_embarques_cargas_list():
                 if obj.get(k): obj[k] = obj[k].isoformat()
             for k in ('data_conclusao', 'criado_em', 'atualizado_em'):
                 if obj.get(k): obj[k] = obj[k].isoformat()
+            if obj.get('data_saida_real'):
+                obj['data_saida_real'] = obj['data_saida_real'].isoformat() + 'Z'
+            # Agendamento (UTC) — marca com 'Z' p/ o front converter pra local
+            if obj.get('agendamento_final'):
+                obj['agendamento_final'] = obj['agendamento_final'].isoformat() + 'Z'
+            ag = obj.get('agendamentos_destinos')
+            if isinstance(ag, str):
+                ag = json.loads(ag); obj['agendamentos_destinos'] = ag
+            if ag:
+                for dd in ag:
+                    if dd.get('data_agendamento'):
+                        dd['data_agendamento'] = str(dd['data_agendamento']).replace(' ', 'T').rstrip('Z') + 'Z'
             obj['pode_editar'] = _pode_editar_carga(obj.get('criado_por_id'))
             data.append(obj)
         cur.close(); conn.close()
@@ -2140,8 +2210,9 @@ def api_embarques_carga_detail(carga_id):
         for k in ('data_conclusao', 'criado_em', 'atualizado_em'):
             if carga.get(k): carga[k] = carga[k].isoformat()
 
-        cur.execute("SELECT id, ordem, cidade, uf FROM embarques_cargas_destinos WHERE carga_id = %s ORDER BY ordem", (carga_id,))
-        destinos = [{'id': r[0], 'ordem': r[1], 'cidade': r[2], 'uf': r[3]} for r in cur.fetchall()]
+        cur.execute("SELECT id, ordem, cidade, uf, data_agendamento FROM embarques_cargas_destinos WHERE carga_id = %s ORDER BY ordem", (carga_id,))
+        destinos = [{'id': r[0], 'ordem': r[1], 'cidade': r[2], 'uf': r[3],
+                     'data_agendamento': (r[4].isoformat() + 'Z') if r[4] else None} for r in cur.fetchall()]
         carga['destinos'] = destinos
         carga['pode_editar'] = _pode_editar_carga(carga.get('criado_por_id'))
         cur.close(); conn.close()
@@ -2232,21 +2303,30 @@ def api_embarques_carga_patch(carga_id):
         novos_destinos = b.get('destinos')
         if isinstance(novos_destinos, list):
             cur.execute(
-                "SELECT ordem, cidade, uf FROM embarques_cargas_destinos WHERE carga_id = %s ORDER BY ordem",
+                "SELECT ordem, cidade, uf, data_agendamento FROM embarques_cargas_destinos WHERE carga_id = %s ORDER BY ordem",
                 (carga_id,)
             )
-            atuais = [{'ordem': r[0], 'cidade': r[1], 'uf': r[2]} for r in cur.fetchall()]
-            atuais_repr = '; '.join(f"{d['cidade']}/{d['uf']}" for d in atuais)
-            novos_repr  = '; '.join(f"{d.get('cidade','?')}/{d.get('uf','?')}" for d in novos_destinos)
+            atuais = [{'ordem': r[0], 'cidade': r[1], 'uf': r[2], 'data_agendamento': r[3]} for r in cur.fetchall()]
+            # repr inclui agendamento (granularidade de minuto, ambos em UTC) p/ detectar mudança e logar
+            def _ag(v):
+                if not v:
+                    return ''
+                return (v.isoformat() if hasattr(v, 'isoformat') else str(v))[:16]
+            atuais_repr = '; '.join(f"{d['cidade']}/{d['uf']}@{_ag(d['data_agendamento'])}" for d in atuais)
+            novos_repr  = '; '.join(f"{d.get('cidade','?')}/{d.get('uf','?')}@{_ag(d.get('data_agendamento'))}" for d in novos_destinos)
             if atuais_repr != novos_repr:
                 destinos_mudaram = True
+                import geocoding
                 cur.execute("DELETE FROM embarques_cargas_destinos WHERE carga_id = %s", (carga_id,))
                 for i, d in enumerate(novos_destinos, start=1):
                     if not d.get('cidade') or not d.get('uf'):
                         continue
+                    # Re-geocoda (senão lat/lng ficariam NULL e o tracking quebra)
+                    dlat, dlng = geocoding.geocoder_municipio(d['cidade'], d['uf'], conn=conn)
                     cur.execute(
-                        "INSERT INTO embarques_cargas_destinos (carga_id, ordem, cidade, uf) VALUES (%s, %s, %s, %s)",
-                        (carga_id, i, d['cidade'], d['uf'])
+                        "INSERT INTO embarques_cargas_destinos (carga_id, ordem, cidade, uf, latitude, longitude, data_agendamento) "
+                        "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                        (carga_id, i, d['cidade'], d['uf'], dlat, dlng, d.get('data_agendamento') or None)
                     )
 
         if sets or destinos_mudaram:
@@ -2313,11 +2393,7 @@ def api_embarques_cargas_csv():
     args = request.args
     where = ["1=1"]
     params = []
-    data_campo = 'data_carregamento' if args.get('data_campo', 'carregamento') == 'carregamento' else 'previsao_entrega'
-    if args.get('start'):
-        where.append(f"c.{data_campo} >= %s"); params.append(args['start'])
-    if args.get('end'):
-        where.append(f"c.{data_campo} <= %s"); params.append(args['end'])
+    _aplica_periodo_where(args, where, params)
     if args.get('tipo_operacao'):
         where.append("c.tipo_operacao = %s"); params.append(args['tipo_operacao'])
     if args.get('cliente_id'):
@@ -2440,6 +2516,22 @@ def api_embarques_embarcadores():
 import tres_s_client
 import rastreamento_worker
 
+KM_DIA_PADRAO = int(os.getenv('KM_DIA_PADRAO', '500'))
+
+
+def eta_realista(distancia_km, partida_dt, duracao_ors_min=None, km_dia=KM_DIA_PADRAO):
+    """Chegada estimada considerando a lei do motorista (~500 km/dia).
+    Rotas curtas (<300 km) usam o tempo direto do ORS; longas dividem em dias.
+    Trabalha em UTC (partida_dt naive UTC). Retorna datetime naive UTC ou None."""
+    from datetime import timedelta
+    import math
+    if not distancia_km or not partida_dt:
+        return None
+    if distancia_km < 300 and duracao_ors_min:
+        return partida_dt + timedelta(minutes=duracao_ors_min)
+    dias = max(1, math.ceil(distancia_km / km_dia))
+    return partida_dt + timedelta(days=dias)
+
 
 @app.route('/api/rastreamento/posicoes')
 @login_required
@@ -2462,7 +2554,8 @@ def api_rastreamento_posicoes():
             SELECT id, numero, status, cliente_nome, motorista_nome, cavalo_proprietario, cavalo_eh_rizza,
                    no_local_desde, saida_auto, entregue_auto, data_carregamento, origem_cidade, origem_uf
             FROM embarques_cargas c
-            WHERE c.cavalo_placa = p.placa AND c.status IN ('Aberta','Em rota')
+            WHERE (c.cavalo_placa = p.placa OR c.carreta1_placa = p.placa OR c.carreta2_placa = p.placa)
+              AND c.status IN ('Aberta','Em rota')
             ORDER BY c.id DESC LIMIT 1
         ) ca ON true
     """
@@ -2540,15 +2633,16 @@ def api_rastreamento_trajeto(carga_id):
         carga = dict(zip(cols, r))
 
         cur.execute("""
-            SELECT ordem, cidade, uf, latitude, longitude
+            SELECT ordem, cidade, uf, latitude, longitude, data_agendamento
             FROM embarques_cargas_destinos WHERE carga_id=%s ORDER BY ordem
         """, (carga_id,))
         destinos = []
-        for ord_, cidade, uf, lat, lng in cur.fetchall():
+        for ord_, cidade, uf, lat, lng, ag in cur.fetchall():
             destinos.append({
                 'ordem': ord_, 'cidade': cidade, 'uf': uf,
                 'latitude': float(lat) if lat is not None else None,
                 'longitude': float(lng) if lng is not None else None,
+                'data_agendamento': (ag.isoformat() + 'Z') if ag else None,
             })
 
         # Período pra buscar histórico
@@ -2579,6 +2673,22 @@ def api_rastreamento_trajeto(carga_id):
         traj_c1 = _buscar_trajeto(carga.get('carreta1_placa')) if carga.get('carreta1_placa') else []
         traj_c2 = _buscar_trajeto(carga.get('carreta2_placa')) if carga.get('carreta2_placa') else []
 
+        # Placa de rastreio principal (carreta1 → cavalo → carreta2)
+        placa_track = rastreamento_worker._placa_tracking(
+            carga['cavalo_placa'], carga.get('carreta1_placa'), carga.get('carreta2_placa'), cur)
+        if placa_track and placa_track == (carga.get('carreta1_placa') or '').strip().upper():
+            rastreado_via = {'placa': placa_track, 'tipo': 'carreta1'}
+            traj_principal = traj_c1
+        elif placa_track and placa_track == (carga.get('carreta2_placa') or '').strip().upper():
+            rastreado_via = {'placa': placa_track, 'tipo': 'carreta2'}
+            traj_principal = traj_c2
+        elif placa_track and placa_track == (carga['cavalo_placa'] or '').strip().upper():
+            rastreado_via = {'placa': placa_track, 'tipo': 'cavalo'}
+            traj_principal = traj_cavalo
+        else:
+            rastreado_via = None
+            traj_principal = traj_cavalo
+
         # KPIs já consolidados?
         cur.execute("""
             SELECT distancia_metros, velocidade_max, velocidade_media,
@@ -2599,8 +2709,17 @@ def api_rastreamento_trajeto(carga_id):
 
         cur.close(); conn.close()
 
-        # Última posição = último ponto do trajeto cavalo
-        ultima = traj_cavalo[-1] if traj_cavalo else None
+        # Última posição = último ponto do trajeto da placa rastreada (carreta primeiro)
+        ultima = traj_principal[-1] if traj_principal else None
+
+        # ETA realista (500 km/dia) a partir da saída real (ou carregamento)
+        from datetime import datetime as _dt3, date as _date3, time as _time3
+        partida = carga.get('data_saida_real') or carga.get('data_carregamento')
+        if isinstance(partida, _date3) and not isinstance(partida, _dt3):
+            partida = _dt3.combine(partida, _time3())
+        _dist_km = float(carga['distancia_planejada_km']) if carga.get('distancia_planejada_km') is not None else None
+        _eta = eta_realista(_dist_km, partida, carga.get('duracao_estimada_min'))
+        eta_iso = (_eta.isoformat() + 'Z') if _eta else None
 
         # Format origem/destinos pra JSON
         origem = {
@@ -2639,8 +2758,10 @@ def api_rastreamento_trajeto(carga_id):
                 'distancia_km': float(carga['distancia_planejada_km']) if carga.get('distancia_planejada_km') is not None else None,
                 'duracao_min': carga.get('duracao_estimada_min'),
                 'recalculada_em': (carga['rota_recalculada_em'].isoformat() + 'Z') if carga.get('rota_recalculada_em') else None,
+                'eta_realista_iso': eta_iso,
             },
             'ultima_posicao': ultima,
+            'rastreado_via': rastreado_via,
             'kpi': kpi,
         }
         return jsonify(resp)

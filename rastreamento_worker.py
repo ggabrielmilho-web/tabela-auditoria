@@ -50,6 +50,21 @@ def _get_db():
     )
 
 
+def _placa_tracking(cavalo_placa, carreta1_placa, carreta2_placa, cur):
+    """Retorna a 1ª placa com GPS mapeado em embarques_veiculos_rastreio.
+    Ordem: carreta1 → cavalo → carreta2 — o rastreador costuma estar na carreta,
+    que segue a carga inteira (o cavalo pode trocar no meio do caminho).
+    Retorna None se nenhuma das placas tem rastreio."""
+    for placa in (carreta1_placa, cavalo_placa, carreta2_placa):
+        p = (placa or '').strip().upper()
+        if not p:
+            continue
+        cur.execute("SELECT 1 FROM embarques_veiculos_rastreio WHERE placa = %s", (p,))
+        if cur.fetchone():
+            return p
+    return None
+
+
 # ── Conversões ────────────────────────────────────────────────────────
 
 def _str_to_bool_ignicao(s):
@@ -258,13 +273,18 @@ def _km_min_ponto_rota(pos_lat, pos_lng, polyline_str):
 def _consolidar_kpi(cur, carga_id, final=False):
     """Soma segmentos do histórico + agrega vel/tempo. Grava em embarques_cargas_rastreio_kpi."""
     cur.execute("""
-        SELECT cavalo_placa, data_carregamento, data_saida_real, data_conclusao
+        SELECT cavalo_placa, carreta1_placa, carreta2_placa,
+               data_carregamento, data_saida_real, data_conclusao
         FROM embarques_cargas WHERE id=%s
     """, (carga_id,))
     r = cur.fetchone()
     if not r:
         return
-    placa, data_carreg, data_saida_real, data_conclusao = r
+    cavalo_placa, carreta1_placa, carreta2_placa, data_carreg, data_saida_real, data_conclusao = r
+    # Segue a mesma placa de rastreio usada na detecção (carreta primeiro)
+    placa = _placa_tracking(cavalo_placa, carreta1_placa, carreta2_placa, cur)
+    if not placa:
+        return
     inicio = data_saida_real or data_carreg
     fim = data_conclusao or datetime.utcnow()
 
@@ -327,21 +347,31 @@ def _consolidar_kpi(cur, carga_id, final=False):
 # ── Detecção por carga ───────────────────────────────────────────────
 
 def _processar_cargas(cur):
-    """Itera cargas Aberta/Em rota com mapeamento e aplica detecção."""
+    """Itera cargas Aberta/Em rota com ao menos 1 veículo rastreado e aplica detecção.
+    Segue a carreta (carreta1 → cavalo → carreta2) — o rastreador costuma estar nela."""
     cur.execute("""
-        SELECT c.id, c.status, c.cavalo_placa,
+        SELECT c.id, c.status, c.cavalo_placa, c.carreta1_placa, c.carreta2_placa,
                c.origem_cidade, c.origem_uf, c.origem_latitude, c.origem_longitude,
                c.no_local_desde, c.rota_planejada_polyline, c.rota_recalculada_em,
                c.distancia_planejada_km
         FROM embarques_cargas c
-        JOIN embarques_veiculos_rastreio v ON v.placa = c.cavalo_placa
         WHERE c.status IN ('Aberta', 'Em rota')
+          AND (
+            EXISTS (SELECT 1 FROM embarques_veiculos_rastreio v WHERE v.placa = c.carreta1_placa)
+            OR EXISTS (SELECT 1 FROM embarques_veiculos_rastreio v WHERE v.placa = c.cavalo_placa)
+            OR EXISTS (SELECT 1 FROM embarques_veiculos_rastreio v WHERE v.placa = c.carreta2_placa)
+          )
     """)
     cargas = cur.fetchall()
 
     for cg in cargas:
-        (carga_id, status, placa, origem_cid, origem_uf, origem_lat, origem_lng,
+        (carga_id, status, cavalo_placa, carreta1_placa, carreta2_placa,
+         origem_cid, origem_uf, origem_lat, origem_lng,
          no_local_desde, polyline, rota_rec_em, dist_plan) = cg
+
+        placa = _placa_tracking(cavalo_placa, carreta1_placa, carreta2_placa, cur)
+        if not placa:
+            continue
 
         cur.execute("""
             SELECT latitude, longitude, cidade, uf, data_posicao
@@ -451,10 +481,12 @@ def _purgar_posicoes_antigas(cur):
     cur.execute("""
         DELETE FROM embarques_posicoes_historico
         WHERE placa IN (
-            SELECT DISTINCT cavalo_placa FROM embarques_cargas
-            WHERE status IN ('Entregue','Cancelada')
-              AND data_conclusao IS NOT NULL
-              AND data_conclusao < NOW() - %s::interval
+            SELECT p FROM embarques_cargas c,
+                 LATERAL unnest(ARRAY[c.cavalo_placa, c.carreta1_placa, c.carreta2_placa]) AS p
+            WHERE c.status IN ('Entregue','Cancelada')
+              AND c.data_conclusao IS NOT NULL
+              AND c.data_conclusao < NOW() - %s::interval
+              AND p IS NOT NULL
         )
         AND data_posicao < NOW() - %s::interval
     """, (f'{RETENCAO_DIAS} days', f'{RETENCAO_DIAS} days'))

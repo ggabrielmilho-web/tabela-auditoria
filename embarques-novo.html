@@ -92,7 +92,7 @@
   .badge-terc  { background: rgba(148,163,184,0.16); color: var(--text-dim); }
 
   .destino-row {
-    display: grid; grid-template-columns: 100px 1fr 36px; gap: 8px;
+    display: grid; grid-template-columns: 90px 1fr 185px 36px; gap: 8px;
     align-items: center; margin-bottom: 8px;
     padding: 10px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
   }
@@ -106,6 +106,12 @@
     border-radius: 6px; font-size: 1rem; cursor: pointer; padding: 6px 10px;
   }
   .destino-rm:hover { background: rgba(248,113,113,0.1); }
+  .destino-head {
+    display: grid; grid-template-columns: 90px 1fr 185px 36px; gap: 8px;
+    padding: 0 11px 6px; font-size: 0.64rem; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-dim);
+  }
+  .destino-head span:nth-child(3) { color: var(--accent); }
   .btn-add {
     background: transparent; border: 1px dashed var(--border); color: var(--accent);
     border-radius: 8px; padding: 8px 16px; cursor: pointer;
@@ -708,7 +714,7 @@
   // ── Destinos ──
   function addDestino() {
     const idx = DESTINOS.length;
-    DESTINOS.push({ uf: '', cidade: '', cidades: [] });
+    DESTINOS.push({ uf: '', cidade: '', cidades: [], data_agendamento: '' });
     renderDestinos();
     // foca no select UF do destino recém adicionado
     setTimeout(() => {
@@ -724,7 +730,10 @@
 
   function renderDestinos() {
     const box = document.getElementById('destinosList');
-    box.innerHTML = DESTINOS.map((d, i) => `
+    const head = `<div class="destino-head">
+      <span>UF</span><span>Cidade</span><span>📅 Agendamento cliente</span><span></span>
+    </div>`;
+    box.innerHTML = head + DESTINOS.map((d, i) => `
       <div class="destino-row">
         <select id="dest-uf-${i}" onchange="onUfDestinoChange(${i})">
           <option value="">UF</option>
@@ -736,6 +745,9 @@
               : '<option value="">— Selecione —</option>' + d.cidades.map(c => `<option value="${c}" ${d.cidade === c ? 'selected' : ''}>${c}</option>`).join(''))
             : '<option value="">Selecione a UF</option>'}
         </select>
+        <input type="datetime-local" id="dest-agend-${i}" title="Data/hora agendada com o cliente para este destino (opcional)"
+               value="${d.data_agendamento || ''}"
+               onchange="DESTINOS[${i}].data_agendamento = this.value;">
         <button type="button" class="destino-rm" onclick="removerDestino(${i})" title="Remover">✕</button>
       </div>
     `).join('');
@@ -754,6 +766,21 @@
       DESTINOS[i].cidades = arr.map(c => c.nome);
       renderDestinos();
     } catch (e) {}
+  }
+
+  // Converte o datetime-local (horário BR) p/ UTC ISO antes de enviar
+  function destinosPayload() {
+    return DESTINOS.map(d => ({
+      cidade: d.cidade, uf: d.uf,
+      data_agendamento: d.data_agendamento ? new Date(d.data_agendamento).toISOString() : null
+    }));
+  }
+  // Converte UTC ISO (com Z) p/ o formato do <input datetime-local> (horário BR)
+  function utcIsoToLocalInput(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (isNaN(d)) return '';
+    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
   }
 
   // ── Salvar ──
@@ -798,7 +825,7 @@
         cliente_nome: cliente.nome,
         origem_cidade: oriCidade,
         origem_uf: oriUf,
-        destinos: DESTINOS.map(d => ({ cidade: d.cidade, uf: d.uf })),
+        destinos: destinosPayload(),
         motorista_nome: MOTORISTA_SEL.nome,
         motorista_cpf: MOTORISTA_SEL.cpf,
         motorista_telefone: MOTORISTA_SEL.telefone || null,
@@ -828,7 +855,7 @@
         cliente_id: parseInt(clienteId, 10),
         cliente_nome: cliente.nome,
         origem: { cidade: oriCidade, uf: oriUf },
-        destinos: DESTINOS.map(d => ({ cidade: d.cidade, uf: d.uf })),
+        destinos: destinosPayload(),
         motorista: { nome: MOTORISTA_SEL.nome, cpf: MOTORISTA_SEL.cpf, telefone: MOTORISTA_SEL.telefone || null },
         cavalo: {
           placa: CAVALO_SEL.placa, tipo: CAVALO_SEL.tipo,
@@ -964,8 +991,8 @@
       }
 
       // Destinos
-      DESTINOS = (c.destinos || []).map(d => ({ uf: d.uf, cidade: d.cidade, cidades: [] }));
-      if (DESTINOS.length === 0) DESTINOS.push({ uf: '', cidade: '', cidades: [] });
+      DESTINOS = (c.destinos || []).map(d => ({ uf: d.uf, cidade: d.cidade, cidades: [], data_agendamento: utcIsoToLocalInput(d.data_agendamento) }));
+      if (DESTINOS.length === 0) DESTINOS.push({ uf: '', cidade: '', cidades: [], data_agendamento: '' });
       renderDestinos();
       for (let i = 0; i < DESTINOS.length; i++) {
         if (DESTINOS[i].uf) {

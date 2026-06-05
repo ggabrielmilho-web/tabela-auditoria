@@ -105,6 +105,43 @@
   }
   .btn-sm:hover { border-color: var(--accent); color: var(--accent); }
 
+  /* ── BLOCO DE COMPARAÇÃO ── */
+  .compare-block {
+    background: rgba(255,255,255,0.015);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px 20px;
+    margin-bottom: 20px;
+    animation: fadeUp 0.3s ease;
+  }
+  .block-header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 14px;
+  }
+  .block-tag {
+    font-size: 0.7rem; font-weight: 700;
+    letter-spacing: 0.08em; color: var(--accent);
+    text-transform: uppercase;
+  }
+  .block-remove {
+    background: transparent; border: 1px solid var(--border);
+    color: var(--text-dim); width: 26px; height: 26px;
+    border-radius: 7px; cursor: pointer; font-size: 0.8rem;
+    display: none; align-items: center; justify-content: center;
+    transition: all 0.15s;
+  }
+  .block-remove:hover { border-color: var(--red); color: var(--red); }
+
+  .add-block-wrap { display: flex; justify-content: center; margin: 8px 0 28px; }
+  .add-block-btn {
+    padding: 11px 24px; background: var(--surface2);
+    border: 1px dashed var(--border); color: var(--text);
+    border-radius: 10px; cursor: pointer;
+    font-family: 'DM Sans', sans-serif; font-weight: 600;
+    font-size: 0.85rem; transition: all 0.15s;
+  }
+  .add-block-btn:hover { border-color: var(--accent); color: var(--accent); }
+
   /* ── FILTROS ── */
   .filters-card {
     background: var(--surface);
@@ -283,6 +320,31 @@
     font-weight: 700; font-size: 0.95rem;
     color: var(--accent); border-bottom: none; padding-top: 16px;
   }
+  /* Total + Impostos — info secundária (comercial), distinta do número operacional */
+  .sim-breakdown tr.sim-imposto td {
+    font-weight: 600; font-size: 0.85rem;
+    color: var(--text-dim); border-bottom: none; padding-top: 4px;
+  }
+  .sim-imposto-tag {
+    font-size: 0.62rem; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.04em; color: var(--text-dim); opacity: 0.7;
+    border: 1px solid var(--border); border-radius: 5px; padding: 1px 6px; margin-left: 8px;
+  }
+  #resumoSection td.resumo-imposto { color: var(--text-dim); }
+  .th-tag {
+    font-size: 0.58rem; font-weight: 600; text-transform: uppercase;
+    color: var(--text-dim); opacity: 0.7; margin-left: 4px;
+  }
+
+  /* ── RESUMO COMPARATIVO ── */
+  #resumoSection { display: none; margin-top: 8px; animation: fadeUp 0.3s ease; }
+  .resumo-title {
+    font-size: 0.85rem; font-weight: 700; color: var(--text);
+    margin-bottom: 14px; letter-spacing: 0.02em;
+  }
+  #resumoSection table tbody td:first-child { white-space: normal; min-width: 220px; }
+  #resumoSection tr.resumo-vazio td { color: var(--text-dim); opacity: 0.6; }
+  #resumoSection td.resumo-total { color: var(--accent); font-weight: 700; }
 </style>
 </head>
 <body>
@@ -313,78 +375,48 @@
     </div>
   </div>
 
-  <!-- Filtros em cascata -->
-  <div class="filters-card">
-    <div class="step-indicator">
-      <div class="step active" id="step1"><span class="step-num">1</span> Cliente</div>
-      <span class="step-sep">›</span>
-      <div class="step" id="step2"><span class="step-num">2</span> Origem</div>
-      <span class="step-sep">›</span>
-      <div class="step" id="step3"><span class="step-num">3</span> Destino</div>
-      <span class="step-sep">›</span>
-      <div class="step" id="step4"><span class="step-num">4</span> Tipo Veículo</div>
-    </div>
+  <!-- Blocos de comparação (1+ injetados via JS) -->
+  <div id="blocksContainer"></div>
 
-    <div class="filters-row">
-      <div class="filter-field">
-        <label>Cliente</label>
-        <select id="selCliente" onchange="onClienteChange()">
-          <option value="">Selecione um cliente...</option>
-        </select>
-      </div>
-      <div class="filter-field">
-        <label>Cidade Origem</label>
-        <select id="selOrigem" onchange="onOrigemChange()" disabled>
-          <option value="">Selecione a origem...</option>
-        </select>
-      </div>
-      <div class="filter-field">
-        <label>Cidade Destino</label>
-        <select id="selDestino" onchange="onDestinoChange()" disabled>
-          <option value="">Selecione o destino...</option>
-        </select>
-      </div>
-      <div class="filter-field">
-        <label>Tipo Veículo</label>
-        <select id="selVeiculo" onchange="onVeiculoChange()" disabled>
-          <option value="">Selecione o veículo...</option>
-        </select>
-      </div>
-      <div style="display:flex;align-items:flex-end;">
-        <button class="btn-sm" onclick="clearFilters()">✕ Limpar</button>
-      </div>
-    </div>
+  <!-- Adicionar comparação -->
+  <div class="add-block-wrap">
+    <button class="add-block-btn" id="btnAddBlock" onclick="createBlock()">+ Adicionar comparação</button>
   </div>
 
-  <!-- Resultado -->
-  <div class="resultado-section" id="resultadoSection">
-    <div class="resultado-header">
-      <h2 id="resultadoTitulo"></h2>
-      <div style="display:flex;gap:8px;align-items:center;">
-        <span class="meta" id="resultadoMeta"></span>
-      </div>
-    </div>
-    <div id="resultadoConteudo"></div>
-    <div id="simuladorSection" style="display:none;"></div>
-  </div>
+  <!-- Resumo consolidado (aparece com 2+ blocos) -->
+  <div id="resumoSection"></div>
 
 </div>
 
 <script>
-let allData = [];
+// ════════════════════════════════════════════════════════════════════
+// Estado global
+// ════════════════════════════════════════════════════════════════════
+let allData = [];          // dataset compartilhado (buscado 1x do Power BI)
+let blocks = [];           // [{ id, el, simRow, label, sim }]
+let blockSeq = 0;
 let layoutEditing = false;
 let cardSortable = null;
+const MAX_BLOCKS = 4;
 
-// Colunas excluídas dos cards de resultado (filtros + colunas ocultas)
+// Colunas excluídas dos cards de resultado (filtros + colunas ocultas + insumos de cálculo)
 const FILTER_COLS = ['cliente_nome', 'cidade_origem', 'cidade_destino', 'tipo_veiculo',
-                     'icms_percentual', 'id', 'versao_id', 'frete_bruto', 'cliente_id', 'created_at'];
+                     'icms_percentual', 'icms_valor', 'id', 'versao_id', 'frete_bruto', 'cliente_id', 'created_at'];
 
 // Ordem preferencial dos cards (campos não listados aqui aparecem no final)
 const CARD_PREFERRED_ORDER = [
   'unidade_valor', 'gris', 'modalidade', 'frete_liquido',
   'diaria', 'uf_origem', 'uf_destino', 'ad_valorem',
   'distancia_km', 'evento', 'prazo_entrega',
+  'icms_incluso', 'pedagio_incluso', 'prazo_recebimento',
 ];
+
+// Rótulos custom (senão formatLabel geraria "Icms Incluso", "Pedagio Incluso")
+const LABEL_OVERRIDE = {
+  icms_incluso: 'ICMS Incluso',
+  pedagio_incluso: 'Pedágio Incluso',
+  prazo_recebimento: 'Prazo Recebimento',
+};
 
 // Colunas com formatação especial
 const PERCENT_COLS = ['ad_valorem', 'gris', 'icms_percentual', 'reentrega', 'devolucao'];
@@ -393,7 +425,24 @@ const MONEY_COLS   = ['valor_frete', 'pedagio', 'vale_pedagio', 'diaria', 'adici
                       'frete_liquido', 'frete_tabela_liquido', 'frete_tabela_gris', 'frete_tabela_adval',
                       'frete_tabela_adicional_entrega', 'frete_tabela', 'frete_bruto'];
 
-// ── INIT ──
+const DEFAULT_CARD_ORDER_KEY = 'tarifas_card_order';
+
+// Componentes do simulador exibidos no resumo (espelha as linhas do breakdown)
+const RESUMO_COMPS = [
+  { key: 'base',     label: 'Frete (base)', always: true },
+  { key: 'gris',     label: 'GRIS' },
+  { key: 'adVal',    label: 'Ad Valorem' },
+  { key: 'pedagio',  label: 'Pedágio' },
+  { key: 'balsa',    label: 'Balsa' },
+  { key: 'adicional',label: 'Adicional Entregas' },
+];
+
+// Helper: busca elemento interno de um bloco
+function q(block, name) { return block.el.querySelector(`[data-el="${name}"]`); }
+
+// ════════════════════════════════════════════════════════════════════
+// INIT
+// ════════════════════════════════════════════════════════════════════
 window.addEventListener('DOMContentLoaded', async () => {
   await loadMe();
   await loadData();
@@ -418,7 +467,7 @@ async function loadData() {
     document.getElementById('loadingScreen').style.display = 'none';
     document.getElementById('dashboard').classList.add('active');
 
-    populateClientes();
+    createBlock();  // bloco inicial = tela de hoje
   } catch (err) {
     const box = document.getElementById('errorBox');
     box.innerHTML = `Erro ao carregar dados:<code>${err.message}</code>`;
@@ -427,30 +476,150 @@ async function loadData() {
   }
 }
 
-// ── CASCATA ──
-function populateClientes() {
+// ════════════════════════════════════════════════════════════════════
+// BLOCOS — criação / remoção
+// ════════════════════════════════════════════════════════════════════
+function blockInnerHTML() {
+  return `
+    <div class="block-header">
+      <span class="block-tag">Comparação <span data-el="blockNum"></span></span>
+      <button class="block-remove" data-el="btnRemove" title="Remover comparação">✕</button>
+    </div>
+
+    <div class="filters-card">
+      <div class="step-indicator">
+        <div class="step active" data-el="step1"><span class="step-num">1</span> Cliente</div>
+        <span class="step-sep">›</span>
+        <div class="step" data-el="step2"><span class="step-num">2</span> Origem</div>
+        <span class="step-sep">›</span>
+        <div class="step" data-el="step3"><span class="step-num">3</span> Destino</div>
+        <span class="step-sep">›</span>
+        <div class="step" data-el="step4"><span class="step-num">4</span> Tipo Veículo</div>
+      </div>
+
+      <div class="filters-row">
+        <div class="filter-field">
+          <label>Cliente</label>
+          <select data-el="selCliente"><option value="">Selecione um cliente...</option></select>
+        </div>
+        <div class="filter-field">
+          <label>Cidade Origem</label>
+          <select data-el="selOrigem" disabled><option value="">Selecione a origem...</option></select>
+        </div>
+        <div class="filter-field">
+          <label>Cidade Destino</label>
+          <select data-el="selDestino" disabled><option value="">Selecione o destino...</option></select>
+        </div>
+        <div class="filter-field">
+          <label>Tipo Veículo</label>
+          <select data-el="selVeiculo" disabled><option value="">Selecione o veículo...</option></select>
+        </div>
+        <div style="display:flex;align-items:flex-end;">
+          <button class="btn-sm" data-el="btnClear">✕ Limpar</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="resultado-section" data-el="resultadoSection">
+      <div class="resultado-header">
+        <h2 data-el="resultadoTitulo"></h2>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <span class="meta" data-el="resultadoMeta"></span>
+        </div>
+      </div>
+      <div data-el="resultadoConteudo"></div>
+      <div data-el="simuladorSection" style="display:none;"></div>
+    </div>`;
+}
+
+function createBlock() {
+  if (blocks.length >= MAX_BLOCKS) return null;
+
+  const block = { id: ++blockSeq, el: document.createElement('div'), simRow: null, label: '', sim: null };
+  block.el.className = 'compare-block';
+  block.el.innerHTML = blockInnerHTML();
+
+  q(block, 'selCliente').addEventListener('change', () => onClienteChange(block));
+  q(block, 'selOrigem').addEventListener('change',  () => onOrigemChange(block));
+  q(block, 'selDestino').addEventListener('change', () => onDestinoChange(block));
+  q(block, 'selVeiculo').addEventListener('change', () => onVeiculoChange(block));
+  q(block, 'btnClear').addEventListener('click',    () => clearFilters(block));
+  q(block, 'btnRemove').addEventListener('click',   () => removeBlock(block));
+
+  document.getElementById('blocksContainer').appendChild(block.el);
+  blocks.push(block);
+
+  populateClientes(block);
+  updateChrome();
+  renderResumo();
+  return block;
+}
+
+function removeBlock(block) {
+  const idx = blocks.indexOf(block);
+  if (idx < 0) return;
+  blocks.splice(idx, 1);
+  block.el.remove();
+  updateChrome();
+  renderResumo();
+}
+
+// Controla cromo da página: botão "+", botões ✕, e "Editar Layout"
+function updateChrome() {
+  document.getElementById('btnAddBlock').style.display =
+    blocks.length < MAX_BLOCKS ? 'inline-block' : 'none';
+
+  const showRemove = blocks.length > 1;
+  blocks.forEach((b, i) => {
+    q(b, 'blockNum').textContent = i + 1;
+    q(b, 'btnRemove').style.display = showRemove ? 'inline-flex' : 'none';
+  });
+
+  // "Editar Layout" só faz sentido com 1 bloco
+  const single = blocks.length === 1;
+  const btnLayout = document.getElementById('btnLayout');
+  const btnReset  = document.getElementById('btnResetLayout');
+
+  if (!single) {
+    if (layoutEditing) {
+      layoutEditing = false;
+      if (cardSortable) { cardSortable.destroy(); cardSortable = null; }
+    }
+    btnLayout.style.display = 'none';
+    btnReset.style.display  = 'none';
+    btnLayout.textContent   = '✦ Editar Layout';
+  } else {
+    const hasCards = blocks[0] && blocks[0].el.querySelector('.cards-grid');
+    btnLayout.style.display = hasCards ? 'inline-block' : 'none';
+    if (!layoutEditing) btnReset.style.display = 'none';
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════
+// CASCATA (por bloco)
+// ════════════════════════════════════════════════════════════════════
+function populateClientes(block) {
   const clientes = [...new Set(allData.map(r => r['cliente_nome']).filter(Boolean))].sort();
-  const sel = document.getElementById('selCliente');
+  const sel = q(block, 'selCliente');
   sel.innerHTML = '<option value="">Selecione um cliente...</option>';
   clientes.forEach(c => {
     const o = document.createElement('option'); o.value = c; o.textContent = c; sel.appendChild(o);
   });
 }
 
-function onClienteChange() {
-  const cliente = document.getElementById('selCliente').value;
-  const selOrigem  = document.getElementById('selOrigem');
-  const selDestino = document.getElementById('selDestino');
+function onClienteChange(block) {
+  const cliente = q(block, 'selCliente').value;
+  const selOrigem  = q(block, 'selOrigem');
+  const selDestino = q(block, 'selDestino');
 
-  // Reset downstream
   selOrigem.innerHTML  = '<option value="">Selecione a origem...</option>';
   selDestino.innerHTML = '<option value="">Selecione o destino...</option>';
   selDestino.disabled  = true;
-  hideResultado();
+  hideResultado(block);
 
   if (!cliente) {
     selOrigem.disabled = true;
-    setStep(1);
+    setStep(block, 1);
     return;
   }
 
@@ -463,22 +632,22 @@ function onClienteChange() {
   });
 
   selOrigem.disabled = false;
-  setStep(2);
+  setStep(block, 2);
 }
 
-function onOrigemChange() {
-  const cliente    = document.getElementById('selCliente').value;
-  const origem     = document.getElementById('selOrigem').value;
-  const selDestino = document.getElementById('selDestino');
-  const selVeiculo = document.getElementById('selVeiculo');
+function onOrigemChange(block) {
+  const cliente    = q(block, 'selCliente').value;
+  const origem     = q(block, 'selOrigem').value;
+  const selDestino = q(block, 'selDestino');
+  const selVeiculo = q(block, 'selVeiculo');
 
   selDestino.innerHTML = '<option value="">Selecione o destino...</option>';
   selDestino.disabled  = true;
   selVeiculo.innerHTML = '<option value="">Selecione o veículo...</option>';
   selVeiculo.disabled  = true;
-  hideResultado();
+  hideResultado(block);
 
-  if (!origem) { setStep(2); return; }
+  if (!origem) { setStep(block, 2); return; }
 
   const destinos = [...new Set(
     allData
@@ -491,20 +660,20 @@ function onOrigemChange() {
   });
 
   selDestino.disabled = false;
-  setStep(3);
+  setStep(block, 3);
 }
 
-function onDestinoChange() {
-  const cliente    = document.getElementById('selCliente').value;
-  const origem     = document.getElementById('selOrigem').value;
-  const destino    = document.getElementById('selDestino').value;
-  const selVeiculo = document.getElementById('selVeiculo');
+function onDestinoChange(block) {
+  const cliente    = q(block, 'selCliente').value;
+  const origem     = q(block, 'selOrigem').value;
+  const destino    = q(block, 'selDestino').value;
+  const selVeiculo = q(block, 'selVeiculo');
 
   selVeiculo.innerHTML = '<option value="">Selecione o veículo...</option>';
   selVeiculo.disabled  = true;
-  hideResultado();
+  hideResultado(block);
 
-  if (!destino) { setStep(3); return; }
+  if (!destino) { setStep(block, 3); return; }
 
   const veiculos = [...new Set(
     allData
@@ -521,24 +690,24 @@ function onDestinoChange() {
   // Auto-seleciona se houver somente um tipo
   if (veiculos.length === 1) {
     selVeiculo.value = veiculos[0];
-    setStep(4);
-    triggerResultado();
+    setStep(block, 4);
+    triggerResultado(block);
   } else {
-    setStep(4);
+    setStep(block, 4);
   }
 }
 
-function onVeiculoChange() {
-  const veiculo = document.getElementById('selVeiculo').value;
-  if (!veiculo) { hideResultado(); return; }
-  triggerResultado();
+function onVeiculoChange(block) {
+  const veiculo = q(block, 'selVeiculo').value;
+  if (!veiculo) { hideResultado(block); return; }
+  triggerResultado(block);
 }
 
-function triggerResultado() {
-  const cliente = document.getElementById('selCliente').value;
-  const origem  = document.getElementById('selOrigem').value;
-  const destino = document.getElementById('selDestino').value;
-  const veiculo = document.getElementById('selVeiculo').value;
+function triggerResultado(block) {
+  const cliente = q(block, 'selCliente').value;
+  const origem  = q(block, 'selOrigem').value;
+  const destino = q(block, 'selDestino').value;
+  const veiculo = q(block, 'selVeiculo').value;
 
   if (!cliente || !origem || !destino || !veiculo) return;
 
@@ -549,66 +718,64 @@ function triggerResultado() {
     r['tipo_veiculo']  === veiculo
   );
 
-  showResultado(rows, cliente, origem, destino, veiculo);
+  showResultado(block, rows, cliente, origem, destino, veiculo);
 }
 
-function clearFilters() {
-  document.getElementById('selCliente').value = '';
-  document.getElementById('selOrigem').innerHTML  = '<option value="">Selecione a origem...</option>';
-  document.getElementById('selOrigem').disabled   = true;
-  document.getElementById('selDestino').innerHTML = '<option value="">Selecione o destino...</option>';
-  document.getElementById('selDestino').disabled  = true;
-  document.getElementById('selVeiculo').innerHTML = '<option value="">Selecione o veículo...</option>';
-  document.getElementById('selVeiculo').disabled  = true;
-  hideResultado();
-  setStep(1);
+function clearFilters(block) {
+  q(block, 'selCliente').value = '';
+  q(block, 'selOrigem').innerHTML  = '<option value="">Selecione a origem...</option>';
+  q(block, 'selOrigem').disabled   = true;
+  q(block, 'selDestino').innerHTML = '<option value="">Selecione o destino...</option>';
+  q(block, 'selDestino').disabled  = true;
+  q(block, 'selVeiculo').innerHTML = '<option value="">Selecione o veículo...</option>';
+  q(block, 'selVeiculo').disabled  = true;
+  hideResultado(block);
+  setStep(block, 1);
 }
 
 // ── STEPS ──
-function setStep(n) {
+function setStep(block, n) {
   for (let i = 1; i <= 4; i++) {
-    const el = document.getElementById(`step${i}`);
+    const el = q(block, `step${i}`);
     el.className = 'step' + (i < n ? ' done' : i === n ? ' active' : '');
   }
 }
 
-// ── RESULTADO ──
-function showResultado(rows, cliente, origem, destino, veiculo) {
-  const section = document.getElementById('resultadoSection');
-  section.classList.add('active');
+// ════════════════════════════════════════════════════════════════════
+// RESULTADO (por bloco)
+// ════════════════════════════════════════════════════════════════════
+function showResultado(block, rows, cliente, origem, destino, veiculo) {
+  q(block, 'resultadoSection').classList.add('active');
 
-  document.getElementById('resultadoTitulo').textContent =
-    `${cliente} · ${origem} → ${destino} · ${veiculo}`;
-  document.getElementById('resultadoMeta').textContent =
-    `${rows.length} linha${rows.length > 1 ? 's' : ''}`;
-
-  // Botões de layout só para resultado em cards (1 linha)
-  document.getElementById('btnLayout').style.display      = rows.length === 1 ? 'inline-block' : 'none';
-  document.getElementById('btnResetLayout').style.display = 'none';
+  block.label = `${cliente} · ${origem} → ${destino} · ${veiculo}`;
+  q(block, 'resultadoTitulo').textContent = block.label;
+  q(block, 'resultadoMeta').textContent = `${rows.length} linha${rows.length > 1 ? 's' : ''}`;
 
   if (rows.length === 1) {
-    renderCards(rows[0]);
+    renderCards(block, rows[0]);
   } else {
-    renderTable(rows);
+    block.simRow = null;
+    block.sim = null;
+    q(block, 'simuladorSection').style.display = 'none';
+    renderTable(block, rows);
   }
+
+  renderResumo();
+  updateChrome();
 }
 
-function hideResultado() {
-  document.getElementById('resultadoSection').classList.remove('active');
-  document.getElementById('btnLayout').style.display      = 'none';
-  document.getElementById('btnResetLayout').style.display = 'none';
-  document.getElementById('simuladorSection').style.display = 'none';
-  layoutEditing = false;
-  simRow = null;
-  if (cardSortable) { cardSortable.destroy(); cardSortable = null; }
+function hideResultado(block) {
+  q(block, 'resultadoSection').classList.remove('active');
+  q(block, 'simuladorSection').style.display = 'none';
+  block.simRow = null;
+  block.sim = null;
+  renderResumo();
+  updateChrome();
 }
 
 // ── CARDS (1 linha) ──
-const DEFAULT_CARD_ORDER_KEY = 'tarifas_card_order';
-
 function getCardFields(row) {
   const all = Object.keys(row).filter(k => !FILTER_COLS.includes(k) && row[k] !== null && row[k] !== '');
-  // Ordena: campos da lista preferencial primeiro, resto no final
   const preferred = CARD_PREFERRED_ORDER.filter(k => all.includes(k));
   const rest = all.filter(k => !CARD_PREFERRED_ORDER.includes(k));
   return [...preferred, ...rest];
@@ -627,12 +794,12 @@ function loadCardOrder(fields) {
   return [...fields];
 }
 
-function renderCards(row) {
+function renderCards(block, row) {
   const fields  = getCardFields(row);
   const ordered = loadCardOrder(fields);
-  const conteudo = document.getElementById('resultadoConteudo');
+  const conteudo = q(block, 'resultadoConteudo');
 
-  conteudo.innerHTML = `<div class="cards-grid" id="cardsGrid">
+  conteudo.innerHTML = `<div class="cards-grid">
     ${ordered.map(k => {
       const v = row[k];
       const label = formatLabel(k);
@@ -645,14 +812,16 @@ function renderCards(row) {
     }).join('')}
   </div>`;
 
-  if (layoutEditing) enableCardSortable();
-  renderSimulador(row);
+  renderSimulador(block, row);
+
+  // Drag só com 1 bloco e em modo edição
+  if (blocks.length === 1 && layoutEditing) enableCardSortable();
 }
 
 // ── TABELA (múltiplas linhas) ──
-function renderTable(rows) {
+function renderTable(block, rows) {
   const allFields = [...new Set(rows.flatMap(r => Object.keys(r)))].filter(k => !FILTER_COLS.includes(k));
-  const conteudo = document.getElementById('resultadoConteudo');
+  const conteudo = q(block, 'resultadoConteudo');
 
   conteudo.innerHTML = `
     <div class="multi-table-wrapper">
@@ -673,15 +842,22 @@ function renderTable(rows) {
     </div>`;
 }
 
-// ── LAYOUT DRAG ──
+// ════════════════════════════════════════════════════════════════════
+// LAYOUT DRAG (opera apenas no 1º bloco; some no comparativo)
+// ════════════════════════════════════════════════════════════════════
+function firstGrid() {
+  return blocks[0] ? blocks[0].el.querySelector('.cards-grid') : null;
+}
+
 function toggleLayout() {
+  if (blocks.length !== 1) return;
   layoutEditing = !layoutEditing;
   const btn = document.getElementById('btnLayout');
   const btnReset = document.getElementById('btnResetLayout');
   btn.textContent = layoutEditing ? '✔ Concluir' : '✦ Editar Layout';
   btnReset.style.display = layoutEditing ? 'inline-block' : 'none';
 
-  const grid = document.getElementById('cardsGrid');
+  const grid = firstGrid();
   if (!grid) return;
 
   if (layoutEditing) {
@@ -694,15 +870,14 @@ function toggleLayout() {
 }
 
 function enableCardSortable() {
-  const grid = document.getElementById('cardsGrid');
+  const grid = firstGrid();
   if (!grid) return;
   if (cardSortable) cardSortable.destroy();
   cardSortable = Sortable.create(grid, {
     animation: 150,
     ghostClass: 'sortable-ghost',
     onEnd() {
-      const cards = grid.querySelectorAll('.result-card');
-      const keys = [...cards].map(c => c.dataset.field);
+      const keys = [...grid.querySelectorAll('.result-card')].map(c => c.dataset.field);
       localStorage.setItem(DEFAULT_CARD_ORDER_KEY, JSON.stringify(keys));
     }
   });
@@ -714,16 +889,15 @@ function resetLayout() {
   document.getElementById('btnLayout').textContent = '✦ Editar Layout';
   document.getElementById('btnResetLayout').style.display = 'none';
   if (cardSortable) { cardSortable.destroy(); cardSortable = null; }
-  // Re-renderiza com ordem padrão
-  onDestinoChange();
+  if (blocks[0]) triggerResultado(blocks[0]);  // re-render com ordem padrão
 }
 
-// ── SIMULADOR ──
-let simRow = null;
-
-function renderSimulador(row) {
-  simRow = row;
-  const section = document.getElementById('simuladorSection');
+// ════════════════════════════════════════════════════════════════════
+// SIMULADOR (por bloco)
+// ════════════════════════════════════════════════════════════════════
+function renderSimulador(block, row) {
+  block.simRow = row;
+  const section = q(block, 'simuladorSection');
   section.style.display = 'block';
   section.innerHTML = `
     <div class="simulador-card">
@@ -731,24 +905,62 @@ function renderSimulador(row) {
       <div class="sim-inputs">
         <div class="sim-field">
           <label>Valor da NF (R$)</label>
-          <input type="number" id="simValorNF" min="0" step="0.01" placeholder="0,00" oninput="calcSimulador()">
+          <input type="number" data-el="simValorNF" min="0" step="0.01" placeholder="0,00">
         </div>
         <div class="sim-field">
           <label>Qtd. Entregas</label>
-          <input type="number" id="simQtdEntregas" min="1" step="1" value="1" oninput="calcSimulador()">
+          <input type="number" data-el="simQtdEntregas" min="1" step="1" value="1">
         </div>
       </div>
-      <table class="sim-breakdown"><tbody id="simBreakdown"></tbody></table>
+      <table class="sim-breakdown"><tbody data-el="simBreakdown"></tbody></table>
     </div>`;
-  calcSimulador();
+
+  q(block, 'simValorNF').addEventListener('input', () => calcSimulador(block));
+  q(block, 'simQtdEntregas').addEventListener('input', () => calcSimulador(block));
+  calcSimulador(block);
+  resolveIcms(block, row);  // assíncrono: define block.icmsInfo e recalcula quando pronto
 }
 
-function calcSimulador() {
-  if (!simRow) return;
-  const row = simRow;
+// ── ICMS (Total + Impostos — info comercial) ──
+const _icmsCache = {};   // { 'SP-BA': {aliquota, isento, ...} }
 
-  const valorNF     = parseFloat(document.getElementById('simValorNF').value) || 0;
-  const qtdEntregas = Math.max(1, parseInt(document.getElementById('simQtdEntregas').value) || 1);
+async function resolveIcms(block, row) {
+  // A coluna icms_incluso só existe quando publicada no Power BI; ausente → não calcula (graceful)
+  const inclusoRaw = row['icms_incluso'];
+  if (inclusoRaw === undefined || inclusoRaw === null || String(inclusoRaw).trim() === '') {
+    block.icmsInfo = null;
+    return;
+  }
+  const incluso = String(inclusoRaw).trim();           // 'Sim' | 'Não' | 'Isento'
+  const valorDireto = Number(row['icms_valor']) || 0;  // R$ direto quando preenchido
+
+  let aliquota = null, isentoMatriz = false;
+  if (valorDireto <= 0) {
+    const o = (row['uf_origem'] || '').toUpperCase().trim();
+    const d = (row['uf_destino'] || '').toUpperCase().trim();
+    if (o.length === 2 && d.length === 2) {
+      const key = `${o}-${d}`;
+      try {
+        if (!_icmsCache[key]) {
+          const resp = await fetch(`/api/icms?origem=${o}&destino=${d}`, { credentials: 'same-origin' });
+          _icmsCache[key] = resp.ok ? await resp.json() : { ok: false };
+        }
+        const m = _icmsCache[key];
+        if (m && m.ok) { aliquota = m.isento ? 0 : (m.aliquota || 0); isentoMatriz = !!m.isento; }
+      } catch { /* sem matriz → trata como indisponível abaixo */ }
+    }
+  }
+  block.icmsInfo = { incluso, valorDireto, aliquota, isentoMatriz };
+  // Recalcula só se o bloco ainda mostra esta tarifa
+  if (block.simRow === row) calcSimulador(block);
+}
+
+function calcSimulador(block) {
+  if (!block.simRow) return;
+  const row = block.simRow;
+
+  const valorNF     = parseFloat(q(block, 'simValorNF').value) || 0;
+  const qtdEntregas = Math.max(1, parseInt(q(block, 'simQtdEntregas').value) || 1);
 
   const frete_liquido     = Number(row['frete_liquido'])     || 0;
   const valor_multiparada = Number(row['valor_multiparada']) || 0;
@@ -770,23 +982,142 @@ function calcSimulador() {
   const fmtPct = (v, dec) => (v * 100).toLocaleString('pt-BR', { minimumFractionDigits: dec, maximumFractionDigits: dec }) + '%';
 
   const lines = [];
-  lines.push(['always', baseLabel, baseFrete]);
-  if (gris > 0)              lines.push(['cond', `GRIS (${fmtPct(gris, 2)} × ${fmt(valorNF)})`, valorGris]);
-  if (ad_valorem > 0)        lines.push(['cond', `Ad Valorem (${fmtPct(ad_valorem, 4)} × ${fmt(valorNF)})`, valorAdVal]);
-  if (pedagio > 0)           lines.push(['cond', 'Pedágio', pedagio]);
-  if (balsa > 0)             lines.push(['cond', 'Balsa', balsa]);
+  lines.push([baseLabel, baseFrete]);
+  if (gris > 0)              lines.push([`GRIS (${fmtPct(gris, 2)} × ${fmt(valorNF)})`, valorGris]);
+  if (ad_valorem > 0)        lines.push([`Ad Valorem (${fmtPct(ad_valorem, 4)} × ${fmt(valorNF)})`, valorAdVal]);
+  if (pedagio > 0)           lines.push(['Pedágio', pedagio]);
+  if (balsa > 0)             lines.push(['Balsa', balsa]);
   if (qtdEntregas > 1 && adicional_entrega > 0)
-    lines.push(['cond', `Adicional Entregas (${qtdEntregas - 1} × ${fmt(adicional_entrega)})`, valorAdicional]);
+    lines.push([`Adicional Entregas (${qtdEntregas - 1} × ${fmt(adicional_entrega)})`, valorAdicional]);
 
-  document.getElementById('simBreakdown').innerHTML =
-    lines.map(([, label, val]) =>
+  // ── Total + Impostos (ICMS — info comercial; só quando icms_incluso disponível) ──
+  const imp = calcTotalImpostos(total, block.icmsInfo);
+
+  q(block, 'simBreakdown').innerHTML =
+    lines.map(([label, val]) =>
       `<tr><td class="sim-label-cell">${label}</td><td class="sim-val">${fmt(val)}</td></tr>`
     ).join('') +
-    `<tr class="sim-total"><td>Total Estimado</td><td class="sim-val">${fmt(total)}</td></tr>`;
+    `<tr class="sim-total"><td>Total Estimado</td><td class="sim-val">${fmt(total)}</td></tr>` +
+    (imp ? `<tr class="sim-imposto">
+        <td>Total + Impostos <span class="sim-imposto-tag">comercial · ${imp.label}</span></td>
+        <td class="sim-val">${fmt(imp.totalImpostos)}</td>
+      </tr>` : '');
+
+  // Persiste números pro resumo (campos novos não afetam os existentes)
+  block.sim = {
+    baseLabel,
+    base:      baseFrete,
+    gris:      valorGris,
+    adVal:     valorAdVal,
+    pedagio,
+    balsa,
+    adicional: valorAdicional,
+    total,
+    totalImpostos: imp ? imp.totalImpostos : null,
+    icmsValor:     imp ? imp.icms : null,
+    icmsLabel:     imp ? imp.label : null,
+  };
+
+  renderResumo();
 }
 
-// ── FORMATAÇÃO ──
+// Calcula Total + Impostos a partir do Total Estimado e do ICMS resolvido.
+// Retorna null quando não há info de ICMS (coluna icms_incluso ausente) → linha some.
+function calcTotalImpostos(total, icmsInfo) {
+  if (!icmsInfo) return null;
+  const { incluso, valorDireto, aliquota, isentoMatriz } = icmsInfo;
+
+  if (incluso === 'Isento' || isentoMatriz) {
+    return { totalImpostos: total, icms: 0, label: 'Isento' };
+  }
+  if (incluso === 'Sim') {
+    // ICMS já embutido no frete → total não muda; ICMS embutido é só informativo
+    const icmsEmbutido = valorDireto > 0 ? valorDireto : (aliquota ? total * (aliquota / 100) : 0);
+    return { totalImpostos: total, icms: icmsEmbutido, label: 'ICMS incluso' };
+  }
+  // incluso === 'Não' (ou qualquer outro valor) → soma o ICMS
+  if (valorDireto > 0) {
+    return { totalImpostos: total + valorDireto, icms: valorDireto, label: 'ICMS R$' };
+  }
+  if (aliquota && aliquota > 0 && aliquota < 100) {
+    const totalImpostos = total / (1 - aliquota / 100);   // por dentro (gross-up)
+    return { totalImpostos, icms: totalImpostos - total,
+             label: `ICMS ${aliquota.toLocaleString('pt-BR')}% (por dentro)` };
+  }
+  // Sem alíquota válida e sem valor → não há como compor imposto
+  return { totalImpostos: total, icms: 0, label: 'ICMS n/d' };
+}
+
+// ════════════════════════════════════════════════════════════════════
+// RESUMO CONSOLIDADO (breakdown completo — aparece com 2+ blocos)
+// ════════════════════════════════════════════════════════════════════
+function renderResumo() {
+  const section = document.getElementById('resumoSection');
+
+  if (blocks.length < 2) {
+    section.style.display = 'none';
+    section.innerHTML = '';
+    return;
+  }
+
+  const resolved = blocks.filter(b => b.sim);
+
+  // Colunas: base sempre; demais só se > 0 em algum bloco resolvido
+  const comps = RESUMO_COMPS.filter(c =>
+    c.always || resolved.some(b => (b.sim[c.key] || 0) > 0)
+  );
+
+  const fmt = v => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+  // Coluna "Total + Impostos" só quando algum bloco tem ICMS resolvido (col. icms_incluso disponível)
+  const temImpostos = resolved.some(b => b.sim.totalImpostos != null);
+
+  const rowsHtml = blocks.map((b, i) => {
+    const label = b.label || `Comparação ${i + 1}`;
+    if (!b.sim) {
+      return `<tr class="resumo-vazio">
+        <td>${label} <span style="font-size:0.72rem;">(sem seleção)</span></td>
+        ${comps.map(() => '<td class="num">—</td>').join('')}
+        <td class="num">—</td>
+        ${temImpostos ? '<td class="num">—</td>' : ''}
+      </tr>`;
+    }
+    const impCell = temImpostos
+      ? `<td class="num resumo-imposto" title="${b.sim.icmsLabel || ''}">${b.sim.totalImpostos != null ? fmt(b.sim.totalImpostos) : '—'}</td>`
+      : '';
+    return `<tr>
+      <td>${label}</td>
+      ${comps.map(c => `<td class="num">${fmt(b.sim[c.key])}</td>`).join('')}
+      <td class="num resumo-total">${fmt(b.sim.total)}</td>
+      ${impCell}
+    </tr>`;
+  }).join('');
+
+  section.innerHTML = `
+    <h2 class="resumo-title">📊 Resumo comparativo</h2>
+    <div class="multi-table-wrapper">
+      <div class="multi-table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Cliente / Rota</th>
+              ${comps.map(c => `<th>${c.label}</th>`).join('')}
+              <th>Total Estimado</th>
+              ${temImpostos ? '<th>Total + Impostos <span class="th-tag">comercial</span></th>' : ''}
+            </tr>
+          </thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      </div>
+    </div>`;
+  section.style.display = 'block';
+}
+
+// ════════════════════════════════════════════════════════════════════
+// FORMATAÇÃO
+// ════════════════════════════════════════════════════════════════════
 function formatLabel(key) {
+  if (LABEL_OVERRIDE[key]) return LABEL_OVERRIDE[key];
   return key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
 }
 

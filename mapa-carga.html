@@ -155,6 +155,7 @@
       <div class="info-row"><span class="k">Cliente</span><span class="v" id="iCliente">—</span></div>
       <div class="info-row"><span class="k">Motorista</span><span class="v" id="iMotorista">—</span></div>
       <div class="info-row"><span class="k">Cavalo</span><span class="v mono" id="iCavalo">—</span></div>
+      <div class="info-row"><span class="k">Rastreado via</span><span class="v mono" id="iRastreio">—</span></div>
     </div>
 
     <div class="card">
@@ -181,7 +182,10 @@
       <div class="info-row"><span class="k">Distância total</span><span class="v mono" id="rDist">—</span></div>
       <div class="info-row"><span class="k">Duração estimada</span><span class="v mono" id="rDur">—</span></div>
       <div class="info-row"><span class="k">ETA chegada</span><span class="v" id="rEta">—</span></div>
+      <div class="info-row"><span class="k">ETA realista (500 km/dia)</span><span class="v" id="rEtaReal">—</span></div>
       <div class="info-row"><span class="k">Recalculada</span><span class="v" id="rRec">—</span></div>
+      <div class="info-row"><span class="k">Agendamento</span><span class="v" id="rAgend">—</span></div>
+      <div class="info-row"><span class="k">Folga ETA × Agend.</span><span class="v" id="rFolga">—</span></div>
     </div>
 
     <div class="card" id="cardAcoes" style="display:none;">
@@ -292,6 +296,10 @@
     document.getElementById('iCliente').textContent = c.cliente_nome || '—';
     document.getElementById('iMotorista').textContent = c.motorista_nome || '—';
     document.getElementById('iCavalo').textContent = c.cavalo_placa;
+    const rv = d.rastreado_via;
+    const tipoLabel = { carreta1: 'Carreta 1', carreta2: 'Carreta 2', cavalo: 'Cavalo' };
+    document.getElementById('iRastreio').textContent =
+      rv ? `${rv.placa} (${tipoLabel[rv.tipo] || rv.tipo})` : '🛰️ Sem rastreio';
 
     // Ações
     if (c.status === 'Em rota' || c.status === 'Aberta') {
@@ -385,6 +393,22 @@
       }
       if (d.rota_planejada.recalculada_em) {
         document.getElementById('rRec').textContent = tempoDesde(d.rota_planejada.recalculada_em);
+      }
+      const fmtDH = iso => new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+      if (d.rota_planejada.eta_realista_iso) {
+        document.getElementById('rEtaReal').textContent = fmtDH(d.rota_planejada.eta_realista_iso);
+      }
+      // Agendamento do destino final + folga vs ETA realista
+      const destFinal = (d.destinos && d.destinos.length) ? d.destinos[d.destinos.length - 1] : null;
+      const agend = destFinal && destFinal.data_agendamento ? destFinal.data_agendamento : null;
+      if (agend) {
+        document.getElementById('rAgend').textContent = fmtDH(agend);
+        if (d.rota_planejada.eta_realista_iso) {
+          const dias = Math.round((new Date(agend) - new Date(d.rota_planejada.eta_realista_iso)) / 86400000);
+          const el = document.getElementById('rFolga');
+          if (dias >= 0) { el.textContent = `${dias} dia(s) de folga`; el.style.color = 'var(--green)'; }
+          else { el.textContent = `${Math.abs(dias)} dia(s) de atraso`; el.style.color = 'var(--red)'; }
+        }
       }
     } else {
       document.getElementById('cardRota').style.display = 'none';

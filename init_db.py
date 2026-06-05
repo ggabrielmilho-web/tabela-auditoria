@@ -299,6 +299,19 @@ cur.execute("ALTER TABLE embarques_cargas_destinos ADD COLUMN IF NOT EXISTS long
 
 print("✅ Tabelas de Rastreamento (token, veiculos_rastreio, posicoes, kpi, municipios, log, simulacao) prontas.\n")
 
+# ════════════════════════════════════════════════════════════════════════════
+# AGENDAMENTO POR DESTINO (Fase 3) — compromisso de prazo + entrega por destino
+# ════════════════════════════════════════════════════════════════════════════
+
+# Compromisso firmado com o cliente recebedor (TIMESTAMP naive em UTC)
+cur.execute("ALTER TABLE embarques_cargas_destinos ADD COLUMN IF NOT EXISTS data_agendamento TIMESTAMP;")
+# Marcação manual de entrega por destino (Sprint 4 — opcional, DDL antecipada)
+cur.execute("ALTER TABLE embarques_cargas_destinos ADD COLUMN IF NOT EXISTS entregue_em TIMESTAMP;")
+cur.execute("ALTER TABLE embarques_cargas_destinos ADD COLUMN IF NOT EXISTS entregue_por_id INTEGER REFERENCES auditoria_users(id);")
+cur.execute("ALTER TABLE embarques_cargas_destinos ADD COLUMN IF NOT EXISTS entregue_por_nome VARCHAR(180);")
+
+print("✅ Colunas de agendamento por destino (data_agendamento, entregue_em) prontas.\n")
+
 conn.commit()
 cur.close()
 conn.close()

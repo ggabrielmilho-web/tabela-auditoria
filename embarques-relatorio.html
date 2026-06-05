@@ -160,6 +160,7 @@
         <select id="fDataCampo">
           <option value="carregamento">Carregamento</option>
           <option value="previsao">Previsão entrega</option>
+          <option value="agendamento">Agendamento</option>
         </select>
       </div>
       <div class="ff"><label>Tipo de operação</label>
@@ -219,7 +220,7 @@
             <th onclick="ordenar('motorista_nome')">Motorista</th>
             <th>Cavalo</th>
             <th>Carreta(s)</th>
-            <th onclick="ordenar('previsao_entrega')">Previsão</th>
+            <th onclick="ordenar('previsao_entrega')">Agendamento</th>
             <th onclick="ordenar('criado_por_nome')">Embarcador</th>
             <th>Ações</th>
           </tr>
@@ -326,7 +327,53 @@
     if (c.saida_auto && c.status === 'Em rota') {
       html += ` <span style="color:var(--yellow);font-size:0.85em;cursor:help;" title="Saída da origem detectada automaticamente">⚡</span>`;
     }
+    // Atraso: algum destino com agendamento vencido e carga ainda ativa (flag do backend)
+    if (c.tem_agendamento_vencido) {
+      html += ` <span style="color:var(--red);font-size:0.82em;cursor:help;" title="Agendamento vencido e carga ainda ativa (Aberta/Em rota)">⚠️ atrasada</span>`;
+    }
+    // Ociosidade: parada na descarga com folga > 24h pro agendamento final
+    if (c.no_local_desde && c.agendamento_final) {
+      const folgaDias = Math.floor((new Date(c.agendamento_final) - Date.now()) / 86400000);
+      if (folgaDias >= 1) {
+        html += ` <span style="color:var(--text-dim);font-size:0.82em;cursor:help;" title="Parada na cidade da descarga; agendamento só em ${folgaDias} dia(s) — possível ociosidade do veículo">💤 ${folgaDias}d</span>`;
+      }
+    }
     return html;
+  }
+
+  // ETA realista (~500 km/dia) client-side — espelha eta_realista() do backend
+  function etaRealistaCliente(c) {
+    const dist = c.distancia_planejada_km;
+    const partida = c.data_saida_real || c.data_carregamento;
+    if (!dist || !partida) return null;
+    const base = new Date(partida);
+    if (isNaN(base)) return null;
+    if (dist < 300 && c.duracao_estimada_min) {
+      return new Date(base.getTime() + c.duracao_estimada_min * 60000);
+    }
+    const dias = Math.max(1, Math.ceil(dist / 500));
+    return new Date(base.getTime() + dias * 86400000);
+  }
+
+  // Célula "Agendamento": agendamento_final → previsão → ETA, com tooltip das 3 datas
+  function colunaAgendamento(c) {
+    const ag = c.agendamento_final, prev = c.previsao_entrega, eta = etaRealistaCliente(c);
+    let principal = '—';
+    if (ag) principal = fmtDateTime(ag);
+    else if (prev) principal = fmtData(prev);
+    else if (eta) principal = fmtDateTime(eta.toISOString());
+    const tip = [
+      `📅 Agendamento: ${ag ? fmtDateTime(ag) : '—'}`,
+      `💭 Embarcador: ${prev ? fmtData(prev) : '—'}`,
+      `🤖 ETA realista: ${eta ? fmtDateTime(eta.toISOString()) : '—'}`,
+    ].join('\n');
+    let multi = '';
+    const dests = c.agendamentos_destinos || [];
+    if (dests.length > 1) {
+      const det = dests.map(d => `${d.ordem}. ${d.cidade}/${d.uf}: ${d.data_agendamento ? fmtDateTime(d.data_agendamento) : 'sem agendamento'}`).join('\n');
+      multi = ` <span style="cursor:help;color:var(--text-dim);font-size:0.72rem;" title="${det.replace(/"/g,'&quot;')}">📍 ${dests.length}</span>`;
+    }
+    return `<span style="cursor:help;" title="${tip.replace(/"/g,'&quot;')}">${principal}</span>${multi}`;
   }
 
   async function loadMe() {
@@ -467,7 +514,7 @@
         <td title="${c.motorista_nome || ''}">${c.motorista_nome || '—'}</td>
         <td>${c.cavalo_placa || '—'} <span style="color:var(--text-dim);font-size:0.72rem;">(${c.cavalo_tipo || '?'})</span></td>
         <td>${carretas}</td>
-        <td>${fmtData(c.previsao_entrega)}</td>
+        <td>${colunaAgendamento(c)}</td>
         <td>${c.criado_por_nome || '—'}</td>
         <td class="acoes">
           ${btnEditar}
