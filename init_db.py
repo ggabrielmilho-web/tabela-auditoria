@@ -303,6 +303,9 @@ print("✅ Tabelas de Rastreamento (token, veiculos_rastreio, posicoes, kpi, mun
 # AGENDAMENTO POR DESTINO (Fase 3) — compromisso de prazo + entrega por destino
 # ════════════════════════════════════════════════════════════════════════════
 
+# Início real da viagem (saída da origem), detectado pelo GPS e persistido 1x (Fase 3.1)
+cur.execute("ALTER TABLE embarques_cargas ADD COLUMN IF NOT EXISTS inicio_viagem TIMESTAMP;")
+
 # Compromisso firmado com o cliente recebedor (TIMESTAMP naive em UTC)
 cur.execute("ALTER TABLE embarques_cargas_destinos ADD COLUMN IF NOT EXISTS data_agendamento TIMESTAMP;")
 # Marcação manual de entrega por destino (Sprint 4 — opcional, DDL antecipada)

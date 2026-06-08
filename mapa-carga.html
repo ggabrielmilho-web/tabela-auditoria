@@ -333,10 +333,16 @@
       } catch (e) { console.warn('Polyline decode falhou', e); }
     }
 
-    // Trajeto percorrido (cinza tracejado)
-    const trajCavalo = (d.trajeto && d.trajeto.cavalo) || [];
-    if (trajCavalo.length > 1) {
-      const pts = trajCavalo.map(t => [t.lat, t.lng]);
+    // Trajeto percorrido — UMA linha só, da placa principal rastreada (carreta > cavalo).
+    // Evita as "3 linhas" quando cavalo e carreta têm rastreador (frota).
+    const tipoPrinc = (d.rastreado_via && d.rastreado_via.tipo) || 'cavalo';
+    let trajPrinc = (d.trajeto && d.trajeto[tipoPrinc]) || [];
+    if (trajPrinc.length < 2) {  // fallback se a principal não tiver pontos
+      trajPrinc = (d.trajeto && d.trajeto.cavalo && d.trajeto.cavalo.length > 1) ? d.trajeto.cavalo
+                : ((d.trajeto && d.trajeto.carreta1) || []);
+    }
+    if (trajPrinc.length > 1) {
+      const pts = trajPrinc.map(t => [t.lat, t.lng]);
       addLayer(L.polyline(pts, { color: '#94a3b8', weight: 3, opacity: 0.9, dashArray: '6,6' }));
       pts.forEach(p => bounds.push(p));
     }
@@ -349,15 +355,6 @@
       ));
       bounds.push(ll);
     }
-
-    // Trajeto carreta1/2 (linhas mais finas tracejadas)
-    ['carreta1', 'carreta2'].forEach(k => {
-      const tr = (d.trajeto && d.trajeto[k]) || [];
-      if (tr.length > 1) {
-        const pts = tr.map(t => [t.lat, t.lng]);
-        addLayer(L.polyline(pts, { color: '#818cf8', weight: 2, opacity: 0.5, dashArray: '3,5' }));
-      }
-    });
 
     // Fit bounds
     if (bounds.length > 0 && !window._zoomed) {

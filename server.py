@@ -2798,7 +2798,7 @@ def api_rastreamento_trajeto(carga_id):
                    data_carregamento, data_saida_real, data_conclusao,
                    no_local_desde, saida_auto, entregue_auto,
                    rota_planejada_polyline, distancia_planejada_km, duracao_estimada_min,
-                   rota_recalculada_em
+                   rota_recalculada_em, inicio_viagem
             FROM embarques_cargas WHERE id=%s
         """, (carga_id,))
         r = cur.fetchone()
@@ -2821,11 +2821,11 @@ def api_rastreamento_trajeto(carga_id):
                 'data_agendamento': (ag.isoformat() + 'Z') if ag else None,
             })
 
-        # Período = a partir da saída da origem desta carga (data_saida_real), nunca antes —
-        # trajeto e KPIs só da viagem. data_saida_real é gravado com o horário GPS da saída,
-        # então a janela inclui o histórico da viagem sem skew. Fallback: data_carregamento.
-        inicio = carga.get('data_saida_real') or carga.get('data_carregamento')
-        from datetime import datetime as _dt
+        # Período = a partir da saída da origem (inicio_viagem, detectado pelo GPS e persistido
+        # pelo worker). Só lê — não recalcula. Fallback: data_carregamento → teto de 15 dias.
+        from datetime import datetime as _dt, timedelta as _td
+        inicio = carga.get('inicio_viagem') or carga.get('data_carregamento') \
+                 or (_dt.utcnow() - _td(days=15))
         fim = carga.get('data_conclusao') or _dt.utcnow()
 
         def _buscar_trajeto(placa):

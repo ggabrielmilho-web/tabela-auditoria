@@ -274,20 +274,19 @@ def _consolidar_kpi(cur, carga_id, final=False):
     """Soma segmentos do histórico + agrega vel/tempo. Grava em embarques_cargas_rastreio_kpi."""
     cur.execute("""
         SELECT cavalo_placa, carreta1_placa, carreta2_placa,
-               data_carregamento, data_saida_real, data_conclusao
+               data_carregamento, data_saida_real, data_conclusao, inicio_viagem
         FROM embarques_cargas WHERE id=%s
     """, (carga_id,))
     r = cur.fetchone()
     if not r:
         return
-    cavalo_placa, carreta1_placa, carreta2_placa, data_carreg, data_saida_real, data_conclusao = r
+    cavalo_placa, carreta1_placa, carreta2_placa, data_carreg, data_saida_real, data_conclusao, inicio_viagem = r
     # Segue a mesma placa de rastreio usada na detecção (carreta primeiro)
     placa = _placa_tracking(cavalo_placa, carreta1_placa, carreta2_placa, cur)
     if not placa:
         return
-    # Piso = data_saida_real (saída da origem desta carga) — KPIs só da viagem, nada de antes.
-    # data_saida_real agora é gravado com o horário GPS da saída, então não exclui o histórico.
-    inicio = data_saida_real or data_carreg
+    # Piso = inicio_viagem (saída da origem, detectada e persistida) — mesma janela do mapa.
+    inicio = inicio_viagem or data_saida_real or data_carreg
     fim = data_conclusao or datetime.utcnow()
 
     cur.execute("""
@@ -355,7 +354,7 @@ def _processar_cargas(cur):
         SELECT c.id, c.status, c.cavalo_placa, c.carreta1_placa, c.carreta2_placa,
                c.origem_cidade, c.origem_uf, c.origem_latitude, c.origem_longitude,
                c.no_local_desde, c.rota_planejada_polyline, c.rota_recalculada_em,
-               c.distancia_planejada_km
+               c.distancia_planejada_km, c.inicio_viagem, c.data_carregamento
         FROM embarques_cargas c
         WHERE c.status IN ('Aberta', 'Em rota')
           AND (
@@ -369,11 +368,26 @@ def _processar_cargas(cur):
     for cg in cargas:
         (carga_id, status, cavalo_placa, carreta1_placa, carreta2_placa,
          origem_cid, origem_uf, origem_lat, origem_lng,
-         no_local_desde, polyline, rota_rec_em, dist_plan) = cg
+         no_local_desde, polyline, rota_rec_em, dist_plan, inicio_viagem, data_carreg) = cg
 
         placa = _placa_tracking(cavalo_placa, carreta1_placa, carreta2_placa, cur)
         if not placa:
             continue
+
+        # Detecta a saída da origem 1x e persiste (trajeto/KPIs leem daqui depois).
+        # Nunca grava NULL → não recalcula nos próximos ciclos.
+        if inicio_viagem is None:
+            iv = geocoding.detectar_inicio_viagem(
+                placa, origem_cid, origem_uf, data_carreg, cur.connection,
+                origem_lat=float(origem_lat) if origem_lat is not None else None,
+                origem_lng=float(origem_lng) if origem_lng is not None else None,
+            )
+            if iv is None:
+                from datetime import time as _t
+                iv = (datetime.combine(data_carreg, _t()) if data_carreg
+                      else datetime.utcnow() - timedelta(days=geocoding.RECONSTRUCAO_MAX_DIAS))
+            cur.execute("UPDATE embarques_cargas SET inicio_viagem=%s WHERE id=%s", (iv, carga_id))
+            inicio_viagem = iv
 
         cur.execute("""
             SELECT latitude, longitude, cidade, uf, data_posicao
