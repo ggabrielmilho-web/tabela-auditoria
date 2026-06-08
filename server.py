@@ -2728,7 +2728,8 @@ def api_rastreamento_posicoes():
         LEFT JOIN embarques_veiculos_rastreio v ON v.placa = p.placa
         LEFT JOIN LATERAL (
             SELECT id, numero, status, cliente_nome, motorista_nome, cavalo_proprietario, cavalo_eh_rizza,
-                   no_local_desde, saida_auto, entregue_auto, data_carregamento, origem_cidade, origem_uf
+                   no_local_desde, saida_auto, entregue_auto, data_carregamento, origem_cidade, origem_uf,
+                   cavalo_placa, carreta1_placa, carreta2_placa
             FROM embarques_cargas c
             WHERE (c.cavalo_placa = p.placa OR c.carreta1_placa = p.placa OR c.carreta2_placa = p.placa)
               AND c.status IN ('Aberta','Em rota')
@@ -2755,7 +2756,13 @@ def api_rastreamento_posicoes():
                v.frota, v.modelo, v.tipo,
                ca.id AS carga_id, ca.numero, ca.status, ca.cliente_nome, ca.motorista_nome,
                ca.cavalo_proprietario, ca.cavalo_eh_rizza, ca.no_local_desde, ca.saida_auto,
-               ca.origem_cidade, ca.origem_uf
+               ca.origem_cidade, ca.origem_uf,
+               CASE
+                 WHEN ca.cavalo_placa   = p.placa THEN 'Cavalo'
+                 WHEN ca.carreta1_placa = p.placa THEN 'Carreta 1'
+                 WHEN ca.carreta2_placa = p.placa THEN 'Carreta 2'
+                 ELSE v.tipo
+               END AS papel
         {base_join}
         WHERE {' AND '.join(where)}
         ORDER BY p.placa

@@ -262,7 +262,8 @@
   }
 
   function popupHTML(p) {
-    let html = `<div class="popup-placa">${p.placa}</div>`;
+    const papel = p.papel ? ` <span style="font-size:0.7rem;color:var(--text-dim);font-weight:400;">· ${p.papel}</span>` : '';
+    let html = `<div class="popup-placa">${p.placa}${papel}</div>`;
     html += `<div class="popup-row"><strong>${p.cidade || '—'}/${p.uf || '—'}</strong></div>`;
     const segGpsPopup = p.data_posicao ? Math.floor((Date.now() - new Date(p.data_posicao).getTime()) / 1000) : null;
     const dadoVelho = segGpsPopup != null && segGpsPopup > 24*60*60;
@@ -357,7 +358,7 @@
         <div class="veic-item ${p.carregado ? 'veic-carregado' : ''}" onclick="zoomPlaca('${p.placa}')">
           <div class="veic-status s-${s}"></div>
           <div class="veic-info">
-            <div class="veic-placa">${p.placa}</div>
+            <div class="veic-placa">${p.placa}${p.papel ? ` <span style="font-size:0.68rem;color:var(--text-dim);font-weight:500;">${p.papel}</span>` : ''}</div>
             <div class="veic-meta">${p.cidade || '—'}/${p.uf || '—'}${motorista}</div>
             <div class="veic-extra">${velStr}<span style="${corTempo}">${tempoDesde(p.data_posicao)}</span></div>
           </div>
