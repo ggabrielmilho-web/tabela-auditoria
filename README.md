@@ -23,7 +23,7 @@ URL de produção: **https://rizza.carvalhoia.com**
 - **Despesas** (`/dre/despesas`) — Auditoria detalhada de `consulta_despesas_477` com filtros, drilldown por grupo/evento e exportação CSV em streaming
 - **Conhecimentos** (`/dre/conhecimentos`) — Auditoria detalhada de `conhecimentos_emitidos` com filtros e exportação CSV em streaming
 - **Faturamento por Tomador** (`/faturamento`) — Matriz **tomador × meses** (faturamento e nº de cargas) de `conhecimentos_emitidos`, agregada via DAX e **consolidada por raiz de CNPJ** (junta filiais do mesmo grupo). Toggle R$/Cargas, busca, ordenação e CSV; cards e subtotal acompanham o filtro
-- **Admin** (`/admin`) — Gerenciamento de usuários, papéis e permissões por tipo de operação
+- **Admin** (`/admin`) — Gerenciamento de usuários, papéis, **permissão de acesso por aba** (cada usuário recebe quais abas enxerga; admin vê todas por bypass) e permissões por tipo de operação
 
 ---
 
@@ -490,7 +490,7 @@ Resultado Final   = Pós Investimento - Retiradas
 
 - Autenticação por sessão Flask (cookie HTTP-only)
 - Senhas com hash via `werkzeug.security.generate_password_hash`
-- Decoradores `@login_required` e `@admin_required` em todas as rotas sensíveis
+- Decoradores `@login_required`, `@admin_required` e `@page_required('<aba>')` (permissão por aba; admin bypassa) em todas as rotas sensíveis. As abas concedidas ficam em `auditoria_users.paginas_permitidas` e são carregadas na sessão no login
 - Queries SQL parametrizadas (prevenção de SQL injection)
 - DAX queries com escape de strings
 - SSL obrigatório via Traefik + Let's Encrypt

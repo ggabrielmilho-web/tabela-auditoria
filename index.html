@@ -300,15 +300,15 @@
       <button class="btn-sm" id="btnLayout" onclick="toggleLayoutMode()">✦ Editar Layout</button>
       <button class="btn-sm" id="btnResetLayout" onclick="resetLayout()" style="display:none;">↺ Resetar Layout</button>
       <button class="btn-sm" onclick="loadData()">↻ Recarregar</button>
-      <a href="/embarques" style="text-decoration:none;"><button class="btn-sm">🚚 Embarques</button></a>
-      <a href="/embarques/mapa" style="text-decoration:none;"><button class="btn-sm">🗺️ Mapa</button></a>
-      <a href="/tarifas" style="text-decoration:none;"><button class="btn-sm">📋 Tarifas</button></a>
-      <a id="linkReuniao" href="/reuniao" style="display:none;text-decoration:none;"><button class="btn-sm">🎙 Reunião</button></a>
-      <a id="linkDre" href="/dre" style="display:none;text-decoration:none;"><button class="btn-sm">📊 DRE</button></a>
-      <a id="linkReceita" href="/dre/conhecimentos" style="display:none;text-decoration:none;"><button class="btn-sm">📦 Receita</button></a>
-      <a id="linkDespesa" href="/dre/despesas" style="display:none;text-decoration:none;"><button class="btn-sm">💰 Despesa</button></a>
-      <a id="linkTomadores" href="/faturamento" style="display:none;text-decoration:none;"><button class="btn-sm">📊 Tomadores</button></a>
-      <a id="linkAdmin" href="/admin" style="display:none;text-decoration:none;"><button class="btn-sm">⚙ Admin</button></a>
+      <a data-page="embarques" href="/embarques" style="text-decoration:none;"><button class="btn-sm">🚚 Embarques</button></a>
+      <a data-page="embarques" href="/embarques/mapa" style="text-decoration:none;"><button class="btn-sm">🗺️ Mapa</button></a>
+      <a data-page="tarifas" href="/tarifas" style="text-decoration:none;"><button class="btn-sm">📋 Tarifas</button></a>
+      <a data-page="reuniao" id="linkReuniao" href="/reuniao" style="display:none;text-decoration:none;"><button class="btn-sm">🎙 Reunião</button></a>
+      <a data-page="dre" id="linkDre" href="/dre" style="display:none;text-decoration:none;"><button class="btn-sm">📊 DRE</button></a>
+      <a data-page="conhecimentos" id="linkReceita" href="/dre/conhecimentos" style="display:none;text-decoration:none;"><button class="btn-sm">📦 Receita</button></a>
+      <a data-page="despesas" id="linkDespesa" href="/dre/despesas" style="display:none;text-decoration:none;"><button class="btn-sm">💰 Despesa</button></a>
+      <a data-page="faturamento" id="linkTomadores" href="/faturamento" style="display:none;text-decoration:none;"><button class="btn-sm">📊 Tomadores</button></a>
+      <a data-page="admin" id="linkAdmin" href="/admin" style="display:none;text-decoration:none;"><button class="btn-sm">⚙ Admin</button></a>
       <a href="/logout" style="text-decoration:none;"><button class="btn-sm">Sair</button></a>
     </div>
   </div>
@@ -359,6 +359,7 @@
   </div>
 </div>
 
+<script src="/nav-perms.js"></script>
 <script>
 let allData = [], filteredData = [];
 let currentPage = 0, pageSize = 100;

@@ -425,14 +425,14 @@
   <div class="top-bar">
     <h1>📊 DRE Rizza</h1>
     <div class="nav-links">
-      <a href="/" class="nav-btn">Auditoria</a>
-      <a href="/embarques" class="nav-btn">🚚 Embarques</a>
-      <a href="/embarques/mapa" class="nav-btn">🗺️ Mapa</a>
-      <a href="/tarifas" class="nav-btn">Tarifas</a>
-      <a href="/reuniao" class="nav-btn">Reunião</a>
-      <a href="/dre" class="nav-btn active">DRE</a>
-      <a href="/faturamento" class="nav-btn">Tomadores</a>
-      <a href="/admin" class="nav-btn">Admin</a>
+      <a data-page="auditoria" href="/" class="nav-btn">Auditoria</a>
+      <a data-page="embarques" href="/embarques" class="nav-btn">🚚 Embarques</a>
+      <a data-page="embarques" href="/embarques/mapa" class="nav-btn">🗺️ Mapa</a>
+      <a data-page="tarifas" href="/tarifas" class="nav-btn">Tarifas</a>
+      <a data-page="reuniao" href="/reuniao" class="nav-btn">Reunião</a>
+      <a data-page="dre" href="/dre" class="nav-btn active">DRE</a>
+      <a data-page="faturamento" href="/faturamento" class="nav-btn">Tomadores</a>
+      <a data-page="admin" href="/admin" class="nav-btn">Admin</a>
       <a href="/logout" class="nav-btn">Sair</a>
     </div>
   </div>
@@ -1452,5 +1452,6 @@ async function enviarPergunta() {
   <div class="chat-aviso">Análise baseada nos dados carregados na tela • GPT-4.1-mini</div>
 </div>
 
+<script src="/nav-perms.js"></script>
 </body>
 </html>

@@ -30,6 +30,7 @@ cur.execute("""
         role            VARCHAR(20) DEFAULT 'viewer',
         ativo           BOOLEAN DEFAULT true,
         tipos_permitidos TEXT[] DEFAULT ARRAY['Carreteiro','Agregado','Frota'],
+        paginas_permitidas TEXT[] DEFAULT ARRAY['auditoria','tarifas','embarques'],
         criado_em       TIMESTAMP DEFAULT NOW()
     );
 """)
@@ -38,6 +39,11 @@ cur.execute("""
 cur.execute("""
     ALTER TABLE auditoria_users
     ADD COLUMN IF NOT EXISTS tipos_permitidos TEXT[] DEFAULT ARRAY['Carreteiro','Agregado','Frota'];
+""")
+# Permissão de acesso por aba (idempotente). Default = abas que todo usuário já via.
+cur.execute("""
+    ALTER TABLE auditoria_users
+    ADD COLUMN IF NOT EXISTS paginas_permitidas TEXT[] DEFAULT ARRAY['auditoria','tarifas','embarques'];
 """)
 
 # Inserir admin padrão (ignora se já existir)

@@ -132,10 +132,10 @@
     <span class="badge-modo" id="badgeModo" style="display:none;">SIMULADO</span>
   </div>
   <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-    <a href="/" style="text-decoration:none;"><button class="btn-sm">⚡ Auditoria</button></a>
-    <a href="/embarques" style="text-decoration:none;"><button class="btn-sm">🚚 Embarques</button></a>
-    <a href="/embarques/relatorio" style="text-decoration:none;"><button class="btn-sm">📋 Relatório</button></a>
-    <a id="linkAdmin" href="/admin" style="display:none;text-decoration:none;"><button class="btn-sm">⚙ Admin</button></a>
+    <a data-page="auditoria" href="/" style="text-decoration:none;"><button class="btn-sm">⚡ Auditoria</button></a>
+    <a data-page="embarques" href="/embarques" style="text-decoration:none;"><button class="btn-sm">🚚 Embarques</button></a>
+    <a data-page="embarques" href="/embarques/relatorio" style="text-decoration:none;"><button class="btn-sm">📋 Relatório</button></a>
+    <a data-page="admin" id="linkAdmin" href="/admin" style="display:none;text-decoration:none;"><button class="btn-sm">⚙ Admin</button></a>
     <a href="/logout" style="text-decoration:none;"><button class="btn-sm">Sair</button></a>
   </div>
 </div>
@@ -442,5 +442,6 @@
   setInterval(() => atualizar(), 30000);
 </script>
 
+<script src="/nav-perms.js"></script>
 </body>
 </html>

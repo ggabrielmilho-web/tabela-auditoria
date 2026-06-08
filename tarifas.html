@@ -368,9 +368,9 @@
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
       <button class="btn-sm" id="btnLayout" onclick="toggleLayout()" style="display:none;">✦ Editar Layout</button>
       <button class="btn-sm" id="btnResetLayout" onclick="resetLayout()" style="display:none;">↺ Resetar</button>
-      <a href="/" class="btn-sm">← Auditoria</a>
-      <a href="/embarques" class="btn-sm">🚚 Embarques</a>
-      <a href="/embarques/mapa" class="btn-sm">🗺️ Mapa</a>
+      <a data-page="auditoria" href="/" class="btn-sm">← Auditoria</a>
+      <a data-page="embarques" href="/embarques" class="btn-sm">🚚 Embarques</a>
+      <a data-page="embarques" href="/embarques/mapa" class="btn-sm">🗺️ Mapa</a>
       <a href="/logout" class="btn-sm">Sair</a>
     </div>
   </div>
@@ -388,6 +388,7 @@
 
 </div>
 
+<script src="/nav-perms.js"></script>
 <script>
 // ════════════════════════════════════════════════════════════════════
 // Estado global

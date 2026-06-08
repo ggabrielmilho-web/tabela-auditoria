@@ -302,6 +302,20 @@
           <label><input type="checkbox" id="tipoFrota"      value="Frota"      checked> Frota</label>
         </div>
       </div>
+      <div class="field" style="margin-bottom:16px;" id="abasField">
+        <label>Abas visíveis</label>
+        <div class="tipo-checks" id="newPaginas">
+          <label><input type="checkbox" class="pagina-check" value="auditoria" checked> Auditoria</label>
+          <label><input type="checkbox" class="pagina-check" value="tarifas" checked> Tarifas</label>
+          <label><input type="checkbox" class="pagina-check" value="embarques" checked> Embarques + Mapa</label>
+          <label><input type="checkbox" class="pagina-check" value="reuniao"> Reunião</label>
+          <label><input type="checkbox" class="pagina-check" value="dre"> DRE</label>
+          <label><input type="checkbox" class="pagina-check" value="despesas"> Despesas</label>
+          <label><input type="checkbox" class="pagina-check" value="conhecimentos"> Conhecimentos</label>
+          <label><input type="checkbox" class="pagina-check" value="faturamento"> Faturamento</label>
+        </div>
+        <small id="abasNota" style="color:var(--text-dim);font-size:0.72rem;display:none;">Admin enxerga todas as abas automaticamente.</small>
+      </div>
       <button class="btn btn-success" id="btnCriar" onclick="criarUsuario()">Criar Usuário</button>
       <div class="form-feedback" id="formFeedback"></div>
     </div>
@@ -320,13 +334,14 @@
             <th>E-mail</th>
             <th>Perfil</th>
             <th>Tipos Visíveis</th>
+            <th>Abas Visíveis</th>
             <th>Status</th>
             <th>Cadastrado em</th>
             <th>Ações</th>
           </tr>
         </thead>
         <tbody id="userTableBody">
-          <tr class="empty-row"><td colspan="6">Carregando...</td></tr>
+          <tr class="empty-row"><td colspan="8">Carregando...</td></tr>
         </tbody>
       </table>
     </div>
@@ -396,6 +411,18 @@ window.addEventListener('DOMContentLoaded', () => {
   loadUsers();
   rastrLoad();
   setInterval(rastrLoad, 30000);
+  // Abas são irrelevantes para admin (bypass) — mostra nota e desabilita os checks.
+  const selRole = document.getElementById('newRole');
+  const aplicarRole = () => {
+    const ehAdmin = selRole.value === 'admin';
+    document.getElementById('abasNota').style.display = ehAdmin ? 'block' : 'none';
+    document.querySelectorAll('#newPaginas .pagina-check').forEach(c => {
+      c.disabled = ehAdmin;
+      c.closest('label').style.opacity = ehAdmin ? '0.4' : '1';
+    });
+  };
+  selRole.addEventListener('change', aplicarRole);
+  aplicarRole();
 });
 
 // ── Rastreamento ───────────────────────────────────────
@@ -481,17 +508,34 @@ async function loadUsers() {
 }
 
 const TODOS_TIPOS = ['Carreteiro', 'Agregado', 'Frota'];
+const TODAS_PAGINAS = [
+  { key: 'auditoria', label: 'Auditoria' },
+  { key: 'tarifas', label: 'Tarifas' },
+  { key: 'embarques', label: 'Embarques' },
+  { key: 'reuniao', label: 'Reunião' },
+  { key: 'dre', label: 'DRE' },
+  { key: 'despesas', label: 'Despesas' },
+  { key: 'conhecimentos', label: 'Conhecimentos' },
+  { key: 'faturamento', label: 'Faturamento' },
+];
+const PAGINA_LABEL = Object.fromEntries(TODAS_PAGINAS.map(p => [p.key, p.label]));
 
 function renderTable() {
   const tbody = document.getElementById('userTableBody');
   if (!users.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="7">Nenhum usuário cadastrado.</td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="8">Nenhum usuário cadastrado.</td></tr>';
     return;
   }
   tbody.innerHTML = users.map(u => {
     const tipos = u.tipos_permitidos || [];
     const tiposBadges = tipos.map(t => `<span class="badge badge-tipo">${t}</span>`).join('') || '<span style="color:var(--text-dim);font-size:0.75rem;">Nenhum</span>';
     const editBtn = `<button class="edit-tipos-btn" onclick="openTiposEditor(${u.id})" title="Editar tipos">✏</button>`;
+    const isAdmin = u.role === 'admin';
+    const paginas = u.paginas_permitidas || [];
+    const abasBadges = isAdmin
+      ? '<span style="color:var(--text-dim);font-size:0.75rem;">Todas (admin)</span>'
+      : (paginas.map(p => `<span class="badge badge-tipo">${PAGINA_LABEL[p] || p}</span>`).join('') || '<span style="color:var(--text-dim);font-size:0.75rem;">Nenhuma</span>');
+    const abasEdit = isAdmin ? '' : `<button class="edit-tipos-btn" onclick="openPaginasEditor(${u.id})" title="Editar abas">✏</button>`;
     return `
     <tr id="row-${u.id}">
       <td>${u.nome}</td>
@@ -500,6 +544,11 @@ function renderTable() {
       <td>
         <div class="tipos-cell" id="tipos-cell-${u.id}">
           ${tiposBadges} ${editBtn}
+        </div>
+      </td>
+      <td>
+        <div class="tipos-cell" id="paginas-cell-${u.id}">
+          ${abasBadges} ${abasEdit}
         </div>
       </td>
       <td><span class="badge ${u.ativo ? 'badge-on' : 'badge-off'}">${u.ativo ? 'Ativo' : 'Inativo'}</span></td>
@@ -556,6 +605,43 @@ async function saveTipos(uid) {
   }
 }
 
+function openPaginasEditor(uid) {
+  const user = users.find(u => u.id === uid);
+  if (!user) return;
+  const cell = document.getElementById(`paginas-cell-${uid}`);
+  const paginas = user.paginas_permitidas || [];
+
+  cell.innerHTML = `
+    <div class="tipos-editor">
+      ${TODAS_PAGINAS.map(p => `
+        <label>
+          <input type="checkbox" value="${p.key}" ${paginas.includes(p.key) ? 'checked' : ''}> ${p.label}
+        </label>`).join('')}
+      <button class="btn btn-sm-green" style="font-size:0.72rem;padding:4px 10px;" onclick="savePaginas(${uid})">Salvar</button>
+      <button class="edit-tipos-btn" onclick="renderTable()">✕</button>
+    </div>`;
+}
+
+async function savePaginas(uid) {
+  const cell = document.getElementById(`paginas-cell-${uid}`);
+  const checks = cell.querySelectorAll('input[type=checkbox]:checked');
+  const paginas = [...checks].map(c => c.value);
+
+  try {
+    const resp = await fetch(`/api/admin/users/${uid}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ paginas_permitidas: paginas })
+    });
+    const json = await resp.json();
+    if (!json.ok) throw new Error(json.error);
+    await loadUsers();
+  } catch (e) {
+    alert('Erro: ' + e.message);
+  }
+}
+
 async function criarUsuario() {
   const btn  = document.getElementById('btnCriar');
   const nome  = document.getElementById('newNome').value.trim();
@@ -565,12 +651,15 @@ async function criarUsuario() {
   const tipos_permitidos = ['tipoCarreteiro','tipoAgregado','tipoFrota']
     .filter(id => document.getElementById(id).checked)
     .map(id => document.getElementById(id).value);
+  const paginas_permitidas = [...document.querySelectorAll('#newPaginas .pagina-check:checked')]
+    .map(c => c.value);
 
   hideFeedback();
 
   if (!nome || !email || !senha) { showFeedback('Preencha todos os campos.', false); return; }
   if (senha.length < 6) { showFeedback('Senha deve ter no mínimo 6 caracteres.', false); return; }
   if (!tipos_permitidos.length) { showFeedback('Selecione ao menos um tipo de operação.', false); return; }
+  if (role !== 'admin' && !paginas_permitidas.length) { showFeedback('Selecione ao menos uma aba visível.', false); return; }
 
   btn.disabled = true;
   btn.textContent = 'Criando...';
@@ -580,7 +669,7 @@ async function criarUsuario() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'same-origin',
-      body: JSON.stringify({ nome, email, senha, role, tipos_permitidos })
+      body: JSON.stringify({ nome, email, senha, role, tipos_permitidos, paginas_permitidas })
     });
     const json = await resp.json();
     if (!json.ok) throw new Error(json.error);

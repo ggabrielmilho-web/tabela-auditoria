@@ -68,6 +68,51 @@ def admin_required(f):
         return f(*args, **kwargs)
     return decorated
 
+# Abas concedíveis por usuário (a aba Admin NÃO entra — é exclusiva de role=admin).
+PAGINAS_VALIDAS = {'auditoria', 'tarifas', 'embarques', 'reuniao', 'dre',
+                   'despesas', 'conhecimentos', 'faturamento'}
+# Chave da aba → rota inicial (para redirect sem loop).
+_PAGINA_ROTA = {
+    'auditoria': '/', 'tarifas': '/tarifas', 'embarques': '/embarques',
+    'reuniao': '/reuniao', 'dre': '/dre', 'despesas': '/dre/despesas',
+    'conhecimentos': '/dre/conhecimentos', 'faturamento': '/faturamento',
+}
+# Ordem de preferência ao escolher a primeira aba permitida.
+_PAGINA_ORDEM = ['auditoria', 'tarifas', 'embarques', 'reuniao', 'dre',
+                 'despesas', 'conhecimentos', 'faturamento']
+
+
+def _primeira_pagina_permitida():
+    """Rota da 1ª aba concedida ao usuário (evita loop de redirect). Admin → '/'.
+    Sem nenhuma aba → página neutra de 'sem acesso'."""
+    if session.get('role') == 'admin':
+        return '/'
+    permitidas = session.get('paginas_permitidas') or []
+    for chave in _PAGINA_ORDEM:
+        if chave in permitidas:
+            return _PAGINA_ROTA[chave]
+    return '/sem-acesso'
+
+
+def page_required(page_key):
+    """Libera a rota se o usuário for admin (bypass) ou tiver a aba concedida."""
+    def deco(f):
+        @functools.wraps(f)
+        def inner(*args, **kwargs):
+            if 'user_id' not in session:
+                if request.path.startswith('/api/'):
+                    return jsonify({'ok': False, 'error': 'Não autenticado'}), 401
+                return redirect('/login')
+            if session.get('role') == 'admin':
+                return f(*args, **kwargs)
+            if page_key not in (session.get('paginas_permitidas') or []):
+                if request.path.startswith('/api/'):
+                    return jsonify({'ok': False, 'error': 'Acesso negado'}), 403
+                return redirect(_primeira_pagina_permitida())
+            return f(*args, **kwargs)
+        return inner
+    return deco
+
 
 # ── Power BI helpers ──
 def get_token():
@@ -124,6 +169,26 @@ def login_page():
     return send_from_directory('.', 'login.html')
 
 
+@app.route('/nav-perms.js')
+def nav_perms_js():
+    """Script de gating do menu por permissão de aba (servido a qualquer um)."""
+    return send_from_directory('.', 'nav-perms.js', mimetype='application/javascript')
+
+
+@app.route('/sem-acesso')
+@login_required
+def sem_acesso_page():
+    """Página neutra para usuário sem nenhuma aba liberada (evita loop de redirect)."""
+    return (
+        "<!DOCTYPE html><html lang='pt-BR'><head><meta charset='UTF-8'>"
+        "<title>Sem acesso</title><style>body{font-family:sans-serif;background:#0a0e17;"
+        "color:#e2e8f0;display:flex;min-height:100vh;align-items:center;justify-content:center;"
+        "margin:0;text-align:center}a{color:#38bdf8}</style></head><body><div>"
+        "<h1>Sem acesso</h1><p>Seu usuário ainda não tem nenhuma aba liberada.<br>"
+        "Contate o administrador.</p><p><a href='/logout'>Sair</a></p></div></body></html>"
+    )
+
+
 @app.route('/login', methods=['POST'])
 def login_post():
     data = request.get_json() or {}
@@ -137,7 +202,7 @@ def login_post():
         conn = get_db()
         cur = conn.cursor()
         cur.execute(
-            "SELECT id, nome, password_hash, role, ativo, tipos_permitidos FROM auditoria_users WHERE email = %s",
+            "SELECT id, nome, password_hash, role, ativo, tipos_permitidos, paginas_permitidas FROM auditoria_users WHERE email = %s",
             (email,)
         )
         user = cur.fetchone()
@@ -149,7 +214,7 @@ def login_post():
     if not user:
         return jsonify({'ok': False, 'error': 'E-mail ou senha inválidos'}), 401
 
-    uid, nome, pw_hash, role, ativo, tipos_permitidos = user
+    uid, nome, pw_hash, role, ativo, tipos_permitidos, paginas_permitidas = user
 
     if not ativo:
         return jsonify({'ok': False, 'error': 'Conta desativada. Contate o administrador.'}), 403
@@ -161,7 +226,8 @@ def login_post():
     session['nome']            = nome
     session['role']            = role
     session['tipos_permitidos'] = tipos_permitidos or []
-    return jsonify({'ok': True, 'redirect': '/'})
+    session['paginas_permitidas'] = paginas_permitidas or []
+    return jsonify({'ok': True, 'redirect': _primeira_pagina_permitida()})
 
 
 @app.route('/logout')
@@ -175,7 +241,7 @@ def logout():
 # ════════════════════════════════════════
 
 @app.route('/')
-@login_required
+@page_required('auditoria')
 def index():
     return send_from_directory('.', 'index.html')
 
@@ -187,74 +253,74 @@ def admin_page():
 
 
 @app.route('/tarifas')
-@login_required
+@page_required('tarifas')
 def tarifas_page():
     return send_from_directory('.', 'tarifas.html')
 
 
 @app.route('/reuniao')
-@admin_required
+@page_required('reuniao')
 def reuniao_page():
     return send_from_directory('.', 'reuniao.html')
 
 
 @app.route('/dre')
-@admin_required
+@page_required('dre')
 def dre_page():
     return send_from_directory('.', 'dre.html')
 
 
 @app.route('/dre/despesas')
-@admin_required
+@page_required('despesas')
 def dre_despesas_page():
     return send_from_directory('.', 'dre-despesas.html')
 
 
 @app.route('/dre/conhecimentos')
-@admin_required
+@page_required('conhecimentos')
 def dre_conhecimentos_page():
     return send_from_directory('.', 'dre-conhecimentos.html')
 
 
 @app.route('/faturamento')
-@admin_required
+@page_required('faturamento')
 def faturamento_page():
     return send_from_directory('.', 'faturamento.html')
 
 
 @app.route('/embarques')
-@login_required
+@page_required('embarques')
 def embarques_page():
     return send_from_directory('.', 'embarques.html')
 
 
 @app.route('/embarques/novo')
-@login_required
+@page_required('embarques')
 def embarques_novo_page():
     return send_from_directory('.', 'embarques-novo.html')
 
 
 @app.route('/embarques/relatorio')
-@login_required
+@page_required('embarques')
 def embarques_relatorio_page():
     return send_from_directory('.', 'embarques-relatorio.html')
 
 
 @app.route('/embarques/<int:carga_id>/editar')
-@login_required
+@page_required('embarques')
 def embarques_editar_page(carga_id):
     # A permissão é verificada na API ao buscar a carga; aqui só serve o HTML
     return send_from_directory('.', 'embarques-novo.html')
 
 
 @app.route('/embarques/mapa')
-@login_required
+@page_required('embarques')
 def embarques_mapa_page():
     return send_from_directory('.', 'mapa.html')
 
 
 @app.route('/embarques/cargas/<int:carga_id>/mapa')
-@login_required
+@page_required('embarques')
 def embarques_mapa_carga_page(carga_id):
     return send_from_directory('.', 'mapa-carga.html')
 
@@ -331,6 +397,7 @@ def me():
         'nome':            session.get('nome'),
         'role':            session.get('role'),
         'tipos_permitidos': session.get('tipos_permitidos', []),
+        'paginas_permitidas': session.get('paginas_permitidas', []),
     })
 
 
@@ -410,14 +477,15 @@ def admin_list_users():
     try:
         conn = get_db()
         cur = conn.cursor()
-        cur.execute("SELECT id, nome, email, role, ativo, tipos_permitidos, criado_em FROM auditoria_users ORDER BY criado_em")
+        cur.execute("SELECT id, nome, email, role, ativo, tipos_permitidos, criado_em, paginas_permitidas FROM auditoria_users ORDER BY criado_em")
         rows = cur.fetchall()
         cur.close()
         conn.close()
         users = [
             {'id': r[0], 'nome': r[1], 'email': r[2], 'role': r[3], 'ativo': r[4],
              'tipos_permitidos': r[5] or [],
-             'criado_em': r[6].strftime('%d/%m/%Y %H:%M') if r[6] else ''}
+             'criado_em': r[6].strftime('%d/%m/%Y %H:%M') if r[6] else '',
+             'paginas_permitidas': r[7] or []}
             for r in rows
         ]
         return jsonify({'ok': True, 'users': users})
@@ -426,6 +494,7 @@ def admin_list_users():
 
 
 TIPOS_VALIDOS = {'Carreteiro', 'Agregado', 'Frota'}
+PAGINAS_PADRAO = ['auditoria', 'tarifas', 'embarques']  # abas liberadas por padrão
 
 @app.route('/api/admin/users', methods=['POST'])
 @admin_required
@@ -436,6 +505,7 @@ def admin_create_user():
     senha            = data.get('senha', '')
     role             = data.get('role', 'viewer')
     tipos_permitidos = data.get('tipos_permitidos', list(TIPOS_VALIDOS))
+    paginas_permitidas = data.get('paginas_permitidas', PAGINAS_PADRAO)
 
     if not nome or not email or not senha:
         return jsonify({'ok': False, 'error': 'Nome, e-mail e senha são obrigatórios'}), 400
@@ -444,14 +514,15 @@ def admin_create_user():
     tipos_permitidos = [t for t in tipos_permitidos if t in TIPOS_VALIDOS]
     if not tipos_permitidos:
         return jsonify({'ok': False, 'error': 'Selecione ao menos um tipo de operação'}), 400
+    paginas_permitidas = [p for p in paginas_permitidas if p in PAGINAS_VALIDAS]
 
     try:
         conn = get_db()
         cur = conn.cursor()
         cur.execute(
-            """INSERT INTO auditoria_users (nome, email, password_hash, role, tipos_permitidos)
-               VALUES (%s, %s, %s, %s, %s) RETURNING id""",
-            (nome, email, generate_password_hash(senha), role, tipos_permitidos)
+            """INSERT INTO auditoria_users (nome, email, password_hash, role, tipos_permitidos, paginas_permitidas)
+               VALUES (%s, %s, %s, %s, %s, %s) RETURNING id""",
+            (nome, email, generate_password_hash(senha), role, tipos_permitidos, paginas_permitidas)
         )
         new_id = cur.fetchone()[0]
         conn.commit()
@@ -468,6 +539,20 @@ def admin_create_user():
 @admin_required
 def admin_toggle_user(uid):
     data = request.get_json() or {}
+
+    # Atualizar paginas_permitidas (abas visíveis)
+    if 'paginas_permitidas' in data:
+        paginas = [p for p in data['paginas_permitidas'] if p in PAGINAS_VALIDAS]
+        try:
+            conn = get_db()
+            cur = conn.cursor()
+            cur.execute("UPDATE auditoria_users SET paginas_permitidas = %s WHERE id = %s", (paginas, uid))
+            conn.commit()
+            cur.close()
+            conn.close()
+            return jsonify({'ok': True})
+        except Exception as e:
+            return jsonify({'ok': False, 'error': str(e)}), 500
 
     # Atualizar tipos_permitidos
     if 'tipos_permitidos' in data:
@@ -606,7 +691,7 @@ Ata a revisar:
 
 
 @app.route('/api/reuniao/processar', methods=['POST'])
-@admin_required
+@page_required('reuniao')
 def processar_reuniao():
     if 'audio' not in request.files:
         return jsonify({'ok': False, 'error': 'Arquivo de áudio não enviado'}), 400
@@ -632,7 +717,7 @@ def processar_reuniao():
 
 
 @app.route('/api/reuniao/exportar', methods=['POST'])
-@admin_required
+@page_required('reuniao')
 def exportar_reuniao():
     data = request.get_json() or {}
     ata = data.get('ata', '')
@@ -1091,7 +1176,7 @@ def _iterar_meses(start_date, end_date):
 
 
 @app.route('/api/dre')
-@admin_required
+@page_required('dre')
 def api_dre():
     from datetime import datetime
     meses_param = request.args.get('meses')
@@ -1211,7 +1296,7 @@ def _query_conhecimentos_periodo(start, end):
 
 
 @app.route('/api/dre/detalhamento')
-@admin_required
+@page_required('dre')
 def api_dre_detalhamento():
     """Retorna despesas agrupadas por Subgrupo (com eventos dentro) para o período/lista de meses."""
     from datetime import datetime
@@ -1270,7 +1355,7 @@ def api_dre_detalhamento():
 
 
 @app.route('/api/dre/despesas')
-@admin_required
+@page_required('despesas')
 def api_dre_despesas():
     start = request.args.get('start')
     end = request.args.get('end')
@@ -1287,7 +1372,7 @@ def api_dre_despesas():
 
 
 @app.route('/api/dre/conhecimentos')
-@admin_required
+@page_required('conhecimentos')
 def api_dre_conhecimentos():
     start = request.args.get('start')
     end = request.args.get('end')
@@ -1301,7 +1386,7 @@ def api_dre_conhecimentos():
 
 
 @app.route('/api/faturamento/tomadores')
-@admin_required
+@page_required('faturamento')
 def api_faturamento_tomadores():
     """Matriz faturamento por tomador (cliente_pagador) × mês, consolidado por raiz de CNPJ.
     Fonte: conhecimentos_emitidos (valor_frete + distinct primeiro_manifesto), filtrado por ano."""
@@ -1413,7 +1498,7 @@ def _csv_linha(valores):
 
 
 @app.route('/api/dre/despesas/csv')
-@admin_required
+@page_required('despesas')
 def api_dre_despesas_csv():
     from datetime import datetime
     start = request.args.get('start')
@@ -1479,7 +1564,7 @@ def api_dre_despesas_csv():
 
 
 @app.route('/api/dre/conhecimentos/csv')
-@admin_required
+@page_required('conhecimentos')
 def api_dre_conhecimentos_csv():
     from datetime import datetime
     start = request.args.get('start')
@@ -1665,7 +1750,7 @@ DADOS DO PERÍODO ATUAL:
 
 
 @app.route('/api/chat-dre', methods=['POST'])
-@admin_required
+@page_required('dre')
 def chat_dre():
     from openai import OpenAI
     data = request.get_json() or {}

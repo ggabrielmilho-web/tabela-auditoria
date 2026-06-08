@@ -77,9 +77,9 @@
       <span class="meta" id="userInfo" style="margin-top:4px;display:block;"></span>
     </div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-      <a href="/" class="btn-sm">← Auditoria</a>
-      <a href="/dre" class="btn-sm">📊 DRE</a>
-      <a href="/tarifas" class="btn-sm">📋 Tarifas</a>
+      <a data-page="auditoria" href="/" class="btn-sm">← Auditoria</a>
+      <a data-page="dre" href="/dre" class="btn-sm">📊 DRE</a>
+      <a data-page="tarifas" href="/tarifas" class="btn-sm">📋 Tarifas</a>
       <a href="/logout" class="btn-sm">Sair</a>
     </div>
   </div>
@@ -275,5 +275,6 @@ function exportarCsv() {
   URL.revokeObjectURL(a.href);
 }
 </script>
+<script src="/nav-perms.js"></script>
 </body>
 </html>

@@ -91,11 +91,11 @@
       <span class="meta" id="userInfo"></span>
     </div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-      <a href="/" style="text-decoration:none;"><button class="btn-sm">⚡ Auditoria</button></a>
-      <a href="/tarifas" style="text-decoration:none;"><button class="btn-sm">📋 Tarifas</button></a>
-      <a id="linkReuniao" href="/reuniao" style="display:none;text-decoration:none;"><button class="btn-sm">🎙 Reunião</button></a>
-      <a id="linkDre" href="/dre" style="display:none;text-decoration:none;"><button class="btn-sm">📊 DRE</button></a>
-      <a id="linkAdmin" href="/admin" style="display:none;text-decoration:none;"><button class="btn-sm">⚙ Admin</button></a>
+      <a data-page="auditoria" href="/" style="text-decoration:none;"><button class="btn-sm">⚡ Auditoria</button></a>
+      <a data-page="tarifas" href="/tarifas" style="text-decoration:none;"><button class="btn-sm">📋 Tarifas</button></a>
+      <a data-page="reuniao" id="linkReuniao" href="/reuniao" style="display:none;text-decoration:none;"><button class="btn-sm">🎙 Reunião</button></a>
+      <a data-page="dre" id="linkDre" href="/dre" style="display:none;text-decoration:none;"><button class="btn-sm">📊 DRE</button></a>
+      <a data-page="admin" id="linkAdmin" href="/admin" style="display:none;text-decoration:none;"><button class="btn-sm">⚙ Admin</button></a>
       <a href="/logout" style="text-decoration:none;"><button class="btn-sm">Sair</button></a>
     </div>
   </div>
@@ -210,5 +210,6 @@
   loadKpis();
   loadUltimas();
 </script>
+<script src="/nav-perms.js"></script>
 </body>
 </html>
