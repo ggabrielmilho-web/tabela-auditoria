@@ -12,16 +12,17 @@ URL de produção: **https://rizza.carvalhoia.com**
 ## Funcionalidades
 
 ### Para todos os usuários autenticados
-- **Auditoria Receita** (`/`) — Dashboard com KPIs e tabela de auditoria de receita, com filtros, drag-and-drop de colunas e exportação CSV
-- **Tarifas** (`/tarifas`) — Consulta de tabela de fretes com filtros em cascata (cliente → origem → destino → tipo veículo) e simulador de frete
-- **Embarques** (`/embarques`) — Módulo operacional de lançamento de cargas (Terceiro / Agregado / Frota), relatório filtrável com exportação CSV, edição com log de auditoria por campo e histórico
-- **Mapa / Rastreamento** (`/embarques/mapa`) — Mapa em tempo real (Leaflet) com a posição de todos os veículos e o trajeto detalhado de cada carga, rota planejada vs. percorrida e KPIs de viagem
+- **Auditoria Receita** (`/`) — Dashboard com KPIs e tabela de auditoria de receita, com filtros, drag-and-drop de colunas e exportação CSV. **Abre já filtrada no mês corrente** (fallback: mês mais recente com dados)
+- **Tarifas** (`/tarifas`) — Consulta de tabela de fretes em cascata (cliente → origem → destino → tipo veículo) + simulador de frete. **Comparativo de até 4 blocos** (rotas/clientes lado a lado, cada um com seu simulador) + **resumo consolidado** que reflete o filtro. **Total + Impostos (ICMS)** como linha informativa para o comercial — usa `icms_valor` ou a matriz `icms_aliquota` (cálculo por dentro). *Depende da publicação de colunas novas no dataset Power BI (ver Roadmap).*
+- **Embarques** (`/embarques`) — Lançamento de cargas (Terceiro / Agregado / Frota), relatório filtrável + CSV, edição com log de auditoria por campo e histórico. **Agendamento por destino** (data/hora com o cliente), com filtro "Por agendamento", **badge de atraso** (agendamento vencido + carga ativa) e **ETA realista** (~600 km/dia)
+- **Mapa / Rastreamento** (`/embarques/mapa`, `/embarques/cargas/<id>/mapa`) — Mapa em tempo real (Leaflet): posição dos veículos e trajeto de cada carga, rota planejada **origem→destino completa**, KPIs de viagem **ao vivo** (vel. máx/média, km, tempos) e **Data de saída** no painel da carga. Fluxo de status automático **Aberta → Em rota → No destino → Entregue** (`No destino` = parado na cidade da descarga há +60 min). **Rastreia pela carreta** (carreta1 → cavalo → carreta2 — o GPS costuma estar na carreta). **Reconstrói o trajeto** mesmo em lançamento tardio: detecta a saída da origem pelo GPS (por cidade) e persiste em `inicio_viagem`
 
 ### Restrito a admins
 - **Reunião** (`/reuniao`) — Gerador de ata de reunião a partir de áudio. Transcreve via AssemblyAI (com identificação de falantes) e gera ata profissional via GPT-4.1-mini. Exporta em Word e PDF
 - **DRE** (`/dre`) — Demonstração do Resultado do Exercício com 4 gráficos analíticos (Waterfall, Donut por Grupo, Pareto 80/20, Comparativo Mensal) e chat IA financeiro com streaming em tempo real
 - **Despesas** (`/dre/despesas`) — Auditoria detalhada de `consulta_despesas_477` com filtros, drilldown por grupo/evento e exportação CSV em streaming
 - **Conhecimentos** (`/dre/conhecimentos`) — Auditoria detalhada de `conhecimentos_emitidos` com filtros e exportação CSV em streaming
+- **Faturamento por Tomador** (`/faturamento`) — Matriz **tomador × meses** (faturamento e nº de cargas) de `conhecimentos_emitidos`, agregada via DAX e **consolidada por raiz de CNPJ** (junta filiais do mesmo grupo). Toggle R$/Cargas, busca, ordenação e CSV; cards e subtotal acompanham o filtro
 - **Admin** (`/admin`) — Gerenciamento de usuários, papéis e permissões por tipo de operação
 
 ---
@@ -132,6 +133,7 @@ Tabela Auditoria/
 ├── dre.html                     # DRE com gráficos e chat IA
 ├── dre-despesas.html            # Auditoria detalhada de despesas
 ├── dre-conhecimentos.html       # Auditoria detalhada de conhecimentos
+├── faturamento.html             # Faturamento por tomador (matriz tomador × mês, admin)
 ├── embarques.html               # Landing de embarques (KPIs + atalhos)
 ├── embarques-novo.html          # Formulário de lançamento de carga
 ├── embarques-relatorio.html     # Listagem + filtros + CSV + edição + histórico
@@ -197,7 +199,8 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 | `RASTREAMENTO_RAIO_KM` | Raio (km) p/ considerar veículo "na" origem/destino | `5` |
 | `RASTREAMENTO_DESVIO_KM` | Desvio (km) da rota que dispara recálculo | `10` |
 | `RASTREAMENTO_RETENCAO_DIAS` | Retenção do histórico de posições | `30` |
-| `RASTREAMENTO_RECALCULO_MIN` | Intervalo mínimo entre recálculos de rota (min) | `30` |
+| `RASTREAMENTO_RECONSTRUCAO_DIAS` | Teto p/ trás na detecção da saída da origem (`inicio_viagem`) | `15` |
+| `KM_DIA_PADRAO` | Km/dia usado na ETA realista | `600` |
 
 ---
 
@@ -228,6 +231,7 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 - `GET /api/status` — status da config Power BI
 - `GET /api/auditoria` — dados de auditoria
 - `GET /api/tarifas` — tabela de tarifas
+- `GET /api/icms?origem=XX&destino=YY` — alíquota de ICMS de transporte (matriz `icms_aliquota`): `{aliquota, tipo, isento, observacao}`; 404 se o par não existir
 - `POST /api/dax` — query DAX customizada
 - `GET /api/dre?meses=YYYY-MM,...` — DRE estruturada
 - `GET /api/dre/detalhamento?meses=...` — detalhamento por subgrupo/evento
@@ -243,6 +247,9 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 ### Chat IA
 - `POST /api/chat-dre` — chat financeiro com streaming SSE
 
+### Faturamento por Tomador (admin)
+- `GET /api/faturamento/tomadores?ano=2026` — matriz tomador × mês (faturamento + nº de cargas) de `conhecimentos_emitidos`, agregada via DAX (`SUM(valor_frete)` + `DISTINCTCOUNT(primeiro_manifesto)`) e consolidada por raiz de CNPJ no backend
+
 ### Admin
 - `GET /api/admin/users` — lista usuários
 - `POST /api/admin/users` — cria usuário
@@ -255,7 +262,7 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 - `GET /api/embarques/clientes` / `POST /api/embarques/clientes` — lista / cadastra cliente (dedup case-insensitive)
 - `GET /api/embarques/embarcadores` — lista de usuários (filtro "quem lançou")
 - `GET /api/embarques/conflitos?cpf=&placas=` — checa CPF/placa já em carga ativa
-- `POST /api/embarques/cargas` — cria carga (snapshot + destinos em transação, gera `numero`, retorna warnings)
+- `POST /api/embarques/cargas` — cria carga (snapshot + destinos **com `data_agendamento`** em transação, geocoding origem/destinos, rota ORS origem→destino, gera `numero`, retorna warnings)
 - `GET /api/embarques/cargas` — listagem com filtros (período, tipo, cliente, embarcador, motorista, UF, status, busca livre)
 - `GET /api/embarques/cargas/<id>` — detalhe (carga + destinos)
 - `PATCH /api/embarques/cargas/<id>` — edita (diff por campo → `embarques_cargas_log`; status `Entregue` preenche `data_conclusao`)
@@ -265,7 +272,7 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 
 ### Rastreamento (todos sob `@login_required`)
 - `GET /api/rastreamento/posicoes` — posições atuais + info da carga ativa (filtros: `carregado`, `eh_rizza`, `q`)
-- `GET /api/rastreamento/cargas/<id>/trajeto` — trajeto percorrido + rota planejada + KPIs + raios
+- `GET /api/rastreamento/cargas/<id>/trajeto` — trajeto percorrido (1 placa principal) + rota planejada origem→destino + `rastreado_via` + **KPIs ao vivo** + `distancia_restante_km`/`eta_realista_iso` (janela a partir de `inicio_viagem`)
 - `POST /api/rastreamento/cargas/<id>/confirmar-entrega` — confirma entrega manualmente
 - `POST /api/rastreamento/sync-veiculos` — sincroniza mapeamento placa → idVeiculo da 3S
 - `GET /api/rastreamento/health` — saúde da integração (última posição, status do worker)
@@ -365,8 +372,8 @@ CREATE TABLE auditoria_users (
 ### Embarques (Postgres local)
 | Tabela | Função |
 |---|---|
-| `embarques_cargas` | Carga com snapshot completo de motorista/veículos como TEXTO (preserva histórico). `numero` no formato `C-AAAA-000001`. Inclui campos de rastreamento: `origem_latitude/longitude`, `data_saida_real`, `saida_auto`, `no_local_desde`, `entregue_auto`, `rota_planejada_polyline`, `distancia_planejada_km`, `duracao_estimada_min`, `rota_recalculada_em` |
-| `embarques_cargas_destinos` | Destinos múltiplos por carga (`ordem`, cidade, UF, lat/lng) |
+| `embarques_cargas` | Carga com snapshot completo de motorista/veículos como TEXTO (preserva histórico). `numero` no formato `C-AAAA-000001`. Campos de rastreamento: `origem_latitude/longitude`, `data_saida_real`, `saida_auto`, `no_local_desde`, `entregue_auto`, `rota_planejada_polyline`, `distancia_planejada_km`, `duracao_estimada_min`, `rota_recalculada_em`, **`inicio_viagem`** (saída da origem detectada pelo GPS e persistida 1×) |
+| `embarques_cargas_destinos` | Destinos múltiplos por carga (`ordem`, cidade, UF, lat/lng, **`data_agendamento`** = compromisso c/ cliente, `entregue_em`/`entregue_por_*`) |
 | `embarques_cargas_log` | Auditoria de edição — 1 linha por campo alterado |
 | `clientes` | Tabela existente reutilizada; índice único case-insensitive p/ cadastro manual |
 
@@ -381,10 +388,10 @@ CREATE TABLE auditoria_users (
 | `municipios_ibge` | Centroides IBGE p/ geocoding de origem/destino |
 | `embarques_3s_log` | Log de chamadas a APIs externas (provider `3S` / `ORS` / `SIM`) |
 | `embarques_simulacao` | Fonte de posições quando `MODO_SIMULADO=true` |
-| `icms_aliquota` | Matriz ICMS (origem UF × destino UF) usada pelo simulador de frete |
+| `icms_aliquota` | Matriz ICMS de transporte (origem UF × destino UF): `aliquota`, `tipo`, `isento`, `observacao`. Popula via `seed_icms.py`; consumida por `/api/icms` e pelo "Total + Impostos" das Tarifas |
 
 ### Tabelas Power BI (somente leitura via DAX)
-- `public conhecimentos_emitidos` — 141 colunas. Filtrada por `data_autorizacao`
+- `public conhecimentos_emitidos` — ~149 colunas. Filtrada por `data_autorizacao`. Campos-chave p/ integração: `cliente_pagador`/`cnpj_pagador`, `valor_frete`, `primeiro_manifesto`, `placa_cavalo`/`placa_carreta`, `serie_numero_ctrc`
 - `public consulta_despesas_477` — 50 colunas. Filtrada pela coluna calculada `REF` (formato `YYYY/MM`)
 - `public tarifas_frete` — tabela de tarifas por cliente/rota/veículo
 - `public motoristas_047` — motoristas (chave única `cpf`)
@@ -422,10 +429,11 @@ Acompanhamento GPS dos veículos em rota, com mapa em tempo real e automação d
 
 ### Ciclo do worker (a cada `RASTREAMENTO_INTERVALO`, default 60s)
 1. Busca a última posição de todos os veículos (3S real ou simulador) → UPSERT em `embarques_posicoes_atuais` + INSERT em `embarques_posicoes_historico`.
-2. Para cada carga `Aberta`/`Em rota` com veículo mapeado, detecta automaticamente:
-   - **Saída da origem** (`Aberta` → `Em rota`, marca `saida_auto`)
-   - **Chegada na cidade do destino** (marca `no_local_desde`)
-   - **Saída do destino** = **entrega automática** (`entregue_auto`)
+2. Para cada carga `Aberta`/`Em rota`/`No destino` com veículo mapeado, detecta automaticamente:
+   - **Saída da origem** (`Aberta` → `Em rota`, marca `saida_auto` + `data_saida_real`)
+   - **Chegada na cidade do destino** (marca `no_local_desde`, segue `Em rota`)
+   - **No destino** (`Em rota` → `No destino`): na cidade da descarga há ≥ 60 min **e** parado agora (velocidade ≤ 3 km/h). Limite fixo (`CHEGADA_MIN_PARADO`)
+   - **Saída do destino** = **entrega automática** (`No destino`/`Em rota` → `Entregue`, marca `entregue_auto`)
    - **Recálculo da rota** (ORS) se passou `RASTREAMENTO_RECALCULO_MIN` ou divergiu mais que `RASTREAMENTO_DESVIO_KM` da rota planejada
 3. Eventos exigem `RASTREAMENTO_CICLOS_CONFIRMACAO` ciclos consecutivos dentro do `RASTREAMENTO_RAIO_KM` para serem confirmados (evita falso positivo).
 4. Job de retenção 1×/dia limpa histórico além de `RASTREAMENTO_RETENCAO_DIAS`.
@@ -504,6 +512,15 @@ Resultado Final   = Pós Investimento - Retiradas
 
 - [x] Módulo de Embarques (lançamento + relatório + auditoria de edição)
 - [x] Rastreamento GPS com mapa, detecção automática de saída/entrega e rota planejada
+- [x] Tracking pela carreta (carreta1 → cavalo → carreta2) + KPIs ao vivo no mapa
+- [x] Agendamento por destino + filtro/badge de atraso + ETA realista
+- [x] Reconstrução do trajeto em lançamento tardio (`inicio_viagem` detectado por cidade e persistido)
+- [x] Comparativo de tarifas (até 4 blocos + resumo)
+- [x] Faturamento por Tomador (matriz tomador × mês, consolidado por raiz de CNPJ)
+- [x] Auditoria Receita abrindo no mês corrente
+- [ ] **Publicar no Power BI as 3 colunas novas de tarifas** (`icms_incluso`, `pedagio_incluso`, `prazo_recebimento`) — pré-requisito p/ os cards e o "Total + Impostos" aparecerem (hoje só no BD de origem)
+- [ ] **Conectar carga (embarques) ↔ documentos fiscais** (auditoria/conhecimentos) por placa+data ou manifesto — enriquecer auditoria com Nº da carga, "Rastreada" e Embarcador
+- [ ] **Dedupe do mapa geral** (carga de frota aparece 2× — cavalo + carreta)
 - [ ] Cache do token Power BI (atualmente requisitado a cada chamada)
 - [ ] Dashboard de auditoria com gráficos similares ao DRE
 - [ ] Histórico persistente do chat IA (não só sessão)

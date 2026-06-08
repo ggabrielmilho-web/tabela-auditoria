@@ -1780,7 +1780,7 @@ def _buscar_conflitos(cpf, placas, exclude_id=0):
                 SELECT id, numero, status, data_carregamento, motorista_nome
                 FROM embarques_cargas
                 WHERE motorista_cpf = %s
-                  AND status IN ('Aberta', 'Em rota')
+                  AND status IN ('Aberta', 'Em rota', 'No destino')
                   AND id <> %s
                 ORDER BY data_carregamento DESC
                 LIMIT 5
@@ -1801,7 +1801,7 @@ def _buscar_conflitos(cpf, placas, exclude_id=0):
                 SELECT id, numero, status, data_carregamento,
                        cavalo_placa, carreta1_placa, carreta2_placa
                 FROM embarques_cargas
-                WHERE status IN ('Aberta', 'Em rota')
+                WHERE status IN ('Aberta', 'Em rota', 'No destino')
                   AND id <> %s
                   AND (cavalo_placa IN ({ph})
                        OR carreta1_placa IN ({ph})
@@ -2238,7 +2238,7 @@ def api_embarques_cargas_list():
                ) AS destinos,
                (SELECT d.data_agendamento FROM embarques_cargas_destinos d
                  WHERE d.carga_id = c.id ORDER BY d.ordem DESC LIMIT 1) AS agendamento_final,
-               (c.status IN ('Aberta','Em rota') AND EXISTS (
+               (c.status IN ('Aberta','Em rota','No destino') AND EXISTS (
                  SELECT 1 FROM embarques_cargas_destinos d
                  WHERE d.carga_id = c.id AND d.data_agendamento IS NOT NULL
                    AND d.data_agendamento < (NOW() AT TIME ZONE 'UTC')
@@ -2355,7 +2355,7 @@ def api_embarques_carga_patch(carga_id):
 
         # Bloqueio de conflito quando o novo estado fica/continua ativo
         novo_status = campos.get('status', atual.get('status'))
-        if novo_status in ('Aberta', 'Em rota'):
+        if novo_status in ('Aberta', 'Em rota', 'No destino'):
             novo_cpf = campos.get('motorista_cpf', atual.get('motorista_cpf'))
             placas_novas = [
                 (campos.get('cavalo_placa',   atual.get('cavalo_placa'))   or '').upper().strip(),
@@ -2562,7 +2562,7 @@ def api_embarques_kpis():
         cur.execute("""
             SELECT
               COUNT(*) FILTER (WHERE data_carregamento = CURRENT_DATE) AS hoje,
-              COUNT(*) FILTER (WHERE status = 'Em rota')                AS em_rota,
+              COUNT(*) FILTER (WHERE status IN ('Em rota', 'No destino')) AS em_rota,
               COUNT(*) FILTER (WHERE status = 'Entregue'
                                AND date_trunc('month', data_conclusao) = date_trunc('month', CURRENT_DATE)) AS entregues_mes,
               COUNT(*) FILTER (WHERE status = 'Aberta')                 AS abertas
@@ -2609,11 +2609,11 @@ def api_embarques_embarcadores():
 import tres_s_client
 import rastreamento_worker
 
-KM_DIA_PADRAO = int(os.getenv('KM_DIA_PADRAO', '500'))
+KM_DIA_PADRAO = int(os.getenv('KM_DIA_PADRAO', '600'))
 
 
 def eta_realista(distancia_km, partida_dt, duracao_ors_min=None, km_dia=KM_DIA_PADRAO):
-    """Chegada estimada considerando a lei do motorista (~500 km/dia).
+    """Chegada estimada considerando a lei do motorista (~600 km/dia).
     Rotas curtas (<300 km) usam o tempo direto do ORS; longas dividem em dias.
     Trabalha em UTC (partida_dt naive UTC). Retorna datetime naive UTC ou None."""
     from datetime import timedelta
@@ -2732,7 +2732,7 @@ def api_rastreamento_posicoes():
                    cavalo_placa, carreta1_placa, carreta2_placa
             FROM embarques_cargas c
             WHERE (c.cavalo_placa = p.placa OR c.carreta1_placa = p.placa OR c.carreta2_placa = p.placa)
-              AND c.status IN ('Aberta','Em rota')
+              AND c.status IN ('Aberta','Em rota','No destino')
             ORDER BY c.id DESC LIMIT 1
         ) ca ON true
     """

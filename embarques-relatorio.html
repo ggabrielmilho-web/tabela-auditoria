@@ -89,6 +89,7 @@
   .badge { padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; }
   .badge-Aberta   { background: rgba(56,189,248,0.15); color: var(--accent); }
   .badge-Em.rota  { background: rgba(251,146,60,0.15); color: var(--orange); }
+  .badge-No.destino { background: rgba(167,139,250,0.15); color: #a78bfa; }
   .badge-Entregue { background: rgba(52,211,153,0.15); color: var(--green); }
   .badge-Cancelada{ background: rgba(248,113,113,0.15); color: var(--red); }
 
@@ -176,6 +177,7 @@
           <option value="">Todos</option>
           <option value="Aberta">Aberta</option>
           <option value="Em rota">Em rota</option>
+          <option value="No destino">No destino</option>
           <option value="Entregue">Entregue</option>
           <option value="Cancelada">Cancelada</option>
         </select>
@@ -243,6 +245,7 @@
         <select id="edStatus">
           <option value="Aberta">Aberta</option>
           <option value="Em rota">Em rota</option>
+          <option value="No destino">No destino</option>
           <option value="Entregue">Entregue</option>
           <option value="Cancelada">Cancelada</option>
         </select>
@@ -341,7 +344,7 @@
     return html;
   }
 
-  // ETA realista (~500 km/dia) client-side — espelha eta_realista() do backend
+  // ETA realista (~600 km/dia) client-side — espelha eta_realista() do backend
   function etaRealistaCliente(c) {
     const dist = c.distancia_planejada_km;
     const partida = c.data_saida_real || c.data_carregamento;
@@ -351,7 +354,7 @@
     if (dist < 300 && c.duracao_estimada_min) {
       return new Date(base.getTime() + c.duracao_estimada_min * 60000);
     }
-    const dias = Math.max(1, Math.ceil(dist / 500));
+    const dias = Math.max(1, Math.ceil(dist / 600));
     return new Date(base.getTime() + dias * 86400000);
   }
 

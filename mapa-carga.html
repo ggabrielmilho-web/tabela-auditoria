@@ -75,6 +75,7 @@
   .badge-Aberta   { background: rgba(56,189,248,0.15); color: var(--accent); }
   .badge-Em\\ rota  { background: rgba(251,146,60,0.15); color: var(--orange); }
   .badge-Em-rota  { background: rgba(251,146,60,0.15); color: var(--orange); }
+  .badge-No-destino { background: rgba(167,139,250,0.15); color: #a78bfa; }
   .badge-Entregue { background: rgba(52,211,153,0.15); color: var(--green); }
   .badge-Cancelada{ background: rgba(248,113,113,0.15); color: var(--red); }
 
@@ -156,6 +157,7 @@
       <div class="info-row"><span class="k">Motorista</span><span class="v" id="iMotorista">—</span></div>
       <div class="info-row"><span class="k">Cavalo</span><span class="v mono" id="iCavalo">—</span></div>
       <div class="info-row"><span class="k">Rastreado via</span><span class="v mono" id="iRastreio">—</span></div>
+      <div class="info-row"><span class="k">Data de saída</span><span class="v" id="iDataSaida">—</span></div>
     </div>
 
     <div class="card">
@@ -182,7 +184,7 @@
       <div class="info-row"><span class="k">Distância total</span><span class="v mono" id="rDist">—</span></div>
       <div class="info-row"><span class="k">Duração estimada</span><span class="v mono" id="rDur">—</span></div>
       <div class="info-row"><span class="k">ETA chegada</span><span class="v" id="rEta">—</span></div>
-      <div class="info-row"><span class="k">ETA realista (500 km/dia)</span><span class="v" id="rEtaReal">—</span></div>
+      <div class="info-row"><span class="k">ETA realista (600 km/dia)</span><span class="v" id="rEtaReal">—</span></div>
       <div class="info-row"><span class="k">Recalculada</span><span class="v" id="rRec">—</span></div>
       <div class="info-row"><span class="k">Agendamento</span><span class="v" id="rAgend">—</span></div>
       <div class="info-row"><span class="k">Folga ETA × Agend.</span><span class="v" id="rFolga">—</span></div>
@@ -300,9 +302,10 @@
     const tipoLabel = { carreta1: 'Carreta 1', carreta2: 'Carreta 2', cavalo: 'Cavalo' };
     document.getElementById('iRastreio').textContent =
       rv ? `${rv.placa} (${tipoLabel[rv.tipo] || rv.tipo})` : '🛰️ Sem rastreio';
+    document.getElementById('iDataSaida').textContent = fmtData(c.data_saida_real);
 
     // Ações
-    if (c.status === 'Em rota' || c.status === 'Aberta') {
+    if (c.status === 'Em rota' || c.status === 'Aberta' || c.status === 'No destino') {
       document.getElementById('cardAcoes').style.display = '';
     }
 
@@ -440,7 +443,7 @@
   setInterval(() => {
     // Refresh só se status ativo
     const status = document.getElementById('iStatus').textContent;
-    if (status.includes('Em rota') || status.includes('Aberta')) carregar();
+    if (status.includes('Em rota') || status.includes('Aberta') || status.includes('No destino')) carregar();
   }, 60000);
 </script>
 

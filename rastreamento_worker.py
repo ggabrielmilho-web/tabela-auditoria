@@ -33,6 +33,9 @@ RAIO_CONFIRMACAO_KM = float(os.getenv('RASTREAMENTO_RAIO_KM', '5'))
 DESVIO_MAX_KM = float(os.getenv('RASTREAMENTO_DESVIO_KM', '10'))
 RETENCAO_DIAS = int(os.getenv('RASTREAMENTO_RETENCAO_DIAS', '30'))
 RECALCULO_INTERVALO_MIN = int(os.getenv('RASTREAMENTO_RECALCULO_MIN', '30'))
+# Status 'No destino': na cidade da descarga há >= 60min E parado agora (vel <= 3 km/h).
+CHEGADA_MIN_PARADO = 60   # minutos na cidade do destino p/ promover a 'No destino' (fixo)
+PARADO_KMH = 3            # velocidade <= isso conta como parado (espelha _kpi_ao_vivo)
 
 _running = False
 _thread = None
@@ -356,7 +359,7 @@ def _processar_cargas(cur):
                c.no_local_desde, c.rota_planejada_polyline, c.rota_recalculada_em,
                c.distancia_planejada_km, c.inicio_viagem, c.data_carregamento
         FROM embarques_cargas c
-        WHERE c.status IN ('Aberta', 'Em rota')
+        WHERE c.status IN ('Aberta', 'Em rota', 'No destino')
           AND (
             EXISTS (SELECT 1 FROM embarques_veiculos_rastreio v WHERE v.placa = c.carreta1_placa)
             OR EXISTS (SELECT 1 FROM embarques_veiculos_rastreio v WHERE v.placa = c.cavalo_placa)
@@ -390,14 +393,15 @@ def _processar_cargas(cur):
             inicio_viagem = iv
 
         cur.execute("""
-            SELECT latitude, longitude, cidade, uf, data_posicao
+            SELECT latitude, longitude, cidade, uf, data_posicao, velocidade
             FROM embarques_posicoes_atuais WHERE placa=%s
         """, (placa,))
         r = cur.fetchone()
         if not r:
             continue
-        pos_lat, pos_lng, pos_cidade, pos_uf, pos_data = r
+        pos_lat, pos_lng, pos_cidade, pos_uf, pos_data, pos_vel = r
         pos_lat = float(pos_lat); pos_lng = float(pos_lng)
+        pos_vel = float(pos_vel) if pos_vel is not None else None
 
         # Pega último destino (maior ordem)
         cur.execute("""
@@ -425,15 +429,24 @@ def _processar_cargas(cur):
                 _logger.info(f'[Carga {carga_id}/{placa}] Saída automática da origem detectada')
                 status = 'Em rota'
 
-        # ── CHEGADA NA CIDADE DO DESTINO
+        # ── CHEGADA NA CIDADE DO DESTINO (marca no_local_desde; segue 'Em rota' + ícone 📦)
         if status == 'Em rota' and no_local_desde is None:
             if _mesma_cidade(pos_cidade, pos_uf, dest_cidade, dest_uf):
                 cur.execute("UPDATE embarques_cargas SET no_local_desde=NOW(), atualizado_em=NOW() WHERE id=%s", (carga_id,))
                 _logger.info(f'[Carga {carga_id}/{placa}] Chegou na cidade do destino ({dest_cidade}/{dest_uf})')
                 no_local_desde = datetime.utcnow()
 
-        # ── SAÍDA DO DESTINO (= entrega automática)
-        elif status == 'Em rota' and no_local_desde is not None:
+        # ── PROMOÇÃO p/ 'No destino' (na cidade da descarga há >= CHEGADA_MIN_PARADO E parado agora)
+        if status == 'Em rota' and no_local_desde is not None \
+                and _mesma_cidade(pos_cidade, pos_uf, dest_cidade, dest_uf) \
+                and (datetime.utcnow() - no_local_desde) >= timedelta(minutes=CHEGADA_MIN_PARADO) \
+                and (pos_vel is None or pos_vel <= PARADO_KMH):
+            cur.execute("UPDATE embarques_cargas SET status='No destino', atualizado_em=NOW() WHERE id=%s", (carga_id,))
+            _logger.info(f'[Carga {carga_id}/{placa}] Parado na cidade do destino há +{CHEGADA_MIN_PARADO}min → status "No destino"')
+            status = 'No destino'
+
+        # ── SAÍDA DO DESTINO (= entrega automática) — vale p/ 'Em rota' OU 'No destino'
+        if status in ('Em rota', 'No destino') and no_local_desde is not None:
             if _saiu_da_cidade(cur, placa, pos_cidade, dest_cidade, dest_uf, centroide_dest):
                 cur.execute("""
                     UPDATE embarques_cargas
