@@ -2052,24 +2052,21 @@ def api_embarques_clientes_create():
     try:
         conn = get_db()
         cur = conn.cursor()
-        # Tenta inserir; se conflita com índice case-insensitive, pega o existente
+        # Dedup case-insensitive: se já existe, devolve o id; senão insere.
+        # (Não usa ON CONFLICT pra não depender de constraint nomeada — o nome único
+        #  de clientes é garantido por ÍNDICE de expressão, não por constraint.)
         cur.execute(
-            "INSERT INTO clientes (nome) VALUES (%s) "
-            "ON CONFLICT ON CONSTRAINT ux_clientes_nome_ci DO NOTHING RETURNING id",
+            "SELECT id FROM clientes WHERE LOWER(TRIM(nome)) = LOWER(TRIM(%s)) LIMIT 1",
             (nome,)
         )
-        row = cur.fetchone()
-        if row:
-            new_id = row[0]
-            ja_existia = False
-        else:
-            cur.execute(
-                "SELECT id FROM clientes WHERE LOWER(TRIM(nome)) = LOWER(TRIM(%s))",
-                (nome,)
-            )
-            r = cur.fetchone()
-            new_id = r[0] if r else None
+        r = cur.fetchone()
+        if r:
+            new_id = r[0]
             ja_existia = True
+        else:
+            cur.execute("INSERT INTO clientes (nome) VALUES (%s) RETURNING id", (nome,))
+            new_id = cur.fetchone()[0]
+            ja_existia = False
         conn.commit()
         cur.close(); conn.close()
         return jsonify({'ok': True, 'id': new_id, 'ja_existia': ja_existia})
