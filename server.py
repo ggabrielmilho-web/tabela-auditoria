@@ -3104,14 +3104,22 @@ def api_rastreamento_sync_veiculos():
             id_veiculo = v.get('idVeiculo')
             if not placa or not id_veiculo:
                 continue
-            cur.execute("SELECT id FROM embarques_veiculos_rastreio WHERE placa=%s", (placa,))
+            # Identidade do veículo é o id_veiculo_3s (a placa pode mudar: antiga -> Mercosul).
+            cur.execute("SELECT 1 FROM embarques_veiculos_rastreio WHERE id_veiculo_3s=%s", (id_veiculo,))
             existe = cur.fetchone() is not None
+            # Se essa placa estiver presa em OUTRA linha (placa realocada/órfã), libera antes.
+            cur.execute(
+                "DELETE FROM embarques_veiculos_rastreio WHERE placa=%s AND id_veiculo_3s<>%s",
+                (placa, id_veiculo)
+            )
+            # UPSERT pela identidade do veículo: atualiza a placa no lugar (resolve troca de placa,
+            # sem deixar linha órfã com a placa antiga).
             cur.execute("""
                 INSERT INTO embarques_veiculos_rastreio
                     (placa, id_veiculo_3s, id_equipamento, frota, modelo, tipo, sincronizado_em)
                 VALUES (%s, %s, %s, %s, %s, %s, NOW())
-                ON CONFLICT (placa) DO UPDATE SET
-                    id_veiculo_3s = EXCLUDED.id_veiculo_3s,
+                ON CONFLICT (id_veiculo_3s) DO UPDATE SET
+                    placa = EXCLUDED.placa,
                     id_equipamento = EXCLUDED.id_equipamento,
                     frota = EXCLUDED.frota,
                     modelo = EXCLUDED.modelo,
