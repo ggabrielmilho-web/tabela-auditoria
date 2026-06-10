@@ -939,6 +939,7 @@ def _contrato_contexto_do_request(data):
         vigencia_termino=data.get('vigencia_termino', ''),
         comodato_numero_serie=data.get('comodato_numero_serie', ''),
         comodato_estado=data.get('comodato_estado', ''),
+        comodato_marca_modelo=data.get('comodato_marca_modelo', ''),
     )
     return dados, contexto
 
@@ -950,8 +951,11 @@ def contratos_gerar():
     data = request.get_json() or {}
     dados = data.get('dados') or {}
     pendencias = cs.checar_pendencias(dados)
-    if not data.get('usa_rastreador_proprio') and not (data.get('comodato_numero_serie') or '').strip():
-        pendencias.append('Informe o nº de série/ID do rastreador (Comodato).')
+    if not data.get('usa_rastreador_proprio'):
+        if not (data.get('comodato_marca_modelo') or '').strip():
+            pendencias.append('Informe a marca/modelo do rastreador (Comodato).')
+        if not (data.get('comodato_numero_serie') or '').strip():
+            pendencias.append('Informe o nº de série/ID do rastreador (Comodato).')
     if pendencias:
         return jsonify({'ok': False, 'error': 'Existem pendências impeditivas.',
                         'pendencias': pendencias}), 400
@@ -977,8 +981,11 @@ def contratos_preview():
     data = request.get_json() or {}
     dados = data.get('dados') or {}
     pendencias = cs.checar_pendencias(dados)
-    if not data.get('usa_rastreador_proprio') and not (data.get('comodato_numero_serie') or '').strip():
-        pendencias.append('Informe o nº de série/ID do rastreador (Comodato).')
+    if not data.get('usa_rastreador_proprio'):
+        if not (data.get('comodato_marca_modelo') or '').strip():
+            pendencias.append('Informe a marca/modelo do rastreador (Comodato).')
+        if not (data.get('comodato_numero_serie') or '').strip():
+            pendencias.append('Informe o nº de série/ID do rastreador (Comodato).')
     if pendencias:
         return jsonify({'ok': False, 'error': 'Existem pendências impeditivas.',
                         'pendencias': pendencias}), 400

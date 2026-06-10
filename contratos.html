@@ -203,6 +203,7 @@
         <div class="grid2">
           <div class="mini-field"><label>Início da vigência</label><input id="vigInicio" placeholder="dd/mm/aaaa (padrão: hoje)"></div>
           <div class="mini-field"><label>Término</label><input id="vigTermino" placeholder="Indeterminado"></div>
+          <div class="mini-field" id="marcaField"><label>Marca/Modelo do rastreador (Comodato) *</label><input id="comodatoMarca" placeholder="Ex.: Sascar, Omnilink, Autotrac…"></div>
           <div class="mini-field" id="serieField"><label>Nº de série/ID do rastreador (Comodato) *</label><input id="comodatoSerie" placeholder="Obrigatório quando o equipamento é da Rizza"></div>
         </div>
       </div>
@@ -300,9 +301,11 @@ function renderPendencias(p) {
 }
 
 function pendenciasComodato() {
-  if ($('chkComodato').checked && !$('comodatoSerie').value.trim())
-    return ['Informe o nº de série/ID do rastreador (Comodato — Anexo III).'];
-  return [];
+  if (!$('chkComodato').checked) return [];
+  const p = [];
+  if (!$('comodatoMarca').value.trim()) p.push('Informe a marca/modelo do rastreador (Comodato — Anexo III).');
+  if (!$('comodatoSerie').value.trim()) p.push('Informe o nº de série/ID do rastreador (Comodato — Anexo III).');
+  return p;
 }
 function atualizarPendencias() { renderPendencias([...validarLocal(coletarDados()), ...pendenciasComodato()]); }
 
@@ -312,10 +315,12 @@ document.addEventListener('input', e => {
 
 function syncComodato() {
   const on = $('chkComodato').checked;
-  $('serieField').style.opacity = on ? '1' : '0.45';
+  ['marcaField', 'serieField'].forEach(id => $(id).style.opacity = on ? '1' : '0.45');
+  $('comodatoMarca').disabled = !on;
   $('comodatoSerie').disabled = !on;
 }
 $('chkComodato').addEventListener('change', () => { syncComodato(); atualizarPendencias(); });
+$('comodatoMarca').addEventListener('input', atualizarPendencias);
 $('comodatoSerie').addEventListener('input', atualizarPendencias);
 syncComodato();
 
@@ -351,6 +356,7 @@ function payloadGeracao() {
     usa_rastreador_proprio: !$('chkComodato').checked,
     vigencia_inicio: $('vigInicio').value,
     vigencia_termino: $('vigTermino').value,
+    comodato_marca_modelo: $('comodatoMarca').value,
     comodato_numero_serie: $('comodatoSerie').value,
   };
 }

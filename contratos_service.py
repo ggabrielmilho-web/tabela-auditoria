@@ -241,7 +241,8 @@ def _compor_pagamento(b):
 
 
 def montar_contexto(dados, usa_rastreador_proprio=False, vigencia_inicio='',
-                    vigencia_termino='', comodato_numero_serie='', comodato_estado=''):
+                    vigencia_termino='', comodato_numero_serie='', comodato_estado='',
+                    comodato_marca_modelo=''):
     c = dados.get('contratado', {})
     v = dados.get('veiculo', {})
     inicio = vigencia_inicio.strip() or date.today().strftime('%d/%m/%Y')
@@ -265,7 +266,7 @@ def montar_contexto(dados, usa_rastreador_proprio=False, vigencia_inicio='',
         'pagamento': _compor_pagamento(dados.get('bancarios', {})),
         'data_assinatura': _data_extenso(),
         'usa_comodato': not usa_rastreador_proprio,
-        'comodato_marca_modelo': 'Rastreador',
+        'comodato_marca_modelo': comodato_marca_modelo.strip(),
         'comodato_numero_serie': comodato_numero_serie.strip(),
         'comodato_estado': comodato_estado.strip() or '( ) Novo (X) Usado em bom estado',
     }
