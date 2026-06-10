@@ -547,6 +547,24 @@ def admin_create_user():
 def admin_toggle_user(uid):
     data = request.get_json() or {}
 
+    # Atualizar perfil (role)
+    if 'role' in data:
+        novo_role = data['role']
+        if novo_role not in ('admin', 'viewer'):
+            return jsonify({'ok': False, 'error': 'Perfil inválido'}), 400
+        if uid == session.get('user_id'):
+            return jsonify({'ok': False, 'error': 'Você não pode mudar o próprio perfil'}), 400
+        try:
+            conn = get_db()
+            cur = conn.cursor()
+            cur.execute("UPDATE auditoria_users SET role = %s WHERE id = %s", (novo_role, uid))
+            conn.commit()
+            cur.close()
+            conn.close()
+            return jsonify({'ok': True})
+        except Exception as e:
+            return jsonify({'ok': False, 'error': str(e)}), 500
+
     # Atualizar paginas_permitidas (abas visíveis)
     if 'paginas_permitidas' in data:
         paginas = [p for p in data['paginas_permitidas'] if p in PAGINAS_VALIDAS]
@@ -932,6 +950,8 @@ def contratos_gerar():
     data = request.get_json() or {}
     dados = data.get('dados') or {}
     pendencias = cs.checar_pendencias(dados)
+    if not data.get('usa_rastreador_proprio') and not (data.get('comodato_numero_serie') or '').strip():
+        pendencias.append('Informe o nº de série do equipamento Autotrac (Comodato).')
     if pendencias:
         return jsonify({'ok': False, 'error': 'Existem pendências impeditivas.',
                         'pendencias': pendencias}), 400
@@ -957,6 +977,8 @@ def contratos_preview():
     data = request.get_json() or {}
     dados = data.get('dados') or {}
     pendencias = cs.checar_pendencias(dados)
+    if not data.get('usa_rastreador_proprio') and not (data.get('comodato_numero_serie') or '').strip():
+        pendencias.append('Informe o nº de série do equipamento Autotrac (Comodato).')
     if pendencias:
         return jsonify({'ok': False, 'error': 'Existem pendências impeditivas.',
                         'pendencias': pendencias}), 400

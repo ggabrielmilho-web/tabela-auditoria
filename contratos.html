@@ -123,9 +123,9 @@
 
     <div class="field">
       <label class="check-row" style="text-transform:none;">
-        <input type="checkbox" id="chkRastreadorProprio">
-        <span>Motorista usa rastreador próprio
-          <small>Marque para EXCLUIR o Anexo III (Termo de Comodato). Desmarcado = equipamento Autotrac da Rizza.</small>
+        <input type="checkbox" id="chkComodato" checked>
+        <span>Equipamento de rastreamento da Rizza (Comodato — Anexo III)
+          <small>Marcado: inclui o Anexo III e <b>exige o nº de série do Autotrac</b>. Desmarque se o motorista usa rastreador próprio (remove o Anexo III).</small>
         </span>
       </label>
     </div>
@@ -203,7 +203,7 @@
         <div class="grid2">
           <div class="mini-field"><label>Início da vigência</label><input id="vigInicio" placeholder="dd/mm/aaaa (padrão: hoje)"></div>
           <div class="mini-field"><label>Término</label><input id="vigTermino" placeholder="Indeterminado"></div>
-          <div class="mini-field" id="serieField"><label>Nº de série Autotrac (Comodato)</label><input data-sec="bancarios" id="comodatoSerie" placeholder="Apenas se usar equipamento da Rizza"></div>
+          <div class="mini-field" id="serieField"><label>Nº de série Autotrac (Comodato) *</label><input id="comodatoSerie" placeholder="Obrigatório quando o equipamento é da Rizza"></div>
         </div>
       </div>
 
@@ -299,11 +299,25 @@ function renderPendencias(p) {
   }
 }
 
-function atualizarPendencias() { renderPendencias(validarLocal(coletarDados())); }
+function pendenciasComodato() {
+  if ($('chkComodato').checked && !$('comodatoSerie').value.trim())
+    return ['Informe o nº de série do equipamento Autotrac (Comodato — Anexo III).'];
+  return [];
+}
+function atualizarPendencias() { renderPendencias([...validarLocal(coletarDados()), ...pendenciasComodato()]); }
 
 document.addEventListener('input', e => {
   if (e.target.matches('input[data-sec][data-k]')) atualizarPendencias();
 });
+
+function syncComodato() {
+  const on = $('chkComodato').checked;
+  $('serieField').style.opacity = on ? '1' : '0.45';
+  $('comodatoSerie').disabled = !on;
+}
+$('chkComodato').addEventListener('change', () => { syncComodato(); atualizarPendencias(); });
+$('comodatoSerie').addEventListener('input', atualizarPendencias);
+syncComodato();
 
 async function extrair(reextrair) {
   const fila = reextrair ? filaMais : filaDocs;
@@ -334,7 +348,7 @@ async function extrair(reextrair) {
 function payloadGeracao() {
   return {
     dados: coletarDados(),
-    usa_rastreador_proprio: $('chkRastreadorProprio').checked,
+    usa_rastreador_proprio: !$('chkComodato').checked,
     vigencia_inicio: $('vigInicio').value,
     vigencia_termino: $('vigTermino').value,
     comodato_numero_serie: $('comodatoSerie').value,
@@ -392,12 +406,6 @@ function mostrarErro(msg, seg) { const b = $(seg ? 'erroBox2' : 'erroBox'); b.te
 function limparErro() { $('erroBox').classList.remove('ativo'); }
 function mostrarErro2(msg) { const b = $('erroBox2'); b.textContent = msg; b.classList.add('ativo'); }
 function limparErro2() { $('erroBox2').classList.remove('ativo'); }
-
-// Comodato: esconde campo de série quando usa rastreador próprio
-$('chkRastreadorProprio').addEventListener('change', e => {
-  $('serieField').style.opacity = e.target.checked ? '0.4' : '1';
-  $('comodatoSerie').disabled = e.target.checked;
-});
 
 // Link admin
 fetch('/api/me', { credentials: 'include' }).then(r => r.json()).then(d => {
