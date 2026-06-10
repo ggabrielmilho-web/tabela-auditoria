@@ -70,16 +70,17 @@ def admin_required(f):
 
 # Abas concedíveis por usuário (a aba Admin NÃO entra — é exclusiva de role=admin).
 PAGINAS_VALIDAS = {'auditoria', 'tarifas', 'embarques', 'reuniao', 'dre',
-                   'despesas', 'conhecimentos', 'faturamento'}
+                   'despesas', 'conhecimentos', 'faturamento', 'contratos'}
 # Chave da aba → rota inicial (para redirect sem loop).
 _PAGINA_ROTA = {
     'auditoria': '/', 'tarifas': '/tarifas', 'embarques': '/embarques',
     'reuniao': '/reuniao', 'dre': '/dre', 'despesas': '/dre/despesas',
     'conhecimentos': '/dre/conhecimentos', 'faturamento': '/faturamento',
+    'contratos': '/contratos',
 }
 # Ordem de preferência ao escolher a primeira aba permitida.
 _PAGINA_ORDEM = ['auditoria', 'tarifas', 'embarques', 'reuniao', 'dre',
-                 'despesas', 'conhecimentos', 'faturamento']
+                 'despesas', 'conhecimentos', 'faturamento', 'contratos']
 
 
 def _primeira_pagina_permitida():
@@ -262,6 +263,12 @@ def tarifas_page():
 @page_required('reuniao')
 def reuniao_page():
     return send_from_directory('.', 'reuniao.html')
+
+
+@app.route('/contratos')
+@page_required('contratos')
+def contratos_page():
+    return send_from_directory('.', 'contratos.html')
 
 
 @app.route('/dre')
@@ -868,6 +875,98 @@ def exportar_reuniao():
                          as_attachment=True, download_name=nome_arquivo)
 
     return jsonify({'ok': False, 'error': 'Formato inválido. Use docx ou pdf'}), 400
+
+
+# ════════════════════════════════════════
+# CONTRATOS — Emissão de contrato TAC Agregado
+# ════════════════════════════════════════
+
+@app.route('/api/contratos/extrair', methods=['POST'])
+@page_required('contratos')
+def contratos_extrair():
+    import contratos_service as cs
+    arquivos = []
+    for f in request.files.getlist('documentos'):
+        if f and f.filename:
+            arquivos.append((f.filename, f.read()))
+    if not arquivos:
+        return jsonify({'ok': False, 'error': 'Envie ao menos um documento.'}), 400
+
+    # Dados já editados pelo operador (para mesclar numa reextração com mais documentos).
+    dados_existentes = None
+    if request.form.get('dados'):
+        try:
+            dados_existentes = json.loads(request.form['dados'])
+        except (ValueError, TypeError):
+            dados_existentes = None
+
+    try:
+        dados = cs.extrair_documentos(arquivos)
+        if dados_existentes:
+            dados = cs.merge_dados(dados_existentes, dados)
+        pendencias = cs.checar_pendencias(dados)
+        return jsonify({'ok': True, 'dados': dados, 'pendencias': pendencias})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+def _contrato_contexto_do_request(data):
+    """Monta o contexto do template a partir do payload JSON do frontend."""
+    import contratos_service as cs
+    dados = data.get('dados') or {}
+    contexto = cs.montar_contexto(
+        dados,
+        usa_rastreador_proprio=bool(data.get('usa_rastreador_proprio')),
+        vigencia_inicio=data.get('vigencia_inicio', ''),
+        vigencia_termino=data.get('vigencia_termino', ''),
+        comodato_numero_serie=data.get('comodato_numero_serie', ''),
+        comodato_estado=data.get('comodato_estado', ''),
+    )
+    return dados, contexto
+
+
+@app.route('/api/contratos/gerar', methods=['POST'])
+@page_required('contratos')
+def contratos_gerar():
+    import contratos_service as cs
+    data = request.get_json() or {}
+    dados = data.get('dados') or {}
+    pendencias = cs.checar_pendencias(dados)
+    if pendencias:
+        return jsonify({'ok': False, 'error': 'Existem pendências impeditivas.',
+                        'pendencias': pendencias}), 400
+    try:
+        _, contexto = _contrato_contexto_do_request(data)
+        docx_bytes = cs.gerar_docx(contexto)
+        buf = io.BytesIO(docx_bytes)
+        buf.seek(0)
+        return send_file(
+            buf,
+            mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            as_attachment=True, download_name=cs.nome_arquivo(contexto) + '.docx')
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/contratos/preview', methods=['POST'])
+@page_required('contratos')
+def contratos_preview():
+    """Devolve o contrato preenchido em HTML para visualização e 'Salvar como PDF'
+    pelo navegador (derivado do mesmo .docx gerado — fonte única)."""
+    import contratos_service as cs
+    data = request.get_json() or {}
+    dados = data.get('dados') or {}
+    pendencias = cs.checar_pendencias(dados)
+    if pendencias:
+        return jsonify({'ok': False, 'error': 'Existem pendências impeditivas.',
+                        'pendencias': pendencias}), 400
+    try:
+        _, contexto = _contrato_contexto_do_request(data)
+        docx_bytes = cs.gerar_docx(contexto)
+        return jsonify({'ok': True, 'html': cs.gerar_html(docx_bytes),
+                        'titulo': cs.nome_arquivo(contexto)})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
 
 
 # ════════════════════════════════════════

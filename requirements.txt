@@ -8,3 +8,6 @@ assemblyai
 pydub
 python-docx
 reportlab
+docxtpl
+PyMuPDF
+mammoth

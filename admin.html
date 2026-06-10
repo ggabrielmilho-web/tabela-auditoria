@@ -313,6 +313,7 @@
           <label><input type="checkbox" class="pagina-check" value="despesas"> Despesas</label>
           <label><input type="checkbox" class="pagina-check" value="conhecimentos"> Conhecimentos</label>
           <label><input type="checkbox" class="pagina-check" value="faturamento"> Faturamento</label>
+          <label><input type="checkbox" class="pagina-check" value="contratos"> Contratos TAC</label>
         </div>
         <small id="abasNota" style="color:var(--text-dim);font-size:0.72rem;display:none;">Admin enxerga todas as abas automaticamente.</small>
       </div>
@@ -517,6 +518,7 @@ const TODAS_PAGINAS = [
   { key: 'despesas', label: 'Despesas' },
   { key: 'conhecimentos', label: 'Conhecimentos' },
   { key: 'faturamento', label: 'Faturamento' },
+  { key: 'contratos', label: 'Contratos TAC' },
 ];
 const PAGINA_LABEL = Object.fromEntries(TODAS_PAGINAS.map(p => [p.key, p.label]));
 
