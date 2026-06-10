@@ -951,7 +951,7 @@ def contratos_gerar():
     dados = data.get('dados') or {}
     pendencias = cs.checar_pendencias(dados)
     if not data.get('usa_rastreador_proprio') and not (data.get('comodato_numero_serie') or '').strip():
-        pendencias.append('Informe o nº de série do equipamento Autotrac (Comodato).')
+        pendencias.append('Informe o nº de série/ID do rastreador (Comodato).')
     if pendencias:
         return jsonify({'ok': False, 'error': 'Existem pendências impeditivas.',
                         'pendencias': pendencias}), 400
@@ -978,7 +978,7 @@ def contratos_preview():
     dados = data.get('dados') or {}
     pendencias = cs.checar_pendencias(dados)
     if not data.get('usa_rastreador_proprio') and not (data.get('comodato_numero_serie') or '').strip():
-        pendencias.append('Informe o nº de série do equipamento Autotrac (Comodato).')
+        pendencias.append('Informe o nº de série/ID do rastreador (Comodato).')
     if pendencias:
         return jsonify({'ok': False, 'error': 'Existem pendências impeditivas.',
                         'pendencias': pendencias}), 400

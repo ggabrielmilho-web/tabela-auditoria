@@ -265,7 +265,7 @@ def montar_contexto(dados, usa_rastreador_proprio=False, vigencia_inicio='',
         'pagamento': _compor_pagamento(dados.get('bancarios', {})),
         'data_assinatura': _data_extenso(),
         'usa_comodato': not usa_rastreador_proprio,
-        'comodato_marca_modelo': 'Autotrac',
+        'comodato_marca_modelo': 'Rastreador',
         'comodato_numero_serie': comodato_numero_serie.strip(),
         'comodato_estado': comodato_estado.strip() or '( ) Novo (X) Usado em bom estado',
     }

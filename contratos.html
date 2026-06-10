@@ -125,7 +125,7 @@
       <label class="check-row" style="text-transform:none;">
         <input type="checkbox" id="chkComodato" checked>
         <span>Equipamento de rastreamento da Rizza (Comodato — Anexo III)
-          <small>Marcado: inclui o Anexo III e <b>exige o nº de série do Autotrac</b>. Desmarque se o motorista usa rastreador próprio (remove o Anexo III).</small>
+          <small>Marcado: inclui o Anexo III e <b>exige o nº de série/ID do rastreador</b>. Desmarque se o motorista usa rastreador próprio (remove o Anexo III).</small>
         </span>
       </label>
     </div>
@@ -203,7 +203,7 @@
         <div class="grid2">
           <div class="mini-field"><label>Início da vigência</label><input id="vigInicio" placeholder="dd/mm/aaaa (padrão: hoje)"></div>
           <div class="mini-field"><label>Término</label><input id="vigTermino" placeholder="Indeterminado"></div>
-          <div class="mini-field" id="serieField"><label>Nº de série Autotrac (Comodato) *</label><input id="comodatoSerie" placeholder="Obrigatório quando o equipamento é da Rizza"></div>
+          <div class="mini-field" id="serieField"><label>Nº de série/ID do rastreador (Comodato) *</label><input id="comodatoSerie" placeholder="Obrigatório quando o equipamento é da Rizza"></div>
         </div>
       </div>
 
@@ -301,7 +301,7 @@ function renderPendencias(p) {
 
 function pendenciasComodato() {
   if ($('chkComodato').checked && !$('comodatoSerie').value.trim())
-    return ['Informe o nº de série do equipamento Autotrac (Comodato — Anexo III).'];
+    return ['Informe o nº de série/ID do rastreador (Comodato — Anexo III).'];
   return [];
 }
 function atualizarPendencias() { renderPendencias([...validarLocal(coletarDados()), ...pendenciasComodato()]); }
