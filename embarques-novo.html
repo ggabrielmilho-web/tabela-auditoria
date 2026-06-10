@@ -278,6 +278,7 @@
             <input type="text" id="inpCavalo" list="dlCavalos" placeholder="Ex: ABC1D23" oninput="onCavaloInput()" style="text-transform:uppercase;">
             <datalist id="dlCavalos"></datalist>
             <div class="veiculo-card empty" id="cardCavalo">Nenhum cavalo selecionado.</div>
+            <div id="alertaCavaloTipo" class="alerta-warn" style="display:none;margin-top:8px;"></div>
           </div>
         </div>
 
@@ -653,6 +654,15 @@
     const alerta = document.getElementById('alertaTipo');
     const cavRizza = CAVALO_SEL && CAVALO_SEL.eh_rizza;
     const carRizza = CARRETA1_SEL && CARRETA1_SEL.eh_rizza;
+
+    // Aviso leve: veículo do campo Cavalo é, na verdade, uma Carreta (não bloqueia)
+    const alertaCav = document.getElementById('alertaCavaloTipo');
+    if (CAVALO_SEL && CAVALO_SEL.tipo === 'Carreta') {
+      alertaCav.style.display = 'block';
+      alertaCav.innerHTML = '⚠ Esse veículo é uma <strong>Carreta</strong> — confirme se é mesmo o cavalo.';
+    } else {
+      alertaCav.style.display = 'none';
+    }
 
     // Reset opções
     [...sel.options].forEach(o => o.disabled = false);
