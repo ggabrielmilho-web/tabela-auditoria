@@ -557,6 +557,7 @@ function renderTable() {
       <td style="color:var(--text-dim);font-size:0.75rem;">${u.criado_em}</td>
       <td>
         <div class="actions">
+          <button class="btn btn-outline" style="font-size:0.75rem;padding:5px 12px;" onclick="abrirEditarAcesso(${u.id})">✏ Editar acesso</button>
           ${u.ativo
             ? `<button class="btn btn-warning" onclick="toggleUser(${u.id}, false)">Desativar</button>`
             : `<button class="btn btn-sm-green" onclick="toggleUser(${u.id}, true)">Ativar</button>`
@@ -731,6 +732,84 @@ function showFeedback(msg, ok) {
 function hideFeedback() {
   document.getElementById('formFeedback').style.display = 'none';
 }
+
+// ── Editar acesso (modal) ──
+let EDIT_ACESSO_UID = null;
+function abrirEditarAcesso(uid) {
+  const u = users.find(x => x.id === uid);
+  if (!u) return;
+  EDIT_ACESSO_UID = uid;
+  const isAdmin = u.role === 'admin';
+  const paginas = u.paginas_permitidas || [];
+  const tipos = u.tipos_permitidos || [];
+  document.getElementById('eaTitulo').textContent = `Editar acesso — ${u.nome}`;
+  document.getElementById('eaEmail').textContent = u.email;
+  document.getElementById('eaAbas').innerHTML = TODAS_PAGINAS.map(p =>
+    `<label><input type="checkbox" class="ea-aba" value="${p.key}" ${paginas.includes(p.key) ? 'checked' : ''} ${isAdmin ? 'disabled' : ''}> ${p.label}</label>`).join('');
+  document.getElementById('eaTipos').innerHTML = TODOS_TIPOS.map(t =>
+    `<label><input type="checkbox" class="ea-tipo" value="${t}" ${tipos.includes(t) ? 'checked' : ''}> ${t}</label>`).join('');
+  document.getElementById('eaNotaAdmin').style.display = isAdmin ? 'block' : 'none';
+  document.getElementById('eaFeedback').textContent = '';
+  document.getElementById('modalEditAcesso').style.display = 'flex';
+}
+function fecharEditarAcesso() {
+  document.getElementById('modalEditAcesso').style.display = 'none';
+  EDIT_ACESSO_UID = null;
+}
+async function patchUser(uid, body) {
+  const r = await fetch(`/api/admin/users/${uid}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin', body: JSON.stringify(body)
+  });
+  const j = await r.json();
+  if (!j.ok) throw new Error(j.error);
+}
+async function salvarEditarAcesso() {
+  if (!EDIT_ACESSO_UID) return;
+  const uid = EDIT_ACESSO_UID;
+  const u = users.find(x => x.id === uid);
+  const isAdmin = u && u.role === 'admin';
+  const tipos = [...document.querySelectorAll('#eaTipos .ea-tipo:checked')].map(c => c.value);
+  if (!tipos.length) { document.getElementById('eaFeedback').textContent = 'Selecione ao menos um tipo.'; return; }
+  const btn = document.getElementById('eaSalvar');
+  btn.disabled = true; btn.textContent = 'Salvando...';
+  try {
+    await patchUser(uid, { tipos_permitidos: tipos });
+    if (!isAdmin) {
+      const abas = [...document.querySelectorAll('#eaAbas .ea-aba:checked')].map(c => c.value);
+      await patchUser(uid, { paginas_permitidas: abas });
+    }
+    fecharEditarAcesso();
+    await loadUsers();
+  } catch (e) {
+    document.getElementById('eaFeedback').textContent = 'Erro: ' + e.message;
+  } finally {
+    btn.disabled = false; btn.textContent = 'Salvar';
+  }
+}
 </script>
+
+<!-- Modal: Editar acesso do usuário -->
+<div id="modalEditAcesso" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;align-items:center;justify-content:center;padding:20px;">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:22px;max-width:520px;width:100%;max-height:88vh;overflow-y:auto;">
+    <h2 id="eaTitulo" style="font-size:1.05rem;margin-bottom:4px;color:var(--accent);">Editar acesso</h2>
+    <div id="eaEmail" style="font-family:'JetBrains Mono',monospace;font-size:0.78rem;color:var(--text-dim);margin-bottom:18px;"></div>
+    <div class="field" style="margin-bottom:16px;">
+      <label>Abas visíveis</label>
+      <div class="tipo-checks" id="eaAbas"></div>
+      <small id="eaNotaAdmin" style="display:none;color:var(--text-dim);font-size:0.72rem;">Admin enxerga todas as abas automaticamente.</small>
+    </div>
+    <div class="field" style="margin-bottom:16px;">
+      <label>Tipos de operação visíveis</label>
+      <div class="tipo-checks" id="eaTipos"></div>
+    </div>
+    <div id="eaFeedback" style="color:var(--red);font-size:0.8rem;margin-bottom:8px;min-height:1em;"></div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;">
+      <button class="btn btn-outline" onclick="fecharEditarAcesso()">Cancelar</button>
+      <button class="btn btn-success" id="eaSalvar" onclick="salvarEditarAcesso()">Salvar</button>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
