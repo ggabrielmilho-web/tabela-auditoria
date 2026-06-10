@@ -239,7 +239,7 @@
 
         <div class="form-card">
           <div class="titulo">🧭 Cidades de rota <span style="color:var(--text-dim);font-weight:400;">(opcional)</span></div>
-          <div style="color:var(--text-dim);font-size:0.78rem;margin-bottom:10px;">Pontos de passagem para moldar o caminho (ex.: forçar litoral). Não são entrega.</div>
+          <div style="color:var(--text-dim);font-size:0.78rem;margin-bottom:10px;">Pontos de passagem para moldar o caminho</div>
           <div id="rotaList"></div>
           <button type="button" class="btn-add" onclick="addCidadeRota()">+ Adicionar cidade de rota</button>
         </div>
@@ -683,7 +683,10 @@
       alerta.style.display = 'none';
       return;
     }
-    const esperado = cavRizza && carRizza ? 'Frota'
+    // Mesma lógica do auto-preenchimento (senão o aviso contradiz o que o sistema pôs):
+    // Rizza sem carreta (truck/incompleto) = Frota; mistura = Agregado.
+    const esperado = (cavRizza && carRizza) ? 'Frota'
+                   : (cavRizza && !CARRETA1_SEL) ? 'Frota'
                    : (cavRizza || carRizza) ? 'Agregado'
                    : 'Terceiro';
     if (sel.value && sel.value !== esperado) {

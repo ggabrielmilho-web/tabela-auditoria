@@ -1825,8 +1825,12 @@ def _pode_editar_carga(criado_por_id):
     return session.get('user_id') == criado_por_id
 
 
-def _classifica_tipo_operacao(cavalo_eh_rizza, carreta_eh_rizza):
-    """Tipo de operação esperado conforme proprietários do cavalo e carreta1."""
+def _classifica_tipo_operacao(cavalo_eh_rizza, carreta_eh_rizza, tem_carreta1=True):
+    """Tipo de operação esperado conforme proprietários do cavalo e carreta1.
+    Sem carreta1 (truck rígido ou cadastro incompleto), classifica só pelo cavalo
+    — senão a ausência da carreta seria lida como 'não-Rizza' e daria Agregado errado."""
+    if not tem_carreta1:
+        return 'Frota' if cavalo_eh_rizza else 'Terceiro'
     if cavalo_eh_rizza and carreta_eh_rizza:
         return 'Frota'
     if cavalo_eh_rizza or carreta_eh_rizza:
@@ -2118,7 +2122,8 @@ def api_embarques_cargas_create():
     cav = b.get('cavalo') or {}
     c1  = b.get('carreta1') or {}
     c2  = b.get('carreta2') or {}
-    esperado = _classifica_tipo_operacao(bool(cav.get('eh_rizza')), bool(c1.get('eh_rizza')))
+    esperado = _classifica_tipo_operacao(bool(cav.get('eh_rizza')), bool(c1.get('eh_rizza')),
+                                         tem_carreta1=bool((c1.get('placa') or '').strip()))
     if b['tipo_operacao'] != esperado:
         warnings.append(f"tipo_operacao '{b['tipo_operacao']}' diverge do esperado '{esperado}' pelos proprietários.")
 
