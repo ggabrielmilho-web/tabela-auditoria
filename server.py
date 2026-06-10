@@ -2077,8 +2077,10 @@ def api_embarques_clientes_create():
 # ── Cargas: criação ─────────────────────────────────────────────────────
 def _validar_carga_payload(b):
     erros = []
-    obrig = ['tipo_operacao', 'cliente_id', 'cliente_nome', 'origem', 'destinos',
-             'motorista', 'cavalo', 'data_carregamento']
+    obrig = ['tipo_operacao', 'origem', 'destinos', 'motorista', 'cavalo', 'data_carregamento']
+    # Viagem vazia (sem carga) não exige cliente.
+    if not b.get('viagem_vazia'):
+        obrig = ['cliente_id', 'cliente_nome'] + obrig
     for c in obrig:
         if c not in b or b.get(c) in (None, '', []):
             erros.append(f'Campo obrigatório ausente: {c}')
@@ -2144,9 +2146,12 @@ def api_embarques_cargas_create():
         cur = conn.cursor()
         mot = b['motorista']
         ori = b['origem']
+        viagem_vazia = bool(b.get('viagem_vazia'))
+        cliente_id = None if viagem_vazia else b.get('cliente_id')
+        cliente_nome = None if viagem_vazia else b.get('cliente_nome')
         cur.execute("""
             INSERT INTO embarques_cargas (
-                tipo_operacao, status,
+                tipo_operacao, status, viagem_vazia,
                 cliente_id, cliente_nome,
                 origem_cidade, origem_uf,
                 motorista_nome, motorista_cpf, motorista_telefone,
@@ -2156,7 +2161,7 @@ def api_embarques_cargas_create():
                 data_carregamento, previsao_entrega, observacoes,
                 criado_por_id, criado_por_nome
             ) VALUES (
-                %s, 'Aberta',
+                %s, 'Aberta', %s,
                 %s, %s,
                 %s, %s,
                 %s, %s, %s,
@@ -2167,8 +2172,8 @@ def api_embarques_cargas_create():
                 %s, %s
             ) RETURNING id, criado_em
         """, (
-            b['tipo_operacao'],
-            b['cliente_id'], b['cliente_nome'],
+            b['tipo_operacao'], viagem_vazia,
+            cliente_id, cliente_nome,
             ori['cidade'], ori['uf'],
             mot['nome'], mot['cpf'], mot.get('telefone'),
             cav['placa'], cav['tipo'], cav.get('marca_modelo'), cav.get('carroceria'), cav.get('proprietario'), bool(cav.get('eh_rizza')),
@@ -2191,6 +2196,19 @@ def api_embarques_cargas_create():
             )
             destinos_inseridos.append({'cidade': d['cidade'], 'uf': d['uf'], 'lat': dlat, 'lng': dlng})
 
+        # Cidades de rota (passagem; moldam o caminho, não são entrega)
+        rota_inseridas = []
+        for i, r in enumerate(b.get('rota') or [], start=1):
+            if not r.get('cidade') or not r.get('uf'):
+                continue
+            rlat, rlng = geocoding.geocoder_municipio(r['cidade'], r['uf'], conn=conn)
+            cur.execute(
+                "INSERT INTO embarques_cargas_rota (carga_id, ordem, cidade, uf, latitude, longitude) "
+                "VALUES (%s, %s, %s, %s, %s, %s)",
+                (carga_id, i, r['cidade'], r['uf'], rlat, rlng)
+            )
+            rota_inseridas.append({'cidade': r['cidade'], 'uf': r['uf'], 'lat': rlat, 'lng': rlng})
+
         # Geocoding origem
         olat, olng = geocoding.geocoder_municipio(ori['cidade'], ori['uf'], conn=conn)
         cur.execute(
@@ -2206,16 +2224,15 @@ def api_embarques_cargas_create():
         conn.commit()
         cur.close(); conn.close()
 
-        # Calcula rota planejada via ORS (após commit; falha não derruba o POST)
+        # Calcula rota planejada via ORS (após commit; falha não derruba o POST).
+        # Passa por origem -> cidades de rota -> TODOS os destinos, na ordem.
         ors_warn = None
-        if olat is not None and destinos_inseridos and destinos_inseridos[-1]['lat'] is not None:
+        pontos = [{'lat': olat, 'lng': olng}] + rota_inseridas + destinos_inseridos
+        pontos = [p for p in pontos if p.get('lat') is not None and p.get('lng') is not None]
+        if olat is not None and len(pontos) >= 2:
             try:
                 import ors_client
-                dest_final = destinos_inseridos[-1]
-                rota = ors_client.tracar_rota(
-                    {'lat': olat, 'lng': olng},
-                    {'lat': dest_final['lat'], 'lng': dest_final['lng']}
-                )
+                rota = ors_client.tracar_rota_multi(pontos)
                 conn2 = get_db()
                 cur2 = conn2.cursor()
                 cur2.execute("""
@@ -2232,8 +2249,8 @@ def api_embarques_cargas_create():
                 ors_warn = f'ORS falhou: {e}'
         elif olat is None:
             ors_warn = 'Origem sem coordenadas IBGE (cidade não encontrada)'
-        elif not destinos_inseridos or destinos_inseridos[-1]['lat'] is None:
-            ors_warn = 'Destino final sem coordenadas IBGE'
+        else:
+            ors_warn = 'Sem pontos suficientes com coordenadas IBGE para a rota'
 
         if ors_warn:
             warnings.append(ors_warn)
@@ -2291,6 +2308,8 @@ def api_embarques_cargas_list():
         params.append(args['destino_uf'])
     if args.get('status'):
         where.append("c.status = %s"); params.append(args['status'])
+    if args.get('viagem_vazia') in ('1', '0'):
+        where.append("c.viagem_vazia = %s"); params.append(args['viagem_vazia'] == '1')
     if args.get('q'):
         q = f"%{args['q']}%"
         where.append("(c.numero ILIKE %s OR c.motorista_nome ILIKE %s OR c.cliente_nome ILIKE %s OR c.cavalo_placa ILIKE %s OR c.carreta1_placa ILIKE %s OR c.carreta2_placa ILIKE %s)")
@@ -2303,7 +2322,7 @@ def api_embarques_cargas_list():
     limite = max(1, min(limite, 1000))
 
     sql = f"""
-        SELECT c.id, c.numero, c.status, c.tipo_operacao,
+        SELECT c.id, c.numero, c.status, c.tipo_operacao, c.viagem_vazia,
                c.cliente_id, c.cliente_nome,
                c.origem_cidade, c.origem_uf,
                c.motorista_nome, c.motorista_cpf,
@@ -2318,6 +2337,10 @@ def api_embarques_cargas_list():
                  SELECT string_agg(d.cidade || '/' || d.uf, '; ' ORDER BY d.ordem)
                  FROM embarques_cargas_destinos d WHERE d.carga_id = c.id
                ) AS destinos,
+               (
+                 SELECT string_agg(rt.cidade || '/' || rt.uf, ', ' ORDER BY rt.ordem)
+                 FROM embarques_cargas_rota rt WHERE rt.carga_id = c.id
+               ) AS rota_resumo,
                (SELECT d.data_agendamento FROM embarques_cargas_destinos d
                  WHERE d.carga_id = c.id ORDER BY d.ordem DESC LIMIT 1) AS agendamento_final,
                (c.status IN ('Aberta','Em rota','No destino') AND EXISTS (
@@ -2389,6 +2412,8 @@ def api_embarques_carga_detail(carga_id):
         destinos = [{'id': r[0], 'ordem': r[1], 'cidade': r[2], 'uf': r[3],
                      'data_agendamento': (r[4].isoformat() + 'Z') if r[4] else None} for r in cur.fetchall()]
         carga['destinos'] = destinos
+        cur.execute("SELECT ordem, cidade, uf FROM embarques_cargas_rota WHERE carga_id = %s ORDER BY ordem", (carga_id,))
+        carga['rota'] = [{'ordem': r[0], 'cidade': r[1], 'uf': r[2]} for r in cur.fetchall()]
         carga['pode_editar'] = _pode_editar_carga(carga.get('criado_por_id'))
         cur.close(); conn.close()
         return jsonify({'ok': True, 'data': carga})
@@ -2398,7 +2423,7 @@ def api_embarques_carga_detail(carga_id):
 
 # ── Carga: edição com log ───────────────────────────────────────────────
 _PATCH_WHITELIST = (
-    'status', 'observacoes', 'previsao_entrega', 'data_carregamento',
+    'status', 'observacoes', 'previsao_entrega', 'data_carregamento', 'viagem_vazia',
     'cliente_id', 'cliente_nome', 'tipo_operacao',
     'motorista_nome', 'motorista_cpf', 'motorista_telefone',
     'cavalo_placa', 'cavalo_tipo', 'cavalo_marca_modelo', 'cavalo_carroceria', 'cavalo_proprietario', 'cavalo_eh_rizza',
@@ -2413,7 +2438,7 @@ _PATCH_WHITELIST = (
 def api_embarques_carga_patch(carga_id):
     b = request.get_json(silent=True) or {}
     campos = {k: b[k] for k in b if k in _PATCH_WHITELIST}
-    if not campos and 'destinos' not in b:
+    if not campos and 'destinos' not in b and 'rota' not in b:
         return jsonify({'ok': False, 'error': 'Nada a atualizar'}), 400
 
     try:
@@ -2504,13 +2529,40 @@ def api_embarques_carga_patch(carga_id):
                         (carga_id, i, d['cidade'], d['uf'], dlat, dlng, d.get('data_agendamento') or None)
                     )
 
-        if sets or destinos_mudaram:
-            if sets:
-                sets.append("atualizado_em = NOW()")
-                params.append(carga_id)
-                cur.execute(f"UPDATE embarques_cargas SET {', '.join(sets)} WHERE id = %s", params)
-            elif destinos_mudaram:
-                cur.execute("UPDATE embarques_cargas SET atualizado_em = NOW() WHERE id = %s", (carga_id,))
+        # Cidades de rota — substituir lista inteira se fornecida
+        rota_mudou = False
+        rota_ant_repr = rota_nov_repr = ''
+        nova_rota = b.get('rota')
+        if isinstance(nova_rota, list):
+            cur.execute("SELECT cidade, uf FROM embarques_cargas_rota WHERE carga_id = %s ORDER BY ordem", (carga_id,))
+            rota_ant_repr = ', '.join(f"{r[0]}/{r[1]}" for r in cur.fetchall())
+            rota_nov_repr = ', '.join(f"{r.get('cidade','?')}/{r.get('uf','?')}" for r in nova_rota if r.get('cidade') and r.get('uf'))
+            if rota_ant_repr != rota_nov_repr:
+                rota_mudou = True
+                import geocoding
+                cur.execute("DELETE FROM embarques_cargas_rota WHERE carga_id = %s", (carga_id,))
+                ordem = 0
+                for r in nova_rota:
+                    if not r.get('cidade') or not r.get('uf'):
+                        continue
+                    ordem += 1
+                    rlat, rlng = geocoding.geocoder_municipio(r['cidade'], r['uf'], conn=conn)
+                    cur.execute(
+                        "INSERT INTO embarques_cargas_rota (carga_id, ordem, cidade, uf, latitude, longitude) "
+                        "VALUES (%s, %s, %s, %s, %s, %s)",
+                        (carga_id, ordem, r['cidade'], r['uf'], rlat, rlng)
+                    )
+
+        # Mudou rota/destinos? zera a polyline pro worker recalcular a rota completa.
+        precisa_recalc = destinos_mudaram or rota_mudou
+        if precisa_recalc:
+            sets.append("rota_planejada_polyline = NULL")
+            sets.append("rota_recalculada_em = NULL")
+
+        if sets:
+            sets.append("atualizado_em = NOW()")
+            params.append(carga_id)
+            cur.execute(f"UPDATE embarques_cargas SET {', '.join(sets)} WHERE id = %s", params)
             for campo, va, vn in diffs:
                 cur.execute("""
                     INSERT INTO embarques_cargas_log
@@ -2527,10 +2579,17 @@ def api_embarques_carga_patch(carga_id):
                     VALUES (%s, %s, %s, 'destinos', %s, %s)
                 """, (carga_id, session.get('user_id'), session.get('nome'),
                       atuais_repr, novos_repr))
+            if rota_mudou:
+                cur.execute("""
+                    INSERT INTO embarques_cargas_log
+                    (carga_id, usuario_id, usuario_nome, campo, valor_anterior, valor_novo)
+                    VALUES (%s, %s, %s, 'rota', %s, %s)
+                """, (carga_id, session.get('user_id'), session.get('nome'),
+                      rota_ant_repr, rota_nov_repr))
 
         conn.commit()
         cur.close(); conn.close()
-        total_alt = len(diffs) + (1 if destinos_mudaram else 0)
+        total_alt = len(diffs) + (1 if destinos_mudaram else 0) + (1 if rota_mudou else 0)
         return jsonify({'ok': True, 'alteracoes': total_alt})
     except Exception as e:
         try: conn.rollback()
@@ -2584,15 +2643,20 @@ def api_embarques_cargas_csv():
         params.append(args['destino_uf'])
     if args.get('status'):
         where.append("c.status = %s"); params.append(args['status'])
+    if args.get('viagem_vazia') in ('1', '0'):
+        where.append("c.viagem_vazia = %s"); params.append(args['viagem_vazia'] == '1')
 
     nome = f"cargas_{args.get('start','')}_{args.get('end','')}.csv".strip('_')
 
     sql = f"""
         SELECT c.numero, c.data_carregamento, c.previsao_entrega, c.status, c.tipo_operacao,
+               CASE WHEN c.viagem_vazia THEN 'Sim' ELSE 'Não' END AS viagem_vazia,
                c.cliente_nome,
                c.origem_cidade || '/' || c.origem_uf AS origem,
                (SELECT string_agg(d.cidade || '/' || d.uf, '; ' ORDER BY d.ordem)
                 FROM embarques_cargas_destinos d WHERE d.carga_id = c.id) AS destinos,
+               (SELECT string_agg(rt.cidade || '/' || rt.uf, '; ' ORDER BY rt.ordem)
+                FROM embarques_cargas_rota rt WHERE rt.carga_id = c.id) AS rota_via,
                c.motorista_nome, c.motorista_cpf,
                c.cavalo_placa, c.cavalo_marca_modelo, c.cavalo_proprietario,
                c.carreta1_placa, c.carreta1_proprietario,
@@ -2605,7 +2669,7 @@ def api_embarques_cargas_csv():
     """
     headers_csv = [
         'numero', 'data_carregamento', 'previsao_entrega', 'status', 'tipo_operacao',
-        'cliente', 'origem', 'destinos',
+        'viagem_vazia', 'cliente', 'origem', 'destinos', 'rota_via',
         'motorista', 'motorista_cpf',
         'cavalo_placa', 'cavalo_marca_modelo', 'cavalo_proprietario',
         'carreta1_placa', 'carreta1_proprietario',

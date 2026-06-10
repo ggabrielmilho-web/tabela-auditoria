@@ -84,6 +84,17 @@ def main():
         """, (cidade_norm, uf, cidade, lat, lng))
         inseridos += 1
 
+    # Override da base Rizza: o centroide do IBGE de Uberlândia/MG é trocado pelo
+    # ponto exato do pátio (a maioria das cargas sai/chega aqui). Reaplicado a cada
+    # import pra não se perder. Origem/destino "Uberlândia/MG" passa a usar este ponto.
+    BASE_RIZZA = (-18.87572, -48.29714)  # lat, lng
+    cur.execute(
+        "UPDATE municipios_ibge SET latitude=%s, longitude=%s "
+        "WHERE cidade_normalizada='UBERLANDIA' AND uf='MG'",
+        BASE_RIZZA
+    )
+    print(f'  ✓ Base Rizza aplicada em Uberlândia/MG → {BASE_RIZZA}')
+
     conn.commit()
     cur.close()
     conn.close()

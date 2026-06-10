@@ -321,7 +321,54 @@ cur.execute("ALTER TABLE embarques_cargas_destinos ADD COLUMN IF NOT EXISTS entr
 
 print("✅ Colunas de agendamento por destino (data_agendamento, entregue_em) prontas.\n")
 
+# ════════════════════════════════════════════════════════════════════════════
+# VIAGEM VAZIA + CIDADES DE ROTA (waypoints)
+# ════════════════════════════════════════════════════════════════════════════
+
+# Flag de viagem vazia (caminhão rodando sem carga) — p/ mapear o vazio
+cur.execute("ALTER TABLE embarques_cargas ADD COLUMN IF NOT EXISTS viagem_vazia BOOLEAN NOT NULL DEFAULT FALSE;")
+# Viagem vazia não tem cliente → cliente_nome precisa aceitar NULL
+cur.execute("ALTER TABLE embarques_cargas ALTER COLUMN cliente_nome DROP NOT NULL;")
+
+# Cidades de rota (pontos de passagem p/ moldar o caminho — NÃO são entrega)
+cur.execute("""
+    CREATE TABLE IF NOT EXISTS embarques_cargas_rota (
+        id         SERIAL PRIMARY KEY,
+        carga_id   INTEGER NOT NULL REFERENCES embarques_cargas(id) ON DELETE CASCADE,
+        ordem      SMALLINT NOT NULL DEFAULT 1,
+        cidade     VARCHAR(120) NOT NULL,
+        uf         CHAR(2) NOT NULL,
+        latitude   NUMERIC(10,7),
+        longitude  NUMERIC(10,7),
+        UNIQUE (carga_id, ordem)
+    );
+""")
+cur.execute("CREATE INDEX IF NOT EXISTS ix_rota_carga ON embarques_cargas_rota (carga_id);")
+
+print("✅ Viagem vazia + cidades de rota prontas.\n")
+
 conn.commit()
 cur.close()
 conn.close()
+
+# Base Rizza: aponta o centroide de Uberlândia/MG para o ponto exato do pátio
+# (maioria das cargas sai/chega aqui). Em transação própria (após o commit acima)
+# pra não arriscar as DDLs; ignora se municipios_ibge ainda não foi importado.
+try:
+    conn2 = psycopg2.connect(
+        host=os.getenv('DB_HOST', 'localhost'), port=os.getenv('DB_PORT', '5432'),
+        dbname=os.getenv('DB_NAME', 'postgres'), user=os.getenv('DB_USER', 'postgres'),
+        password=os.getenv('DB_PASSWORD', ''),
+    )
+    cur2 = conn2.cursor()
+    cur2.execute(
+        "UPDATE municipios_ibge SET latitude=-18.87572, longitude=-48.29714 "
+        "WHERE cidade_normalizada='UBERLANDIA' AND uf='MG'"
+    )
+    conn2.commit()
+    print(f"✅ Base Rizza aplicada em Uberlândia/MG ({cur2.rowcount} linha).\n")
+    cur2.close(); conn2.close()
+except Exception as _e:
+    print(f"ℹ️  Base Rizza não aplicada (municipios_ibge importado?): {_e}\n")
+
 print("Banco de dados pronto. Rode: python server.py")

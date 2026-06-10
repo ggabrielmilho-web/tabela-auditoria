@@ -458,27 +458,34 @@ def _processar_cargas(cur):
                 _consolidar_kpi(cur, carga_id, final=True)
                 continue  # Pula recálculo ORS pra carga já fechada
 
-        # ── CÁLCULO ORS — rota planejada SEMPRE origem→destino (linha completa no mapa).
-        # Calcula 1× quando ainda não há rota (criação ou reset/regeneração). NÃO recalcula
-        # "da posição atual" (era isso que truncava a rota e deixava a origem solta no mapa);
-        # o "km faltando" é derivado da posição sobre esta rota completa, no endpoint.
-        if polyline is None and centroide_origem[0] is not None and centroide_dest[0] is not None:
+        # ── CÁLCULO ORS — rota planejada origem → cidades de rota → TODOS os destinos.
+        # Calcula 1× quando ainda não há rota (criação ou reset/regeneração ao editar). NÃO
+        # recalcula "da posição atual" (truncava a rota e soltava a origem); o "km faltando"
+        # é derivado da posição sobre esta rota completa, no endpoint.
+        if polyline is None and centroide_origem[0] is not None:
             try:
                 import ors_client
-                nova = ors_client.tracar_rota(
-                    {'lat': centroide_origem[0], 'lng': centroide_origem[1]},
-                    {'lat': centroide_dest[0], 'lng': centroide_dest[1]}
-                )
-                cur.execute("""
-                    UPDATE embarques_cargas SET
-                        rota_planejada_polyline=%s,
-                        distancia_planejada_km=%s,
-                        duracao_estimada_min=%s,
-                        rota_recalculada_em=NOW(),
-                        atualizado_em=NOW()
-                    WHERE id=%s
-                """, (nova['polyline'], nova['distancia_km'], nova['duracao_min'], carga_id))
-                _logger.info(f'[Carga {carga_id}/{placa}] Rota planejada origem→destino: {nova["distancia_km"]}km, {nova["duracao_min"]}min')
+                # origem + cidades de rota (ordem) + todos os destinos (ordem)
+                cur.execute("SELECT latitude, longitude FROM embarques_cargas_rota WHERE carga_id=%s ORDER BY ordem", (carga_id,))
+                rota_pts = cur.fetchall()
+                cur.execute("SELECT latitude, longitude FROM embarques_cargas_destinos WHERE carga_id=%s ORDER BY ordem", (carga_id,))
+                dest_pts = cur.fetchall()
+                pontos = [{'lat': centroide_origem[0], 'lng': centroide_origem[1]}]
+                for la, ln in list(rota_pts) + list(dest_pts):
+                    if la is not None and ln is not None:
+                        pontos.append({'lat': float(la), 'lng': float(ln)})
+                if len(pontos) >= 2:
+                    nova = ors_client.tracar_rota_multi(pontos)
+                    cur.execute("""
+                        UPDATE embarques_cargas SET
+                            rota_planejada_polyline=%s,
+                            distancia_planejada_km=%s,
+                            duracao_estimada_min=%s,
+                            rota_recalculada_em=NOW(),
+                            atualizado_em=NOW()
+                        WHERE id=%s
+                    """, (nova['polyline'], nova['distancia_km'], nova['duracao_min'], carga_id))
+                    _logger.info(f'[Carga {carga_id}/{placa}] Rota planejada ({len(pontos)} pts): {nova["distancia_km"]}km, {nova["duracao_min"]}min')
             except Exception as e:
                 _logger.warning(f'[Carga {carga_id}/{placa}] Falha ao calcular ORS: {e}')
 

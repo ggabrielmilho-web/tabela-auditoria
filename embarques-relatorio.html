@@ -182,6 +182,13 @@
           <option value="Cancelada">Cancelada</option>
         </select>
       </div>
+      <div class="ff"><label>Tipo de viagem</label>
+        <select id="fViagem">
+          <option value="">Todas</option>
+          <option value="0">Carregada</option>
+          <option value="1">Vazia</option>
+        </select>
+      </div>
       <div class="ff"><label>Cliente</label>
         <select id="fCliente"><option value="">Todos</option></select>
       </div>
@@ -433,6 +440,7 @@
     const map = {
       fStart: 'start', fEnd: 'end',
       fDataCampo: 'data_campo', fTipo: 'tipo_operacao', fStatus: 'status',
+      fViagem: 'viagem_vazia',
       fCliente: 'cliente_id', fEmbarcador: 'criado_por_id',
       fMotorista: 'motorista', fOrigemUF: 'origem_uf', fDestinoUF: 'destino_uf',
       fQ: 'q'
@@ -465,7 +473,7 @@
   }
 
   function limparFiltros() {
-    for (const id of ['fStart','fEnd','fTipo','fStatus','fCliente','fEmbarcador','fMotorista','fOrigemUF','fDestinoUF','fQ']) {
+    for (const id of ['fStart','fEnd','fTipo','fStatus','fViagem','fCliente','fEmbarcador','fMotorista','fOrigemUF','fDestinoUF','fQ']) {
       document.getElementById(id).value = '';
     }
     document.getElementById('fDataCampo').value = 'carregamento';
@@ -512,8 +520,8 @@
         <td>${fmtData(c.data_carregamento)}</td>
         <td>${indicadoresStatus(c)}</td>
         <td>${c.tipo_operacao || '—'}</td>
-        <td title="${c.cliente_nome || ''}">${c.cliente_nome || '—'}</td>
-        <td title="${(c.origem_cidade||'')+'/'+(c.origem_uf||'')+' → '+(c.destinos||'')}">${(c.origem_cidade||'')+'/'+(c.origem_uf||'')} → ${c.destinos || '—'}</td>
+        <td title="${c.cliente_nome || ''}">${c.viagem_vazia ? '<span style="color:var(--text-dim);">🚚 Vazia</span>' : (c.cliente_nome || '—')}</td>
+        <td title="${(c.origem_cidade||'')+'/'+(c.origem_uf||'')+' → '+(c.destinos||'')+(c.rota_resumo ? ' (via '+c.rota_resumo+')' : '')}">${(c.origem_cidade||'')+'/'+(c.origem_uf||'')} → ${c.destinos || '—'}${c.rota_resumo ? ` <span style="cursor:help;color:var(--accent2);font-size:0.72rem;" title="Cidades de rota: ${c.rota_resumo}">🧭 via</span>` : ''}</td>
         <td title="${c.motorista_nome || ''}">${c.motorista_nome || '—'}</td>
         <td>${c.cavalo_placa || '—'} <span style="color:var(--text-dim);font-size:0.72rem;">(${c.cavalo_tipo || '?'})</span></td>
         <td>${carretas}</td>

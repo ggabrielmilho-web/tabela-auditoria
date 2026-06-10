@@ -177,7 +177,11 @@
       <div>
         <div class="form-card">
           <div class="titulo">👤 Cliente</div>
-          <div class="field">
+          <label class="toggle-vazia" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;cursor:pointer;font-size:0.88rem;">
+            <input type="checkbox" id="chkViagemVazia" onchange="onViagemVaziaChange()">
+            🚚 Viagem vazia (sem carga)
+          </label>
+          <div class="field" id="campoCliente">
             <label>Cliente <span class="req">*</span></label>
             <select id="selCliente" onchange="onClienteChange()">
               <option value="">Carregando...</option>
@@ -231,6 +235,13 @@
           <div class="titulo">🎯 Destinos <span style="color:var(--text-dim);font-weight:400;">(mín. 1)</span></div>
           <div id="destinosList"></div>
           <button type="button" class="btn-add" onclick="addDestino()">+ Adicionar destino</button>
+        </div>
+
+        <div class="form-card">
+          <div class="titulo">🧭 Cidades de rota <span style="color:var(--text-dim);font-weight:400;">(opcional)</span></div>
+          <div style="color:var(--text-dim);font-size:0.78rem;margin-bottom:10px;">Pontos de passagem para moldar o caminho (ex.: forçar litoral). Não são entrega.</div>
+          <div id="rotaList"></div>
+          <button type="button" class="btn-add" onclick="addCidadeRota()">+ Adicionar cidade de rota</button>
         </div>
 
         <div class="form-card">
@@ -321,6 +332,7 @@
   let CARRETA1_SEL = null;
   let CARRETA2_SEL = null;
   let DESTINOS = [];     // [{uf, cidade}]
+  let ROTA = [];         // [{uf, cidade, cidades}] — cidades de passagem (não entrega)
   let TIPO_USUARIO_FORCOU = false;  // se true, não auto-preenche tipo
 
   function digits(s) { return (s || '').replace(/\D/g, ''); }
@@ -775,6 +787,58 @@
       data_agendamento: d.data_agendamento ? new Date(d.data_agendamento).toISOString() : null
     }));
   }
+
+  // ── Cidades de rota (passagem) ──
+  function addCidadeRota() {
+    const idx = ROTA.length;
+    ROTA.push({ uf: '', cidade: '', cidades: [] });
+    renderRota();
+    setTimeout(() => { const el = document.getElementById(`rota-uf-${idx}`); if (el) el.focus(); }, 10);
+  }
+  function removerCidadeRota(i) { ROTA.splice(i, 1); renderRota(); }
+  function renderRota() {
+    const box = document.getElementById('rotaList');
+    box.innerHTML = ROTA.map((d, i) => `
+      <div class="destino-row" style="grid-template-columns:100px 1fr auto;">
+        <select id="rota-uf-${i}" onchange="onUfRotaChange(${i})">
+          <option value="">UF</option>
+          ${UFs.map(u => `<option value="${u}" ${d.uf === u ? 'selected' : ''}>${u}</option>`).join('')}
+        </select>
+        <select id="rota-cidade-${i}" ${d.uf ? '' : 'disabled'} onchange="ROTA[${i}].cidade = this.value;">
+          ${d.uf ? (d.cidades.length === 0
+              ? '<option value="">Carregando...</option>'
+              : '<option value="">— Selecione —</option>' + d.cidades.map(c => `<option value="${c}" ${d.cidade === c ? 'selected' : ''}>${c}</option>`).join(''))
+            : '<option value="">Selecione a UF</option>'}
+        </select>
+        <button type="button" class="destino-rm" onclick="removerCidadeRota(${i})" title="Remover">✕</button>
+      </div>
+    `).join('');
+  }
+  async function onUfRotaChange(i) {
+    const uf = document.getElementById(`rota-uf-${i}`).value;
+    ROTA[i].uf = uf; ROTA[i].cidade = ''; ROTA[i].cidades = [];
+    renderRota();
+    if (!uf) return;
+    try {
+      const r = await fetch(`https://servicodados.ibge.gov.br/api/v1/localidades/estados/${uf}/municipios`);
+      const arr = await r.json();
+      ROTA[i].cidades = arr.map(c => c.nome);
+      renderRota();
+    } catch (e) {}
+  }
+  function rotaPayload() {
+    return ROTA.filter(d => d.uf && d.cidade).map(d => ({ cidade: d.cidade, uf: d.uf }));
+  }
+
+  // ── Viagem vazia: liga/desliga o cliente ──
+  function onViagemVaziaChange() {
+    const vazia = document.getElementById('chkViagemVazia').checked;
+    const campo = document.getElementById('campoCliente');
+    const sel = document.getElementById('selCliente');
+    campo.style.opacity = vazia ? '0.4' : '1';
+    sel.disabled = vazia;
+    if (vazia) { sel.value = ''; cancelarClienteNovo && cancelarClienteNovo(); }
+  }
   // Converte UTC ISO (com Z) p/ o formato do <input datetime-local> (horário BR)
   function utcIsoToLocalInput(iso) {
     if (!iso) return '';
@@ -789,10 +853,14 @@
     fb.innerHTML = '';
 
     // Validações client-side
+    const vazia = document.getElementById('chkViagemVazia').checked;
     const clienteId = document.getElementById('selCliente').value;
-    if (!clienteId || clienteId === '__novo') return showErr('Selecione um cliente.');
-    const cliente = CLIENTES.find(c => String(c.id) === clienteId);
-    if (!cliente) return showErr('Cliente inválido.');
+    let cliente = null;
+    if (!vazia) {
+      if (!clienteId || clienteId === '__novo') return showErr('Selecione um cliente.');
+      cliente = CLIENTES.find(c => String(c.id) === clienteId);
+      if (!cliente) return showErr('Cliente inválido.');
+    }
 
     const tipo = document.getElementById('selTipo').value;
     if (!tipo) return showErr('Selecione o tipo de operação.');
@@ -821,11 +889,13 @@
       // PATCH: campos flat (whitelist do backend)
       payload = {
         tipo_operacao: tipo,
-        cliente_id: parseInt(clienteId, 10),
-        cliente_nome: cliente.nome,
+        viagem_vazia: vazia,
+        cliente_id: vazia ? null : parseInt(clienteId, 10),
+        cliente_nome: vazia ? null : cliente.nome,
         origem_cidade: oriCidade,
         origem_uf: oriUf,
         destinos: destinosPayload(),
+        rota: rotaPayload(),
         motorista_nome: MOTORISTA_SEL.nome,
         motorista_cpf: MOTORISTA_SEL.cpf,
         motorista_telefone: MOTORISTA_SEL.telefone || null,
@@ -852,10 +922,12 @@
     } else {
       payload = {
         tipo_operacao: tipo,
-        cliente_id: parseInt(clienteId, 10),
-        cliente_nome: cliente.nome,
+        viagem_vazia: vazia,
+        cliente_id: vazia ? null : parseInt(clienteId, 10),
+        cliente_nome: vazia ? null : cliente.nome,
         origem: { cidade: oriCidade, uf: oriUf },
         destinos: destinosPayload(),
+        rota: rotaPayload(),
         motorista: { nome: MOTORISTA_SEL.nome, cpf: MOTORISTA_SEL.cpf, telefone: MOTORISTA_SEL.telefone || null },
         cavalo: {
           placa: CAVALO_SEL.placa, tipo: CAVALO_SEL.tipo,
@@ -1003,6 +1075,23 @@
           if (selCi) selCi.value = cidadeSalva;
         }
       }
+
+      // Cidades de rota
+      ROTA = (c.rota || []).map(d => ({ uf: d.uf, cidade: d.cidade, cidades: [] }));
+      renderRota();
+      for (let i = 0; i < ROTA.length; i++) {
+        if (ROTA[i].uf) {
+          const cidadeSalva = ROTA[i].cidade;
+          await onUfRotaChange(i);
+          ROTA[i].cidade = cidadeSalva;
+          const selCi = document.getElementById(`rota-cidade-${i}`);
+          if (selCi) selCi.value = cidadeSalva;
+        }
+      }
+
+      // Viagem vazia
+      document.getElementById('chkViagemVazia').checked = !!c.viagem_vazia;
+      onViagemVaziaChange();
 
       // Motorista (snapshot pode não estar mais no PBI, então monta a partir dos campos da carga)
       if (c.motorista_cpf) {

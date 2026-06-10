@@ -77,6 +77,9 @@ def tracar_rota(origem, destino):
         'coordinates': [[float(o_lng), float(o_lat)], [float(d_lng), float(d_lat)]],
         'instructions': False,
         'geometry': True,
+        # -1 = sem limite de raio: ancora cada ponto na estrada roteável mais próxima
+        # (evita 404 quando o centroide da cidade cai longe da rodovia).
+        'radiuses': [-1, -1],
     }
     headers = {
         'Authorization': API_KEY,
@@ -119,6 +122,74 @@ def tracar_rota(origem, destino):
         'distancia_km': round(distancia_m / 1000, 1),
         'duracao_min': int(duracao_s / 60),
     }
+
+
+def tracar_rota_multi(pontos):
+    """Calcula rota driving-hgv passando por vários pontos NA ORDEM dada.
+
+    Args:
+        pontos: lista de dicts com 'lat'/'lng' (ou 'latitude'/'longitude'),
+                na ordem: origem, ...cidades de rota..., ...destinos..., destino final.
+
+    Returns:
+        dict {polyline, distancia_km, duracao_min, geometry?} — mesmo formato de tracar_rota.
+    """
+    if not API_KEY:
+        raise ORSError('OPENROUTE_API_KEY não configurada no .env')
+
+    coords = []
+    for p in pontos:
+        la = p.get('lat') if p.get('lat') is not None else p.get('latitude')
+        ln = p.get('lng') if p.get('lng') is not None else p.get('longitude')
+        if la is None or ln is None:
+            continue
+        coords.append([float(ln), float(la)])
+
+    if len(coords) < 2:
+        raise ORSError(f'Pontos insuficientes p/ rota (válidos={len(coords)})')
+
+    body = {
+        'coordinates': coords,
+        'instructions': False,
+        'geometry': True,
+        'radiuses': [-1] * len(coords),
+    }
+    headers = {
+        'Authorization': API_KEY,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json, application/geo+json',
+    }
+
+    t0 = time.time()
+    try:
+        resp = requests.post(BASE_URL, json=body, headers=headers, timeout=40)
+        dur_ms = int((time.time() - t0) * 1000)
+        _log('directions/driving-hgv (multi)', dur_ms, resp.status_code)
+        resp.raise_for_status()
+        data = resp.json()
+    except requests.HTTPError as e:
+        dur_ms = int((time.time() - t0) * 1000)
+        msg = ''
+        try:
+            msg = e.response.text[:500]
+        except Exception:
+            pass
+        _log('directions/driving-hgv (multi)', dur_ms, e.response.status_code, str(e.response.status_code), msg)
+        raise ORSError(f'ORS HTTP {e.response.status_code}: {msg}')
+    except Exception as e:
+        dur_ms = int((time.time() - t0) * 1000)
+        _log('directions/driving-hgv (multi)', dur_ms, 0, 'EXCEPTION', str(e))
+        raise ORSError(f'ORS falhou: {e}')
+
+    try:
+        route = data['routes'][0]
+        return {
+            'polyline': route['geometry'],
+            'distancia_km': round(route['summary']['distance'] / 1000, 1),
+            'duracao_min': int(route['summary']['duration'] / 60),
+        }
+    except (KeyError, IndexError, TypeError) as e:
+        raise ORSError(f'Resposta ORS sem rota: {e}')
 
 
 def decodificar_polyline(polyline_str, precision=5):
