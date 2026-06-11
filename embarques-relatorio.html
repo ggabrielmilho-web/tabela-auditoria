@@ -341,8 +341,8 @@
     if (c.tem_agendamento_vencido) {
       html += ` <span style="color:var(--red);font-size:0.82em;cursor:help;" title="Agendamento vencido e carga ainda ativa (Aberta/Em rota)">⚠️ atrasada</span>`;
     }
-    // Ociosidade: parada na descarga com folga > 24h pro agendamento final
-    if (c.no_local_desde && c.agendamento_final) {
+    // Ociosidade: parada na descarga com folga > 24h pro agendamento final — só p/ carga ativa
+    if (c.no_local_desde && c.agendamento_final && (c.status === 'Em rota' || c.status === 'No destino')) {
       const folgaDias = Math.floor((new Date(c.agendamento_final) - Date.now()) / 86400000);
       if (folgaDias >= 1) {
         html += ` <span style="color:var(--text-dim);font-size:0.82em;cursor:help;" title="Parada na cidade da descarga; agendamento só em ${folgaDias} dia(s) — possível ociosidade do veículo">💤 ${folgaDias}d</span>`;
