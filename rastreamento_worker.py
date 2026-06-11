@@ -36,6 +36,10 @@ RECALCULO_INTERVALO_MIN = int(os.getenv('RASTREAMENTO_RECALCULO_MIN', '30'))
 # Status 'No destino': na cidade da descarga há >= 60min E parado agora (vel <= 3 km/h).
 CHEGADA_MIN_PARADO = 60   # minutos na cidade do destino p/ promover a 'No destino' (fixo)
 PARADO_KMH = 3            # velocidade <= isso conta como parado (espelha _kpi_ao_vivo)
+# Saída por DISTÂNCIA (o 3S mente o nome da cidade — etiqueta "Uberlândia" a 113 km!).
+# Origem (pátio/base): raio menor. Destino (pode ser grande centro): raio alto p/ não bugar.
+RAIO_SAIDA_ORIGEM_KM = float(os.getenv('RASTREAMENTO_RAIO_SAIDA_ORIGEM', '30'))
+RAIO_SAIDA_DESTINO_KM = float(os.getenv('RASTREAMENTO_RAIO_SAIDA_DESTINO', '60'))
 
 _running = False
 _thread = None
@@ -192,23 +196,47 @@ def _n_ciclos_fora_cidade(cur, placa, cidade_referencia, n):
     return all(geocoding.normalizar_cidade(r[0]) != cidade_norm for r in rows)
 
 
-def _saiu_da_cidade(cur, placa, pos_cidade, cidade_ref, uf_ref, centroide_ref):
-    """Confirma SAÍDA: cidade ≠ + > raio km do centroide + N ciclos seguidos fora."""
-    if geocoding.normalizar_cidade(pos_cidade) == geocoding.normalizar_cidade(cidade_ref):
-        return False
-    if not centroide_ref or centroide_ref[0] is None:
-        return False
-    # distância > raio
+def _n_ciclos_fora_raio(cur, placa, centroide, raio_km, n):
+    """True se as últimas N posições da placa estão a > raio_km do centroide.
+    Confirmação por DISTÂNCIA (não por nome, que o 3S erra)."""
     cur.execute("""
-        SELECT latitude, longitude FROM embarques_posicoes_atuais WHERE placa=%s
-    """, (placa,))
+        SELECT latitude, longitude FROM embarques_posicoes_historico
+        WHERE placa = %s ORDER BY data_posicao DESC LIMIT %s
+    """, (placa, n))
+    rows = cur.fetchall()
+    if len(rows) < n:
+        return False
+    for la, ln in rows:
+        if la is None or ln is None:
+            return False
+        d = geocoding.km_entre(float(la), float(ln), centroide[0], centroide[1])
+        if d is None or d <= raio_km:
+            return False
+    return True
+
+
+def _saiu_da_cidade(cur, placa, pos_cidade, cidade_ref, uf_ref, centroide_ref, raio_saida_km):
+    """Confirma SAÍDA da cidade de referência, robusto ao 3S mentir o nome.
+    Saiu se: (nome mudou E > RAIO_CONFIRMACAO) OU (distância > raio_saida_km).
+    Confirma por N ciclos FORA do raio de confirmação. raio_saida alto não buga em
+    grande centro e cobre o caso do 3S etiquetar a cidade errada longe do centro."""
+    if not centroide_ref or centroide_ref[0] is None:
+        # sem centroide, cai no comportamento antigo (nome)
+        if geocoding.normalizar_cidade(pos_cidade) == geocoding.normalizar_cidade(cidade_ref):
+            return False
+        return _n_ciclos_fora_cidade(cur, placa, cidade_ref, CICLOS_CONFIRMACAO)
+    cur.execute("SELECT latitude, longitude FROM embarques_posicoes_atuais WHERE placa=%s", (placa,))
     r = cur.fetchone()
-    if not r:
+    if not r or r[0] is None:
         return False
     d = geocoding.km_entre(float(r[0]), float(r[1]), centroide_ref[0], centroide_ref[1])
-    if d is None or d <= RAIO_CONFIRMACAO_KM:
+    if d is None:
         return False
-    return _n_ciclos_fora_cidade(cur, placa, cidade_ref, CICLOS_CONFIRMACAO)
+    nome_mudou = geocoding.normalizar_cidade(pos_cidade) != geocoding.normalizar_cidade(cidade_ref)
+    saiu = (nome_mudou and d > RAIO_CONFIRMACAO_KM) or (d > raio_saida_km)
+    if not saiu:
+        return False
+    return _n_ciclos_fora_raio(cur, placa, centroide_ref, RAIO_CONFIRMACAO_KM, CICLOS_CONFIRMACAO)
 
 
 def _mesma_cidade(pos_cidade, pos_uf, cidade_ref, uf_ref):
@@ -291,9 +319,16 @@ def _consolidar_kpi(cur, carga_id, final=False):
     if not placa:
         return
     # Janela da viagem: [saída da origem, CHEGADA ao destino].
-    # Início generoso (mesmo piso do mapa); o pré-origem é recortado abaixo pelo raio.
+    # Busca LARGO por DATA (data_carregamento c/ folga de fuso) — NÃO por inicio_viagem,
+    # que é definido por nome de cidade e o 3S mente (etiqueta a origem a 100+ km). O
+    # recorte por distância (abaixo) define o começo real perto do pátio.
     # Fim na CHEGADA (no_local_desde) — não conta o pós-entrega (destino → cidade seguinte).
-    inicio = inicio_viagem or data_saida_real or data_carreg
+    from datetime import time as _t
+    if data_carreg:
+        base = data_carreg if isinstance(data_carreg, datetime) else datetime.combine(data_carreg, _t())
+        inicio = base - timedelta(hours=12)
+    else:
+        inicio = inicio_viagem or data_saida_real or (datetime.utcnow() - timedelta(days=15))
     fim = no_local_desde or data_conclusao or datetime.utcnow()
 
     cur.execute("""
@@ -426,7 +461,7 @@ def _processar_cargas(cur):
 
         # ── SAÍDA DA ORIGEM (status Aberta → Em rota)
         if status == 'Aberta':
-            if _saiu_da_cidade(cur, placa, pos_cidade, origem_cid, origem_uf, centroide_origem):
+            if _saiu_da_cidade(cur, placa, pos_cidade, origem_cid, origem_uf, centroide_origem, RAIO_SAIDA_ORIGEM_KM):
                 # data_saida_real = horário GPS da posição (não NOW do worker), pra alinhar
                 # com os pontos e nunca excluir o histórico da viagem na janela.
                 cur.execute("""
@@ -456,7 +491,7 @@ def _processar_cargas(cur):
 
         # ── SAÍDA DO DESTINO (= entrega automática) — vale p/ 'Em rota' OU 'No destino'
         if status in ('Em rota', 'No destino') and no_local_desde is not None:
-            if _saiu_da_cidade(cur, placa, pos_cidade, dest_cidade, dest_uf, centroide_dest):
+            if _saiu_da_cidade(cur, placa, pos_cidade, dest_cidade, dest_uf, centroide_dest, RAIO_SAIDA_DESTINO_KM):
                 cur.execute("""
                     UPDATE embarques_cargas
                     SET status='Entregue', entregue_auto=TRUE, data_conclusao=NOW(),

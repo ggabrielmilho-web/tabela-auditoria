@@ -3107,11 +3107,16 @@ def api_rastreamento_trajeto(carga_id):
                 'data_agendamento': (ag.isoformat() + 'Z') if ag else None,
             })
 
-        # Período = a partir da saída da origem (inicio_viagem, detectado pelo GPS e persistido
-        # pelo worker). Só lê — não recalcula. Fallback: data_carregamento → teto de 15 dias.
-        from datetime import datetime as _dt, timedelta as _td
-        inicio = carga.get('inicio_viagem') or carga.get('data_carregamento') \
-                 or (_dt.utcnow() - _td(days=15))
+        # Período: busca LARGO por DATA (data_carregamento c/ folga) — NÃO por inicio_viagem,
+        # que é por nome de cidade e o 3S mente (etiqueta a origem a 100+ km). O recorte por
+        # distância (abaixo) define o começo real perto do pátio.
+        from datetime import datetime as _dt, timedelta as _td, time as _time
+        _dcarr = carga.get('data_carregamento')
+        if _dcarr:
+            _base = _dcarr if isinstance(_dcarr, _dt) else _dt.combine(_dcarr, _time())
+            inicio = _base - _td(hours=12)
+        else:
+            inicio = carga.get('inicio_viagem') or (_dt.utcnow() - _td(days=15))
         # Fim na CHEGADA ao destino quando entregue (não conta o pós-entrega: destino → cidade
         # seguinte). Em andamento segue ao vivo (agora).
         if carga.get('status') == 'Entregue':
