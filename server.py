@@ -3112,7 +3112,12 @@ def api_rastreamento_trajeto(carga_id):
         from datetime import datetime as _dt, timedelta as _td
         inicio = carga.get('inicio_viagem') or carga.get('data_carregamento') \
                  or (_dt.utcnow() - _td(days=15))
-        fim = carga.get('data_conclusao') or _dt.utcnow()
+        # Fim na CHEGADA ao destino quando entregue (não conta o pós-entrega: destino → cidade
+        # seguinte). Em andamento segue ao vivo (agora).
+        if carga.get('status') == 'Entregue':
+            fim = carga.get('no_local_desde') or carga.get('data_conclusao') or _dt.utcnow()
+        else:
+            fim = _dt.utcnow()
 
         def _buscar_trajeto(placa):
             if not placa:
@@ -3136,6 +3141,21 @@ def api_rastreamento_trajeto(carga_id):
         traj_cavalo = _buscar_trajeto(carga['cavalo_placa'])
         traj_c1 = _buscar_trajeto(carga.get('carreta1_placa')) if carga.get('carreta1_placa') else []
         traj_c2 = _buscar_trajeto(carga.get('carreta2_placa')) if carga.get('carreta2_placa') else []
+
+        # Recorta o trecho PRÉ-origem (caminhão já rodando antes do lançamento) — a linha e o
+        # KPI passam a começar na saída da origem, não antes.
+        _olat, _olng = carga.get('origem_latitude'), carga.get('origem_longitude')
+        if _olat is not None and _olng is not None:
+            import geocoding as _geo
+            def _recorta_origem(traj):
+                if not traj:
+                    return traj
+                idx = _geo.indice_saida_origem([(p['lat'], p['lng']) for p in traj],
+                                               float(_olat), float(_olng))
+                return traj[idx:]
+            traj_cavalo = _recorta_origem(traj_cavalo)
+            traj_c1 = _recorta_origem(traj_c1)
+            traj_c2 = _recorta_origem(traj_c2)
 
         # Placa de rastreio principal (carreta1 → cavalo → carreta2)
         placa_track = rastreamento_worker._placa_tracking(

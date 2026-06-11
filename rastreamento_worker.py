@@ -277,20 +277,24 @@ def _consolidar_kpi(cur, carga_id, final=False):
     """Soma segmentos do histórico + agrega vel/tempo. Grava em embarques_cargas_rastreio_kpi."""
     cur.execute("""
         SELECT cavalo_placa, carreta1_placa, carreta2_placa,
-               data_carregamento, data_saida_real, data_conclusao, inicio_viagem
+               data_carregamento, data_saida_real, data_conclusao, inicio_viagem,
+               origem_latitude, origem_longitude, no_local_desde
         FROM embarques_cargas WHERE id=%s
     """, (carga_id,))
     r = cur.fetchone()
     if not r:
         return
-    cavalo_placa, carreta1_placa, carreta2_placa, data_carreg, data_saida_real, data_conclusao, inicio_viagem = r
+    (cavalo_placa, carreta1_placa, carreta2_placa, data_carreg, data_saida_real,
+     data_conclusao, inicio_viagem, origem_lat, origem_lng, no_local_desde) = r
     # Segue a mesma placa de rastreio usada na detecção (carreta primeiro)
     placa = _placa_tracking(cavalo_placa, carreta1_placa, carreta2_placa, cur)
     if not placa:
         return
-    # Piso = inicio_viagem (saída da origem, detectada e persistida) — mesma janela do mapa.
+    # Janela da viagem: [saída da origem, CHEGADA ao destino].
+    # Início generoso (mesmo piso do mapa); o pré-origem é recortado abaixo pelo raio.
+    # Fim na CHEGADA (no_local_desde) — não conta o pós-entrega (destino → cidade seguinte).
     inicio = inicio_viagem or data_saida_real or data_carreg
-    fim = data_conclusao or datetime.utcnow()
+    fim = no_local_desde or data_conclusao or datetime.utcnow()
 
     cur.execute("""
         SELECT latitude, longitude, velocidade, data_posicao
@@ -299,6 +303,11 @@ def _consolidar_kpi(cur, carga_id, final=False):
         ORDER BY data_posicao
     """, (placa, inicio, fim))
     rows = cur.fetchall()
+    # Recorta o trecho PRÉ-origem (caminhão rodando antes do lançamento)
+    if rows and origem_lat is not None and origem_lng is not None:
+        coords = [(float(la), float(ln)) for (la, ln, _v, _d) in rows]
+        idx = geocoding.indice_saida_origem(coords, float(origem_lat), float(origem_lng))
+        rows = rows[idx:]
     if len(rows) < 2:
         cur.execute("""
             INSERT INTO embarques_cargas_rastreio_kpi (carga_id, placa, consolidado_em, consolidado_final)

@@ -41,6 +41,25 @@ def km_entre(lat1, lng1, lat2, lng2):
     return 2 * R * asin(sqrt(a))
 
 
+def indice_saida_origem(coords, origem_lat, origem_lng, raio_km=30):
+    """Índice do ÚLTIMO ponto dentro de `raio_km` da origem — a saída da origem desta viagem.
+    Serve pra recortar trecho PRÉ-origem (ex.: caminhão rodando antes do lançamento).
+
+    `coords`: lista de (lat, lng) na ordem cronológica.
+    Sem origem (None) ou sem nenhum ponto próximo → 0 (não recorta; degrada sem surpresa).
+    """
+    if origem_lat is None or origem_lng is None or not coords:
+        return 0
+    ult = 0
+    for i, (la, ln) in enumerate(coords):
+        if la is None or ln is None:
+            continue
+        d = km_entre(origem_lat, origem_lng, la, ln)
+        if d is not None and d <= raio_km:
+            ult = i
+    return ult
+
+
 def normalizar_cidade(s):
     """UPPERCASE + sem acento + trim. Compara 'São Paulo' == 'SAO PAULO'."""
     if not s:
