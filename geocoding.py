@@ -42,22 +42,24 @@ def km_entre(lat1, lng1, lat2, lng2):
 
 
 def indice_saida_origem(coords, origem_lat, origem_lng, raio_km=30):
-    """Índice do ÚLTIMO ponto dentro de `raio_km` da origem — a saída da origem desta viagem.
-    Serve pra recortar trecho PRÉ-origem (ex.: caminhão rodando antes do lançamento).
+    """Índice do ponto MAIS PRÓXIMO da origem (dentro de `raio_km`) — recorta o trecho
+    PRÉ-origem (ex.: caminhão rodando antes do lançamento). A viagem passa a começar no
+    ponto mais perto do pátio (no marcador de origem), não antes.
 
     `coords`: lista de (lat, lng) na ordem cronológica.
-    Sem origem (None) ou sem nenhum ponto próximo → 0 (não recorta; degrada sem surpresa).
+    Sem origem (None) ou sem nenhum ponto dentro do raio → 0 (não recorta; degrada sem surpresa).
     """
     if origem_lat is None or origem_lng is None or not coords:
         return 0
-    ult = 0
+    melhor_i, melhor_d = 0, None
+    achou = False
     for i, (la, ln) in enumerate(coords):
         if la is None or ln is None:
             continue
         d = km_entre(origem_lat, origem_lng, la, ln)
-        if d is not None and d <= raio_km:
-            ult = i
-    return ult
+        if d is not None and d <= raio_km and (melhor_d is None or d < melhor_d):
+            melhor_d, melhor_i, achou = d, i, True
+    return melhor_i if achou else 0
 
 
 def normalizar_cidade(s):
