@@ -2476,7 +2476,7 @@ def api_embarques_cargas_list():
                ) AS rota_resumo,
                (SELECT d.data_agendamento FROM embarques_cargas_destinos d
                  WHERE d.carga_id = c.id ORDER BY d.ordem DESC LIMIT 1) AS agendamento_final,
-               (c.status IN ('Aberta','Em rota','No destino') AND EXISTS (
+               (c.status IN ('Aberta','Em rota') AND EXISTS (
                  SELECT 1 FROM embarques_cargas_destinos d
                  WHERE d.carga_id = c.id AND d.data_agendamento IS NOT NULL
                    AND d.data_agendamento < (NOW() AT TIME ZONE 'UTC')
