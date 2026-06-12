@@ -175,6 +175,12 @@ def _persistir_posicoes(cur, posicoes_raw):
               velocidade, ignicao, direcao, uf, cidade, bairro, endereco,
               bloqueio, odometer))
 
+        # Auto-cura de troca de placa (antiga -> Mercosul): remove a posição da placa
+        # antiga do MESMO veículo (identidade = id_veiculo_3s), senão o mapa mostra 2×.
+        cur.execute(
+            "DELETE FROM embarques_posicoes_atuais WHERE id_veiculo_3s=%s AND placa<>%s",
+            (id_veiculo_3s, placa))
+
         cur.execute("""
             INSERT INTO embarques_posicoes_historico (
                 placa, id_veiculo_3s, data_posicao, latitude, longitude,

@@ -3462,6 +3462,11 @@ def api_rastreamento_sync_veiculos():
                     sincronizado_em = NOW()
             """, (placa, id_veiculo, v.get('idEquipamento'), v.get('frota'),
                   v.get('modelo'), v.get('tipo')))
+            # Limpa posição órfã da placa antiga (mesma identidade) — senão o veículo
+            # aparece 2× no mapa após a troca p/ Mercosul.
+            cur.execute(
+                "DELETE FROM embarques_posicoes_atuais WHERE id_veiculo_3s=%s AND placa<>%s",
+                (id_veiculo, placa))
             if existe:
                 atualizados += 1
             else:
