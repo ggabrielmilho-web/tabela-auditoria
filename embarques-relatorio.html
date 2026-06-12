@@ -90,6 +90,7 @@
   .badge-Aberta   { background: rgba(56,189,248,0.15); color: var(--accent); }
   .badge-Em-rota  { background: rgba(251,146,60,0.15); color: var(--orange); }
   .badge-No-destino { background: rgba(167,139,250,0.15); color: #a78bfa; }
+  .badge-Desengatada { background: rgba(250,204,21,0.15); color: #facc15; }
   .badge-Entregue { background: rgba(52,211,153,0.15); color: var(--green); }
   .badge-Cancelada{ background: rgba(248,113,113,0.15); color: var(--red); }
 
@@ -178,6 +179,7 @@
           <option value="Aberta">Aberta</option>
           <option value="Em rota">Em rota</option>
           <option value="No destino">No destino</option>
+          <option value="Desengatada">Desengatada · carregada</option>
           <option value="Entregue">Entregue</option>
           <option value="Cancelada">Cancelada</option>
         </select>
@@ -292,6 +294,59 @@
   </div>
 </div>
 
+<!-- Modal Desengate -->
+<div class="modal-overlay" id="modalDesengate">
+  <div class="modal">
+    <h2 id="modalDesengateTitulo">Desengatar carreta</h2>
+    <p style="color:var(--text-dim);font-size:0.85rem;margin:0 0 14px;">
+      A carreta carregada continua no destino aguardando descarga. O <strong>cavalo e o motorista são liberados</strong> para uma nova carga.
+      A carga será finalizada automaticamente quando a carreta sair do destino (ou manualmente em “Finalizar descarga”).
+    </p>
+    <div class="field">
+      <label>Cavalo que vai finalizar a descarga <span style="color:var(--text-dim);">(opcional)</span></label>
+      <input type="text" id="dgCavalo" list="dlDgCavalos" placeholder="Placa, se já souber" style="text-transform:uppercase;">
+      <datalist id="dlDgCavalos"></datalist>
+    </div>
+    <div class="field">
+      <label>Motorista que vai finalizar a descarga <span style="color:var(--text-dim);">(opcional)</span></label>
+      <input type="text" id="dgMotorista" list="dlDgMotoristas" placeholder="Nome ou CPF, se já souber">
+      <datalist id="dlDgMotoristas"></datalist>
+    </div>
+    <div class="field">
+      <label>Observação <span style="color:var(--text-dim);">(opcional)</span></label>
+      <input type="text" id="dgObs" placeholder="Anotação para o histórico">
+    </div>
+    <div class="acoes">
+      <button class="btn-sm" onclick="fecharModal('modalDesengate')">Cancelar</button>
+      <button class="btn-sm" style="border-color:#facc15;color:#facc15;" id="dgConfirmar" onclick="confirmarDesengate()">🔌 Confirmar desengate</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Finalizar descarga -->
+<div class="modal-overlay" id="modalFinalizar">
+  <div class="modal">
+    <h2 id="modalFinalizarTitulo">Finalizar descarga</h2>
+    <p style="color:var(--text-dim);font-size:0.85rem;margin:0 0 14px;">
+      A carga será marcada como <strong>Entregue</strong>. Registre quem efetivamente fez a descarga
+      (se já preenchido no desengate, vem aqui e pode ser ajustado).
+    </p>
+    <div class="field">
+      <label>Cavalo que fez a descarga <span style="color:var(--red);">*</span></label>
+      <input type="text" id="fzCavalo" list="dlDgCavalos" placeholder="Placa" style="text-transform:uppercase;">
+    </div>
+    <div class="field">
+      <label>Motorista que fez a descarga <span style="color:var(--red);">*</span></label>
+      <input type="text" id="fzMotorista" list="dlDgMotoristas" placeholder="Nome ou CPF">
+    </div>
+    <div id="fzErro" style="color:var(--red);font-size:0.82rem;min-height:1.1em;"></div>
+    <div class="acoes">
+      <button class="btn-sm" onclick="fecharModal('modalFinalizar')">Cancelar</button>
+      <button class="btn-sm" style="border-color:var(--green);color:var(--green);" id="fzConfirmar" onclick="confirmarFinalizar()">🏁 Finalizar descarga</button>
+    </div>
+  </div>
+</div>
+
 <script>
   const UFs = ['AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS','MT','PA','PB','PE','PI','PR','RJ','RN','RO','RR','RS','SC','SE','SP','TO'];
 
@@ -330,6 +385,14 @@
     let html = badge(c.status);
     if (c.no_local_desde && c.status === 'Em rota') {
       html += ` <span style="cursor:help;" title="Na cidade da descarga há ${tempoCurto(c.no_local_desde)}">📦</span>`;
+    }
+    if (c.status === 'Desengatada') {
+      const partes = [];
+      if (c.desengatada_em) partes.push('Desengatada há ' + tempoCurto(c.desengatada_em));
+      if (c.descarga_cavalo_placa) partes.push('Cavalo p/ descarga: ' + c.descarga_cavalo_placa);
+      if (c.descarga_motorista_nome) partes.push('Motorista p/ descarga: ' + c.descarga_motorista_nome);
+      const tip = partes.length ? partes.join('\n') : 'Carreta carregada parada no destino; cavalo+motorista liberados';
+      html += ` <span style="cursor:help;" title="${tip.replace(/"/g,'&quot;')}">🔌</span>`;
     }
     if (c.entregue_auto && c.status === 'Entregue') {
       html += ` <span style="color:var(--yellow);font-size:0.85em;cursor:help;" title="Entrega detectada automaticamente">⚡</span>`;
@@ -515,6 +578,12 @@
       const btnEditar = c.pode_editar
         ? `<button title="Editar" onclick="abrirEdit(${c.id})">✏</button>`
         : `<button title="Apenas quem lançou ou admin pode editar" disabled style="opacity:0.3;cursor:not-allowed;">✏</button>`;
+      let btnDesengate = '';
+      if (c.pode_editar && (c.status === 'Em rota' || c.status === 'No destino')) {
+        btnDesengate = `<button title="Desengatar carreta (libera cavalo+motorista)" onclick="abrirDesengate(${c.id}, '${(c.numero || '').replace(/'/g,'')}')">🔌</button>`;
+      } else if (c.pode_editar && c.status === 'Desengatada') {
+        btnDesengate = `<button title="Finalizar descarga (marca Entregue)" onclick="finalizarDescarga(${c.id}, '${(c.numero || '').replace(/'/g,'')}')">🏁</button>`;
+      }
       return `<tr class="${destacar}">
         <td><strong>${c.numero || '—'}</strong></td>
         <td>${fmtData(c.data_carregamento)}</td>
@@ -529,6 +598,7 @@
         <td>${c.criado_por_nome || '—'}</td>
         <td class="acoes">
           ${btnEditar}
+          ${btnDesengate}
           <button title="Histórico" onclick="abrirHist(${c.id}, '${c.numero || ''}')">🕐</button>
           <a href="/embarques/cargas/${c.id}/mapa" target="_blank" title="Ver mapa" style="text-decoration:none;"><button style="cursor:pointer;">🗺️</button></a>
         </td>
@@ -609,6 +679,115 @@
       `).join('');
     } catch (e) {
       document.getElementById('histLista').innerHTML = `<div class="info-vazio">Erro de rede</div>`;
+    }
+  }
+
+  // ── Desengate de carreta carregada ──
+  let DESENGATE_ID = null;
+  let DG_DATALISTS_CARREGADOS = false;
+
+  function maskCpfDg(cpf) {
+    const d = (cpf || '').replace(/\D/g, '');
+    if (d.length !== 11) return cpf || '';
+    return `${d.slice(0,3)}.${d.slice(3,6)}.${d.slice(6,9)}-${d.slice(9)}`;
+  }
+
+  // Mesma fonte do cadastro de embarque (Power BI, cache 5min no servidor).
+  // Carrega 1× sob demanda (na 1ª abertura do modal) e reaproveita.
+  async function carregarDatalistsDesengate() {
+    if (DG_DATALISTS_CARREGADOS) return;
+    DG_DATALISTS_CARREGADOS = true;  // evita corrida em aberturas rápidas
+    try {
+      const [rm, rv] = await Promise.all([
+        fetch('/api/embarques/motoristas', { credentials: 'same-origin' }),
+        fetch('/api/embarques/veiculos', { credentials: 'same-origin' }),
+      ]);
+      const jm = await rm.json(), jv = await rv.json();
+      if (jm.ok) {
+        document.getElementById('dlDgMotoristas').innerHTML =
+          jm.data.map(m => `<option value="${m.nome} — ${maskCpfDg(m.cpf)}">`).join('');
+      }
+      if (jv.ok) {
+        const cavalos = jv.data.filter(v => v.tipo === 'Cavalo' || v.tipo === 'Truck');
+        document.getElementById('dlDgCavalos').innerHTML =
+          cavalos.map(v => `<option value="${v.placa}">${v.tipo} — ${v.marca_modelo || ''} — ${v.proprietario || ''}</option>`).join('');
+      }
+    } catch (e) {
+      DG_DATALISTS_CARREGADOS = false;  // permite tentar de novo na próxima abertura
+    }
+  }
+
+  function abrirDesengate(id, numero) {
+    DESENGATE_ID = id;
+    document.getElementById('modalDesengateTitulo').textContent = `Desengatar carreta — ${numero}`;
+    document.getElementById('dgCavalo').value = '';
+    document.getElementById('dgMotorista').value = '';
+    document.getElementById('dgObs').value = '';
+    document.getElementById('dgConfirmar').disabled = false;
+    document.getElementById('modalDesengate').classList.add('active');
+    carregarDatalistsDesengate();  // fire-and-forget; reaproveita em aberturas seguintes
+  }
+  async function confirmarDesengate() {
+    if (!DESENGATE_ID) return;
+    const btn = document.getElementById('dgConfirmar');
+    btn.disabled = true;
+    try {
+      // Datalist do motorista vem como "Nome — CPF"; grava só o nome (recomendação a).
+      const motoristaSel = document.getElementById('dgMotorista').value.trim().split(' — ')[0].trim();
+      const r = await fetch(`/api/embarques/cargas/${DESENGATE_ID}/desengatar`, {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          descarga_cavalo_placa: document.getElementById('dgCavalo').value.trim(),
+          descarga_motorista_nome: motoristaSel,
+          observacao: document.getElementById('dgObs').value.trim(),
+        }),
+      });
+      const j = await r.json();
+      if (!j.ok) { alert('Erro: ' + j.error); btn.disabled = false; return; }
+      fecharModal('modalDesengate');
+      aplicarFiltros();
+    } catch (e) {
+      alert('Erro de rede'); btn.disabled = false;
+    }
+  }
+  let FINALIZAR_ID = null;
+  function finalizarDescarga(id, numero) {
+    FINALIZAR_ID = id;
+    const c = CARGAS.find(x => x.id === id) || {};
+    document.getElementById('modalFinalizarTitulo').textContent = `Finalizar descarga — ${numero}`;
+    // Pré-preenche com o que foi informado no desengate (a pessoa pode ajustar)
+    document.getElementById('fzCavalo').value = c.descarga_cavalo_placa || '';
+    document.getElementById('fzMotorista').value = c.descarga_motorista_nome || '';
+    document.getElementById('fzErro').textContent = '';
+    document.getElementById('fzConfirmar').disabled = false;
+    document.getElementById('modalFinalizar').classList.add('active');
+    carregarDatalistsDesengate();
+  }
+  async function confirmarFinalizar() {
+    if (!FINALIZAR_ID) return;
+    const cavalo = document.getElementById('fzCavalo').value.trim();
+    const motorista = document.getElementById('fzMotorista').value.trim().split(' — ')[0].trim();
+    const err = document.getElementById('fzErro');
+    if (!cavalo || !motorista) {
+      err.textContent = 'Informe o cavalo e o motorista que fizeram a descarga.';
+      return;
+    }
+    err.textContent = '';
+    const btn = document.getElementById('fzConfirmar');
+    btn.disabled = true;
+    try {
+      const r = await fetch(`/api/rastreamento/cargas/${FINALIZAR_ID}/confirmar-entrega`, {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ descarga_cavalo_placa: cavalo, descarga_motorista_nome: motorista }),
+      });
+      const j = await r.json();
+      if (!j.ok) { err.textContent = 'Erro: ' + j.error; btn.disabled = false; return; }
+      fecharModal('modalFinalizar');
+      aplicarFiltros();
+    } catch (e) {
+      err.textContent = 'Erro de rede'; btn.disabled = false;
     }
   }
 

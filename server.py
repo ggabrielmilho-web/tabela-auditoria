@@ -1981,13 +1981,22 @@ def _csv_linha_embarques(valores):
 
 
 def _buscar_conflitos(cpf, placas, exclude_id=0):
-    """Retorna lista de conflitos com cargas ativas (Aberta/Em rota).
+    """Retorna lista de conflitos com cargas ativas.
        'placas' é lista de strings uppercase (cavalo, carreta1, carreta2 — sem nulls).
-       'exclude_id' permite ignorar a própria carga ao editar."""
+       'exclude_id' permite ignorar a própria carga ao editar.
+
+       Assimetria do desengate (status 'Desengatada' = carreta carregada parada no
+       destino, cavalo+motorista liberados):
+         - motorista (CPF) e CAVALO → ativos só em Aberta/Em rota/No destino
+           (liberados quando a carga está 'Desengatada').
+         - CARRETA → ainda comprometida; bloqueia também em 'Desengatada'.
+    """
     placas = [p for p in (placas or []) if p]
     cpf = (cpf or '').strip()
     if not cpf and not placas:
         return []
+    ativas_cav = ('Aberta', 'Em rota', 'No destino')
+    ativas_carreta = ('Aberta', 'Em rota', 'No destino', 'Desengatada')
     conn = get_db(); cur = conn.cursor()
     try:
         conflitos = []
@@ -2014,25 +2023,30 @@ def _buscar_conflitos(cpf, placas, exclude_id=0):
 
         if placas:
             ph = ','.join(['%s'] * len(placas))
+            cav_ph = ','.join(['%s'] * len(ativas_cav))
+            car_ph = ','.join(['%s'] * len(ativas_carreta))
+            # Cavalo só conflita em status "duros"; carreta conflita também em Desengatada.
             cur.execute(f"""
                 SELECT id, numero, status, data_carregamento,
                        cavalo_placa, carreta1_placa, carreta2_placa
                 FROM embarques_cargas
-                WHERE status IN ('Aberta', 'Em rota', 'No destino')
-                  AND id <> %s
-                  AND (cavalo_placa IN ({ph})
-                       OR carreta1_placa IN ({ph})
-                       OR carreta2_placa IN ({ph}))
+                WHERE id <> %s
+                  AND (
+                    (cavalo_placa IN ({ph}) AND status IN ({cav_ph}))
+                    OR ((carreta1_placa IN ({ph}) OR carreta2_placa IN ({ph}))
+                        AND status IN ({car_ph}))
+                  )
                 ORDER BY data_carregamento DESC
                 LIMIT 10
-            """, (exclude_id, *placas, *placas, *placas))
+            """, (exclude_id, *placas, *ativas_cav, *placas, *placas, *ativas_carreta))
             for r in cur.fetchall():
                 cid, num, st, dt, cav, c1, c2 = r
                 dt_iso = dt.isoformat() if dt else None
                 for placa in placas:
-                    if cav == placa:
+                    # cavalo só é conflito se a carga ainda está nos status duros
+                    if cav == placa and st in ativas_cav:
                         conflitos.append({'tipo': 'cavalo',  'recurso': placa, 'carga_id': cid, 'numero': num, 'status': st, 'data_carregamento': dt_iso})
-                    if c1 == placa or c2 == placa:
+                    if (c1 == placa or c2 == placa) and st in ativas_carreta:
                         conflitos.append({'tipo': 'carreta', 'recurso': placa, 'carga_id': cid, 'numero': num, 'status': st, 'data_carregamento': dt_iso})
         return conflitos
     finally:
@@ -2466,6 +2480,7 @@ def api_embarques_cargas_list():
                c.criado_em, c.criado_por_id, c.criado_por_nome, c.atualizado_em,
                c.no_local_desde, c.saida_auto, c.entregue_auto, c.data_saida_real,
                c.distancia_planejada_km, c.duracao_estimada_min,
+               c.desengatada_em, c.descarga_motorista_nome, c.descarga_cavalo_placa,
                (
                  SELECT string_agg(d.cidade || '/' || d.uf, '; ' ORDER BY d.ordem)
                  FROM embarques_cargas_destinos d WHERE d.carga_id = c.id
@@ -2505,6 +2520,8 @@ def api_embarques_cargas_list():
                 if obj.get(k): obj[k] = obj[k].isoformat()
             if obj.get('data_saida_real'):
                 obj['data_saida_real'] = obj['data_saida_real'].isoformat() + 'Z'
+            if obj.get('desengatada_em'):
+                obj['desengatada_em'] = obj['desengatada_em'].isoformat() + 'Z'
             # Agendamento (UTC) — marca com 'Z' p/ o front converter pra local
             if obj.get('agendamento_final'):
                 obj['agendamento_final'] = obj['agendamento_final'].isoformat() + 'Z'
@@ -2753,6 +2770,78 @@ def api_embarques_carga_log(carga_id):
         return jsonify({'ok': False, 'error': str(e)}), 500
 
 
+# ── Carga: desengate de carreta carregada (drop-and-hook) ───────────────
+@app.route('/api/embarques/cargas/<int:carga_id>/desengatar', methods=['POST'])
+@login_required
+def api_embarques_carga_desengatar(carga_id):
+    """Desengata o cavalo+motorista; a carreta carregada segue no destino aguardando
+    descarga. Libera cavalo+motorista para nova carga (conflito passa a ignorá-los),
+    mantém a carreta comprometida e deixa a carga pronta p/ finalizar automático quando
+    a carreta sair do destino. Substituto (cavalo/motorista) é opcional, p/ registro."""
+    b = request.get_json(silent=True) or {}
+    try:
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("""
+            SELECT status, criado_por_id, no_local_desde
+            FROM embarques_cargas WHERE id = %s
+        """, (carga_id,))
+        row = cur.fetchone()
+        if not row:
+            cur.close(); conn.close()
+            return jsonify({'ok': False, 'error': 'Carga não encontrada'}), 404
+        status_atual, criado_por_id, no_local_desde = row
+
+        if not _pode_editar_carga(criado_por_id):
+            cur.close(); conn.close()
+            return jsonify({'ok': False, 'error': 'Você não pode desengatar esta carga. Apenas quem lançou ou um administrador.'}), 403
+
+        if status_atual not in ('Em rota', 'No destino'):
+            cur.close(); conn.close()
+            return jsonify({'ok': False, 'error': f'Só é possível desengatar uma carga "Em rota" ou "No destino" (status atual: {status_atual}).'}), 400
+
+        desc_mot = (b.get('descarga_motorista_nome') or '').strip() or None
+        desc_cav = (b.get('descarga_cavalo_placa') or '').strip().upper() or None
+        obs = (b.get('observacao') or '').strip()
+
+        # Marca o desengate. NÃO força no_local_desde: se a carreta ainda não chegou
+        # (desengate "Em rota" com GPS atrasado), deixa o worker detectar a chegada e só
+        # então finalizar na saída — evita finalização falsa quando a carreta está longe.
+        # Timestamps gravados como UTC naive (AT TIME ZONE 'UTC') — corretos qualquer que
+        # seja o fuso da sessão do Postgres (local em São Paulo, produção em UTC).
+        cur.execute("""
+            UPDATE embarques_cargas
+            SET status = 'Desengatada',
+                desengatada_em = (NOW() AT TIME ZONE 'UTC'),
+                desengatada_por_id = %s,
+                desengatada_por_nome = %s,
+                descarga_motorista_nome = %s,
+                descarga_cavalo_placa = %s,
+                atualizado_em = NOW()
+            WHERE id = %s
+        """, (session.get('user_id'), session.get('nome'), desc_mot, desc_cav, carga_id))
+
+        # Log do evento (campo 'desengate' p/ aparecer no histórico)
+        partes = []
+        if desc_cav: partes.append(f'cavalo {desc_cav}')
+        if desc_mot: partes.append(f'motorista {desc_mot}')
+        if obs: partes.append(obs)
+        detalhe = '; '.join(partes) if partes else 'cavalo+motorista liberados'
+        cur.execute("""
+            INSERT INTO embarques_cargas_log
+            (carga_id, usuario_id, usuario_nome, campo, valor_anterior, valor_novo)
+            VALUES (%s, %s, %s, 'desengate', %s, %s)
+        """, (carga_id, session.get('user_id'), session.get('nome'),
+              status_atual, detalhe))
+
+        conn.commit()
+        cur.close(); conn.close()
+        return jsonify({'ok': True, 'status': 'Desengatada'})
+    except Exception as e:
+        try: conn.rollback(); conn.close()
+        except Exception: pass
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
 # ── Cargas: CSV streaming ───────────────────────────────────────────────
 @app.route('/api/embarques/cargas/csv')
 @login_required
@@ -2844,7 +2933,8 @@ def api_embarques_kpis():
               COUNT(*) FILTER (WHERE status IN ('Em rota', 'No destino')) AS em_rota,
               COUNT(*) FILTER (WHERE status = 'Entregue'
                                AND date_trunc('month', data_conclusao) = date_trunc('month', (NOW() AT TIME ZONE 'America/Sao_Paulo')::date)) AS entregues_mes,
-              COUNT(*) FILTER (WHERE status = 'Aberta')                 AS abertas
+              COUNT(*) FILTER (WHERE status = 'Aberta')                 AS abertas,
+              COUNT(*) FILTER (WHERE status = 'Desengatada')            AS desengatadas
             FROM embarques_cargas
         """)
         r = cur.fetchone()
@@ -2856,6 +2946,7 @@ def api_embarques_kpis():
                 'em_rota':        r[1] or 0,
                 'entregues_mes':  r[2] or 0,
                 'abertas':        r[3] or 0,
+                'desengatadas':   r[4] or 0,
             }
         })
     except Exception as e:
@@ -3011,7 +3102,7 @@ def api_rastreamento_posicoes():
                    cavalo_placa, carreta1_placa, carreta2_placa
             FROM embarques_cargas c
             WHERE (c.cavalo_placa = p.placa OR c.carreta1_placa = p.placa OR c.carreta2_placa = p.placa)
-              AND c.status IN ('Aberta','Em rota','No destino')
+              AND c.status IN ('Aberta','Em rota','No destino','Desengatada')
             ORDER BY c.id DESC LIMIT 1
         ) ca ON true
     """
@@ -3084,7 +3175,8 @@ def api_rastreamento_trajeto(carga_id):
                    data_carregamento, data_saida_real, data_conclusao,
                    no_local_desde, saida_auto, entregue_auto,
                    rota_planejada_polyline, distancia_planejada_km, duracao_estimada_min,
-                   rota_recalculada_em, inicio_viagem
+                   rota_recalculada_em, inicio_viagem,
+                   desengatada_em, descarga_motorista_nome, descarga_cavalo_placa
             FROM embarques_cargas WHERE id=%s
         """, (carga_id,))
         r = cur.fetchone()
@@ -3246,6 +3338,9 @@ def api_rastreamento_trajeto(carga_id):
                 'no_local_desde': (carga['no_local_desde'].isoformat() + 'Z') if carga['no_local_desde'] else None,
                 'saida_auto': carga['saida_auto'],
                 'entregue_auto': carga['entregue_auto'],
+                'desengatada_em': (carga['desengatada_em'].isoformat() + 'Z') if carga.get('desengatada_em') else None,
+                'descarga_motorista_nome': carga.get('descarga_motorista_nome'),
+                'descarga_cavalo_placa': carga.get('descarga_cavalo_placa'),
             },
             'origem': origem,
             'destinos': destinos,
@@ -3278,7 +3373,13 @@ def api_rastreamento_trajeto(carga_id):
 @app.route('/api/rastreamento/cargas/<int:carga_id>/confirmar-entrega', methods=['POST'])
 @login_required
 def api_rastreamento_confirmar_entrega(carga_id):
-    """Confirma manualmente a entrega. status='Entregue', entregue_auto=false."""
+    """Confirma manualmente a entrega. status='Entregue', entregue_auto=false.
+    Aceita, no corpo (opcional), o cavalo/motorista que efetivou a descarga — usado
+    ao finalizar uma carga 'Desengatada' (registro de quem fez o trampo). Se nada for
+    enviado, preserva o que já estava (preenchido no desengate)."""
+    b = request.get_json(silent=True) or {}
+    desc_cav = (b.get('descarga_cavalo_placa') or '').strip().upper() or None
+    desc_mot = (b.get('descarga_motorista_nome') or '').strip() or None
     try:
         conn = get_db()
         cur = conn.cursor()
@@ -3290,16 +3391,28 @@ def api_rastreamento_confirmar_entrega(carga_id):
         if r[0] in ('Entregue', 'Cancelada'):
             cur.close(); conn.close()
             return jsonify({'ok': False, 'error': f'Carga já está {r[0]}'}), 400
+        # COALESCE: só sobrescreve descarga_* quando enviado; senão mantém o do desengate.
         cur.execute("""
             UPDATE embarques_cargas
-            SET status='Entregue', entregue_auto=FALSE, data_conclusao=NOW(), atualizado_em=NOW()
+            SET status='Entregue', entregue_auto=FALSE, data_conclusao=NOW(), atualizado_em=NOW(),
+                descarga_cavalo_placa = COALESCE(%s, descarga_cavalo_placa),
+                descarga_motorista_nome = COALESCE(%s, descarga_motorista_nome)
             WHERE id=%s
-        """, (carga_id,))
+        """, (desc_cav, desc_mot, carga_id))
         # Log no embarques_cargas_log
         cur.execute("""
             INSERT INTO embarques_cargas_log (carga_id, usuario_id, usuario_nome, campo, valor_anterior, valor_novo)
             VALUES (%s, %s, %s, 'status', %s, 'Entregue')
         """, (carga_id, session.get('user_id'), session.get('nome'), r[0]))
+        if desc_cav or desc_mot:
+            quem = '; '.join(p for p in [
+                ('cavalo ' + desc_cav) if desc_cav else '',
+                ('motorista ' + desc_mot) if desc_mot else '',
+            ] if p)
+            cur.execute("""
+                INSERT INTO embarques_cargas_log (carga_id, usuario_id, usuario_nome, campo, valor_anterior, valor_novo)
+                VALUES (%s, %s, %s, 'descarga', NULL, %s)
+            """, (carga_id, session.get('user_id'), session.get('nome'), quem))
         # Consolida KPI
         rastreamento_worker._consolidar_kpi(cur, carga_id, final=True)
         conn.commit()

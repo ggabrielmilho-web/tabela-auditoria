@@ -57,12 +57,18 @@ def _get_db():
     )
 
 
-def _placa_tracking(cavalo_placa, carreta1_placa, carreta2_placa, cur):
+def _placa_tracking(cavalo_placa, carreta1_placa, carreta2_placa, cur, apenas_carreta=False):
     """Retorna a 1ª placa com GPS mapeado em embarques_veiculos_rastreio.
     Ordem: carreta1 → cavalo → carreta2 — o rastreador costuma estar na carreta,
     que segue a carga inteira (o cavalo pode trocar no meio do caminho).
-    Retorna None se nenhuma das placas tem rastreio."""
-    for placa in (carreta1_placa, cavalo_placa, carreta2_placa):
+    Retorna None se nenhuma das placas tem rastreio.
+
+    apenas_carreta=True (carga 'Desengatada'): ignora o cavalo — ele foi liberado e
+    pode já estar em outra viagem; rastrear o cavalo poluiria o trajeto/disparia falsa
+    saída do destino. Só a carreta (que ficou carregada no destino) é considerada."""
+    candidatas = (carreta1_placa, carreta2_placa) if apenas_carreta \
+        else (carreta1_placa, cavalo_placa, carreta2_placa)
+    for placa in candidatas:
         p = (placa or '').strip().upper()
         if not p:
             continue
@@ -403,7 +409,7 @@ def _processar_cargas(cur):
                c.no_local_desde, c.rota_planejada_polyline, c.rota_recalculada_em,
                c.distancia_planejada_km, c.inicio_viagem, c.data_carregamento
         FROM embarques_cargas c
-        WHERE c.status IN ('Aberta', 'Em rota', 'No destino')
+        WHERE c.status IN ('Aberta', 'Em rota', 'No destino', 'Desengatada')
           AND (
             EXISTS (SELECT 1 FROM embarques_veiculos_rastreio v WHERE v.placa = c.carreta1_placa)
             OR EXISTS (SELECT 1 FROM embarques_veiculos_rastreio v WHERE v.placa = c.cavalo_placa)
@@ -417,7 +423,11 @@ def _processar_cargas(cur):
          origem_cid, origem_uf, origem_lat, origem_lng,
          no_local_desde, polyline, rota_rec_em, dist_plan, inicio_viagem, data_carreg) = cg
 
-        placa = _placa_tracking(cavalo_placa, carreta1_placa, carreta2_placa, cur)
+        # Desengatada: cavalo+motorista liberados → rastreia SÓ a carreta (carregada no
+        # destino). Só interessa detectar a saída da carreta = finalização automática.
+        desengatada = (status == 'Desengatada')
+        placa = _placa_tracking(cavalo_placa, carreta1_placa, carreta2_placa, cur,
+                                apenas_carreta=desengatada)
         if not placa:
             continue
 
@@ -474,7 +484,9 @@ def _processar_cargas(cur):
                 status = 'Em rota'
 
         # ── CHEGADA NA CIDADE DO DESTINO (marca no_local_desde; segue 'Em rota' + ícone 📦)
-        if status == 'Em rota' and no_local_desde is None:
+        # Vale também p/ 'Desengatada' (desengate "Em rota" antes do GPS confirmar a chegada):
+        # o worker detecta a chegada da carreta e só então a saída finaliza — sem fechar cedo.
+        if status in ('Em rota', 'Desengatada') and no_local_desde is None:
             if _mesma_cidade(pos_cidade, pos_uf, dest_cidade, dest_uf):
                 cur.execute("UPDATE embarques_cargas SET no_local_desde=NOW(), atualizado_em=NOW() WHERE id=%s", (carga_id,))
                 _logger.info(f'[Carga {carga_id}/{placa}] Chegou na cidade do destino ({dest_cidade}/{dest_uf})')
@@ -489,8 +501,8 @@ def _processar_cargas(cur):
             _logger.info(f'[Carga {carga_id}/{placa}] Parado na cidade do destino há +{CHEGADA_MIN_PARADO}min → status "No destino"')
             status = 'No destino'
 
-        # ── SAÍDA DO DESTINO (= entrega automática) — vale p/ 'Em rota' OU 'No destino'
-        if status in ('Em rota', 'No destino') and no_local_desde is not None:
+        # ── SAÍDA DO DESTINO (= entrega automática) — 'Em rota', 'No destino' ou 'Desengatada'
+        if status in ('Em rota', 'No destino', 'Desengatada') and no_local_desde is not None:
             if _saiu_da_cidade(cur, placa, pos_cidade, dest_cidade, dest_uf, centroide_dest, RAIO_SAIDA_DESTINO_KM):
                 cur.execute("""
                     UPDATE embarques_cargas
@@ -506,7 +518,7 @@ def _processar_cargas(cur):
         # Calcula 1× quando ainda não há rota (criação ou reset/regeneração ao editar). NÃO
         # recalcula "da posição atual" (truncava a rota e soltava a origem); o "km faltando"
         # é derivado da posição sobre esta rota completa, no endpoint.
-        if polyline is None and centroide_origem[0] is not None:
+        if polyline is None and centroide_origem[0] is not None and not desengatada:
             try:
                 import ors_client
                 # origem + cidades de rota (ordem) + todos os destinos (ordem)

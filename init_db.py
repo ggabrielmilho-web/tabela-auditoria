@@ -347,6 +347,20 @@ cur.execute("CREATE INDEX IF NOT EXISTS ix_rota_carga ON embarques_cargas_rota (
 
 print("✅ Viagem vazia + cidades de rota prontas.\n")
 
+# ════════════════════════════════════════════════════════════════════════════
+# DESENGATE DE CARRETA CARREGADA (drop-and-hook)
+# ════════════════════════════════════════════════════════════════════════════
+# Status novo 'Desengatada': cavalo+motorista liberados, carreta carregada segue
+# no destino aguardando/em descarga. (status é VARCHAR sem CHECK — valor é livre.)
+cur.execute("ALTER TABLE embarques_cargas ADD COLUMN IF NOT EXISTS desengatada_em TIMESTAMP;")
+cur.execute("ALTER TABLE embarques_cargas ADD COLUMN IF NOT EXISTS desengatada_por_id INTEGER REFERENCES auditoria_users(id);")
+cur.execute("ALTER TABLE embarques_cargas ADD COLUMN IF NOT EXISTS desengatada_por_nome VARCHAR(180);")
+# Substituto (opcional) que vai terminar a descarga — registro/histórico
+cur.execute("ALTER TABLE embarques_cargas ADD COLUMN IF NOT EXISTS descarga_motorista_nome VARCHAR(180);")
+cur.execute("ALTER TABLE embarques_cargas ADD COLUMN IF NOT EXISTS descarga_cavalo_placa VARCHAR(10);")
+
+print("✅ Desengate de carreta carregada (status Desengatada) pronto.\n")
+
 conn.commit()
 cur.close()
 conn.close()

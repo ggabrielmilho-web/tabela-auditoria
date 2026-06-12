@@ -50,6 +50,7 @@
   .kpi-card:nth-child(2)::before { background: var(--green); }
   .kpi-card:nth-child(3)::before { background: var(--accent2); }
   .kpi-card:nth-child(4)::before { background: var(--orange); }
+  .kpi-card:nth-child(5)::before { background: var(--yellow, #facc15); }
   .kpi-card .label { font-size: 0.72rem; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
   .kpi-card .value { font-size: 1.8rem; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
 
@@ -78,6 +79,7 @@
   .badge-Aberta   { background: rgba(56,189,248,0.15); color: var(--accent); }
   .badge-Em-rota  { background: rgba(251,146,60,0.15); color: var(--orange); }
   .badge-No-destino { background: rgba(167,139,250,0.15); color: #a78bfa; }
+  .badge-Desengatada { background: rgba(250,204,21,0.15); color: #facc15; }
   .badge-Entregue { background: rgba(52,211,153,0.15); color: var(--green); }
   .badge-Cancelada{ background: rgba(248,113,113,0.15); color: var(--red); }
 </style>
@@ -106,6 +108,7 @@
     <div class="kpi-card"><div class="label">Em rota</div><div class="value" id="kpiRota">—</div></div>
     <div class="kpi-card"><div class="label">Entregues no mês</div><div class="value" id="kpiEntregues">—</div></div>
     <div class="kpi-card"><div class="label">Abertas</div><div class="value" id="kpiAbertas">—</div></div>
+    <div class="kpi-card"><div class="label">Carretas desengatadas</div><div class="value" id="kpiDesengatadas">—</div></div>
   </div>
 
   <div class="acoes" style="grid-template-columns:repeat(3,1fr);">
@@ -163,6 +166,7 @@
         document.getElementById('kpiRota').textContent = j.data.em_rota;
         document.getElementById('kpiEntregues').textContent = j.data.entregues_mes;
         document.getElementById('kpiAbertas').textContent = j.data.abertas;
+        document.getElementById('kpiDesengatadas').textContent = j.data.desengatadas ?? 0;
       }
     } catch (e) {}
   }

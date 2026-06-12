@@ -2,7 +2,7 @@
 
 Sistema web interno da **Rizza Transportes** que reúne, numa única interface acessível via navegador, duas grandes frentes:
 
-1. **Analítico/financeiro** — auditoria de receita, análise de tarifas, geração de atas de reunião por IA e relatórios DRE com assistente financeiro. Substitui múltiplos relatórios Power BI.
+1. **Analítico/financeiro** — auditoria de receita, análise de tarifas, geração de atas de reunião por IA, emissão de contratos TAC por IA e relatórios DRE com assistente financeiro. Substitui múltiplos relatórios Power BI.
 2. **Operacional/logística** — lançamento e acompanhamento de cargas (Embarques) e **rastreamento GPS** dos veículos em rota, com mapa em tempo real, detecção automática de saída/entrega e cálculo de rota planejada.
 
 URL de produção: **https://rizza.carvalhoia.com**
@@ -13,12 +13,13 @@ URL de produção: **https://rizza.carvalhoia.com**
 
 ### Para todos os usuários autenticados
 - **Auditoria Receita** (`/`) — Dashboard com KPIs e tabela de auditoria de receita, com filtros, drag-and-drop de colunas e exportação CSV. **Abre já filtrada no mês corrente** (fallback: mês mais recente com dados)
-- **Tarifas** (`/tarifas`) — Consulta de tabela de fretes em cascata (cliente → origem → destino → tipo veículo) + simulador de frete. **Comparativo de até 4 blocos** (rotas/clientes lado a lado, cada um com seu simulador) + **resumo consolidado** que reflete o filtro. **Total + Impostos (ICMS)** como linha informativa para o comercial — usa `icms_valor` ou a matriz `icms_aliquota` (cálculo por dentro). *Depende da publicação de colunas novas no dataset Power BI (ver Roadmap).*
-- **Embarques** (`/embarques`) — Lançamento de cargas (Terceiro / Agregado / Frota), relatório filtrável + CSV, edição com log de auditoria por campo e histórico. **Agendamento por destino** (data/hora com o cliente), com filtro "Por agendamento", **badge de atraso** (agendamento vencido + carga ativa) e **ETA realista** (~600 km/dia)
-- **Mapa / Rastreamento** (`/embarques/mapa`, `/embarques/cargas/<id>/mapa`) — Mapa em tempo real (Leaflet): posição dos veículos e trajeto de cada carga, rota planejada **origem→destino completa**, KPIs de viagem **ao vivo** (vel. máx/média, km, tempos) e **Data de saída** no painel da carga. Fluxo de status automático **Aberta → Em rota → No destino → Entregue** (`No destino` = parado na cidade da descarga há +60 min). **Rastreia pela carreta** (carreta1 → cavalo → carreta2 — o GPS costuma estar na carreta). **Reconstrói o trajeto** mesmo em lançamento tardio: detecta a saída da origem pelo GPS (por cidade) e persiste em `inicio_viagem`
+- **Tarifas** (`/tarifas`) — Consulta de tabela de fretes em cascata (cliente → origem → destino → tipo veículo) + simulador de frete. **Comparativo de até 4 blocos** (rotas/clientes lado a lado, cada um com seu simulador) + **resumo consolidado** que reflete o filtro. **Total + Impostos (ICMS)** como linha informativa para o comercial — usa `icms_valor` ou a matriz `icms_aliquota` (cálculo por dentro). Mostra também **ICMS Incluso**, **Pedágio Incluso** e **Prazo de Recebimento** (colunas `icms_incluso`/`pedagio_incluso`/`prazo_recebimento` já publicadas no dataset Power BI)
+- **Embarques** (`/embarques`) — Lançamento de cargas (Terceiro / Agregado / Frota), relatório filtrável + CSV, edição com log de auditoria por campo e histórico. **Agendamento por destino** (data/hora com o cliente), com filtro "Por agendamento", **badge de atraso** (agendamento vencido + carga ativa) e **ETA realista** (~600 km/dia). Suporta **viagem vazia** (carga sem cliente) e **cidades de rota/passagem** (pontos que moldam o caminho da rota planejada sem serem destino de entrega). **Desengate de carreta carregada** (drop-and-hook): libera cavalo+motorista para outra viagem com a carreta ainda no destino aguardando descarga (ver Módulo Embarques)
+- **Mapa / Rastreamento** (`/embarques/mapa`, `/embarques/cargas/<id>/mapa`) — Mapa em tempo real (Leaflet): posição dos veículos e trajeto de cada carga, rota planejada **origem → cidades de rota → destinos** (completa, multi-ponto), KPIs de viagem **ao vivo** (vel. máx/média, km, tempos) e **Data de saída** no painel da carga. Fluxo de status automático **Aberta → Em rota → No destino → Entregue** (`No destino` = parado na cidade da descarga há +60 min), com desvio **Desengatada** (carreta carregada largada no destino). **Rastreia pela carreta** (carreta1 → cavalo → carreta2 — o GPS costuma estar na carreta). **Reconstrói o trajeto** mesmo em lançamento tardio: detecta a saída da origem pelo GPS (por distância, pois o 3S erra o nome da cidade) e persiste em `inicio_viagem`. Mapa geral tem filtro **🔌 Desengatadas** e marcador próprio
 
 ### Restrito a admins
 - **Reunião** (`/reuniao`) — Gerador de ata de reunião a partir de áudio. Transcreve via AssemblyAI (com identificação de falantes) e gera ata profissional via GPT-4.1-mini. Exporta em Word e PDF
+- **Contratos** (`/contratos`) — Emissão de **contrato TAC Agregado** por IA. O operador sobe os documentos (CNH, CRLV, RNTRC/ANTT, comprovante de endereço, dados bancários); o GPT-4.1-mini (visão) **extrai os campos** de cada documento-fonte correto, o backend reconfere **pendências impeditivas** em Python e preenche o **template Word soberano** (`contrato_tac_template.docx` via docxtpl — o texto jurídico nunca é tocado). Gera **comodato de rastreador** quando o agregado não usa rastreador próprio. Exporta `.docx` e oferece **preview HTML** (para "Salvar como PDF" pelo navegador)
 - **DRE** (`/dre`) — Demonstração do Resultado do Exercício com 4 gráficos analíticos (Waterfall, Donut por Grupo, Pareto 80/20, Comparativo Mensal) e chat IA financeiro com streaming em tempo real
 - **Despesas** (`/dre/despesas`) — Auditoria detalhada de `consulta_despesas_477` com filtros, drilldown por grupo/evento e exportação CSV em streaming
 - **Conhecimentos** (`/dre/conhecimentos`) — Auditoria detalhada de `conhecimentos_emitidos` com filtros e exportação CSV em streaming
@@ -48,7 +49,7 @@ URL de produção: **https://rizza.carvalhoia.com**
 - **IBGE** — autocomplete de cidades (no formulário) e centroides de municípios (geocoding do trajeto)
 
 ### Integrações IA
-- **OpenAI GPT-4.1-mini** — geração de atas e chat financeiro
+- **OpenAI GPT-4.1-mini** — geração de atas, chat financeiro e **extração de dados de documentos por visão** (contratos TAC: CNH, CRLV, RNTRC etc.)
 - **AssemblyAI** — transcrição de áudio com diarização de falantes (universal-3-pro + universal-2)
 
 ### Frontend
@@ -60,8 +61,11 @@ URL de produção: **https://rizza.carvalhoia.com**
 - Fontes: DM Sans + JetBrains Mono
 
 ### Exportação
-- **python-docx** — geração de Word
-- **reportlab** — geração de PDF
+- **python-docx** — geração de Word (atas)
+- **docxtpl** — preenchimento do template de contrato TAC (Word soberano)
+- **PyMuPDF** (`fitz`) — rasteriza PDFs de documentos em imagens para a IA de extração
+- **mammoth** — converte o `.docx` do contrato em HTML (preview/impressão)
+- **reportlab** — geração de PDF (atas)
 - CSV nativo (streaming server-side para grandes volumes)
 
 ### Infraestrutura
@@ -129,6 +133,7 @@ Tabela Auditoria/
 ├── index.html                   # Auditoria Receita (dashboard principal)
 ├── tarifas.html                 # Tarifas de frete + simulador
 ├── reuniao.html                 # Gerador de ata
+├── contratos.html               # Emissão de contrato TAC Agregado por IA
 ├── admin.html                   # Gerenciamento de usuários
 ├── dre.html                     # DRE com gráficos e chat IA
 ├── dre-despesas.html            # Auditoria detalhada de despesas
@@ -139,6 +144,11 @@ Tabela Auditoria/
 ├── embarques-relatorio.html     # Listagem + filtros + CSV + edição + histórico
 ├── mapa.html                    # Mapa geral (todos os veículos)
 ├── mapa-carga.html              # Mapa de uma carga (trajeto + rota planejada)
+│
+│   # ── Módulo Contratos TAC ──
+├── contratos_service.py         # Extração IA (visão) + pendências + render do template
+├── contrato_tac_template.docx   # Template Word soberano (texto jurídico fixo + campos docxtpl)
+├── _build_template.py           # Deriva o template a partir do contrato-origem (rodar 1x)
 │
 │   # ── Módulo Rastreamento ──
 ├── rastreamento_worker.py       # Worker daemon (60s): posições, saída/entrega auto, recálculo de rota
@@ -196,8 +206,11 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 | `OPENROUTE_API_KEY` | Chave do OpenRouteService (rota HGV) | — |
 | `RASTREAMENTO_INTERVALO` | Intervalo do ciclo do worker (segundos) | `60` |
 | `RASTREAMENTO_CICLOS_CONFIRMACAO` | Ciclos consecutivos p/ confirmar evento | `3` |
-| `RASTREAMENTO_RAIO_KM` | Raio (km) p/ considerar veículo "na" origem/destino | `5` |
+| `RASTREAMENTO_RAIO_KM` | Raio (km) de confirmação de evento (chegada na cidade) | `5` |
+| `RASTREAMENTO_RAIO_SAIDA_ORIGEM` | Raio (km) p/ confirmar saída da **origem** (pátio/base, raio menor) | `30` |
+| `RASTREAMENTO_RAIO_SAIDA_DESTINO` | Raio (km) p/ confirmar saída do **destino** (pode ser grande centro, raio maior) | `60` |
 | `RASTREAMENTO_DESVIO_KM` | Desvio (km) da rota que dispara recálculo | `10` |
+| `RASTREAMENTO_RECALCULO_MIN` | Intervalo mínimo (min) entre recálculos de rota | `30` |
 | `RASTREAMENTO_RETENCAO_DIAS` | Retenção do histórico de posições | `30` |
 | `RASTREAMENTO_RECONSTRUCAO_DIAS` | Teto p/ trás na detecção da saída da origem (`inicio_viagem`) | `15` |
 | `KM_DIA_PADRAO` | Km/dia usado na ETA realista | `600` |
@@ -216,6 +229,7 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 - `GET /` — Auditoria Receita
 - `GET /tarifas` — Tarifas
 - `GET /reuniao` — Reunião (admin)
+- `GET /contratos` — Contratos TAC (admin)
 - `GET /dre` — DRE (admin)
 - `GET /dre/despesas` — Despesas (admin)
 - `GET /dre/conhecimentos` — Conhecimentos (admin)
@@ -244,6 +258,11 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 - `POST /api/reuniao/processar` — recebe áudio, transcreve e gera ata
 - `POST /api/reuniao/exportar` — exporta ata em Word ou PDF
 
+### Contratos TAC (admin)
+- `POST /api/contratos/extrair` — recebe documentos (multipart), extrai os dados via IA de visão e devolve `{dados, pendencias}`. Aceita `dados` já editados para **mesclar** numa reextração com mais documentos (preserva edições manuais)
+- `POST /api/contratos/gerar` — valida pendências impeditivas (+ comodato) e devolve o `.docx` do contrato preenchido
+- `POST /api/contratos/preview` — mesma validação e devolve o contrato em **HTML** (para "Salvar como PDF" pelo navegador)
+
 ### Chat IA
 - `POST /api/chat-dre` — chat financeiro com streaming SSE
 
@@ -266,6 +285,7 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 - `GET /api/embarques/cargas` — listagem com filtros (período, tipo, cliente, embarcador, motorista, UF, status, busca livre)
 - `GET /api/embarques/cargas/<id>` — detalhe (carga + destinos)
 - `PATCH /api/embarques/cargas/<id>` — edita (diff por campo → `embarques_cargas_log`; status `Entregue` preenche `data_conclusao`)
+- `POST /api/embarques/cargas/<id>/desengatar` — desengate de carreta carregada: `status='Desengatada'`, libera cavalo+motorista do conflito (carreta segue comprometida), seta `no_local_desde` se nulo e registra substituto opcional + log. Requer status `Em rota`/`No destino` e permissão de edição
 - `GET /api/embarques/cargas/<id>/log` — histórico de edições
 - `GET /api/embarques/cargas/csv` — CSV streaming (mesmos filtros)
 - `GET /api/embarques/kpis` — 4 contadores (hoje, em rota, entregues no mês, abertas)
@@ -372,8 +392,9 @@ CREATE TABLE auditoria_users (
 ### Embarques (Postgres local)
 | Tabela | Função |
 |---|---|
-| `embarques_cargas` | Carga com snapshot completo de motorista/veículos como TEXTO (preserva histórico). `numero` no formato `C-AAAA-000001`. Campos de rastreamento: `origem_latitude/longitude`, `data_saida_real`, `saida_auto`, `no_local_desde`, `entregue_auto`, `rota_planejada_polyline`, `distancia_planejada_km`, `duracao_estimada_min`, `rota_recalculada_em`, **`inicio_viagem`** (saída da origem detectada pelo GPS e persistida 1×) |
+| `embarques_cargas` | Carga com snapshot completo de motorista/veículos como TEXTO (preserva histórico). `numero` no formato `C-AAAA-000001`. **`viagem_vazia`** = carga sem cliente (`cliente_nome` aceita NULL). `status` ∈ `Aberta`/`Em rota`/`No destino`/**`Desengatada`**/`Entregue`/`Cancelada` (VARCHAR sem CHECK). Campos de rastreamento: `origem_latitude/longitude`, `data_saida_real`, `saida_auto`, `no_local_desde`, `entregue_auto`, `rota_planejada_polyline`, `distancia_planejada_km`, `duracao_estimada_min`, `rota_recalculada_em`, **`inicio_viagem`** (saída da origem detectada pelo GPS e persistida 1×). Desengate: `desengatada_em`, `desengatada_por_id/nome`, `descarga_motorista_nome`, `descarga_cavalo_placa` (substituto opcional) |
 | `embarques_cargas_destinos` | Destinos múltiplos por carga (`ordem`, cidade, UF, lat/lng, **`data_agendamento`** = compromisso c/ cliente, `entregue_em`/`entregue_por_*`) |
+| `embarques_cargas_rota` | **Cidades de rota/passagem** por carga (`ordem`, cidade, UF, lat/lng). Moldam o caminho da rota planejada (origem → rota → destinos) — **não são pontos de entrega** |
 | `embarques_cargas_log` | Auditoria de edição — 1 linha por campo alterado |
 | `clientes` | Tabela existente reutilizada; índice único case-insensitive p/ cadastro manual |
 
@@ -411,6 +432,7 @@ Registra carregamentos de carga e centraliza o que antes era lançado manualment
 - **Cidades**: autocomplete via API IBGE.
 - **Exclusão**: não há DELETE — cancelamento via mudança de status para `Cancelada`.
 - **Auditoria**: toda edição grava diff por campo em `embarques_cargas_log`, visível no modal "🕐 Histórico".
+- **Desengate de carreta carregada** (`status='Desengatada'`): na fila de descarga, o cavalo+motorista são desengatados e seguem para outra viagem; a **carreta carregada permanece no destino**. O botão "🔌 Desengatar" (relatório) **libera cavalo+motorista** do conflito (podem entrar em carga nova) mantendo a **carreta ainda comprometida**, registra `desengatada_em`/responsável e o **substituto opcional** (cavalo/motorista que vai terminar a descarga) no histórico. A carga **finaliza automaticamente** quando a carreta sai do destino (worker), ou manualmente em "🏁 Finalizar descarga". Visibilidade: card de KPI "Carretas desengatadas", filtro/badge no relatório e filtro 🔌 no mapa geral.
 
 Detalhes da Fase 1 estão em [`PLANO-EMBARQUES.md`](PLANO-EMBARQUES.md).
 
@@ -423,22 +445,37 @@ Acompanhamento GPS dos veículos em rota, com mapa em tempo real e automação d
 ### Componentes
 - **`tres_s_client.py`** — cliente da DataExportAPI da 3S. Token cacheado em `embarques_3s_token` (renovado 60s antes de expirar), **token bucket de 8 chamadas/min** (margem do limite oficial de 10/min), retry no 401. Quando `MODO_SIMULADO=true`, roteia tudo para `simulador_3s.py`.
 - **`simulador_3s.py`** — stub com a mesma interface da 3S, lendo posições de `embarques_simulacao`. Permite testar o fluxo sem a API real.
-- **`ors_client.py`** — OpenRouteService (`/v2/directions/driving-hgv`). Retorna polyline + distância + duração. Free tier: 2.000 chamadas/dia.
+- **`ors_client.py`** — OpenRouteService (`/v2/directions/driving-hgv`). Retorna polyline + distância + duração. `tracar_rota_multi(pontos)` traça a rota **multi-ponto** (origem → cidades de rota → destinos). Free tier: 2.000 chamadas/dia.
 - **`geocoding.py`** — distância Haversine, normalização de nome de cidade (uppercase sem acento) e geocoder por centroide IBGE.
 - **`rastreamento_worker.py`** — thread daemon dentro do processo Flask.
 
 ### Ciclo do worker (a cada `RASTREAMENTO_INTERVALO`, default 60s)
 1. Busca a última posição de todos os veículos (3S real ou simulador) → UPSERT em `embarques_posicoes_atuais` + INSERT em `embarques_posicoes_historico`.
 2. Para cada carga `Aberta`/`Em rota`/`No destino` com veículo mapeado, detecta automaticamente:
-   - **Saída da origem** (`Aberta` → `Em rota`, marca `saida_auto` + `data_saida_real`)
+   - **Saída da origem** (`Aberta` → `Em rota`, marca `saida_auto` + `data_saida_real` com o horário GPS). Confirmada por **distância** (`RASTREAMENTO_RAIO_SAIDA_ORIGEM`, default 30 km) porque o 3S erra o nome da cidade (etiqueta a origem a 100+ km)
    - **Chegada na cidade do destino** (marca `no_local_desde`, segue `Em rota`)
    - **No destino** (`Em rota` → `No destino`): na cidade da descarga há ≥ 60 min **e** parado agora (velocidade ≤ 3 km/h). Limite fixo (`CHEGADA_MIN_PARADO`)
-   - **Saída do destino** = **entrega automática** (`No destino`/`Em rota` → `Entregue`, marca `entregue_auto`)
-   - **Recálculo da rota** (ORS) se passou `RASTREAMENTO_RECALCULO_MIN` ou divergiu mais que `RASTREAMENTO_DESVIO_KM` da rota planejada
-3. Eventos exigem `RASTREAMENTO_CICLOS_CONFIRMACAO` ciclos consecutivos dentro do `RASTREAMENTO_RAIO_KM` para serem confirmados (evita falso positivo).
+   - **Saída do destino** = **entrega automática** (`No destino`/`Em rota`/`Desengatada` → `Entregue`, marca `entregue_auto`, consolida o KPI final). Confirmada por distância (`RASTREAMENTO_RAIO_SAIDA_DESTINO`, default 60 km — raio maior p/ não bugar em grande centro). Em carga **`Desengatada`** o worker rastreia **só a carreta** (o cavalo foi liberado e pode estar em outra viagem), então é a saída da carreta carregada que finaliza a carga
+   - **Cálculo da rota planejada** (ORS, multi-ponto): origem → **cidades de rota** → todos os destinos. Calculado 1× quando ainda não há rota; o "km faltando" é derivado da posição atual projetada sobre a rota completa (não recalcula truncando)
+3. Eventos exigem `RASTREAMENTO_CICLOS_CONFIRMACAO` ciclos consecutivos fora do `RASTREAMENTO_RAIO_KM` para serem confirmados (evita falso positivo).
 4. Job de retenção 1×/dia limpa histórico além de `RASTREAMENTO_RETENCAO_DIAS`.
 
 O worker só inicia se `START_WORKER=true`. O modo (SIMULADO/REAL) é impresso no boot.
+
+---
+
+## Módulo Contratos TAC
+
+Emissão assistida por IA do **contrato TAC Agregado** (transportador autônomo de cargas). Substitui o preenchimento manual a partir dos documentos do agregado.
+
+### Fluxo
+1. **Extração** (`extrair_documentos`) — o operador sobe CNH, RG, CRLV/ATPV, consulta RNTRC/ANTT, comprovante de endereço e dados bancários. PDFs são rasterizados com PyMuPDF; o **GPT-4.1-mini (visão)** classifica cada documento e extrai **cada campo da sua fonte correta** (ex.: nome sempre da CNH, nunca da ANTT) em JSON. Reextrair com mais documentos **mescla** sobre o que já existe, preservando edições manuais (`merge_dados`).
+2. **Pendências impeditivas** (`checar_pendencias`) — reconferidas em **Python** (não confia só na IA): faltando nome, CPF/CNPJ, RNTRC, placa, documento do veículo (RENAVAM/chassi) ou dados bancários (Banco+Agência+Conta ou PIX) bloqueia a emissão. A IA é instruída a **não criar exigências** novas.
+3. **Geração** (`montar_contexto` + `gerar_docx`) — preenche o **template soberano** `contrato_tac_template.docx` via docxtpl. O texto jurídico e os dados da Contratante (Rizza) **nunca são tocados** — a IA só preenche os campos variáveis. Quando o agregado **não usa rastreador próprio**, inclui o bloco de **comodato** do rastreador (marca/modelo, nº de série, estado).
+
+### Princípios
+- O template `.docx` é a **única fonte** do texto do contrato; o preview HTML (mammoth) é derivado do mesmo `.docx` renderizado — não há duas versões do texto.
+- O template é derivado do contrato-origem por `_build_template.py` (rodar 1×, fora do fluxo de produção).
 
 ---
 
@@ -518,7 +555,10 @@ Resultado Final   = Pós Investimento - Retiradas
 - [x] Comparativo de tarifas (até 4 blocos + resumo)
 - [x] Faturamento por Tomador (matriz tomador × mês, consolidado por raiz de CNPJ)
 - [x] Auditoria Receita abrindo no mês corrente
-- [ ] **Publicar no Power BI as 3 colunas novas de tarifas** (`icms_incluso`, `pedagio_incluso`, `prazo_recebimento`) — pré-requisito p/ os cards e o "Total + Impostos" aparecerem (hoje só no BD de origem)
+- [x] Emissão de contrato TAC Agregado por IA (extração de documentos + template soberano + comodato)
+- [x] Viagem vazia + cidades de rota/passagem (rota planejada multi-ponto)
+- [x] Desengate de carreta carregada (status `Desengatada`: libera cavalo+motorista, carreta segue no destino, finaliza automático na saída da carreta)
+- [x] **Publicar no Power BI as 3 colunas novas de tarifas** (`icms_incluso`, `pedagio_incluso`, `prazo_recebimento`) — já publicadas; cards e "Total + Impostos" ativos
 - [ ] **Conectar carga (embarques) ↔ documentos fiscais** (auditoria/conhecimentos) por placa+data ou manifesto — enriquecer auditoria com Nº da carga, "Rastreada" e Embarcador
 - [ ] **Dedupe do mapa geral** (carga de frota aparece 2× — cavalo + carreta)
 - [ ] Cache do token Power BI (atualmente requisitado a cada chamada)

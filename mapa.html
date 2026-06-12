@@ -147,6 +147,7 @@
       <div class="tabs">
         <div class="tab active" data-filter="todos">Todos</div>
         <div class="tab" data-filter="carregados">🚛 Carregados</div>
+        <div class="tab" data-filter="desengatadas">🔌 Desengatadas</div>
         <div class="tab" data-filter="vazios">⚪ Vazios</div>
       </div>
       <label class="toggle"><input type="checkbox" id="toggleRizza"> Só frota Rizza</label>
@@ -241,10 +242,13 @@
   function makeIcon(p) {
     const s = statusVeiculo(p);
     const cor = corStatus[s];
+    const desengatada = p.status === 'Desengatada';
     const tem_carga = p.carregado;
-    const ico = tem_carga ? '🚛' : '🚚';
+    const ico = desengatada ? '🔌' : (tem_carga ? '🚛' : '🚚');
+    // Carreta desengatada parada no destino: anel âmbar p/ destacar na visão geral
+    const ring = desengatada ? 'box-shadow:0 0 0 3px #facc15;' : '';
     return L.divIcon({
-      html: `<div class="marker-truck" style="background:${cor};">${ico}</div>`,
+      html: `<div class="marker-truck" style="background:${cor};${ring}">${ico}</div>`,
       className: '',
       iconSize: [32, 32],
       iconAnchor: [16, 16],
@@ -281,6 +285,7 @@
     if (p.carregado && p.carga_id) {
       html += `<div class="popup-row" style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px;">`;
       html += `<strong>Carga:</strong> ${p.numero || '—'}`;
+      if (p.status === 'Desengatada') html += `<div style="color:#facc15;font-weight:600;">🔌 Desengatada · carregada (aguardando descarga)</div>`;
       if (p.motorista_nome) html += `<div>Motorista: ${p.motorista_nome}</div>`;
       if (p.cliente_nome) html += `<div>Cliente: ${p.cliente_nome}</div>`;
       html += `<a class="popup-link" href="/embarques/cargas/${p.carga_id}/mapa" target="_blank">🗺️ Detalhes da carga</a>`;
@@ -299,6 +304,7 @@
     const cidadeFiltro = normalizar(filtroCidade);
     return posicoes.filter(p => {
       if (filtro === 'carregados' && !p.carregado) return false;
+      if (filtro === 'desengatadas' && p.status !== 'Desengatada') return false;
       if (filtro === 'vazios' && p.carregado) return false;
       if (soRizza && !p.cavalo_eh_rizza) return false;
       if (cidadeFiltro) {

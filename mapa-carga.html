@@ -76,6 +76,7 @@
   .badge-Em\\ rota  { background: rgba(251,146,60,0.15); color: var(--orange); }
   .badge-Em-rota  { background: rgba(251,146,60,0.15); color: var(--orange); }
   .badge-No-destino { background: rgba(167,139,250,0.15); color: #a78bfa; }
+  .badge-Desengatada { background: rgba(250,204,21,0.15); color: #facc15; }
   .badge-Entregue { background: rgba(52,211,153,0.15); color: var(--green); }
   .badge-Cancelada{ background: rgba(248,113,113,0.15); color: var(--red); }
 
@@ -197,6 +198,28 @@
   </aside>
 </div>
 
+<!-- Modal Finalizar descarga (carga desengatada) -->
+<div id="modalFinalizar" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center;">
+  <div style="background:var(--surface,#11161f);border:1px solid var(--border,#1f2733);border-radius:12px;padding:22px;width:min(440px,92vw);">
+    <h2 style="margin:0 0 6px;font-size:1.1rem;">Finalizar descarga</h2>
+    <p style="color:var(--text-dim,#94a3b8);font-size:0.85rem;margin:0 0 14px;">
+      A carga será marcada como <strong>Entregue</strong>. Registre quem efetivamente fez a descarga
+      (se já preenchido no desengate, vem aqui e pode ser ajustado).
+    </p>
+    <label style="display:block;font-size:0.8rem;margin-bottom:4px;">Cavalo que fez a descarga <span style="color:#f87171;">*</span></label>
+    <input type="text" id="fzCavalo" list="dlFzCavalos" placeholder="Placa" style="text-transform:uppercase;width:100%;padding:9px;border-radius:8px;border:1px solid var(--border,#1f2733);background:var(--bg,#0a0e17);color:var(--text,#e2e8f0);margin-bottom:12px;">
+    <datalist id="dlFzCavalos"></datalist>
+    <label style="display:block;font-size:0.8rem;margin-bottom:4px;">Motorista que fez a descarga <span style="color:#f87171;">*</span></label>
+    <input type="text" id="fzMotorista" list="dlFzMotoristas" placeholder="Nome ou CPF" style="width:100%;padding:9px;border-radius:8px;border:1px solid var(--border,#1f2733);background:var(--bg,#0a0e17);color:var(--text,#e2e8f0);margin-bottom:8px;">
+    <datalist id="dlFzMotoristas"></datalist>
+    <div id="fzErro" style="color:#f87171;font-size:0.82rem;min-height:1.1em;"></div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">
+      <button class="btn-acao" onclick="fecharFinalizar()">Cancelar</button>
+      <button class="btn-acao" id="fzConfirmar" style="border-color:#34d399;color:#34d399;" onclick="confirmarFinalizar()">🏁 Finalizar descarga</button>
+    </div>
+  </div>
+</div>
+
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
   // ── Decodificador polyline (Google encoded) ──
@@ -219,6 +242,7 @@
   // ── ID da carga vem da URL ──
   const cargaId = parseInt(location.pathname.match(/cargas\/(\d+)\/mapa/)[1], 10);
   document.getElementById('bcNum').textContent = '#' + cargaId;
+  let CARGA_ATUAL = null;
 
   // ── Mapa ──
   const mapa = L.map('mapa', { zoomControl: true }).setView([-15.78, -47.93], 5);
@@ -288,13 +312,19 @@
   function renderizar(d) {
     clearLayers();
     const c = d.carga;
+    CARGA_ATUAL = c;
 
     // Header info
     document.getElementById('iNumero').textContent = c.numero;
     const statusEl = document.getElementById('iStatus');
-    statusEl.innerHTML = `<span class="badge badge-${c.status.replace(' ', '-')}">${c.status}</span>` +
+    statusEl.innerHTML = `<span class="badge badge-${c.status.replace(' ', '-')}">${c.status === 'Desengatada' ? 'Desengatada · carregada' : c.status}</span>` +
       (c.entregue_auto ? '<span class="auto-tag">⚡ AUTO</span>' : '') +
-      (c.saida_auto && c.status==='Em rota' ? '<span class="auto-tag">⚡ SAÍDA AUTO</span>' : '');
+      (c.saida_auto && c.status==='Em rota' ? '<span class="auto-tag">⚡ SAÍDA AUTO</span>' : '') +
+      (c.status === 'Desengatada' ? `<span class="auto-tag" title="${[
+          c.desengatada_em ? 'Desengatada em ' + fmtData(c.desengatada_em) : '',
+          c.descarga_cavalo_placa ? 'Cavalo p/ descarga: ' + c.descarga_cavalo_placa : '',
+          c.descarga_motorista_nome ? 'Motorista p/ descarga: ' + c.descarga_motorista_nome : '',
+        ].filter(Boolean).join(' · ').replace(/"/g,'&quot;')}">🔌 cavalo+motorista liberados</span>` : '');
     document.getElementById('iCliente').textContent = c.cliente_nome || '—';
     document.getElementById('iMotorista').textContent = c.motorista_nome || '—';
     document.getElementById('iCavalo').textContent = c.cavalo_placa;
@@ -305,8 +335,12 @@
     document.getElementById('iDataSaida').textContent = fmtData(c.data_saida_real);
 
     // Ações
-    if (c.status === 'Em rota' || c.status === 'Aberta' || c.status === 'No destino') {
+    if (c.status === 'Em rota' || c.status === 'Aberta' || c.status === 'No destino' || c.status === 'Desengatada') {
       document.getElementById('cardAcoes').style.display = '';
+      // Na carga desengatada, a "entrega" é a finalização da descarga
+      if (c.status === 'Desengatada') {
+        document.getElementById('btnConfirmar').textContent = '🏁 Finalizar descarga';
+      }
     }
 
     // Origem
@@ -417,9 +451,74 @@
     }
   }
 
+  // ── Finalização de carga desengatada (modal com cavalo+motorista obrigatórios) ──
+  let DG_DATALISTS_FZ = false;
+  function maskCpfFz(cpf) {
+    const d = (cpf || '').replace(/\D/g, '');
+    if (d.length !== 11) return cpf || '';
+    return `${d.slice(0,3)}.${d.slice(3,6)}.${d.slice(6,9)}-${d.slice(9)}`;
+  }
+  async function carregarDatalistsFz() {
+    if (DG_DATALISTS_FZ) return;
+    DG_DATALISTS_FZ = true;
+    try {
+      const [rm, rv] = await Promise.all([
+        fetch('/api/embarques/motoristas', { credentials: 'same-origin' }),
+        fetch('/api/embarques/veiculos', { credentials: 'same-origin' }),
+      ]);
+      const jm = await rm.json(), jv = await rv.json();
+      if (jm.ok) document.getElementById('dlFzMotoristas').innerHTML =
+        jm.data.map(m => `<option value="${m.nome} — ${maskCpfFz(m.cpf)}">`).join('');
+      if (jv.ok) document.getElementById('dlFzCavalos').innerHTML =
+        jv.data.filter(v => v.tipo === 'Cavalo' || v.tipo === 'Truck')
+          .map(v => `<option value="${v.placa}">${v.tipo} — ${v.marca_modelo || ''} — ${v.proprietario || ''}</option>`).join('');
+    } catch (e) { DG_DATALISTS_FZ = false; }
+  }
+  function abrirFinalizar() {
+    const c = CARGA_ATUAL || {};
+    document.getElementById('fzCavalo').value = c.descarga_cavalo_placa || '';
+    document.getElementById('fzMotorista').value = c.descarga_motorista_nome || '';
+    document.getElementById('fzErro').textContent = '';
+    document.getElementById('fzConfirmar').disabled = false;
+    document.getElementById('modalFinalizar').style.display = 'flex';
+    carregarDatalistsFz();
+  }
+  function fecharFinalizar() {
+    document.getElementById('modalFinalizar').style.display = 'none';
+  }
+  async function confirmarFinalizar() {
+    const cavalo = document.getElementById('fzCavalo').value.trim();
+    const motorista = document.getElementById('fzMotorista').value.trim().split(' — ')[0].trim();
+    const err = document.getElementById('fzErro');
+    if (!cavalo || !motorista) {
+      err.textContent = 'Informe o cavalo e o motorista que fizeram a descarga.';
+      return;
+    }
+    const btn = document.getElementById('fzConfirmar');
+    btn.disabled = true;
+    try {
+      const r = await fetch(`/api/rastreamento/cargas/${cargaId}/confirmar-entrega`, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ descarga_cavalo_placa: cavalo, descarga_motorista_nome: motorista }),
+      });
+      const d = await r.json();
+      if (!d.ok) { err.textContent = 'Erro: ' + d.error; btn.disabled = false; return; }
+      location.reload();
+    } catch (e) {
+      err.textContent = 'Erro de rede'; btn.disabled = false;
+    }
+  }
+
   async function confirmarEntrega() {
-    if (!confirm('Confirmar entrega manual desta carga? Status mudará para Entregue.')) return;
+    // Carga desengatada → modal com cavalo+motorista obrigatórios (registro da descarga)
+    if (CARGA_ATUAL && CARGA_ATUAL.status === 'Desengatada') {
+      abrirFinalizar();
+      return;
+    }
+    if (!confirm('Finalizar esta carga? O status mudará para Entregue.')) return;
     const btn = document.getElementById('btnConfirmar');
+    const labelOrig = btn.textContent;
     btn.disabled = true; btn.textContent = 'Confirmando...';
     try {
       const r = await fetch(`/api/rastreamento/cargas/${cargaId}/confirmar-entrega`, {
@@ -428,14 +527,14 @@
       const d = await r.json();
       if (!d.ok) {
         alert('Erro: ' + d.error);
-        btn.disabled = false; btn.textContent = '✓ Confirmar entrega manual';
+        btn.disabled = false; btn.textContent = labelOrig;
         return;
       }
-      alert('Entrega confirmada com sucesso!');
+      alert('Carga finalizada com sucesso!');
       location.reload();
     } catch (e) {
       alert('Erro: ' + e.message);
-      btn.disabled = false; btn.textContent = '✓ Confirmar entrega manual';
+      btn.disabled = false; btn.textContent = labelOrig;
     }
   }
 
@@ -443,7 +542,7 @@
   setInterval(() => {
     // Refresh só se status ativo
     const status = document.getElementById('iStatus').textContent;
-    if (status.includes('Em rota') || status.includes('Aberta') || status.includes('No destino')) carregar();
+    if (status.includes('Em rota') || status.includes('Aberta') || status.includes('No destino') || status.includes('Desengatada')) carregar();
   }, 60000);
 </script>
 
