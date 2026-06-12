@@ -2840,10 +2840,10 @@ def api_embarques_kpis():
         conn = get_db(); cur = conn.cursor()
         cur.execute("""
             SELECT
-              COUNT(*) FILTER (WHERE data_carregamento = CURRENT_DATE) AS hoje,
+              COUNT(*) FILTER (WHERE data_carregamento = (NOW() AT TIME ZONE 'America/Sao_Paulo')::date) AS hoje,
               COUNT(*) FILTER (WHERE status IN ('Em rota', 'No destino')) AS em_rota,
               COUNT(*) FILTER (WHERE status = 'Entregue'
-                               AND date_trunc('month', data_conclusao) = date_trunc('month', CURRENT_DATE)) AS entregues_mes,
+                               AND date_trunc('month', data_conclusao) = date_trunc('month', (NOW() AT TIME ZONE 'America/Sao_Paulo')::date)) AS entregues_mes,
               COUNT(*) FILTER (WHERE status = 'Aberta')                 AS abertas
             FROM embarques_cargas
         """)

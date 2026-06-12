@@ -1179,8 +1179,8 @@
   });
   if (!MODO_EDICAO) {
     addDestino();  // criação começa com 1 destino vazio
-    // Data default = hoje
-    const hoje = new Date().toISOString().slice(0, 10);
+    // Data default = hoje em Brasília (não UTC — senão à noite vira o dia seguinte)
+    const hoje = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
     document.getElementById('inpDataCarregamento').value = hoje;
   }
 </script>
