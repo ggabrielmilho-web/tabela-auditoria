@@ -43,16 +43,21 @@
     font-size: 0.82rem; border-radius: 8px; cursor: pointer; transition: all 0.15s;
   }
   .btn-sm:hover { border-color: var(--accent); color: var(--accent); }
-  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin-bottom: 28px; }
-  .kpi-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px; position: relative; overflow: hidden; }
+  .kpi-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 28px; }
+  @media (max-width: 1100px) { .kpi-grid { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 640px)  { .kpi-grid { grid-template-columns: repeat(2, 1fr); } }
+  .kpi-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; position: relative; overflow: hidden; }
+  a.kpi-card { text-decoration: none; color: inherit; display: block; transition: border-color 0.2s, transform 0.2s; }
+  a.kpi-card:hover { border-color: var(--accent); transform: translateY(-2px); }
   .kpi-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; border-radius: 12px 12px 0 0; }
   .kpi-card:nth-child(1)::before { background: var(--accent); }
-  .kpi-card:nth-child(2)::before { background: var(--green); }
-  .kpi-card:nth-child(3)::before { background: var(--accent2); }
-  .kpi-card:nth-child(4)::before { background: var(--orange); }
-  .kpi-card:nth-child(5)::before { background: var(--yellow, #facc15); }
-  .kpi-card .label { font-size: 0.72rem; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
-  .kpi-card .value { font-size: 1.8rem; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+  .kpi-card:nth-child(2)::before { background: var(--orange); }
+  .kpi-card:nth-child(3)::before { background: #a78bfa; }
+  .kpi-card:nth-child(4)::before { background: var(--green); }
+  .kpi-card:nth-child(5)::before { background: var(--accent2); }
+  .kpi-card:nth-child(6)::before { background: var(--yellow, #facc15); }
+  .kpi-card .label { font-size: 0.66rem; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; }
+  .kpi-card .value { font-size: 1.55rem; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
 
   .acoes { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 28px; }
   .acao-card {
@@ -104,11 +109,12 @@
   </div>
 
   <div class="kpi-grid">
-    <div class="kpi-card"><div class="label">Cargas hoje</div><div class="value" id="kpiHoje">—</div></div>
-    <div class="kpi-card"><div class="label">Em rota</div><div class="value" id="kpiRota">—</div></div>
-    <div class="kpi-card"><div class="label">Entregues no mês</div><div class="value" id="kpiEntregues">—</div></div>
-    <div class="kpi-card"><div class="label">Abertas</div><div class="value" id="kpiAbertas">—</div></div>
-    <div class="kpi-card"><div class="label">Carretas desengatadas</div><div class="value" id="kpiDesengatadas">—</div></div>
+    <a class="kpi-card" id="cardHoje" href="/embarques/relatorio"><div class="label">Cargas hoje</div><div class="value" id="kpiHoje">—</div></a>
+    <a class="kpi-card" href="/embarques/relatorio?status=Em%20rota"><div class="label">Em rota</div><div class="value" id="kpiRota">—</div></a>
+    <a class="kpi-card" href="/embarques/relatorio?status=No%20destino"><div class="label">No destino</div><div class="value" id="kpiNoDestino">—</div></a>
+    <a class="kpi-card" href="/embarques/relatorio?status=Entregue"><div class="label">Entregues no mês</div><div class="value" id="kpiEntregues">—</div></a>
+    <a class="kpi-card" href="/embarques/relatorio?status=Aberta"><div class="label">Abertas</div><div class="value" id="kpiAbertas">—</div></a>
+    <a class="kpi-card" href="/embarques/relatorio?status=Desengatada"><div class="label">Carretas desengatadas</div><div class="value" id="kpiDesengatadas">—</div></a>
   </div>
 
   <div class="acoes" style="grid-template-columns:repeat(3,1fr);">
@@ -164,6 +170,7 @@
       if (j.ok) {
         document.getElementById('kpiHoje').textContent = j.data.hoje;
         document.getElementById('kpiRota').textContent = j.data.em_rota;
+        document.getElementById('kpiNoDestino').textContent = j.data.no_destino ?? 0;
         document.getElementById('kpiEntregues').textContent = j.data.entregues_mes;
         document.getElementById('kpiAbertas').textContent = j.data.abertas;
         document.getElementById('kpiDesengatadas').textContent = j.data.desengatadas ?? 0;
@@ -210,6 +217,13 @@
       document.getElementById('ultimasBox').innerHTML = '<div class="vazio">Erro ao carregar.</div>';
     }
   }
+
+  // "Cargas hoje" → relatório filtrado pela data de hoje (carregamento)
+  (function () {
+    const hoje = new Date().toLocaleDateString('en-CA');  // YYYY-MM-DD local
+    document.getElementById('cardHoje').href =
+      `/embarques/relatorio?data_campo=carregamento&start=${hoje}&end=${hoje}`;
+  })();
 
   loadMe();
   loadKpis();

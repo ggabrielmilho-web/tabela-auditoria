@@ -800,11 +800,27 @@
     }
   });
 
+  // Pré-aplica filtros vindos da URL (ex.: cards da landing → ?status=Em rota)
+  function aplicarFiltrosDaURL() {
+    const p = new URLSearchParams(window.location.search);
+    const map = {
+      start: 'fStart', end: 'fEnd', data_campo: 'fDataCampo', tipo_operacao: 'fTipo',
+      status: 'fStatus', viagem_vazia: 'fViagem', cliente_id: 'fCliente',
+      criado_por_id: 'fEmbarcador', motorista: 'fMotorista',
+      origem_uf: 'fOrigemUF', destino_uf: 'fDestinoUF', q: 'fQ',
+    };
+    for (const key in map) {
+      const v = p.get(key);
+      if (v !== null) { const el = document.getElementById(map[key]); if (el) el.value = v; }
+    }
+  }
+
   // Init
   loadMe();
   popularUFsFiltros();
   loadClientesFiltro();
   loadEmbarcadoresFiltro();
+  aplicarFiltrosDaURL();
   aplicarFiltros();
 </script>
 </body>

@@ -2930,7 +2930,8 @@ def api_embarques_kpis():
         cur.execute("""
             SELECT
               COUNT(*) FILTER (WHERE data_carregamento = (NOW() AT TIME ZONE 'America/Sao_Paulo')::date) AS hoje,
-              COUNT(*) FILTER (WHERE status IN ('Em rota', 'No destino')) AS em_rota,
+              COUNT(*) FILTER (WHERE status = 'Em rota')                 AS em_rota,
+              COUNT(*) FILTER (WHERE status = 'No destino')              AS no_destino,
               COUNT(*) FILTER (WHERE status = 'Entregue'
                                AND date_trunc('month', data_conclusao) = date_trunc('month', (NOW() AT TIME ZONE 'America/Sao_Paulo')::date)) AS entregues_mes,
               COUNT(*) FILTER (WHERE status = 'Aberta')                 AS abertas,
@@ -2944,9 +2945,10 @@ def api_embarques_kpis():
             'data': {
                 'hoje':           r[0] or 0,
                 'em_rota':        r[1] or 0,
-                'entregues_mes':  r[2] or 0,
-                'abertas':        r[3] or 0,
-                'desengatadas':   r[4] or 0,
+                'no_destino':     r[2] or 0,
+                'entregues_mes':  r[3] or 0,
+                'abertas':        r[4] or 0,
+                'desengatadas':   r[5] or 0,
             }
         })
     except Exception as e:
