@@ -339,6 +339,8 @@
     <button class="btn-sm" onclick="clearDates()" title="Limpar datas">✕ Datas</button>
     <input type="number" id="filterMargem" placeholder="Margem abaixo de %"
            oninput="applyFilters()" style="width:170px;" step="0.1">
+    <input type="text" id="filterCliente" placeholder="Buscar cliente pagador..."
+           oninput="applyFilters()" style="min-width:240px;">
     <input type="text" id="filterSearch" placeholder="Buscar CTRB, CTRC, motorista, placa..."
            oninput="applyFilters()" style="min-width:280px;">
   </div>
@@ -364,7 +366,7 @@
 <script>
 let allData = [], filteredData = [];
 let currentPage = 0, pageSize = 100;
-let sortCol = null, sortDir = 'asc';
+let sortKey = 'data_ref_ctrc', sortDir = 'desc';  // ordenação padrão: data mais recente primeiro
 let layoutEditing = false;
 let colSortable = null, kpiSortable = null;
 
@@ -569,6 +571,7 @@ function applyFilters() {
   const status  = document.getElementById('filterStatus').value;
   const orfao   = document.getElementById('filterOrfao').value;
   const margemMax = document.getElementById('filterMargem').value;
+  const cliente = document.getElementById('filterCliente').value.toLowerCase();
   const search  = document.getElementById('filterSearch').value.toLowerCase();
   const dateFrom = document.getElementById('filterDateFrom').value; // 'YYYY-MM-DD' ou ''
   const dateTo   = document.getElementById('filterDateTo').value;
@@ -583,6 +586,10 @@ function applyFilters() {
     if (margemMax !== '' && margemMax !== null) {
       const m = Number(r['margem']) * 100;
       if (isNaN(m) || m >= Number(margemMax)) return false;
+    }
+    if (cliente) {
+      const c = (r['cliente_pagador'] || '').toString().toLowerCase();
+      if (!c.includes(cliente)) return false;
     }
     const temManifesto = r['Manifesto'] && r['Manifesto'].toString().trim() !== '';
     if (orfao === 'orfao' && temManifesto) return false;
@@ -661,8 +668,11 @@ function renderTable() {
 
   const colWidths = loadColWidths();
 
+  // índice da coluna ordenada derivado da chave (robusto a reordenação de colunas)
+  const sortIdx = sortKey ? columns.findIndex(c => c.key === sortKey) : -1;
+
   thead.innerHTML = '<tr id="theadRow">' + columns.map((c, i) => {
-    let cls = sortCol === i ? (sortDir === 'asc' ? 'sorted-asc' : 'sorted-desc') : '';
+    let cls = sortIdx === i ? (sortDir === 'asc' ? 'sorted-asc' : 'sorted-desc') : '';
     const w = colWidths[c.key] ? `style="width:${colWidths[c.key]}px;min-width:${colWidths[c.key]}px;"` : '';
     return `<th class="${cls}${dragClass}" data-col-key="${c.key}" ${w} onclick="${layoutEditing ? '' : `sortBy(${i})`}">${c.label}<div class="col-resize-handle" onmousedown="startResize(event,'${c.key}')"></div></th>`;
   }).join('') + '</tr>';
@@ -678,8 +688,8 @@ function renderTable() {
   }
 
   let data = [...filteredData];
-  if (sortCol !== null) {
-    const col = columns[sortCol];
+  if (sortIdx !== -1) {
+    const col = columns[sortIdx];
     data.sort((a, b) => {
       let va = a[col.key], vb = b[col.key];
       if (col.type === 'money' || col.type === 'num' || col.type === 'percent') { va = Number(va)||0; vb = Number(vb)||0; }
@@ -713,8 +723,9 @@ function renderTable() {
 }
 
 function sortBy(i) {
-  if (sortCol === i) sortDir = sortDir === 'asc' ? 'desc' : 'asc';
-  else { sortCol = i; sortDir = 'asc'; }
+  const key = columns[i].key;
+  if (sortKey === key) sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+  else { sortKey = key; sortDir = 'asc'; }
   renderTable();
 }
 
@@ -840,6 +851,7 @@ function resetLayout() {
   localStorage.removeItem(COL_WIDTHS_KEY);
   columns = [...DEFAULT_COLUMNS];
   kpiDefs = [...DEFAULT_KPIS];
+  sortKey = 'data_ref_ctrc'; sortDir = 'desc';  // volta à ordenação padrão por data
   layoutEditing = false;
   document.getElementById('btnLayout').textContent = '✦ Editar Layout';
   document.getElementById('btnResetLayout').style.display = 'none';
