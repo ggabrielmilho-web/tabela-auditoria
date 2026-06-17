@@ -330,8 +330,15 @@
     document.getElementById('iCavalo').textContent = c.cavalo_placa;
     const rv = d.rastreado_via;
     const tipoLabel = { carreta1: 'Carreta 1', carreta2: 'Carreta 2', cavalo: 'Cavalo' };
-    document.getElementById('iRastreio').textContent =
-      rv ? `${rv.placa} (${tipoLabel[rv.tipo] || rv.tipo})` : '🛰️ Sem rastreio';
+    const elRastreio = document.getElementById('iRastreio');
+    if (rv) {
+      elRastreio.textContent = `${rv.placa} (${tipoLabel[rv.tipo] || rv.tipo})`;
+      if (rv.fallback_carreta_muda) {
+        elRastreio.innerHTML += ` <span style="color:var(--yellow,#facc15);font-size:0.82em;cursor:help;" title="Carreta sem sinal — exibindo a posição do cavalo (origem→destino)">· carreta sem sinal</span>`;
+      }
+    } else {
+      elRastreio.textContent = '🛰️ Sem rastreio';
+    }
     document.getElementById('iDataSaida').textContent = fmtData(c.data_saida_real);
 
     // Ações

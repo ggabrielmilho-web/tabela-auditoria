@@ -3284,6 +3284,34 @@ def api_rastreamento_trajeto(carga_id):
             rastreado_via = None
             traj_principal = traj_cavalo
 
+        # ── FALLBACK DE EXIBIÇÃO (item 2): se a placa rastreada é a CARRETA e ela está MUDA
+        # (sem ponto recente no trajeto), mostra o CAVALO — só exibição, não muda o fechamento.
+        # Recorta o trajeto do cavalo na CHEGADA (no_local_desde) p/ contemplar só origem→destino
+        # (a próxima viagem do cavalo é cortada, igual já se faz com carga entregue).
+        fallback_cavalo = False
+        if rastreado_via and rastreado_via['tipo'] in ('carreta1', 'carreta2') \
+                and carga.get('status') != 'Desengatada':
+            def _idade_h(iso):
+                try:
+                    return (_dt.utcnow() - _dt.fromisoformat(str(iso).replace('Z', ''))).total_seconds() / 3600.0
+                except Exception:
+                    return None
+            ult_carreta = _idade_h(traj_principal[-1]['data']) if traj_principal else None
+            carreta_muda = (not traj_principal) or (ult_carreta is not None and ult_carreta > rastreamento_worker.FRESCOR_H)
+            if carreta_muda and traj_cavalo:
+                _nld = carga.get('no_local_desde')
+                if _nld is not None:
+                    traj_cav_carga = [p for p in traj_cavalo
+                                      if _dt.fromisoformat(p['data'].replace('Z', '')) <= _nld]
+                else:
+                    traj_cav_carga = traj_cavalo
+                if traj_cav_carga:
+                    traj_cavalo = traj_cav_carga          # linha desenhada (trajeto.cavalo)
+                    traj_principal = traj_cav_carga
+                    rastreado_via = {'placa': carga['cavalo_placa'], 'tipo': 'cavalo',
+                                     'fallback_carreta_muda': True}
+                    fallback_cavalo = True
+
         # KPIs já consolidados?
         cur.execute("""
             SELECT distancia_metros, velocidade_max, velocidade_media,
@@ -3291,7 +3319,7 @@ def api_rastreamento_trajeto(carga_id):
             FROM embarques_cargas_rastreio_kpi WHERE carga_id=%s
         """, (carga_id,))
         rk = cur.fetchone()
-        if rk and rk[5]:
+        if rk and rk[5] and not fallback_cavalo:
             # KPI final consolidado (carga entregue) — usa o valor persistido
             kpi = {
                 'distancia_km': round((rk[0] or 0) / 1000, 1),
