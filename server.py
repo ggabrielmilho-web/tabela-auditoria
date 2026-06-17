@@ -2481,6 +2481,8 @@ def api_embarques_cargas_list():
                c.no_local_desde, c.saida_auto, c.entregue_auto, c.data_saida_real,
                c.distancia_planejada_km, c.duracao_estimada_min,
                c.desengatada_em, c.descarga_motorista_nome, c.descarga_cavalo_placa,
+               (SELECT EXTRACT(EPOCH FROM ((NOW() AT TIME ZONE 'UTC') - pa.data_posicao)) / 3600.0
+                  FROM embarques_posicoes_atuais pa WHERE pa.placa = c.carreta1_placa) AS rastreio_carreta_idade_h,
                (
                  SELECT string_agg(d.cidade || '/' || d.uf, '; ' ORDER BY d.ordem)
                  FROM embarques_cargas_destinos d WHERE d.carga_id = c.id
@@ -2533,6 +2535,14 @@ def api_embarques_cargas_list():
                     if dd.get('data_agendamento'):
                         dd['data_agendamento'] = str(dd['data_agendamento']).replace(' ', 'T').rstrip('Z') + 'Z'
             obj['pode_editar'] = _pode_editar_carga(obj.get('criado_por_id'))
+            # Rastreio defasado: carga ativa cuja carreta está sem posição há +X dias.
+            idade_h = obj.get('rastreio_carreta_idade_h')
+            obj['rastreio_carreta_idade_h'] = round(float(idade_h), 1) if idade_h is not None else None
+            obj['rastreio_defasado'] = bool(
+                obj.get('status') in ('Em rota', 'No destino', 'Desengatada')
+                and idade_h is not None
+                and float(idade_h) > RASTREIO_ALERTA_SEM_GPS_DIAS * 24
+            )
             data.append(obj)
         cur.close(); conn.close()
         return jsonify({'ok': True, 'data': data, 'count': len(data)})
@@ -2982,6 +2992,8 @@ import tres_s_client
 import rastreamento_worker
 
 KM_DIA_PADRAO = int(os.getenv('KM_DIA_PADRAO', '600'))
+# Alerta de rastreio defasado: carga ativa cuja carreta está sem posição há +X dias.
+RASTREIO_ALERTA_SEM_GPS_DIAS = float(os.getenv('RASTREAMENTO_ALERTA_SEM_GPS_DIAS', '2'))
 
 
 def eta_realista(distancia_km, partida_dt, duracao_ors_min=None, km_dia=KM_DIA_PADRAO):

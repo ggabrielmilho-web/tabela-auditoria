@@ -411,6 +411,12 @@
         html += ` <span style="color:var(--text-dim);font-size:0.82em;cursor:help;" title="Parada na cidade da descarga; agendamento só em ${folgaDias} dia(s) — possível ociosidade do veículo">💤 ${folgaDias}d</span>`;
       }
     }
+    // Rastreio defasado: carreta sem posição há +X dias numa carga ativa (não fecha sozinha)
+    if (c.rastreio_defasado) {
+      const dias = c.rastreio_carreta_idade_h != null ? Math.floor(c.rastreio_carreta_idade_h / 24) : null;
+      const quanto = dias != null ? ` há ${dias}d` : '';
+      html += ` <span style="color:var(--yellow,#facc15);font-size:0.82em;cursor:help;" title="Carreta sem posição GPS${quanto} — a carga não fecha sozinha; confira/finalize manual (ou foi desengate)">⚠️ rastreio</span>`;
+    }
     return html;
   }
 
