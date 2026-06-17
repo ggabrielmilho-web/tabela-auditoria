@@ -97,6 +97,33 @@ def _pos_fresca(cur, placa):
     return cur.fetchone()
 
 
+def _esteve_no_destino(cur, placa, centroide_dest, raio_km, desde):
+    """True se a placa teve ALGUMA posição dentro de raio_km do destino desde `desde`.
+    Confirma que a carreta realmente passou pelo destino antes de aceitar uma "saída"
+    como entrega — protege contra fechar a carga quando a carreta reaparece longe sem
+    nunca ter chegado (ex.: chegada detectada pelo cavalo; carreta volta em outra cidade).
+    Sem centroide do destino → True (degrada p/ o comportamento de hoje, sem surpresa)."""
+    p = (placa or '').strip().upper()
+    if not p or not centroide_dest or centroide_dest[0] is None:
+        return True
+    dlat, dlng = centroide_dest
+    # Bounding-box generosa (graus) p/ limitar a varredura; refina com km_entre.
+    m_lat = raio_km / 111.0
+    m_lng = raio_km / 90.0   # folga p/ cos(lat) no Brasil (~0.9–0.96)
+    cur.execute("""
+        SELECT latitude, longitude FROM embarques_posicoes_historico
+        WHERE placa = %s AND data_posicao >= %s
+          AND latitude BETWEEN %s AND %s AND longitude BETWEEN %s AND %s
+    """, (p, desde, dlat - m_lat, dlat + m_lat, dlng - m_lng, dlng + m_lng))
+    for la, ln in cur.fetchall():
+        if la is None or ln is None:
+            continue
+        d = geocoding.km_entre(float(la), float(ln), dlat, dlng)
+        if d is not None and d <= raio_km:
+            return True
+    return False
+
+
 # ── Conversões ────────────────────────────────────────────────────────
 
 def _str_to_bool_ignicao(s):
@@ -549,15 +576,22 @@ def _processar_cargas(cur):
         # (cai no alerta/finalização manual), pra não fechar errado por posição velha ou desengate.
         if status in ('Em rota', 'No destino', 'Desengatada') and no_local_desde is not None and placa_fresca:
             if _saiu_da_cidade(cur, placa, pos_cidade, dest_cidade, dest_uf, centroide_dest, RAIO_SAIDA_DESTINO_KM):
-                cur.execute("""
-                    UPDATE embarques_cargas
-                    SET status='Entregue', entregue_auto=TRUE, data_conclusao=NOW(),
-                        atualizado_em=NOW()
-                    WHERE id=%s
-                """, (carga_id,))
-                _logger.info(f'[Carga {carga_id}/{placa}] Entrega automática detectada')
-                _consolidar_kpi(cur, carga_id, final=True)
-                continue  # Pula recálculo ORS pra carga já fechada
+                # GUARDA: só é "saída do destino" se a carreta REALMENTE esteve no destino.
+                # Senão (carreta reaparece longe sem nunca ter chegado — ex.: chegada veio do
+                # cavalo, ou ping de reconexão), não fecha; fica pro alerta/finalização manual.
+                # inicio_viagem já foi garantido não-nulo no começo do loop
+                if not _esteve_no_destino(cur, placa, centroide_dest, RAIO_SAIDA_DESTINO_KM, inicio_viagem):
+                    _logger.info(f'[Carga {carga_id}/{placa}] Saída detectada mas a carreta nunca esteve no destino — não finaliza (aguarda confirmação/manual)')
+                else:
+                    cur.execute("""
+                        UPDATE embarques_cargas
+                        SET status='Entregue', entregue_auto=TRUE, data_conclusao=NOW(),
+                            atualizado_em=NOW()
+                        WHERE id=%s
+                    """, (carga_id,))
+                    _logger.info(f'[Carga {carga_id}/{placa}] Entrega automática detectada')
+                    _consolidar_kpi(cur, carga_id, final=True)
+                    continue  # Pula recálculo ORS pra carga já fechada
 
         # ── CÁLCULO ORS — rota planejada origem → cidades de rota → TODOS os destinos.
         # Calcula 1× quando ainda não há rota (criação ou reset/regeneração ao editar). NÃO
