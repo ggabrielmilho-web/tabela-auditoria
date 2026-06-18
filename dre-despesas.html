@@ -143,7 +143,12 @@
     </div>
     <button class="btn primary" onclick="aplicarManual()">Aplicar</button>
     <button class="btn" onclick="exportar()">Exportar CSV</button>
+    <button class="btn" id="btnLimpar" onclick="limparFiltros()" disabled>Limpar filtros</button>
     <div class="info-bar" id="infoBar"></div>
+  </div>
+
+  <div style="font-size:0.78rem;color:var(--text-dim);margin:-8px 0 16px;">
+    💡 Dica: clique no cabeçalho de qualquer coluna (▾) para <strong style="color:var(--text)">filtrar e ordenar</strong> como no Excel. Os filtros valem sobre o que está carregado na tela; use “Limpar filtros” para zerar (o período é mantido).
   </div>
 
   <div id="conteudo">
@@ -151,6 +156,7 @@
   </div>
 </div>
 
+<script src="/report-filter.js"></script>
 <script>
 const COLS_MOEDA = ['vlr_final', 'vlr_nota', 'vlr_parcela', 'valor_total_produtos', 'juros', 'descontos'];
 const COLS_DATA = ['inclusao', 'vencimen', 'emissao', 'data_pgto', 'aprovacao', 'contabil', 'data_importacao'];
@@ -168,6 +174,8 @@ const fmtData = v => {
 
 let eventoFiltro = '';
 let mesesEspecificos = null; // ['2021-02','2022-02',...] quando vem de drilldown não-contíguo
+let rf = null;          // instância do AutoFilter (report-filter.js)
+let truncadoGlobal = false;
 
 function mesesParaPeriodos(lista) {
   return lista.map(ym => {
@@ -206,8 +214,37 @@ window.addEventListener('DOMContentLoaded', () => {
 
   if (params.get('grupo')) document.getElementById('selGrupo').value = params.get('grupo');
   eventoFiltro = params.get('evento') || '';
+
+  rf = ReportFilter.init({
+    getData: () => dadosAtuais,
+    renderTabela: renderTabela,
+    colsMoeda: COLS_MOEDA,
+    colsData: COLS_DATA,
+    fmtData: fmtData,
+    defaultSort: { col: 'NUMLANCTO', dir: 'desc', type: 'number' },  // maior lançamento primeiro
+    onView: atualizarInfoBar,
+    limparBtnId: 'btnLimpar',
+    csvNome: 'despesas',
+  });
+
   carregar();
 });
+
+function atualizarInfoBar(view) {
+  const totalVlr = view.reduce((s, r) => s + Number(r.vlr_final || 0), 0);
+  const tagEvento = eventoFiltro
+    ? `<span style="background:rgba(56,189,248,0.1);color:var(--accent);padding:2px 8px;border-radius:4px;margin-right:8px;">${eventoFiltro}</span>`
+    : '';
+  const aviso = truncadoGlobal
+    ? `<span style="background:rgba(251,146,60,0.1);color:var(--orange);padding:2px 8px;border-radius:4px;margin-left:8px;">⚠ Exibindo primeiros ${MAX_DISPLAY} carregados — use Exportar CSV para todos</span>`
+    : '';
+  document.getElementById('infoBar').innerHTML =
+    `${tagEvento}${view.length.toLocaleString('pt-BR')} registros &nbsp;|&nbsp; Total: <strong style="color:var(--accent)">R$ ${fmtMoeda(totalVlr)}</strong>${aviso}`;
+}
+
+function limparFiltros() {
+  if (rf) rf.clearFilters();
+}
 
 let dadosAtuais = { cols: [], data: [] };
 const MAX_DISPLAY = 2000;
@@ -284,16 +321,9 @@ async function carregar() {
     // Reordena: move historico_despesa logo após descr_evento
     cols = reordenarColunas(cols);
     dadosAtuais = { cols, data: allData };
-    renderTabela(cols, allData);
-    let totalVlr = allData.reduce((s, r) => s + Number(r.vlr_final || 0), 0);
-    const tagEvento = eventoFiltro
-      ? `<span style="background:rgba(56,189,248,0.1);color:var(--accent);padding:2px 8px;border-radius:4px;margin-right:8px;">${eventoFiltro}</span>`
-      : '';
-    const aviso = truncado
-      ? `<span style="background:rgba(251,146,60,0.1);color:var(--orange);padding:2px 8px;border-radius:4px;margin-left:8px;">⚠ Exibindo primeiros ${MAX_DISPLAY} — use Exportar CSV para todos</span>`
-      : '';
-    document.getElementById('infoBar').innerHTML =
-      `${tagEvento}${allData.length.toLocaleString('pt-BR')} registros &nbsp;|&nbsp; Total: <strong style="color:var(--accent)">R$ ${fmtMoeda(totalVlr)}</strong>${aviso}`;
+    truncadoGlobal = truncado;
+    rf.setColumns(cols);
+    rf.refresh();
   } catch (e) {
     document.getElementById('conteudo').innerHTML =
       `<div class="status-box erro">Erro: ${e.message}</div>`;
@@ -326,6 +356,8 @@ function renderTabela(cols, data) {
 }
 
 function exportar() {
+  // Com filtro de coluna ativo: exporta a visão filtrada (client-side)
+  if (rf && rf.hasActiveFilters()) { rf.exportarCsvView(); return; }
   const start = document.getElementById('dtInicio').value;
   const end = document.getElementById('dtFim').value;
   const grupo = document.getElementById('selGrupo').value;

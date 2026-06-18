@@ -176,6 +176,12 @@ def nav_perms_js():
     return send_from_directory('.', 'nav-perms.js', mimetype='application/javascript')
 
 
+@app.route('/report-filter.js')
+def report_filter_js():
+    """Componente de AutoFilter (estilo Excel) dos relatórios densos."""
+    return send_from_directory('.', 'report-filter.js', mimetype='application/javascript')
+
+
 @app.route('/sem-acesso')
 @login_required
 def sem_acesso_page():

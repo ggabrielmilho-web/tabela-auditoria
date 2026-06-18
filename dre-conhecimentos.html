@@ -129,7 +129,12 @@
     </div>
     <button class="btn primary" onclick="aplicarManual()">Aplicar</button>
     <button class="btn" onclick="exportar()">Exportar CSV</button>
+    <button class="btn" id="btnLimpar" onclick="limparFiltros()" disabled>Limpar filtros</button>
     <div class="info-bar" id="infoBar"></div>
+  </div>
+
+  <div style="font-size:0.78rem;color:var(--text-dim);margin:-8px 0 16px;">
+    💡 Dica: clique no cabeçalho de qualquer coluna (▾) para <strong style="color:var(--text)">filtrar e ordenar</strong> como no Excel. Os filtros valem sobre o que está carregado na tela; use “Limpar filtros” para zerar (o período é mantido).
   </div>
 
   <div id="conteudo">
@@ -137,6 +142,7 @@
   </div>
 </div>
 
+<script src="/report-filter.js"></script>
 <script>
 const COLS_MOEDA = ['valor_frete', 'valor_mercadoria', 'valor_frete_sem_icms', 'frete_peso', 'frete_valor',
   'frete_ntc', 'frete_entrega', 'adicional_frete', 'despacho', 'cat', 'itr', 'gris', 'pedagio', 'tas',
@@ -160,6 +166,8 @@ const fmtData = v => {
 };
 
 let mesesEspecificos = null;
+let rf = null;          // instância do AutoFilter (report-filter.js)
+let truncadoGlobal = false;
 
 function mesesParaPeriodos(lista) {
   return lista.map(ym => {
@@ -194,8 +202,34 @@ window.addEventListener('DOMContentLoaded', () => {
     document.getElementById('dtInicio').value = params.get('start') || primeiro.toISOString().slice(0, 10);
     document.getElementById('dtFim').value = params.get('end') || ultimo.toISOString().slice(0, 10);
   }
+
+  rf = ReportFilter.init({
+    getData: () => dadosAtuais,
+    renderTabela: renderTabela,
+    colsMoeda: COLS_MOEDA,
+    colsData: COLS_DATA,
+    fmtData: fmtData,
+    defaultSort: { col: 'data_autorizacao', dir: 'desc' },  // mais recente primeiro
+    onView: atualizarInfoBar,
+    limparBtnId: 'btnLimpar',
+    csvNome: 'conhecimentos',
+  });
+
   carregar();
 });
+
+function atualizarInfoBar(view) {
+  const totalFrete = view.reduce((s, r) => s + Number(r.valor_frete || 0), 0);
+  const aviso = truncadoGlobal
+    ? `<span style="background:rgba(251,146,60,0.1);color:var(--orange);padding:2px 8px;border-radius:4px;margin-left:8px;">⚠ Exibindo primeiros ${MAX_DISPLAY} carregados — use Exportar CSV para todos</span>`
+    : '';
+  document.getElementById('infoBar').innerHTML =
+    `${view.length.toLocaleString('pt-BR')} registros &nbsp;|&nbsp; Total Frete: <strong style="color:var(--accent)">R$ ${fmtMoeda(totalFrete)}</strong>${aviso}`;
+}
+
+function limparFiltros() {
+  if (rf) rf.clearFilters();
+}
 
 function aplicarManual() {
   mesesEspecificos = null;
@@ -255,13 +289,9 @@ async function carregar() {
     }
 
     dadosAtuais = { cols, data: allData };
-    renderTabela(cols, allData);
-    let totalFrete = allData.reduce((s, r) => s + Number(r.valor_frete || 0), 0);
-    const aviso = truncado
-      ? `<span style="background:rgba(251,146,60,0.1);color:var(--orange);padding:2px 8px;border-radius:4px;margin-left:8px;">⚠ Exibindo primeiros ${MAX_DISPLAY} — use Exportar CSV para todos</span>`
-      : '';
-    document.getElementById('infoBar').innerHTML =
-      `${allData.length.toLocaleString('pt-BR')} registros &nbsp;|&nbsp; Total Frete: <strong style="color:var(--accent)">R$ ${fmtMoeda(totalFrete)}</strong>${aviso}`;
+    truncadoGlobal = truncado;
+    rf.setColumns(cols);
+    rf.refresh();
   } catch (e) {
     document.getElementById('conteudo').innerHTML =
       `<div class="status-box erro">Erro: ${e.message}</div>`;
@@ -294,6 +324,8 @@ function renderTabela(cols, data) {
 }
 
 function exportar() {
+  // Com filtro de coluna ativo: exporta a visão filtrada (client-side)
+  if (rf && rf.hasActiveFilters()) { rf.exportarCsvView(); return; }
   const start = document.getElementById('dtInicio').value;
   const end = document.getElementById('dtFim').value;
   if (!start || !end) return;
