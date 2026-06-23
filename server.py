@@ -70,17 +70,17 @@ def admin_required(f):
 
 # Abas concedíveis por usuário (a aba Admin NÃO entra — é exclusiva de role=admin).
 PAGINAS_VALIDAS = {'auditoria', 'tarifas', 'embarques', 'reuniao', 'dre',
-                   'despesas', 'conhecimentos', 'faturamento', 'contratos'}
+                   'despesas', 'conhecimentos', 'faturamento', 'contratos', 'veiculos'}
 # Chave da aba → rota inicial (para redirect sem loop).
 _PAGINA_ROTA = {
     'auditoria': '/', 'tarifas': '/tarifas', 'embarques': '/embarques',
     'reuniao': '/reuniao', 'dre': '/dre', 'despesas': '/dre/despesas',
     'conhecimentos': '/dre/conhecimentos', 'faturamento': '/faturamento',
-    'contratos': '/contratos',
+    'contratos': '/contratos', 'veiculos': '/veiculos',
 }
 # Ordem de preferência ao escolher a primeira aba permitida.
 _PAGINA_ORDEM = ['auditoria', 'tarifas', 'embarques', 'reuniao', 'dre',
-                 'despesas', 'conhecimentos', 'faturamento', 'contratos']
+                 'despesas', 'conhecimentos', 'faturamento', 'contratos', 'veiculos']
 
 
 def _primeira_pagina_permitida():
@@ -299,6 +299,12 @@ def dre_conhecimentos_page():
 @page_required('faturamento')
 def faturamento_page():
     return send_from_directory('.', 'faturamento.html')
+
+
+@app.route('/veiculos')
+@page_required('veiculos')
+def veiculos_page():
+    return send_from_directory('.', 'veiculos.html')
 
 
 @app.route('/embarques')
@@ -1604,6 +1610,537 @@ def api_faturamento_tomadores():
 
     return jsonify({'ok': True, 'ano': ano, 'tomadores': saida, 'totais_mes': totais_mes,
                     'count': len(saida)})
+
+
+def _placa_mercosul(placa):
+    """Normaliza placa para o padrão Mercosul (rótulo único por veículo).
+
+    Conversão oficial antigo (LLL-NNNN) → Mercosul (LLL N L NN): muda SOMENTE o
+    5º caractere (o 2º dígito), trocando o dígito por letra na ordem fixa
+    0→A, 1→B, 2→C, 3→D, 4→E, 5→F, 6→G, 7→H, 8→I, 9→J. Os demais não mudam.
+    Placa já em Mercosul (ou fora do padrão) é mantida como está. Assim as duas
+    grafias do mesmo veículo colapsam numa única chave Mercosul.
+    """
+    import re
+    s = re.sub(r'[^A-Za-z0-9]', '', str(placa or '')).upper()
+    if re.fullmatch(r'[A-Z]{3}[0-9]{4}', s):           # padrão antigo → converte 5º char
+        return s[:4] + 'ABCDEFGHIJ'[int(s[4])] + s[5:]
+    return s                                            # já Mercosul (LLL N L NN) ou não-padrão
+
+
+def _placa_grafias(placa):
+    """Grafias possíveis no dado bruto de uma placa: Mercosul + antiga.
+    A normalização antigo→Mercosul troca o 5º char (dígito→letra A–J). Aqui revertemos
+    a letra de volta ao dígito para obter a grafia antiga, e retornamos as duas formas."""
+    import re
+    s = re.sub(r'[^A-Za-z0-9]', '', str(placa or '')).upper()
+    formas = {s}
+    if re.fullmatch(r'[A-Z]{3}[0-9][A-J][0-9]{2}', s):           # Mercosul → gera a antiga
+        formas.add(s[:4] + str('ABCDEFGHIJ'.index(s[4])) + s[5:])
+    elif re.fullmatch(r'[A-Z]{3}[0-9]{4}', s):                   # antiga → gera a Mercosul
+        formas.add(s[:4] + 'ABCDEFGHIJ'[int(s[4])] + s[5:])
+    return list(formas)
+
+
+# Regra interna: placas que continuam no cadastro como Rizza mas NÃO são mais frota
+# (ex.: cavalo vendido ainda no nome da Rizza). Normalizadas em Mercosul.
+PLACAS_VENDIDAS = {'AZM6E29'}
+
+
+def _cadastro_veiculos(token):
+    """Cadastro de veículos (veiculos_045) com placa normalizada em Mercosul e deduplicado.
+    Retorna {placa_norm: {'proprietario','tipo','disponivel'}}. Em colisão de grafia, mantém a 1ª."""
+    res = execute_dax(token, "EVALUATE 'public veiculos_045'")
+    linhas = clean_rows(res.get('results', [{}])[0].get('tables', [{}])[0].get('rows', []))
+    cad = {}
+    for r in linhas:
+        p = _placa_mercosul(r.get('placa'))
+        if not p or p in cad:
+            continue
+        cad[p] = {'proprietario': r.get('proprietario'), 'tipo': r.get('tipo'),
+                  'disponivel': r.get('disponivel'), 'modelo': r.get('modelo')}
+    return cad
+
+
+def _km_hodometro(hods_em_ordem):
+    """KM real pelo hodômetro do abastecimento: soma de deltas consecutivos válidos,
+    ignorando retrocesso (<=0) e saltos absurdos (>3000 km = erro de digitação na bomba).
+    Espera a lista de leituras já em ordem cronológica."""
+    h = [x for x in hods_em_ordem if x and x > 0]
+    return sum(d for d in (h[i] - h[i - 1] for i in range(1, len(h))) if 0 < d < 3000)
+
+
+def _pneus_por_veiculo(modelo, tipo):
+    """Nº de pneus do veículo a partir da config de eixo no modelo.
+    Carreta=12; truck=6 (pelo tipo); cavalo: 6X4=10, 6X2=8, 4X2=6;
+    cavalo sem config reconhecível → 8 (fallback)."""
+    import re
+    t = (tipo or '').upper()
+    if t == 'CARRETA':
+        return 12
+    if t == 'TRUCK':
+        return 6
+    m = re.sub(r'\s+', '', str(modelo or '')).upper()
+    if '6X4' in m:
+        return 10
+    if '6X2' in m:
+        return 8
+    if '4X2' in m:
+        return 6
+    return 8
+
+
+@app.route('/api/veiculos/analise')
+@page_required('veiculos')
+def api_veiculos_analise():
+    """Análise por veículo/pessoa sobre 'Auditoria Receita' (rateio por KM já pronto no dataset).
+    Agrega Faturamento (receita_rateada) × Pagamento de frete (frete_motorista_total) + KM, no grão da
+    dimensão escolhida. Fase 1 — sem custo de frota (na FROTA o pagamento é 0)."""
+    from datetime import date, datetime
+
+    # Eixo da análise. 'proprietario' usa placa_cavalo no DAX e resolve o dono em Python (cadastro normalizado).
+    DIMS = {
+        'cavalo':       "'Auditoria Receita'[placa_cavalo]",
+        'carreta':      "'Auditoria Receita'[placa_carreta]",
+        'motorista':    "'Auditoria Receita'[motorista]",
+        'proprietario': "'Auditoria Receita'[placa_cavalo]",
+    }
+    dim = (request.args.get('dim') or 'cavalo').lower()
+    if dim not in DIMS:
+        dim = 'cavalo'
+    dim_expr = DIMS[dim]
+
+    def _parse(s, default):
+        try:
+            return datetime.strptime(s, '%Y-%m-%d').date()
+        except Exception:
+            return default
+    import re as _re_mes
+    hoje = date.today()
+    # Filtro por competência. 'meses' (lista YYYY-MM, multi-mês) é o preferido; aceita 'mes' único e de/ate (legado).
+    meses_param = request.args.get('meses')
+    mes = request.args.get('mes')
+    meses_comp = []
+    if meses_param:
+        meses_comp = sorted({m.strip() for m in meses_param.split(',') if _re_mes.fullmatch(r'\d{4}-\d{2}', m.strip())})
+    elif mes and _re_mes.fullmatch(r'\d{4}-\d{2}', mes):
+        meses_comp = [mes]
+    else:
+        de = _parse(request.args.get('de'), date(hoje.year, hoje.month, 1))
+        ate = _parse(request.args.get('ate'), hoje)
+        _cy, _cm = de.year, de.month
+        while (_cy, _cm) <= (ate.year, ate.month):
+            meses_comp.append(f"{_cy:04d}-{_cm:02d}"); _cm += 1
+            if _cm > 12: _cm = 1; _cy += 1
+    if not meses_comp:
+        meses_comp = [f"{hoje.year:04d}-{hoje.month:02d}"]
+    meses_set = '{' + ','.join(f'"{m}"' for m in meses_comp) + '}'
+
+    tipos = [t.strip().upper() for t in (request.args.get('tipos') or '').split(',') if t.strip()]
+    tipos = [t for t in tipos if t in ('FROTA', 'AGREGADO', 'CARRETEIRO')] or ['FROTA', 'AGREGADO', 'CARRETEIRO']
+    tipos_dax = '{' + ','.join(f'"{t}"' for t in tipos) + '}'
+
+    dax = (
+        "EVALUATE SUMMARIZE(ADDCOLUMNS(FILTER('Auditoria Receita', "
+        f"FORMAT('Auditoria Receita'[data_ref_ctrc], \"YYYY-MM\") IN {meses_set} && "
+        f"'Auditoria Receita'[Tipo Operacao] IN {tipos_dax}), "
+        f"\"dim\", {dim_expr}), "
+        "[dim], 'Auditoria Receita'[Tipo Operacao], "
+        "\"faturamento\", SUM('Auditoria Receita'[receita_rateada]), "
+        "\"pagamento\", SUM('Auditoria Receita'[frete_motorista_total]), "
+        # KM igual ao BI: prefere rotas_km (distância de rota), cai no distancia_km cru só se não achar
+        "\"km\", SUMX('Auditoria Receita', COALESCE(LOOKUPVALUE('public rotas_km'[km],"
+        "'public rotas_km'[cidade_uf_origem],'Auditoria Receita'[cidade_uf_origem],"
+        "'public rotas_km'[cidade_uf_destino],'Auditoria Receita'[cidade_uf_destino]),"
+        "'Auditoria Receita'[distancia_km])), "
+        "\"viagens\", DISTINCTCOUNT('Auditoria Receita'[CTRB]))"
+    )
+
+    try:
+        token = get_token()
+        result = execute_dax(token, dax)
+        rows = result.get('results', [{}])[0].get('tables', [{}])[0].get('rows', [])
+        linhas = clean_rows(rows)
+    except requests.exceptions.HTTPError as e:
+        try:
+            detail = e.response.json()
+        except Exception:
+            detail = e.response.text
+        return jsonify({'ok': False, 'error': str(e), 'detail': detail}), 500
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+    # Unifica grafia antiga + Mercosul (rótulo Mercosul), mantendo o grão (dim, tipo).
+    # Para 'proprietario', resolve o dono pelo cadastro normalizado (placa_cavalo → proprietário).
+    cadastro = (_cadastro_veiculos(token)
+                if dim in ('proprietario', 'carreta', 'cavalo')
+                else {})
+    agg = {}
+    for r in linhas:
+        raw = r.get('dim')
+        # No recorte por carreta, truck/toco (veículo rígido) não tem carreta → fora da análise
+        if dim == 'carreta' and (raw is None or str(raw).strip() == ''):
+            continue
+        if dim == 'proprietario':
+            p = _placa_mercosul(str(raw)) if raw not in (None, '') else ''
+            nome = cadastro.get(p, {}).get('proprietario') or '(sem identificação)'
+        elif dim in ('cavalo', 'carreta'):
+            nome = _placa_mercosul(str(raw)) if raw not in (None, '') else '(sem identificação)'
+        else:  # motorista
+            nome = str(raw) if raw not in (None, '') else '(sem identificação)'
+        tipo = r.get('Tipo Operacao') or '—'
+        # Regra interna: placa vendida (ainda no nome da Rizza) não conta como frota
+        if dim == 'cavalo' and tipo == 'FROTA' and nome in PLACAS_VENDIDAS:
+            continue
+        key = (nome, tipo)
+        a = agg.get(key)
+        if a is None:
+            a = {'dim': nome, 'tipo': tipo, 'faturamento': 0.0, 'pagamento': 0.0, 'km': 0.0, 'viagens': 0}
+            agg[key] = a
+        a['faturamento'] += float(r.get('faturamento') or 0)
+        # Frota = veículo próprio: não há pagamento de frete a terceiro (o frete_motorista aí é comissão do motorista próprio)
+        a['pagamento'] += 0.0 if tipo == 'FROTA' else float(r.get('pagamento') or 0)
+        a['km'] += float(r.get('km') or 0)
+        a['viagens'] += int(r.get('viagens') or 0)
+
+    saida = []
+    for a in agg.values():
+        a['faturamento'] = round(a['faturamento'], 2)
+        a['pagamento'] = round(a['pagamento'], 2)
+        a['km'] = round(a['km'], 1)
+        a['resultado'] = round(a['faturamento'] - a['pagamento'], 2)
+        saida.append(a)
+    saida.sort(key=lambda x: x['faturamento'], reverse=True)
+
+    # ── Custos mensais rateados proporcional ao faturamento ──
+    def _q(dax_q):
+        res = execute_dax(token, dax_q)
+        return clean_rows(res.get('results', [{}])[0].get('tables', [{}])[0].get('rows', []))
+
+    def _q1(dax_q):
+        r = _q(dax_q)
+        return float((r[0] if r else {}).get('v') or 0)
+
+    custos_frota = (dim == 'cavalo' and tipos == ['FROTA'])
+    custos_carreta = (dim == 'carreta')
+    totais_custo = {}
+
+    DZ = "'public consulta_despesas_477'"
+    anomes = f'("20" & RIGHT({DZ}[mes_competencia],2) & "-" & LEFT({DZ}[mes_competencia],2))'
+
+    # ── Pool de PNEU (eventos 5411/5412): histórico sem placa → rateio obrigatório.
+    # Split cavalo×carreta pelo nº de pneus dos veículos Rizza ATIVOS no período;
+    # dentro de cada grupo a distribuição é por faturamento (igual à manut. carreta).
+    pool_pneu = pool_pneu_cav = pool_pneu_car = 0.0
+    if custos_frota or custos_carreta:
+        AR = "'Auditoria Receita'"
+        pool_pneu = _q1(f"EVALUATE ROW(\"v\", SUMX(FILTER({DZ}, {DZ}[evento] IN {{\"5411\",\"5412\"}} && {anomes} IN {meses_set}), {DZ}[vlr_final]))")
+        rizza_cav_cad = {p: v for p, v in cadastro.items()
+                         if v.get('proprietario') == 'RIZZA TRANSPORTES LTDA' and v.get('tipo') != 'CARRETA'}
+        rizza_car_cad = {p for p, v in cadastro.items()
+                         if v.get('proprietario') == 'RIZZA TRANSPORTES LTDA' and v.get('tipo') == 'CARRETA'}
+
+        def _placas_ativas(col):
+            chave = col.strip('[]')
+            r = _q(f"EVALUATE SUMMARIZE(FILTER({AR}, "
+                   f"FORMAT({AR}[data_ref_ctrc],\"YYYY-MM\") IN {meses_set} && "
+                   f"{AR}[Tipo Operacao] IN {{\"FROTA\",\"AGREGADO\"}} && NOT(ISBLANK({AR}{col}))), {AR}{col})")
+            return {_placa_mercosul(x.get(chave)) for x in r}
+
+        cav_ativos = _placas_ativas('[placa_cavalo]') & set(rizza_cav_cad)
+        car_ativos = _placas_ativas('[placa_carreta]') & rizza_car_cad
+        tires_cav = sum(_pneus_por_veiculo(rizza_cav_cad[p].get('modelo'), rizza_cav_cad[p].get('tipo')) for p in cav_ativos)
+        tires_car = 12 * len(car_ativos)
+        tot_tires = (tires_cav + tires_car) or 1
+        pool_pneu_cav = pool_pneu * tires_cav / tot_tires
+        pool_pneu_car = pool_pneu - pool_pneu_cav
+
+    if custos_frota:
+        SP = "'public semparar_lancamentos'"
+        VC = "'public abastecimentos_valecard'"
+        # filtra por competência (mês) — Sem Parar guarda [data] como texto 'DD/MM/YYYY'
+        periodo_sp = f"(RIGHT({SP}[data],4) & \"-\" & MID({SP}[data],4,2)) IN {meses_set}"
+        periodo_vc = f"FORMAT({VC}[dch_data], \"YYYY-MM\") IN {meses_set}"
+
+        # Pedágio: tudo que é por veículo (todos os tipo_uso), líquido (DB - CR já vem no sinal de valor)
+        ped = {}
+        for r in _q(f"EVALUATE SUMMARIZE(FILTER({SP}, {periodo_sp}), {SP}[placa_veiculo], \"v\", SUM({SP}[valor]))"):
+            p = _placa_mercosul(r.get('placa_veiculo'))
+            ped[p] = ped.get(p, 0.0) + float(r.get('v') or 0)
+
+        # Combustível (diesel = não-ARLA) e ARLA separados — valor + litros
+        comb = {}
+        for cat, filtro in (('diesel', f"SEARCH(\"ARLA\",{VC}[produto],1,0)=0"),
+                            ('arla',   f"SEARCH(\"ARLA\",{VC}[produto],1,0)>0")):
+            for r in _q(f"EVALUATE SUMMARIZE(FILTER({VC}, {periodo_vc} && {filtro}), {VC}[placa], "
+                        f"\"v\", SUM({VC}[mcd_valor_total]), \"lt\", SUM({VC}[ncd_quantidade]))"):
+                p = _placa_mercosul(r.get('placa'))
+                d = comb.setdefault(p, {'diesel': 0.0, 'litros': 0.0, 'arla': 0.0, 'litros_arla': 0.0})
+                if cat == 'arla':
+                    d['arla'] += float(r.get('v') or 0); d['litros_arla'] += float(r.get('lt') or 0)
+                else:
+                    d['diesel'] += float(r.get('v') or 0); d['litros'] += float(r.get('lt') or 0)
+
+        # KM do abastecimento (hodômetro) por placa — usado no consumo km/L (mesma base do painel)
+        km_hod = {}
+        _fills = {}
+        for r in _q(f"EVALUATE SELECTCOLUMNS(FILTER({VC}, {periodo_vc}), "
+                    f"\"p\",{VC}[placa],\"dt\",{VC}[dch_data],\"hod\",{VC}[nsd_hodometro])"):
+            _fills.setdefault(_placa_mercosul(r.get('p')), []).append((str(r.get('dt') or ''), float(r.get('hod') or 0)))
+        for p, lst in _fills.items():
+            lst.sort()
+            km_hod[p] = _km_hodometro([h for _, h in lst])
+
+        # Totais do mês, rateados proporcional ao faturamento entre os cavalos frota.
+        # Pessoal (folha; só se RH lançou) + Manut. cavalo (5150/5154) + Seguro (5402) + Rastreador (AUTOTRAC) — 3 colunas separadas, todas no cavalo.
+        pessoal_total = _q1(f"EVALUATE ROW(\"v\", CALCULATE(SUM('public custo_pessoal'[total_mes]), 'public custo_pessoal'[competencia] IN {meses_set}))")
+        manut_cavalo_total = _q1(f"EVALUATE ROW(\"v\", SUMX(FILTER({DZ}, {DZ}[evento] IN {{\"5150\",\"5154\"}} && {anomes} IN {meses_set}), {DZ}[vlr_final]))")
+        seguro_total = _q1(f"EVALUATE ROW(\"v\", SUMX(FILTER({DZ}, {DZ}[evento]=\"5402\" && SEARCH(\"BVIX\",{DZ}[nome_fornecedor],1,0)=0 && {anomes} IN {meses_set}), {DZ}[vlr_final]))")
+        rastreador_total = _q1(f"EVALUATE ROW(\"v\", SUMX(FILTER({DZ}, SEARCH(\"AUTOTRAC\",{DZ}[nome_fornecedor],1,0)>0 && {anomes} IN {meses_set}), {DZ}[vlr_final]))")
+        sum_fat = sum(a['faturamento'] for a in saida) or 1.0
+        n_cav = len(saida) or 1  # seguro/rastreador divididos igualmente entre os cavalos frota
+
+        for a in saida:
+            p = a['dim']
+            c = comb.get(p, {})
+            share = a['faturamento'] / sum_fat
+            a['pedagio'] = round(ped.get(p, 0.0), 2)
+            a['combustivel'] = round(c.get('diesel', 0.0), 2)
+            a['litros'] = round(c.get('litros', 0.0), 1)
+            a['km_hodometro'] = round(km_hod.get(p, 0.0), 0)  # km do abastecimento p/ o consumo km/L
+            a['arla'] = round(c.get('arla', 0.0), 2)
+            a['litros_arla'] = round(c.get('litros_arla', 0.0), 1)
+            a['pessoal'] = round(pessoal_total * share, 2)        # proporcional ao faturamento
+            a['manut_cavalo'] = round(manut_cavalo_total * share, 2)  # proporcional ao faturamento
+            a['seguro'] = round(seguro_total / n_cav, 2)          # dividido igual
+            a['rastreador'] = round(rastreador_total / n_cav, 2)  # dividido igual
+            a['pneu'] = round(pool_pneu_cav * share, 2)           # proporcional ao faturamento
+        totais_custo = {'pessoal': round(pessoal_total, 2), 'manut_cavalo': round(manut_cavalo_total, 2),
+                        'seguro': round(seguro_total, 2), 'rastreador': round(rastreador_total, 2),
+                        'pneu': round(pool_pneu_cav, 2), 'pneu_total': round(pool_pneu, 2)}
+
+    elif custos_carreta:
+        # Manutenção carreta rateada entre as carretas Rizza (frota + agregado)
+        rizza_carretas = {p for p, v in cadastro.items()
+                          if v.get('proprietario') == 'RIZZA TRANSPORTES LTDA' and v.get('tipo') == 'CARRETA'}
+        manut_carreta_total = _q1(f"EVALUATE ROW(\"v\", SUMX(FILTER({DZ}, {DZ}[evento] IN {{\"5153\",\"5155\"}} && {anomes} IN {meses_set}), {DZ}[vlr_final]))")
+        # Base de rateio = faturamento de TODAS as carretas Rizza (frota+agregado) no mês,
+        # independente do filtro de tipo da tela → taxa fixa por R$ de faturamento de carreta.
+        AR = "'Auditoria Receita'"
+        univ = _q(f"EVALUATE SUMMARIZE(FILTER({AR}, "
+                  f"FORMAT({AR}[data_ref_ctrc],\"YYYY-MM\") IN {meses_set} && "
+                  f"{AR}[Tipo Operacao] IN {{\"FROTA\",\"AGREGADO\"}} && NOT(ISBLANK({AR}[placa_carreta]))), "
+                  f"{AR}[placa_carreta], \"f\", SUM({AR}[receita_rateada]))")
+        base_fat = 0.0
+        for r in univ:
+            if _placa_mercosul(r.get('placa_carreta')) in rizza_carretas:
+                base_fat += float(r.get('f') or 0)
+        taxa = manut_carreta_total / (base_fat or 1.0)
+        taxa_pneu = pool_pneu_car / (base_fat or 1.0)  # base fixa = todas carretas Rizza
+        for a in saida:
+            a['rizza'] = a['dim'] in rizza_carretas
+            a['manut_carreta'] = round(taxa * a['faturamento'], 2) if a['rizza'] else 0.0
+            a['pneu'] = round(taxa_pneu * a['faturamento'], 2) if a['rizza'] else 0.0
+        totais_custo = {'manut_carreta': round(manut_carreta_total, 2), 'base_fat_carretas': round(base_fat, 2),
+                        'pneu': round(pool_pneu_car, 2), 'pneu_total': round(pool_pneu, 2)}
+
+    # ── Proprietário do CAVALO no recorte cavalo (exceto a visão de custo da frota) ──
+    # É o dono do próprio cavalo da linha (1:1 no cadastro); frota não traz.
+    if dim == 'cavalo' and not custos_frota:
+        for a in saida:
+            a['prop_cavalo'] = '' if a['tipo'] == 'FROTA' else (cadastro.get(a['dim'], {}).get('proprietario') or '')
+
+    return jsonify({'ok': True, 'dim': dim, 'meses': meses_comp,
+                    'tipos': tipos, 'rows': saida, 'count': len(saida),
+                    'custos_frota': custos_frota, 'custos_carreta': custos_carreta, 'totais_custo': totais_custo})
+
+
+@app.route('/api/veiculos/detalhe')
+@page_required('veiculos')
+def api_veiculos_detalhe():
+    """Detalhe (painel lateral) de um veículo/pessoa: cargas, abastecimentos, pedágios,
+    manutenção real e relacionamentos, cruzando Auditoria/ValeCard/SemParar/Despesas/cadastro."""
+    import re as _re
+    dim = (request.args.get('dim') or 'cavalo').lower()
+    valor = (request.args.get('valor') or '').strip()
+    meses_comp = sorted({m.strip() for m in (request.args.get('meses') or '').split(',') if _re.fullmatch(r'\d{4}-\d{2}', m.strip())})
+    if not valor or not meses_comp:
+        return jsonify({'ok': False, 'error': 'Informe valor e meses'}), 400
+    meses_set = '{' + ','.join(f'"{m}"' for m in meses_comp) + '}'
+    # mesmo filtro de tipo da tela, para o detalhe reconciliar com a linha clicada
+    tipos = [t.strip().upper() for t in (request.args.get('tipos') or '').split(',') if t.strip()]
+    tipos = [t for t in tipos if t in ('FROTA', 'AGREGADO', 'CARRETEIRO')] or ['FROTA', 'AGREGADO', 'CARRETEIRO']
+
+    AR = "'Auditoria Receita'"; VC = "'public abastecimentos_valecard'"
+    SP = "'public semparar_lancamentos'"; DZ = "'public consulta_despesas_477'"
+    tipo_clause = f"{AR}[Tipo Operacao] IN {{{','.join(chr(34) + t + chr(34) for t in tipos)}}}"
+
+    try:
+        token = get_token()
+
+        def _q(dax_q):
+            res = execute_dax(token, dax_q)
+            return clean_rows(res.get('results', [{}])[0].get('tables', [{}])[0].get('rows', []))
+
+        def _set(vals):
+            return '{' + ','.join(f'"{v}"' for v in vals) + '}'
+
+        grafias = _placa_grafias(valor) if dim in ('cavalo', 'carreta') else [valor]
+        out = {'ok': True, 'dim': dim, 'valor': valor, 'meses': meses_comp}
+
+        # ── CARGAS (Auditoria) ──
+        col_placa = '[placa_cavalo]' if dim in ('cavalo', 'proprietario') else '[placa_carreta]' if dim == 'carreta' else None
+        if dim == 'motorista':
+            filtro_aud = f"{AR}[motorista] = \"{valor}\""
+        elif dim == 'proprietario':
+            filtro_aud = None  # tratado abaixo (quebra por veículo)
+        else:
+            filtro_aud = f"{AR}{col_placa} IN {_set(grafias)}"
+
+        cargas = []
+        if filtro_aud:
+            cargas = _q(
+                f"EVALUATE SELECTCOLUMNS(FILTER({AR}, FORMAT({AR}[data_ref_ctrc],\"YYYY-MM\") IN {meses_set} && {tipo_clause} && {filtro_aud}), "
+                f"\"data\",{AR}[data_ref_ctrc],\"ctrc\",{AR}[CTRC],\"manifesto\",{AR}[Manifesto],"
+                f"\"origem\",{AR}[cidade_uf_origem],\"destino\",{AR}[cidade_uf_destino],\"cliente\",{AR}[cliente_pagador],"
+                f"\"receita\",{AR}[receita_rateada],\"frete\",{AR}[frete_motorista_total],\"km\",{AR}[distancia_km],"
+                f"\"status\",{AR}[status_auditoria_frete],\"motorista\",{AR}[motorista],"
+                f"\"cavalo\",{AR}[placa_cavalo],\"carreta\",{AR}[placa_carreta])")
+            out['cargas'] = cargas
+            out['kpis'] = {
+                'receita': round(sum(float(c.get('receita') or 0) for c in cargas), 2),
+                'frete': round(sum(float(c.get('frete') or 0) for c in cargas), 2),
+                'km': round(sum(float(c.get('km') or 0) for c in cargas), 1),
+                'viagens': len(cargas),
+            }
+            # Relacionamentos (agregados em Python sobre as cargas)
+            def _agrupa(chave):
+                acc = {}
+                for c in cargas:
+                    k = c.get(chave) or '—'
+                    a = acc.setdefault(k, {'nome': k, 'viagens': 0, 'receita': 0.0})
+                    a['viagens'] += 1; a['receita'] += float(c.get('receita') or 0)
+                return sorted(acc.values(), key=lambda x: -x['receita'])
+            rotas = {}
+            for c in cargas:
+                k = f"{c.get('origem') or '—'} → {c.get('destino') or '—'}"
+                a = rotas.setdefault(k, {'nome': k, 'viagens': 0, 'receita': 0.0})
+                a['viagens'] += 1; a['receita'] += float(c.get('receita') or 0)
+            carretas_rel = _agrupa('carreta') if dim != 'carreta' else []
+            cavalos_rel = _agrupa('cavalo') if dim == 'carreta' else []
+            # Proprietário (2º nível): resolve placa → dono pelo cadastro.
+            # No recorte carreta é o dono dos CAVALOS que puxaram (pode ser vários).
+            if carretas_rel or cavalos_rel:
+                cadr = _cadastro_veiculos(token)
+                for c in carretas_rel + cavalos_rel:
+                    c['prop'] = cadr.get(_placa_mercosul(c['nome']), {}).get('proprietario') or ''
+            out['relacionamentos'] = {
+                'rotas': sorted(rotas.values(), key=lambda x: -x['receita'])[:15],
+                'motoristas': _agrupa('motorista'),
+                'carretas': carretas_rel,
+                'cavalos': cavalos_rel,
+            }
+
+        # ── ABASTECIMENTOS (ValeCard) — cavalo e motorista ──
+        if dim in ('cavalo', 'motorista'):
+            filtro_vc = (f"{VC}[placa] IN {_set(grafias)}" if dim == 'cavalo'
+                         else f"{VC}[motorista] = \"{valor}\"")
+            ab = _q(
+                f"EVALUATE SELECTCOLUMNS(FILTER({VC}, FORMAT({VC}[dch_data],\"YYYY-MM\") IN {meses_set} && {filtro_vc}), "
+                f"\"data\",{VC}[dch_data],\"posto\",{VC}[estabelecimento],\"cidade\",{VC}[cidade],\"uf\",{VC}[uf],"
+                f"\"produto\",{VC}[produto],\"litros\",{VC}[ncd_quantidade],\"vunit\",{VC}[mcd_valor_unitario],"
+                f"\"valor\",{VC}[mcd_valor_total],\"hodometro\",{VC}[nsd_hodometro],\"motorista\",{VC}[motorista])")
+            ab.sort(key=lambda r: (str(r.get('data') or ''), float(r.get('hodometro') or 0)))
+            out['abastecimentos'] = ab
+            # consumo real pelo km do hodômetro (mesmo método do 1º nível)
+            litros_diesel = sum(float(r.get('litros') or 0) for r in ab if 'ARLA' not in str(r.get('produto') or '').upper())
+            km_hod = _km_hodometro([float(r.get('hodometro') or 0) for r in ab])
+            out['consumo'] = {
+                'km_hodometro': round(km_hod, 0),
+                'litros_diesel': round(litros_diesel, 1),
+                'km_por_litro': round(km_hod / litros_diesel, 2) if litros_diesel and km_hod else 0,
+                'gasto': round(sum(float(r.get('valor') or 0) for r in ab), 2),
+            }
+
+        # ── PEDÁGIOS (Sem Parar) — cavalo ──
+        if dim == 'cavalo':
+            ped = _q(
+                f"EVALUATE SELECTCOLUMNS(FILTER({SP}, (RIGHT({SP}[data],4) & \"-\" & MID({SP}[data],4,2)) IN {meses_set} && {SP}[placa_veiculo] IN {_set(grafias)}), "
+                f"\"data\",{SP}[data],\"hora\",{SP}[horario],\"sentido\",{SP}[sentido_praca],\"tipo\",{SP}[tipo_uso],"
+                f"\"valor\",{SP}[valor],\"dc\",{SP}[debito_credito],\"embarcador\",{SP}[embarcador])")
+            ped.sort(key=lambda r: str(r.get('data') or ''))
+            out['pedagios'] = ped
+            out['pedagio_total'] = round(sum(float(r.get('valor') or 0) for r in ped), 2)
+
+        # ── MANUTENÇÃO real (despesas via placa no histórico) — cavalo e carreta ──
+        if dim in ('cavalo', 'carreta'):
+            eventos = '{"5150","5154"}' if dim == 'cavalo' else '{"5153","5155"}'
+            anomes = f'("20" & RIGHT({DZ}[mes_competencia],2) & "-" & LEFT({DZ}[mes_competencia],2))'
+            buscas = ' || '.join(f"SEARCH(\"{g}\",{DZ}[historico_despesa],1,0)>0" for g in grafias)
+            man = _q(
+                f"EVALUATE SELECTCOLUMNS(FILTER({DZ}, {DZ}[evento] IN {eventos} && {anomes} IN {meses_set} && ({buscas})), "
+                f"\"emissao\",{DZ}[emissao],\"fornecedor\",{DZ}[nome_fornecedor],\"descricao\",{DZ}[historico_despesa],"
+                f"\"valor\",{DZ}[vlr_final],\"evento\",{DZ}[evento])")
+            man.sort(key=lambda r: -float(r.get('valor') or 0))
+            out['manutencao'] = man
+            out['manutencao_total'] = round(sum(float(r.get('valor') or 0) for r in man), 2)
+
+        # ── PERFIL (cadastro) — placa dims ──
+        if dim in ('cavalo', 'carreta'):
+            cad = _cadastro_veiculos(token)
+            out['perfil'] = cad.get(valor) or {}
+
+        # ── QUEBRA POR VEÍCULO — motorista e proprietário ──
+        if dim in ('motorista', 'proprietario'):
+            def _por_placa(campo, extra):
+                return _q(f"EVALUATE SUMMARIZE(FILTER({AR}, FORMAT({AR}[data_ref_ctrc],\"YYYY-MM\") IN {meses_set} && {tipo_clause} && {extra}), "
+                          f"{AR}{campo}, \"rec\",SUM({AR}[receita_rateada]),\"km\",SUM({AR}[distancia_km]),\"v\",DISTINCTCOUNT({AR}[CTRB]))")
+            if dim == 'motorista':
+                veic = []
+                for campo, tp in (('[placa_cavalo]', 'CAVALO'), ('[placa_carreta]', 'CARRETA')):
+                    for r in _por_placa(campo, f"{AR}[motorista] = \"{valor}\""):
+                        raw = r.get('placa_cavalo') or r.get('placa_carreta')
+                        if not raw:
+                            continue
+                        veic.append({'placa': _placa_mercosul(raw), 'tipo': tp,
+                                     'receita': round(float(r.get('rec') or 0), 2), 'km': round(float(r.get('km') or 0), 1),
+                                     'viagens': int(r.get('v') or 0)})
+                out['veiculos'] = sorted(veic, key=lambda x: -x['receita'])
+            else:  # proprietario — base CAVALO (igual à tabela, que resolve o dono pelo cavalo); sem dupla contagem cavalo+carreta
+                cad = _cadastro_veiculos(token)
+                donos = {p: v for p, v in cad.items() if (v.get('proprietario') or '') == valor}
+                ativ_cav, ativ_car = {}, {}
+                for campo, dest in (('[placa_cavalo]', ativ_cav), ('[placa_carreta]', ativ_car)):
+                    for r in _por_placa(campo, f"NOT(ISBLANK({AR}{campo}))"):
+                        raw = r.get('placa_cavalo') or r.get('placa_carreta')
+                        if not raw:
+                            continue
+                        dest[_placa_mercosul(raw)] = {'rec': float(r.get('rec') or 0), 'km': float(r.get('km') or 0), 'v': int(r.get('v') or 0)}
+                veic = []
+                for p, v in donos.items():
+                    # carreta usa atividade como carreta; cavalo/cavalo trucado/truck usam atividade como placa_cavalo
+                    src = ativ_car if v.get('tipo') == 'CARRETA' else ativ_cav
+                    a = src.get(p, {})
+                    veic.append({'placa': p, 'tipo': v.get('tipo'), 'modelo': v.get('modelo'), 'disponivel': v.get('disponivel'),
+                                 'receita': round(a.get('rec', 0.0), 2), 'km': round(a.get('km', 0.0), 1), 'viagens': int(a.get('v', 0))})
+                out['veiculos'] = sorted(veic, key=lambda x: -x['receita'])
+                # headline = soma dos veículos-tração do dono (cavalo/truck), igual à tabela que resolve pelo placa_cavalo
+                cav = [p for p, v in donos.items() if v.get('tipo') != 'CARRETA']
+                out['kpis'] = {'receita': round(sum(ativ_cav.get(p, {}).get('rec', 0) for p in cav), 2),
+                               'km': round(sum(ativ_cav.get(p, {}).get('km', 0) for p in cav), 1),
+                               'viagens': sum(ativ_cav.get(p, {}).get('v', 0) for p in cav),
+                               'frota': len(veic)}
+
+        return jsonify(out)
+
+    except requests.exceptions.HTTPError as e:
+        try:
+            detail = e.response.json()
+        except Exception:
+            detail = e.response.text
+        return jsonify({'ok': False, 'error': str(e), 'detail': detail}), 500
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
 
 
 def _gerar_csv(cols, data):

@@ -1,0 +1,972 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Análise por Veículo — Auditoria Receita</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%2338bdf8'/%3E%3Ctext x='50' y='72' font-family='Arial,sans-serif' font-size='68' font-weight='900' text-anchor='middle' fill='%230a0e17'%3ER%3C/text%3E%3C/svg%3E">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0a0e17; --surface: #111827; --surface2: #1a2235; --border: #1e293b;
+    --text: #e2e8f0; --text-dim: #94a3b8; --accent: #38bdf8; --accent2: #818cf8;
+    --green: #34d399; --red: #f87171; --orange: #fb923c; --yellow: #fbbf24;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .loading-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; gap: 20px; }
+  .spinner { width: 44px; height: 44px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; }
+  .loading-screen h2 { font-size: 1.1rem; font-weight: 600; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .loading-screen p { color: var(--text-dim); font-size: 0.85rem; }
+  .error-box { margin-top: 16px; padding: 14px 20px; background: rgba(248,113,113,0.08); border: 1px solid rgba(248,113,113,0.25); border-radius: 10px; color: var(--red); font-size: 0.82rem; max-width: 620px; text-align: center; line-height: 1.5; }
+  .error-box code { display: block; margin-top: 8px; font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; color: var(--text-dim); word-break: break-all; }
+
+  .dashboard { padding: 22px; max-width: 1500px; margin: 0 auto; }
+
+  .top-bar { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; flex-wrap: wrap; gap: 14px; }
+  .top-bar h1 { font-size: 1.4rem; font-weight: 700; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .meta { font-size: 0.78rem; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; }
+  .btn-sm { padding: 8px 16px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); font-weight: 500; font-size: 0.82rem; border-radius: 8px; cursor: pointer; transition: all 0.15s; text-decoration: none; display: inline-block; }
+  .btn-sm:hover { border-color: var(--accent); color: var(--accent); }
+
+  .controls { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+  .toggle { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .toggle button { padding: 8px 14px; background: var(--surface2); border: none; color: var(--text-dim); font-family: 'DM Sans', sans-serif; font-weight: 600; font-size: 0.82rem; cursor: pointer; transition: all 0.15s; }
+  .toggle button.active { background: var(--accent); color: var(--bg); }
+  .field-label { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); font-weight: 700; margin-right: 4px; }
+  /* ── Seletor de meses (multi-seleção) ── */
+  .mespicker { position: relative; display: inline-block; }
+  .mes-btn {
+    padding: 8px 14px; min-width: 140px; text-align: left; background: var(--surface2);
+    border: 1px solid var(--border); border-radius: 8px; color: var(--text);
+    font-family: 'DM Sans', sans-serif; font-size: 0.82rem; font-weight: 600; cursor: pointer;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .mes-btn:hover { border-color: var(--accent2); }
+  .mes-btn::after { content: '▾'; float: right; color: var(--text-dim); margin-left: 10px; }
+  .mes-pop {
+    position: absolute; top: calc(100% + 6px); left: 0; z-index: 50; width: 244px; display: none;
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 12px;
+    box-shadow: 0 14px 36px rgba(0,0,0,0.55);
+  }
+  .mes-pop.open { display: block; animation: fadeUp 0.18s ease; }
+  .mes-pop-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; font-weight: 700; font-size: 0.9rem; }
+  .mes-pop-head button { width: 28px; height: 28px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--text); cursor: pointer; font-size: 1rem; line-height: 1; }
+  .mes-pop-head button:hover { border-color: var(--accent); color: var(--accent); }
+  .mes-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .mes-cell {
+    padding: 9px 0; text-align: center; border-radius: 7px; background: var(--surface);
+    border: 1px solid var(--border); color: var(--text-dim); font-size: 0.78rem; font-weight: 600;
+    cursor: pointer; text-transform: capitalize; transition: all 0.12s; user-select: none;
+  }
+  .mes-cell:hover { border-color: var(--accent2); color: var(--text); }
+  .mes-cell.sel { background: var(--accent); border-color: var(--accent); color: #0a0e17; }
+  .mes-pop-foot { display: flex; justify-content: space-between; margin-top: 12px; }
+  .mes-pop-foot button { background: none; border: none; color: var(--accent); font-weight: 700; font-size: 0.8rem; cursor: pointer; padding: 2px 4px; }
+  .mes-pop-foot button:hover { text-decoration: underline; }
+  .chk { display: inline-flex; align-items: center; gap: 6px; font-size: 0.82rem; color: var(--text-dim); cursor: pointer; user-select: none; }
+  .chk input { accent-color: var(--accent); width: 15px; height: 15px; }
+  /* Popup do filtro de Tipo (mesmo visual do seletor de mês) */
+  .tipo-pop { width: 170px; }
+  .tipo-pop .chk { display: flex; width: 100%; padding: 8px 6px; border-radius: 7px; color: var(--text); }
+  .tipo-pop .chk:hover { background: var(--surface); }
+  .search { flex: 1; min-width: 180px; padding: 9px 14px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 0.86rem; }
+  .search:focus { outline: none; border-color: var(--accent); }
+
+  .kpis { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+  .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 18px; min-width: 120px; }
+  .kpi .l { font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); font-weight: 600; }
+  .kpi .v { font-size: 1.1rem; font-weight: 700; font-family: 'JetBrains Mono', monospace; margin-top: 4px; }
+  .kpi .v.pos { color: var(--green); } .kpi .v.neg { color: var(--red); }
+
+  .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 18px; }
+  @media (max-width: 1000px) { .charts { grid-template-columns: 1fr; } }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+  .card h3 { font-size: 0.82rem; font-weight: 700; margin-bottom: 10px; color: var(--text); }
+  .card h3 small { color: var(--text-dim); font-weight: 500; font-size: 0.72rem; }
+  .canvas-wrap { position: relative; height: 280px; }
+  /* Legenda HTML do donut de composição (mais legível que a do Chart.js com muitos itens) */
+  .donut-legend { display: flex; flex-wrap: wrap; gap: 7px 16px; justify-content: center; margin-top: 10px; font-size: 0.78rem; color: var(--text); }
+  .dl-item { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .dl-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .dl-item b { color: var(--text-dim); font-weight: 600; }
+
+  .table-wrapper { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .table-scroll { overflow: auto; max-height: 70vh; }
+  table { border-collapse: collapse; font-size: 0.8rem; white-space: nowrap; width: 100%; }
+  thead th { position: sticky; top: 0; z-index: 2; background: var(--surface2); padding: 10px 12px; text-align: right; font-weight: 600; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-dim); border-bottom: 1px solid var(--border); cursor: pointer; user-select: none; }
+  thead th:first-child { text-align: left; left: 0; z-index: 3; }
+  tbody td { padding: 7px 12px; border-bottom: 1px solid var(--border); text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 0.76rem; }
+  tbody td:first-child { text-align: left; font-family: 'DM Sans', sans-serif; font-size: 0.82rem; position: sticky; left: 0; background: var(--surface); z-index: 1; max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
+  tbody td.bar { position: relative; }
+  tbody td.bar .barfill { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(56,189,248,0.13); z-index: 0; }
+  tbody td.bar span { position: relative; z-index: 1; }
+  tbody tr:hover td { background: rgba(56,189,248,0.05); }
+  tbody tr:hover td:first-child { background: #15203360; }
+  .pill { font-size: 0.64rem; font-weight: 700; padding: 2px 7px; border-radius: 10px; }
+  .pill.FROTA { background: rgba(91,134,176,0.18); color: #88aacb; }
+  .pill.AGREGADO { background: rgba(79,157,127,0.18); color: #6cbf9f; }
+  .pill.CARRETEIRO { background: rgba(192,138,91,0.18); color: #cba074; }
+  tfoot td { position: sticky; bottom: 0; z-index: 2; background: var(--surface2); padding: 10px 12px; text-align: right; font-weight: 700; font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; border-top: 2px solid var(--border); }
+  tfoot td:first-child { text-align: left; left: 0; z-index: 3; font-family: 'DM Sans', sans-serif; }
+  .empty-state { text-align: center; padding: 50px 20px; color: var(--text-dim); }
+  .hint { font-size: 0.72rem; color: var(--text-dim); margin: -6px 0 14px; }
+  tbody tr.clickable { cursor: pointer; }
+
+  /* ── Drawer de detalhe do veículo ── */
+  .drawer-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 200; opacity: 0; pointer-events: none; transition: opacity 0.2s; }
+  .drawer-overlay.open { opacity: 1; pointer-events: auto; }
+  .drawer { position: fixed; top: 0; right: 0; height: 100vh; width: min(860px, 96vw); z-index: 201;
+    background: var(--bg); border-left: 1px solid var(--border); box-shadow: -16px 0 40px rgba(0,0,0,0.5);
+    transform: translateX(100%); transition: transform 0.25s ease; display: flex; flex-direction: column; }
+  .drawer.open { transform: translateX(0); }
+  .drawer-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 18px 22px; border-bottom: 1px solid var(--border); }
+  .drawer-head h2 { font-size: 1.15rem; font-weight: 700; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .drawer-head .sub { font-size: 0.76rem; color: var(--text-dim); margin-top: 3px; }
+  .drawer-close { background: var(--surface2); border: 1px solid var(--border); color: var(--text); width: 32px; height: 32px; border-radius: 8px; cursor: pointer; font-size: 1.1rem; flex-shrink: 0; }
+  .drawer-close:hover { border-color: var(--accent); color: var(--accent); }
+  .drawer-body { overflow-y: auto; padding: 16px 22px 40px; flex: 1; }
+  .dk-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+  .dk-chip { background: var(--surface); border: 1px solid var(--border); border-radius: 9px; padding: 8px 12px; min-width: 96px; }
+  .dk-chip .l { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); font-weight: 700; }
+  .dk-chip .v { font-size: 0.95rem; font-weight: 700; font-family: 'JetBrains Mono', monospace; margin-top: 2px; }
+  .dk-chip .v.pos { color: var(--green); } .dk-chip .v.neg { color: var(--red); }
+  .dsec { margin-top: 18px; }
+  .dsec > h3 { font-size: 0.82rem; font-weight: 700; margin-bottom: 8px; display: flex; gap: 8px; align-items: baseline; }
+  .dsec > h3 small { color: var(--text-dim); font-weight: 500; font-size: 0.72rem; }
+  .dsec .scroll { max-height: 320px; overflow: auto; border: 1px solid var(--border); border-radius: 10px; }
+  table.mini { width: 100%; border-collapse: collapse; font-size: 0.74rem; white-space: nowrap; }
+  table.mini thead th { position: sticky; top: 0; background: var(--surface2); color: var(--text-dim); text-align: right; padding: 7px 10px; font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid var(--border); }
+  table.mini thead th:first-child { text-align: left; }
+  table.mini td { padding: 6px 10px; border-bottom: 1px solid var(--border); text-align: right; font-family: 'JetBrains Mono', monospace; }
+  table.mini td:first-child { text-align: left; font-family: 'DM Sans', sans-serif; max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
+  table.mini tbody tr:hover td { background: rgba(56,189,248,0.05); }
+  .pill-sm { font-size: 0.6rem; font-weight: 700; padding: 1px 6px; border-radius: 8px; }
+  .pill-sm.FROTA { background: rgba(91,134,176,0.18); color: #88aacb; }
+  .pill-sm.AGREGADO { background: rgba(79,157,127,0.18); color: #6cbf9f; }
+  .pill-sm.CARRETEIRO { background: rgba(192,138,91,0.18); color: #cba074; }
+  .rel-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px,1fr)); gap: 10px; }
+  .rel-box { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+  .rel-box .t { font-size: 0.66rem; text-transform: uppercase; color: var(--text-dim); font-weight: 700; margin-bottom: 6px; }
+  .rel-row { display: flex; justify-content: space-between; gap: 8px; font-size: 0.74rem; padding: 2px 0; }
+  .rel-row span:last-child { font-family: 'JetBrains Mono', monospace; color: var(--text-dim); }
+  .dsec-empty { color: var(--text-dim); font-size: 0.76rem; padding: 6px 2px; }
+</style>
+</head>
+<body>
+
+<div class="loading-screen" id="loadingScreen">
+  <div class="spinner"></div>
+  <h2>Análise por Veículo</h2>
+  <p>Consultando a Auditoria de Receita...</p>
+  <div class="error-box" id="errorBox" style="display:none;"></div>
+</div>
+
+<div class="dashboard" id="dashboard" style="display:none;">
+  <div class="top-bar">
+    <div>
+      <h1>🚚 Análise por Veículo</h1>
+      <span class="meta" id="userInfo" style="margin-top:4px;display:block;"></span>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <a data-page="auditoria" href="/" class="btn-sm">← Auditoria</a>
+      <a data-page="dre" href="/dre" class="btn-sm">📊 DRE</a>
+      <a data-page="faturamento" href="/faturamento" class="btn-sm">💰 Faturamento</a>
+      <a href="/logout" class="btn-sm">Sair</a>
+    </div>
+  </div>
+
+  <div class="controls">
+    <span class="field-label">Recorte</span>
+    <div class="toggle" id="dimToggle">
+      <button data-dim="cavalo" class="active" onclick="setDim('cavalo')">Cavalo</button>
+      <button data-dim="carreta" onclick="setDim('carreta')">Carreta</button>
+      <button data-dim="motorista" onclick="setDim('motorista')">Motorista</button>
+      <button data-dim="proprietario" onclick="setDim('proprietario')">Proprietário</button>
+    </div>
+    <span class="field-label" style="margin-left:6px">Mês</span>
+    <div class="mespicker">
+      <button class="mes-btn" id="mesBtn" onclick="toggleMesPop(event)">Selecione</button>
+      <div class="mes-pop" id="mesPop" onclick="event.stopPropagation()">
+        <div class="mes-pop-head">
+          <button type="button" onclick="mudaAno(-1)">‹</button>
+          <span id="mesAno"></span>
+          <button type="button" onclick="mudaAno(1)">›</button>
+        </div>
+        <div class="mes-grid" id="mesGrid"></div>
+        <div class="mes-pop-foot">
+          <button type="button" onclick="limparMeses()">Limpar</button>
+          <button type="button" onclick="aplicarMeses()">Aplicar</button>
+        </div>
+      </div>
+    </div>
+    <span class="field-label" style="margin-left:6px">Tipo</span>
+    <div class="mespicker">
+      <button class="mes-btn" id="tipoBtn" onclick="toggleTipoPop(event)" style="min-width:130px">Todos</button>
+      <div class="mes-pop tipo-pop" id="tipoPop" onclick="event.stopPropagation()">
+        <label class="chk"><input type="checkbox" value="FROTA" checked> Frota</label>
+        <label class="chk"><input type="checkbox" value="AGREGADO" checked> Agregado</label>
+        <label class="chk"><input type="checkbox" value="CARRETEIRO"> Carreteiro</label>
+        <div class="mes-pop-foot">
+          <button type="button" onclick="limparTipos()">Limpar</button>
+          <button type="button" onclick="aplicarTipos()">Aplicar</button>
+        </div>
+      </div>
+    </div>
+    <input type="text" class="search" id="busca" placeholder="Buscar..." oninput="render()">
+    <button class="btn-sm" onclick="exportarCsv()">↓ CSV</button>
+    <span class="meta" id="contador"></span>
+  </div>
+
+  <div class="kpis" id="kpis"></div>
+
+  <div class="charts">
+    <div class="card">
+      <h3>Frota × Agregado <small>— faturamento vs pagamento de frete</small></h3>
+      <div class="canvas-wrap"><canvas id="chartTipo"></canvas></div>
+    </div>
+    <div class="card">
+      <h3 id="shareTitle">Participação por Tipo <small>— faturamento</small></h3>
+      <div class="canvas-wrap"><canvas id="chartShare"></canvas></div>
+      <div id="shareLegend" class="donut-legend"></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:18px;">
+    <h3>Ranking por Resultado <small id="rankSub">— Top do recorte</small></h3>
+    <div class="canvas-wrap" style="height:320px;"><canvas id="chartRank"></canvas></div>
+  </div>
+
+  <p class="hint">Na FROTA o pagamento de frete é R$ 0 (veículo próprio). Em <b>Cavalo + só Frota</b> o resultado já desconta o custo real (pedágio, combustível, ARLA, pessoal, manutenção, seguro, rastreador e pneu).</p>
+
+  <div class="table-wrapper">
+    <div class="table-scroll">
+      <table id="tabela">
+        <thead id="thead"></thead>
+        <tbody id="tbody"></tbody>
+        <tfoot id="tfoot"></tfoot>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="drawer-overlay" id="drawerOverlay" onclick="fecharDrawer()"></div>
+<aside class="drawer" id="drawer">
+  <div class="drawer-head">
+    <div><h2 id="drawerTitulo">—</h2><div class="sub" id="drawerSub"></div></div>
+    <button class="drawer-close" onclick="fecharDrawer()">✕</button>
+  </div>
+  <div class="drawer-body" id="drawerBody"></div>
+</aside>
+
+<script>
+const DIM_LABEL = { cavalo: 'Cavalo', carreta: 'Carreta', motorista: 'Motorista', proprietario: 'Proprietário' };
+let DIM = 'cavalo';
+let DADOS = null;                  // { rows: [...] }
+let ordem = { campo: 'faturamento', dir: 'desc' };
+const charts = {};
+
+const fmtBRL = v => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
+const fmtBRL2 = v => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const fmtInt = v => Number(v || 0).toLocaleString('pt-BR');
+const fmtKm  = v => Number(v || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + ' km';
+const fmtPct = v => (Number(v || 0) * 100).toFixed(1).replace('.', ',') + '%';
+const fmtData = v => { if (!v) return '—'; const d = new Date(v); return isNaN(d.getTime()) ? String(v) : d.toLocaleDateString('pt-BR'); };
+const corTipo = t => t === 'FROTA' ? '#5b86b0' : t === 'AGREGADO' ? '#4f9d7f' : '#c08a5b';
+
+// Plugin local: desenha o % de cada fatia no centro do arco (só na rosca onde for registrado)
+const donutLabels = {
+  id: 'donutLabels',
+  afterDatasetsDraw(chart) {
+    const { ctx } = chart;
+    const meta = chart.getDatasetMeta(0);
+    const data = chart.data.datasets[0].data;
+    const total = data.reduce((s, v) => s + (Number(v) || 0), 0) || 1;
+    ctx.save();
+    ctx.font = "700 13px 'DM Sans', sans-serif";
+    ctx.fillStyle = '#0a0e17';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    meta.data.forEach((arc, i) => {
+      const pct = (Number(data[i]) || 0) / total * 100;
+      if (pct < 4) return; // não rotula fatias minúsculas
+      const ang = (arc.startAngle + arc.endAngle) / 2;
+      const r = (arc.innerRadius + arc.outerRadius) / 2;
+      ctx.fillText(pct.toFixed(1).replace('.', ',') + '%', arc.x + Math.cos(ang) * r, arc.y + Math.sin(ang) * r);
+    });
+    ctx.restore();
+  }
+};
+
+// ── Seletor de meses (multi-seleção) ──
+const MESES_ABV = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+let mesesSel = new Set();              // 'YYYY-MM'
+let anoPicker = new Date().getFullYear();
+
+function renderMesGrid() {
+  document.getElementById('mesAno').textContent = anoPicker;
+  document.getElementById('mesGrid').innerHTML = MESES_ABV.map((nm, i) => {
+    const ym = `${anoPicker}-${String(i + 1).padStart(2, '0')}`;
+    return `<div class="mes-cell ${mesesSel.has(ym) ? 'sel' : ''}" onclick="toggleMes('${ym}')">${nm}</div>`;
+  }).join('');
+}
+function toggleMes(ym) { mesesSel.has(ym) ? mesesSel.delete(ym) : mesesSel.add(ym); renderMesGrid(); }
+function mudaAno(d) { anoPicker += d; renderMesGrid(); }
+function toggleMesPop(e) { e.stopPropagation(); document.getElementById('tipoPop').classList.remove('open'); document.getElementById('mesPop').classList.toggle('open'); renderMesGrid(); }
+function limparMeses() { mesesSel.clear(); renderMesGrid(); }
+function aplicarMeses() {
+  if (!mesesSel.size) return;
+  document.getElementById('mesPop').classList.remove('open');
+  atualizaMesBtn();
+  carregar();
+}
+function atualizaMesBtn() {
+  const arr = [...mesesSel].sort();
+  const btn = document.getElementById('mesBtn');
+  if (!arr.length) { btn.textContent = 'Selecione'; return; }
+  if (arr.length === 1) { const [y, m] = arr[0].split('-'); btn.textContent = `${MESES_ABV[+m - 1]}/${y}`; }
+  else { btn.textContent = `${arr.length} meses`; }
+}
+document.addEventListener('click', e => {
+  if (!e.target.closest('.mespicker')) {
+    document.getElementById('mesPop').classList.remove('open');
+    document.getElementById('tipoPop').classList.remove('open');
+  }
+});
+
+// ── Filtro de Tipo (dropdown com caixinhas + Aplicar, igual ao seletor de mês) ──
+function toggleTipoPop(e) { e.stopPropagation(); document.getElementById('mesPop').classList.remove('open'); document.getElementById('tipoPop').classList.toggle('open'); }
+function limparTipos() { document.querySelectorAll('#tipoPop input').forEach(c => c.checked = false); }
+function aplicarTipos() { document.getElementById('tipoPop').classList.remove('open'); atualizaTipoBtn(); carregar(); }
+function atualizaTipoBtn() {
+  const LBL = { FROTA: 'Frota', AGREGADO: 'Agregado', CARRETEIRO: 'Carreteiro' };
+  const sel = tiposSelecionados();
+  const btn = document.getElementById('tipoBtn');
+  if (!sel.length) btn.textContent = 'Nenhum';
+  else if (sel.length === 3) btn.textContent = 'Todos';
+  else btn.textContent = sel.map(t => LBL[t]).join(', ');
+}
+
+window.addEventListener('DOMContentLoaded', async () => {
+  // mês padrão = mês corrente
+  const hoje = new Date();
+  anoPicker = hoje.getFullYear();
+  mesesSel = new Set([`${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}`]);
+  atualizaMesBtn(); renderMesGrid(); atualizaTipoBtn();
+  await loadMe();
+  await carregar();
+});
+
+async function loadMe() {
+  try {
+    const r = await fetch('/api/me', { credentials: 'same-origin' });
+    const j = await r.json();
+    if (j.ok) document.getElementById('userInfo').textContent = `👤 ${j.nome}`;
+  } catch {}
+}
+
+function setDim(d) {
+  DIM = d;
+  document.querySelectorAll('#dimToggle button').forEach(b => b.classList.toggle('active', b.dataset.dim === d));
+  carregar();
+}
+
+function tiposSelecionados() {
+  return [...document.querySelectorAll('.chk input:checked')].map(c => c.value);
+}
+
+async function carregar() {
+  const meses = [...mesesSel].sort();
+  const tipos = tiposSelecionados();
+  if (!meses.length || !tipos.length) { DADOS = { rows: [] }; render(); return; }
+  document.getElementById('loadingScreen').style.display = 'flex';
+  document.getElementById('dashboard').style.display = 'none';
+  document.getElementById('errorBox').style.display = 'none';
+  document.querySelector('.spinner').style.display = '';
+  try {
+    const url = `/api/veiculos/analise?dim=${DIM}&meses=${meses.join(',')}&tipos=${tipos.join(',')}`;
+    const r = await fetch(url, { credentials: 'same-origin' });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error + (j.detail ? '\n' + JSON.stringify(j.detail) : ''));
+    DADOS = j;
+    // derivadas da frota (custo real por cavalo): inclui pessoal + manutenção cavalo
+    if (DADOS.custos_frota) (DADOS.rows || []).forEach(r => {
+      r.custo_frota = (r.pedagio || 0) + (r.combustivel || 0) + (r.arla || 0) + (r.pessoal || 0) + (r.manut_cavalo || 0) + (r.seguro || 0) + (r.rastreador || 0) + (r.pneu || 0);
+      r.resultado_frota = (r.faturamento || 0) - r.custo_frota;
+      r.margem_frota = r.faturamento ? r.resultado_frota / r.faturamento : 0;
+      r.rsl = r.litros ? r.combustivel / r.litros : 0;          // R$/L (diesel)
+      r.kml = r.litros ? (r.km_hodometro || 0) / r.litros : 0;  // Km/L pelo km do abastecimento (hodômetro)
+    });
+    // derivadas da carreta (manutenção carreta)
+    if (DADOS.custos_carreta) (DADOS.rows || []).forEach(r => {
+      // agregado paga frete ao cavalo terceiro → desconta pagamento também
+      r.resultado_carreta = (r.faturamento || 0) - (r.pagamento || 0) - (r.manut_carreta || 0) - (r.pneu || 0);
+      r.margem_carreta = r.faturamento ? r.resultado_carreta / r.faturamento : 0;
+    });
+    document.getElementById('loadingScreen').style.display = 'none';
+    document.getElementById('dashboard').style.display = 'block';
+    render();
+  } catch (err) {
+    const box = document.getElementById('errorBox');
+    box.innerHTML = `Erro ao carregar:<code>${err.message}</code>`;
+    box.style.display = 'block';
+    document.querySelector('.spinner').style.display = 'none';
+  }
+}
+
+function linhasFiltradas() {
+  const q = (document.getElementById('busca').value || '').trim().toUpperCase();
+  let arr = (DADOS.rows || []).filter(r => !q || String(r.dim).toUpperCase().includes(q));
+  arr = arr.slice().sort((a, b) => {
+    const va = a[ordem.campo], vb = b[ordem.campo];
+    if (typeof va === 'string') return ordem.dir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
+    return ordem.dir === 'asc' ? va - vb : vb - va;
+  });
+  return arr;
+}
+
+function ordenar(campo) {
+  if (ordem.campo === campo) ordem.dir = ordem.dir === 'desc' ? 'asc' : 'desc';
+  else { ordem.campo = campo; ordem.dir = campo === 'dim' ? 'asc' : 'desc'; }
+  render();
+}
+function setaOrd(c) { return ordem.campo === c ? (ordem.dir === 'desc' ? ' ▾' : ' ▴') : ''; }
+
+function totais(arr) {
+  const t = { faturamento: 0, pagamento: 0, km: 0, viagens: 0, pedagio: 0, combustivel: 0, litros: 0, arla: 0,
+              pessoal: 0, manut_cavalo: 0, seguro: 0, rastreador: 0, pneu: 0, manut_carreta: 0, km_hodometro: 0 };
+  arr.forEach(r => {
+    t.faturamento += r.faturamento; t.pagamento += r.pagamento; t.km += r.km; t.viagens += r.viagens;
+    t.pedagio += r.pedagio || 0; t.combustivel += r.combustivel || 0; t.litros += r.litros || 0; t.arla += r.arla || 0;
+    t.pessoal += r.pessoal || 0; t.manut_cavalo += r.manut_cavalo || 0; t.seguro += r.seguro || 0; t.rastreador += r.rastreador || 0; t.pneu += r.pneu || 0; t.manut_carreta += r.manut_carreta || 0;
+    t.km_hodometro += r.km_hodometro || 0;
+  });
+  t.resultado = t.faturamento - t.pagamento;
+  t.margem = t.faturamento ? t.resultado / t.faturamento : 0;
+  t.rskm_frete = t.km ? t.pagamento / t.km : 0;
+  t.custo_frota = t.pedagio + t.combustivel + t.arla + t.pessoal + t.manut_cavalo + t.seguro + t.rastreador + t.pneu;
+  t.resultado_frota = t.faturamento - t.custo_frota;
+  t.margem_frota = t.faturamento ? t.resultado_frota / t.faturamento : 0;
+  t.rsl = t.litros ? t.combustivel / t.litros : 0;
+  t.kml = t.litros ? t.km_hodometro / t.litros : 0;   // km/L pelo km do abastecimento (hodômetro)
+  t.resultado_carreta = t.faturamento - t.pagamento - t.manut_carreta - t.pneu;
+  t.margem_carreta = t.faturamento ? t.resultado_carreta / t.faturamento : 0;
+  return t;
+}
+
+function render() {
+  if (!DADOS) return;
+  const arr = linhasFiltradas();
+  const t = totais(arr);
+
+  // KPIs por visão (frota / carreta / padrão) — coerentes com a tabela
+  const frota = !!(DADOS && DADOS.custos_frota);
+  const carretaCusto = !!(DADOS && DADOS.custos_carreta);
+  let kpisHTML;
+  if (frota) {
+    kpisHTML = `
+    <div class="kpi"><div class="l">Cavalos</div><div class="v">${fmtInt(arr.length)}</div></div>
+    <div class="kpi"><div class="l">Faturamento</div><div class="v">${fmtBRL(t.faturamento)}</div></div>
+    <div class="kpi"><div class="l">Pedágio</div><div class="v">${fmtBRL(t.pedagio)}</div></div>
+    <div class="kpi"><div class="l">Combustível</div><div class="v">${fmtBRL(t.combustivel)}</div></div>
+    <div class="kpi"><div class="l">ARLA</div><div class="v">${fmtBRL(t.arla)}</div></div>
+    <div class="kpi"><div class="l">Pessoal</div><div class="v">${fmtBRL(t.pessoal)}</div></div>
+    <div class="kpi"><div class="l">Manut. Cavalo</div><div class="v">${fmtBRL(t.manut_cavalo)}</div></div>
+    <div class="kpi"><div class="l">Seguro</div><div class="v">${fmtBRL(t.seguro)}</div></div>
+    <div class="kpi"><div class="l">Rastreador</div><div class="v">${fmtBRL(t.rastreador)}</div></div>
+    <div class="kpi"><div class="l">Pneu</div><div class="v">${fmtBRL(t.pneu)}</div></div>
+    <div class="kpi"><div class="l">Resultado Frota</div><div class="v ${t.resultado_frota >= 0 ? 'pos' : 'neg'}">${fmtBRL(t.resultado_frota)}</div></div>
+    <div class="kpi"><div class="l">Margem Frota</div><div class="v">${fmtPct(t.margem_frota)}</div></div>
+    <div class="kpi"><div class="l">Litros</div><div class="v">${fmtInt(t.litros)} L</div></div>
+    <div class="kpi"><div class="l">KM Rodado <span style="opacity:.6">· rota</span></div><div class="v">${fmtKm(t.km)}</div></div>
+    <div class="kpi"><div class="l">KM Abastec. <span style="opacity:.6">· hodôm.</span></div><div class="v">${fmtKm(t.km_hodometro)}</div></div>
+    <div class="kpi"><div class="l">R$/L</div><div class="v">${fmtBRL2(t.rsl)}</div></div>
+    <div class="kpi"><div class="l">Km/L</div><div class="v">${t.kml.toFixed(2).replace('.', ',')}</div></div>`;
+  } else if (carretaCusto) {
+    kpisHTML = `
+    <div class="kpi"><div class="l">Carretas</div><div class="v">${fmtInt(arr.length)}</div></div>
+    <div class="kpi"><div class="l">Faturamento</div><div class="v">${fmtBRL(t.faturamento)}</div></div>
+    <div class="kpi"><div class="l">Pagamento Frete</div><div class="v">${fmtBRL(t.pagamento)}</div></div>
+    <div class="kpi"><div class="l">Manut. Carreta</div><div class="v">${fmtBRL(t.manut_carreta)}</div></div>
+    <div class="kpi"><div class="l">Pneu</div><div class="v">${fmtBRL(t.pneu)}</div></div>
+    <div class="kpi"><div class="l">Result. Carreta</div><div class="v ${t.resultado_carreta >= 0 ? 'pos' : 'neg'}">${fmtBRL(t.resultado_carreta)}</div></div>
+    <div class="kpi"><div class="l">Margem</div><div class="v">${fmtPct(t.margem_carreta)}</div></div>
+    <div class="kpi"><div class="l">KM Rodado</div><div class="v">${fmtKm(t.km)}</div></div>
+    <div class="kpi"><div class="l">Viagens</div><div class="v">${fmtInt(t.viagens)}</div></div>`;
+  } else {
+    kpisHTML = `
+    <div class="kpi"><div class="l">${DIM_LABEL[DIM]}s</div><div class="v">${fmtInt(arr.length)}</div></div>
+    <div class="kpi"><div class="l">Faturamento</div><div class="v">${fmtBRL(t.faturamento)}</div></div>
+    <div class="kpi"><div class="l">Pagamento Frete</div><div class="v">${fmtBRL(t.pagamento)}</div></div>
+    <div class="kpi"><div class="l">Resultado</div><div class="v ${t.resultado >= 0 ? 'pos' : 'neg'}">${fmtBRL(t.resultado)}</div></div>
+    <div class="kpi"><div class="l">Margem</div><div class="v">${fmtPct(t.margem)}</div></div>
+    <div class="kpi"><div class="l">KM Rodado</div><div class="v">${fmtKm(t.km)}</div></div>
+    <div class="kpi"><div class="l">R$/km Frete</div><div class="v">${fmtBRL2(t.rskm_frete)}</div></div>
+    <div class="kpi"><div class="l">Viagens</div><div class="v">${fmtInt(t.viagens)}</div></div>`;
+  }
+  document.getElementById('kpis').innerHTML = kpisHTML;
+
+  renderGraficos(arr);
+  renderTabela(arr, t);
+  document.getElementById('contador').textContent = `${arr.length} ${DIM_LABEL[DIM].toLowerCase()}(s)`;
+}
+
+function destroy(name) { if (charts[name]) { charts[name].destroy(); charts[name] = null; } }
+
+// Legenda HTML do donut (label + % do total). items: [[label, valor, cor], ...]
+function renderDonutLegend(items) {
+  const el = document.getElementById('shareLegend');
+  if (!el) return;
+  const tot = items.reduce((s, p) => s + p[1], 0) || 1;
+  const ordenado = items.slice().sort((a, b) => b[1] - a[1]);   // maior → menor (não alfabético)
+  el.innerHTML = ordenado.map(p => {
+    const pc = p[1] / tot * 100;
+    const txt = (p[1] > 0 && pc < 0.5) ? '<1%' : pc.toFixed(0) + '%';   // sliver não vira "0%"
+    return `<span class="dl-item"><span class="dl-dot" style="background:${p[2]}"></span>${p[0]} <b>${txt}</b></span>`;
+  }).join('');
+}
+
+function renderGraficos(arr) {
+  const tema = { grid: 'rgba(148,163,184,0.12)', tick: '#94a3b8' };
+
+  // 1) Frota × Agregado (barras agrupadas: faturamento vs pagamento)
+  const porTipo = {};
+  arr.forEach(r => {
+    const k = r.tipo || '—';
+    (porTipo[k] = porTipo[k] || { faturamento: 0, pagamento: 0 });
+    porTipo[k].faturamento += r.faturamento; porTipo[k].pagamento += r.pagamento;
+  });
+  const tipos = Object.keys(porTipo);
+  destroy('tipo');
+  charts.tipo = new Chart(document.getElementById('chartTipo'), {
+    type: 'bar',
+    data: {
+      labels: tipos,
+      datasets: [
+        { label: 'Faturamento', data: tipos.map(k => porTipo[k].faturamento), backgroundColor: '#5b86b0', borderRadius: 6, borderSkipped: false, maxBarThickness: 64 },
+        { label: 'Pagamento Frete', data: tipos.map(k => porTipo[k].pagamento), backgroundColor: '#b06f6f', borderRadius: 6, borderSkipped: false, maxBarThickness: 64 },
+      ]
+    },
+    options: {
+      maintainAspectRatio: false,
+      categoryPercentage: 0.6, barPercentage: 0.8,
+      plugins: { legend: { labels: { color: tema.tick, usePointStyle: true, pointStyle: 'rectRounded', boxWidth: 10, padding: 16 } }, tooltip: { callbacks: { label: c => `${c.dataset.label}: ${fmtBRL2(c.raw)}` } } },
+      scales: { x: { ticks: { color: tema.tick, font: { weight: '600' } }, grid: { display: false } }, y: { border: { display: false }, ticks: { color: tema.tick, callback: v => fmtBRL(v) }, grid: { color: tema.grid } } }
+    }
+  });
+
+  // 2) Rosca: participação por tipo (>1 tipo) OU composição do faturamento (1 tipo)
+  const tituloShare = document.getElementById('shareTitle');
+  destroy('share');
+  if (tipos.length <= 1) {
+    // ── Composição do Faturamento: custos diluídos na receita + Resultado (a sobra) ──
+    const soma = k => arr.reduce((s, r) => s + (Number(r[k]) || 0), 0);
+    const fat = soma('faturamento');
+    let parts, resultado;
+    // Paleta categórica: verde fica RESERVADO só p/ Resultado (nenhum custo é verde)
+    if (DADOS && DADOS.custos_frota) {
+      parts = [['Pedágio', soma('pedagio'), '#8f9a5b'], ['Combustível', soma('combustivel'), '#c2a35b'],
+               ['ARLA', soma('arla'), '#6e8bb5'], ['Pessoal', soma('pessoal'), '#7e7fb0'],
+               ['Manut. Cavalo', soma('manut_cavalo'), '#c2766f'], ['Seguro', soma('seguro'), '#a87ca0'],
+               ['Rastreador', soma('rastreador'), '#5fa1a8'], ['Pneu', soma('pneu'), '#868c99']];
+      resultado = soma('resultado_frota');
+    } else if (DADOS && DADOS.custos_carreta) {
+      parts = [['Frete', soma('pagamento'), '#b06f6f'], ['Manut. Carreta', soma('manut_carreta'), '#a87ca0'], ['Pneu', soma('pneu'), '#868c99']];
+      resultado = soma('resultado_carreta');
+    } else {
+      parts = [['Frete', soma('pagamento'), '#b06f6f']];
+      resultado = soma('resultado');
+    }
+    parts = parts.filter(p => p[1] > 0).sort((a, b) => b[1] - a[1]);  // custos por tamanho → slivers agrupados
+    parts.push(['Resultado', Math.max(0, resultado), '#4f9d7f']);
+    const prejuizo = resultado < 0;
+    const totComp = parts.reduce((s, p) => s + p[1], 0) || 1;
+    if (tituloShare) tituloShare.innerHTML = `Composição do Faturamento <small>— ${tipos[0] || '—'}${prejuizo ? ' · <span style="color:var(--red)">prejuízo</span>' : ''}</small>`;
+    // texto no centro da rosca: faturamento total (ou Resultado em vermelho se prejuízo)
+    const centro = {
+      id: 'centroFat',
+      afterDraw(chart) {
+        const { ctx, chartArea: { left, right, top, bottom } } = chart;
+        const x = (left + right) / 2, y = (top + bottom) / 2;
+        ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#94a3b8'; ctx.font = "600 10px 'DM Sans', sans-serif"; ctx.fillText(prejuizo ? 'Resultado' : 'Faturamento', x, y - 11);
+        ctx.fillStyle = prejuizo ? '#f87171' : '#e2e8f0'; ctx.font = "700 14px 'JetBrains Mono', monospace";
+        ctx.fillText(fmtBRL(prejuizo ? resultado : fat), x, y + 7);
+        ctx.restore();
+      }
+    };
+    charts.share = new Chart(document.getElementById('chartShare'), {
+      type: 'doughnut',
+      plugins: [donutLabels, centro],
+      data: {
+        labels: parts.map(p => p[0]),
+        datasets: [{ data: parts.map(p => p[1]), backgroundColor: parts.map(p => p[2]), borderColor: '#0a0e17', borderWidth: 2, hoverOffset: 6 }]
+      },
+      options: {
+        maintainAspectRatio: false, cutout: '62%',
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: c => ` ${c.label}: ${fmtBRL2(c.raw)} (${(c.raw / totComp * 100).toFixed(1)}% do fat.)` } }
+        }
+      }
+    });
+    renderDonutLegend(parts);
+  } else {
+    const totShare = tipos.reduce((s, k) => s + porTipo[k].faturamento, 0) || 1;
+    if (tituloShare) tituloShare.innerHTML = 'Participação por Tipo <small>— faturamento</small>';
+    charts.share = new Chart(document.getElementById('chartShare'), {
+      type: 'doughnut',
+      plugins: [donutLabels],
+      data: {
+        labels: tipos,
+        datasets: [{ data: tipos.map(k => porTipo[k].faturamento), backgroundColor: tipos.map(k => corTipo(k)), borderColor: '#0a0e17', borderWidth: 2, hoverOffset: 6 }]
+      },
+      options: {
+        maintainAspectRatio: false,
+        cutout: '62%',
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: c => ` ${c.label}: ${fmtBRL2(c.raw)} (${(c.raw / totShare * 100).toFixed(1)}%)` } }
+        }
+      }
+    });
+    renderDonutLegend(tipos.map(k => [k, porTipo[k].faturamento, corTipo(k)]));
+  }
+
+  // 3) Ranking Top 15 por Resultado (coerente com a visão: frota / carreta / padrão)
+  const rkey = DADOS && DADOS.custos_frota ? 'resultado_frota'
+             : DADOS && DADOS.custos_carreta ? 'resultado_carreta' : 'resultado';
+  // mostra todos quando o conjunto é pequeno (ex.: frota = 16); senão Top 15
+  const nRank = arr.length <= 20 ? arr.length : 15;
+  const top = arr.slice().sort((a, b) => (b[rkey] || 0) - (a[rkey] || 0)).slice(0, nRank);
+  const rs = document.getElementById('rankSub');
+  if (rs) rs.textContent = nRank >= arr.length ? `— ${arr.length} do recorte` : `— Top ${nRank} do recorte`;
+  destroy('rank');
+  charts.rank = new Chart(document.getElementById('chartRank'), {
+    type: 'bar',
+    data: {
+      labels: top.map(r => r.dim),
+      datasets: [{ label: 'Resultado', data: top.map(r => r[rkey] || 0), backgroundColor: top.map(r => corTipo(r.tipo)) }]
+    },
+    options: {
+      indexAxis: 'y', maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => fmtBRL2(c.raw) } } },
+      scales: { x: { ticks: { color: tema.tick, callback: v => fmtBRL(v) }, grid: { color: tema.grid } }, y: { ticks: { color: tema.tick }, grid: { display: false } } }
+    }
+  });
+}
+
+function renderTabela(arr, t) {
+  if (DADOS && DADOS.custos_frota) { renderTabelaFrota(arr, t); return; }
+  if (DADOS && DADOS.custos_carreta) { renderTabelaCarreta(arr, t); return; }
+  const showProp = DIM === 'cavalo';   // proprietário do cavalo (dono do próprio veículo)
+  const colProp = showProp ? `<th onclick="ordenar('prop_cavalo')">Proprietário${setaOrd('prop_cavalo')}</th>` : '';
+  document.getElementById('thead').innerHTML = `<tr>
+    <th onclick="ordenar('dim')">${DIM_LABEL[DIM]}${setaOrd('dim')}</th>
+    <th onclick="ordenar('tipo')">Tipo${setaOrd('tipo')}</th>
+    ${colProp}
+    <th onclick="ordenar('viagens')">Viagens${setaOrd('viagens')}</th>
+    <th onclick="ordenar('km')">KM${setaOrd('km')}</th>
+    <th onclick="ordenar('faturamento')">Faturamento${setaOrd('faturamento')}</th>
+    <th onclick="ordenar('pagamento')">Pagamento${setaOrd('pagamento')}</th>
+    <th onclick="ordenar('resultado')">Resultado${setaOrd('resultado')}</th>
+    <th>Margem</th><th>% Pag/Fat</th><th>R$/km frete</th>
+  </tr>`;
+
+  const tb = document.getElementById('tbody');
+  if (!arr.length) {
+    tb.innerHTML = `<tr><td colspan="${showProp ? 11 : 10}" class="empty-state">Nenhum registro no período/recorte.</td></tr>`;
+    document.getElementById('tfoot').innerHTML = '';
+    return;
+  }
+  const maxFat = Math.max(1, ...arr.map(r => r.faturamento));
+  const corMargem = m => { const x = Math.max(-0.5, Math.min(0.5, m)); const h = (x + 0.5) * 120; return `hsl(${h},65%,55%)`; };
+
+  tb.innerHTML = arr.map(r => {
+    const margem = r.faturamento ? r.resultado / r.faturamento : 0;
+    const pagFat = r.faturamento ? r.pagamento / r.faturamento : 0;
+    const rspagkm = r.km ? r.pagamento / r.km : 0;
+    const w = (r.faturamento / maxFat * 100).toFixed(1);
+    const prop = r.tipo === 'FROTA' ? '' : (r.prop_cavalo || '');
+    const cellProp = showProp ? `<td style="text-align:left;font-family:'DM Sans',sans-serif;max-width:220px;overflow:hidden;text-overflow:ellipsis" title="${esc(prop)}">${prop ? esc(prop) : '—'}</td>` : '';
+    return `<tr class="clickable" data-v="${String(r.dim).replace(/"/g, '&quot;')}" onclick="abrirDetalhe(this.dataset.v)">
+      <td title="${String(r.dim).replace(/"/g, '&quot;')}">${r.dim}</td>
+      <td><span class="pill ${r.tipo}">${r.tipo}</span></td>
+      ${cellProp}
+      <td>${fmtInt(r.viagens)}</td>
+      <td>${fmtInt(r.km)}</td>
+      <td class="bar"><div class="barfill" style="width:${w}%"></div><span>${fmtBRL(r.faturamento)}</span></td>
+      <td>${r.pagamento ? fmtBRL(r.pagamento) : '—'}</td>
+      <td>${fmtBRL(r.resultado)}</td>
+      <td style="color:${corMargem(margem)}">${fmtPct(margem)}</td>
+      <td>${r.pagamento ? fmtPct(pagFat) : '—'}</td>
+      <td>${r.pagamento ? fmtBRL2(rspagkm) : '—'}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('tfoot').innerHTML = `<tr>
+    <td>Total (${arr.length})</td><td></td>${showProp ? '<td></td>' : ''}
+    <td>${fmtInt(t.viagens)}</td><td>${fmtInt(t.km)}</td>
+    <td>${fmtBRL(t.faturamento)}</td><td>${fmtBRL(t.pagamento)}</td><td>${fmtBRL(t.resultado)}</td>
+    <td>${fmtPct(t.margem)}</td><td>${t.faturamento ? fmtPct(t.pagamento / t.faturamento) : '—'}</td><td>${t.km ? fmtBRL2(t.pagamento / t.km) : '—'}</td>
+  </tr>`;
+}
+
+// Visão da frota (recorte Cavalo + só Frota): custo real por cavalo (pedágio + combustível + ARLA)
+function renderTabelaFrota(arr, t) {
+  const corMargem = m => { const x = Math.max(-0.5, Math.min(0.5, m)); const h = (x + 0.5) * 120; return `hsl(${h},65%,55%)`; };
+  document.getElementById('thead').innerHTML = `<tr>
+    <th onclick="ordenar('dim')">Cavalo${setaOrd('dim')}</th>
+    <th onclick="ordenar('viagens')">Viagens${setaOrd('viagens')}</th>
+    <th onclick="ordenar('km')">KM Rota${setaOrd('km')}</th>
+    <th onclick="ordenar('km_hodometro')">KM Abast.${setaOrd('km_hodometro')}</th>
+    <th onclick="ordenar('faturamento')">Faturamento${setaOrd('faturamento')}</th>
+    <th onclick="ordenar('pedagio')">Pedágio${setaOrd('pedagio')}</th>
+    <th onclick="ordenar('combustivel')">Combustível${setaOrd('combustivel')}</th>
+    <th onclick="ordenar('litros')">Litros${setaOrd('litros')}</th>
+    <th onclick="ordenar('arla')">ARLA${setaOrd('arla')}</th>
+    <th onclick="ordenar('pessoal')">Pessoal${setaOrd('pessoal')}</th>
+    <th onclick="ordenar('manut_cavalo')">Manut. Cavalo${setaOrd('manut_cavalo')}</th>
+    <th onclick="ordenar('seguro')">Seguro${setaOrd('seguro')}</th>
+    <th onclick="ordenar('rastreador')">Rastreador${setaOrd('rastreador')}</th>
+    <th onclick="ordenar('pneu')">Pneu${setaOrd('pneu')}</th>
+    <th onclick="ordenar('rsl')">R$/L${setaOrd('rsl')}</th>
+    <th onclick="ordenar('kml')">Km/L${setaOrd('kml')}</th>
+    <th onclick="ordenar('resultado_frota')">Result. Frota${setaOrd('resultado_frota')}</th>
+    <th>Margem</th>
+  </tr>`;
+
+  const tb = document.getElementById('tbody');
+  if (!arr.length) {
+    tb.innerHTML = `<tr><td colspan="18" class="empty-state">Nenhum registro no período/recorte.</td></tr>`;
+    document.getElementById('tfoot').innerHTML = '';
+    return;
+  }
+  const maxFat = Math.max(1, ...arr.map(r => r.faturamento));
+
+  tb.innerHTML = arr.map(r => {
+    const w = (r.faturamento / maxFat * 100).toFixed(1);
+    return `<tr class="clickable" data-v="${String(r.dim).replace(/"/g, '&quot;')}" onclick="abrirDetalhe(this.dataset.v)">
+      <td title="${String(r.dim).replace(/"/g, '&quot;')}">${r.dim}</td>
+      <td>${fmtInt(r.viagens)}</td>
+      <td>${fmtInt(r.km)}</td>
+      <td>${r.km_hodometro ? fmtInt(r.km_hodometro) : '—'}</td>
+      <td class="bar"><div class="barfill" style="width:${w}%"></div><span>${fmtBRL(r.faturamento)}</span></td>
+      <td>${r.pedagio ? fmtBRL(r.pedagio) : '—'}</td>
+      <td>${r.combustivel ? fmtBRL(r.combustivel) : '—'}</td>
+      <td>${r.litros ? fmtInt(r.litros) + ' L' : '—'}</td>
+      <td>${r.arla ? fmtBRL(r.arla) : '—'}</td>
+      <td>${r.pessoal ? fmtBRL(r.pessoal) : '—'}</td>
+      <td>${r.manut_cavalo ? fmtBRL(r.manut_cavalo) : '—'}</td>
+      <td>${r.seguro ? fmtBRL(r.seguro) : '—'}</td>
+      <td>${r.rastreador ? fmtBRL(r.rastreador) : '—'}</td>
+      <td>${r.pneu ? fmtBRL(r.pneu) : '—'}</td>
+      <td>${r.rsl ? fmtBRL2(r.rsl) : '—'}</td>
+      <td>${r.kml ? r.kml.toFixed(2).replace('.', ',') : '—'}</td>
+      <td>${fmtBRL(r.resultado_frota)}</td>
+      <td style="color:${corMargem(r.margem_frota)}">${fmtPct(r.margem_frota)}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('tfoot').innerHTML = `<tr>
+    <td>Total (${arr.length})</td><td>${fmtInt(t.viagens)}</td><td>${fmtInt(t.km)}</td><td>${fmtInt(t.km_hodometro)}</td>
+    <td>${fmtBRL(t.faturamento)}</td><td>${fmtBRL(t.pedagio)}</td><td>${fmtBRL(t.combustivel)}</td>
+    <td>${fmtInt(t.litros)} L</td><td>${fmtBRL(t.arla)}</td>
+    <td>${fmtBRL(t.pessoal)}</td><td>${fmtBRL(t.manut_cavalo)}</td>
+    <td>${fmtBRL(t.seguro)}</td><td>${fmtBRL(t.rastreador)}</td>
+    <td>${fmtBRL(t.pneu)}</td>
+    <td>${fmtBRL2(t.rsl)}</td><td>${t.kml.toFixed(2).replace('.', ',')}</td>
+    <td>${fmtBRL(t.resultado_frota)}</td><td>${fmtPct(t.margem_frota)}</td>
+  </tr>`;
+}
+
+// Visão da carreta: manutenção da carreta rateada entre as carretas Rizza (frota + agregado)
+function renderTabelaCarreta(arr, t) {
+  const corMargem = m => { const x = Math.max(-0.5, Math.min(0.5, m)); const h = (x + 0.5) * 120; return `hsl(${h},65%,55%)`; };
+  document.getElementById('thead').innerHTML = `<tr>
+    <th onclick="ordenar('dim')">Carreta${setaOrd('dim')}</th>
+    <th onclick="ordenar('tipo')">Tipo${setaOrd('tipo')}</th>
+    <th onclick="ordenar('viagens')">Viagens${setaOrd('viagens')}</th>
+    <th onclick="ordenar('km')">KM${setaOrd('km')}</th>
+    <th onclick="ordenar('faturamento')">Faturamento${setaOrd('faturamento')}</th>
+    <th onclick="ordenar('pagamento')">Pagamento${setaOrd('pagamento')}</th>
+    <th onclick="ordenar('manut_carreta')">Manut. Carreta${setaOrd('manut_carreta')}</th>
+    <th onclick="ordenar('pneu')">Pneu${setaOrd('pneu')}</th>
+    <th onclick="ordenar('resultado_carreta')">Result. Carreta${setaOrd('resultado_carreta')}</th>
+    <th>Margem</th>
+  </tr>`;
+
+  const tb = document.getElementById('tbody');
+  if (!arr.length) {
+    tb.innerHTML = `<tr><td colspan="10" class="empty-state">Nenhum registro no período/recorte.</td></tr>`;
+    document.getElementById('tfoot').innerHTML = '';
+    return;
+  }
+  const maxFat = Math.max(1, ...arr.map(r => r.faturamento));
+
+  tb.innerHTML = arr.map(r => {
+    const w = (r.faturamento / maxFat * 100).toFixed(1);
+    return `<tr class="clickable" data-v="${String(r.dim).replace(/"/g, '&quot;')}" onclick="abrirDetalhe(this.dataset.v)">
+      <td title="${String(r.dim).replace(/"/g, '&quot;')}">${r.dim}${r.rizza ? '' : ' <span style="color:var(--text-dim);font-size:0.7rem">(terceiro)</span>'}</td>
+      <td><span class="pill ${r.tipo}">${r.tipo}</span></td>
+      <td>${fmtInt(r.viagens)}</td>
+      <td>${fmtInt(r.km)}</td>
+      <td class="bar"><div class="barfill" style="width:${w}%"></div><span>${fmtBRL(r.faturamento)}</span></td>
+      <td>${r.pagamento ? fmtBRL(r.pagamento) : '—'}</td>
+      <td>${r.manut_carreta ? fmtBRL(r.manut_carreta) : '—'}</td>
+      <td>${r.pneu ? fmtBRL(r.pneu) : '—'}</td>
+      <td>${fmtBRL(r.resultado_carreta)}</td>
+      <td style="color:${corMargem(r.margem_carreta)}">${fmtPct(r.margem_carreta)}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('tfoot').innerHTML = `<tr>
+    <td>Total (${arr.length})</td><td></td><td>${fmtInt(t.viagens)}</td><td>${fmtInt(t.km)}</td>
+    <td>${fmtBRL(t.faturamento)}</td><td>${fmtBRL(t.pagamento)}</td><td>${fmtBRL(t.manut_carreta)}</td>
+    <td>${fmtBRL(t.pneu)}</td>
+    <td>${fmtBRL(t.resultado_carreta)}</td><td>${fmtPct(t.margem_carreta)}</td>
+  </tr>`;
+}
+
+// ── Drawer de detalhe do veículo ──
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+let drawerAberto = false;
+
+async function abrirDetalhe(valor) {
+  if (!valor) return;
+  const meses = [...mesesSel].sort();
+  if (!meses.length) return;
+  const tipos = tiposSelecionados();   // mesmo filtro da tela → reconcilia com a linha
+  document.getElementById('drawerTitulo').textContent = valor;
+  document.getElementById('drawerSub').textContent = 'Carregando...';
+  document.getElementById('drawerBody').innerHTML = '<div class="dsec-empty">Carregando detalhe...</div>';
+  document.getElementById('drawerOverlay').classList.add('open');
+  document.getElementById('drawer').classList.add('open');
+  drawerAberto = true;
+  try {
+    const url = `/api/veiculos/detalhe?dim=${DIM}&valor=${encodeURIComponent(valor)}&meses=${meses.join(',')}&tipos=${tipos.join(',')}`;
+    const r = await fetch(url, { credentials: 'same-origin' });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || 'Erro');
+    renderDrawer(d);
+  } catch (e) {
+    document.getElementById('drawerSub').textContent = '';
+    document.getElementById('drawerBody').innerHTML = `<div class="dsec-empty" style="color:var(--red)">Erro: ${esc(e.message)}</div>`;
+  }
+}
+function fecharDrawer() {
+  document.getElementById('drawerOverlay').classList.remove('open');
+  document.getElementById('drawer').classList.remove('open');
+  drawerAberto = false;
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && drawerAberto) fecharDrawer(); });
+
+function dChip(l, v, cls) { return `<div class="dk-chip"><div class="l">${l}</div><div class="v ${cls || ''}">${v}</div></div>`; }
+function dSec(titulo, n, inner) { return `<div class="dsec"><h3>${titulo} <small>${n} ${n === 1 ? 'registro' : 'registros'}</small></h3>${inner}</div>`; }
+function miniTable(cols, rows) {
+  if (!rows || !rows.length) return '<div class="dsec-empty">— sem registros —</div>';
+  const th = cols.map(c => `<th>${c.h}</th>`).join('');
+  const tb = rows.map(r => '<tr>' + cols.map(c => `<td>${c.f(r)}</td>`).join('') + '</tr>').join('');
+  return `<div class="scroll"><table class="mini"><thead><tr>${th}</tr></thead><tbody>${tb}</tbody></table></div>`;
+}
+
+function renderDrawer(d) {
+  const p = d.perfil || {}, k = d.kpis || {}, cons = d.consumo || null;
+  const recLabel = { cavalo: 'Cavalo', carreta: 'Carreta', motorista: 'Motorista', proprietario: 'Proprietário' }[d.dim] || d.dim;
+  const subParts = [p.modelo, p.proprietario, p.tipo].filter(Boolean).map(esc);
+  if (p.disponivel) subParts.push('disp: ' + esc(p.disponivel));
+  document.getElementById('drawerSub').textContent = (subParts.length ? subParts.join(' · ') : recLabel) + ' · ' + d.meses.join(', ');
+
+  let chips = '';
+  if (k.receita != null) chips += dChip('Receita', fmtBRL(k.receita));
+  if (k.frete) chips += dChip('Frete', fmtBRL(k.frete));
+  if (k.km != null) chips += dChip('KM', fmtInt(k.km));
+  if (k.viagens != null) chips += dChip('Viagens', fmtInt(k.viagens));
+  if (k.frota != null) chips += dChip('Frota', fmtInt(k.frota));
+  if (cons) {
+    chips += dChip('Consumo', cons.km_por_litro ? cons.km_por_litro.toFixed(2).replace('.', ',') + ' km/L' : '—');
+    chips += dChip('Diesel', fmtInt(cons.litros_diesel) + ' L');
+  }
+  if (d.pedagio_total != null) chips += dChip('Pedágio', fmtBRL(d.pedagio_total));
+  if (d.manutencao_total != null) chips += dChip('Manut. itens', fmtBRL(d.manutencao_total));
+  let html = `<div class="dk-chips">${chips}</div>`;
+
+  if (d.veiculos) html += dSec('Veículos', d.veiculos.length, miniTable([
+    { h: 'Placa', f: r => esc(r.placa) + (r.modelo ? ` <span style="color:var(--text-dim)">${esc(r.modelo)}</span>` : '') },
+    { h: 'Tipo', f: r => `<span class="pill-sm ${r.tipo}">${esc(r.tipo)}</span>` },
+    { h: 'Viagens', f: r => fmtInt(r.viagens) }, { h: 'KM', f: r => fmtInt(r.km) }, { h: 'Receita', f: r => fmtBRL(r.receita) },
+  ], d.veiculos));
+
+  if (d.cargas) html += dSec('Cargas', d.cargas.length, miniTable([
+    { h: 'Data', f: r => fmtData(r.data) }, { h: 'CTRC', f: r => esc(r.ctrc) },
+    { h: 'Rota', f: r => esc((r.origem || '—') + ' → ' + (r.destino || '—')) }, { h: 'Cliente', f: r => esc(r.cliente) },
+    { h: 'Receita', f: r => fmtBRL(r.receita) }, { h: 'KM', f: r => fmtInt(r.km) },
+  ], d.cargas));
+
+  if (d.abastecimentos) html += dSec('Abastecimentos', d.abastecimentos.length, miniTable([
+    { h: 'Data', f: r => fmtData(r.data) },
+    { h: 'Posto/Cidade', f: r => esc((r.posto || '') + (r.cidade ? ` · ${r.cidade}/${r.uf || ''}` : '')) },
+    { h: 'Produto', f: r => esc(r.produto) }, { h: 'Litros', f: r => fmtInt(r.litros) },
+    { h: 'R$/L', f: r => fmtBRL2(r.vunit) }, { h: 'Valor', f: r => fmtBRL(r.valor) }, { h: 'Hodômetro', f: r => fmtInt(r.hodometro) },
+  ], d.abastecimentos));
+
+  if (d.pedagios) html += dSec('Pedágios', d.pedagios.length, miniTable([
+    { h: 'Data', f: r => esc(r.data) }, { h: 'Hora', f: r => esc(r.hora) }, { h: 'Sentido', f: r => esc(r.sentido) },
+    { h: 'Embarcador', f: r => esc(r.embarcador) }, { h: 'Valor', f: r => fmtBRL2(r.valor) },
+  ], d.pedagios));
+
+  if (d.manutencao) html += dSec('Manutenção (itens identificados pela placa)', d.manutencao.length, miniTable([
+    { h: 'Data', f: r => fmtData(r.emissao) }, { h: 'Fornecedor', f: r => esc(r.fornecedor) },
+    { h: 'Descrição', f: r => esc(r.descricao) }, { h: 'Evento', f: r => esc(r.evento) }, { h: 'Valor', f: r => fmtBRL(r.valor) },
+  ], d.manutencao));
+
+  if (d.relacionamentos) {
+    const rel = d.relacionamentos, boxes = [];
+    const box = (t, arr) => (arr && arr.length) ? `<div class="rel-box"><div class="t">${t}</div>${arr.slice(0, 8).map(x => `<div class="rel-row"><span>${esc(x.nome)}${x.prop ? ` <span style="color:var(--text-dim)">· ${esc(x.prop)}</span>` : ''}</span><span>${x.viagens}v · ${fmtBRL(x.receita)}</span></div>`).join('')}</div>` : '';
+    [['Carretas que puxou', rel.carretas], ['Cavalos que puxaram', rel.cavalos], ['Motoristas', rel.motoristas], ['Rotas', rel.rotas]]
+      .forEach(([t, arr]) => { const b = box(t, arr); if (b) boxes.push(b); });
+    if (boxes.length) html += `<div class="dsec"><h3>Relacionamentos</h3><div class="rel-grid">${boxes.join('')}</div></div>`;
+  }
+
+  document.getElementById('drawerBody').innerHTML = html;
+}
+
+function exportarCsv() {
+  if (!DADOS) return;
+  const arr = linhasFiltradas();
+  const sep = ';';
+  const num = v => Number(v || 0).toFixed(2).replace('.', ',');
+  let cab, linhaFn;
+  if (DADOS.custos_frota) {
+    cab = ['Cavalo', 'Viagens', 'KM Rota', 'KM Abast', 'Faturamento', 'Pedagio', 'Combustivel', 'Litros', 'Arla', 'Pessoal', 'Manut Cavalo', 'Seguro', 'Rastreador', 'Pneu', 'R$/L', 'Km/L', 'Resultado Frota', 'Margem%'];
+    linhaFn = r => [`"${r.dim}"`, r.viagens, num(r.km), num(r.km_hodometro), num(r.faturamento), num(r.pedagio), num(r.combustivel), num(r.litros), num(r.arla), num(r.pessoal), num(r.manut_cavalo), num(r.seguro), num(r.rastreador), num(r.pneu), num(r.rsl), num(r.kml), num(r.resultado_frota), num((r.margem_frota || 0) * 100)];
+  } else if (DADOS.custos_carreta) {
+    cab = ['Carreta', 'Rizza', 'Tipo', 'Viagens', 'KM', 'Faturamento', 'Pagamento', 'Manut Carreta', 'Pneu', 'Resultado Carreta', 'Margem%'];
+    linhaFn = r => [`"${r.dim}"`, r.rizza ? 'S' : 'N', r.tipo, r.viagens, num(r.km), num(r.faturamento), num(r.pagamento), num(r.manut_carreta), num(r.pneu), num(r.resultado_carreta), num((r.margem_carreta || 0) * 100)];
+  } else {
+    const showProp = DIM === 'cavalo';
+    cab = [DIM_LABEL[DIM], 'Tipo', ...(showProp ? ['Proprietario'] : []), 'Viagens', 'KM', 'Faturamento', 'Pagamento', 'Resultado', 'Margem%', 'R$/km frete'];
+    linhaFn = r => {
+      const margem = r.faturamento ? (r.resultado / r.faturamento) : 0;
+      const rspagkm = r.km ? r.pagamento / r.km : 0;
+      const prop = r.tipo === 'FROTA' ? '' : (r.prop_cavalo || '');
+      return [`"${r.dim}"`, r.tipo, ...(showProp ? [`"${prop}"`] : []), r.viagens, num(r.km), num(r.faturamento), num(r.pagamento), num(r.resultado), num(margem * 100), num(rspagkm)];
+    };
+  }
+  const linhas = [cab.join(sep)];
+  arr.forEach(r => linhas.push(linhaFn(r).join(sep)));
+  const blob = new Blob(['﻿' + linhas.join('\n')], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `analise_${DIM}_${[...mesesSel].sort().join('_')}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+</script>
+<script src="/nav-perms.js"></script>
+</body>
+</html>

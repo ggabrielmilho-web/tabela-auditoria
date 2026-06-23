@@ -12,7 +12,7 @@ URL de produção: **https://rizza.carvalhoia.com**
 ## Funcionalidades
 
 ### Para todos os usuários autenticados
-- **Auditoria Receita** (`/`) — Dashboard com KPIs e tabela de auditoria de receita, com filtros, drag-and-drop de colunas e exportação CSV. **Abre já filtrada no mês corrente** (fallback: mês mais recente com dados)
+- **Auditoria Receita** (`/`) — Dashboard com KPIs e tabela de auditoria de receita, com filtros, drag-and-drop de colunas e exportação CSV. **Abre já filtrada no mês corrente** (fallback: mês mais recente com dados), **ordenada por data decrescente** (mais recente primeiro, ancorada por chave) e com **filtro por Cliente Pagador**
 - **Tarifas** (`/tarifas`) — Consulta de tabela de fretes em cascata (cliente → origem → destino → tipo veículo) + simulador de frete. **Comparativo de até 4 blocos** (rotas/clientes lado a lado, cada um com seu simulador) + **resumo consolidado** que reflete o filtro. **Total + Impostos (ICMS)** como linha informativa para o comercial — usa `icms_valor` ou a matriz `icms_aliquota` (cálculo por dentro). Mostra também **ICMS Incluso**, **Pedágio Incluso** e **Prazo de Recebimento** (colunas `icms_incluso`/`pedagio_incluso`/`prazo_recebimento` já publicadas no dataset Power BI)
 - **Embarques** (`/embarques`) — Lançamento de cargas (Terceiro / Agregado / Frota), relatório filtrável + CSV, edição com log de auditoria por campo e histórico. **Agendamento por destino** (data/hora com o cliente), com filtro "Por agendamento", **badge de atraso** (agendamento vencido + carga ativa) e **ETA realista** (~600 km/dia). Suporta **viagem vazia** (carga sem cliente) e **cidades de rota/passagem** (pontos que moldam o caminho da rota planejada sem serem destino de entrega). **Desengate de carreta carregada** (drop-and-hook): libera cavalo+motorista para outra viagem com a carreta ainda no destino aguardando descarga (ver Módulo Embarques)
 - **Mapa / Rastreamento** (`/embarques/mapa`, `/embarques/cargas/<id>/mapa`) — Mapa em tempo real (Leaflet): posição dos veículos e trajeto de cada carga, rota planejada **origem → cidades de rota → destinos** (completa, multi-ponto), KPIs de viagem **ao vivo** (vel. máx/média, km, tempos) e **Data de saída** no painel da carga. Fluxo de status automático **Aberta → Em rota → No destino → Entregue** (`No destino` = parado na cidade da descarga há +60 min), com desvio **Desengatada** (carreta carregada largada no destino). **Rastreia pela carreta** (carreta1 → cavalo → carreta2 — o GPS costuma estar na carreta). **Reconstrói o trajeto** mesmo em lançamento tardio: detecta a saída da origem pelo GPS (por distância, pois o 3S erra o nome da cidade) e persiste em `inicio_viagem`. Mapa geral tem filtro **🔌 Desengatadas** e marcador próprio
@@ -21,9 +21,10 @@ URL de produção: **https://rizza.carvalhoia.com**
 - **Reunião** (`/reuniao`) — Gerador de ata de reunião a partir de áudio. Transcreve via AssemblyAI (com identificação de falantes) e gera ata profissional via GPT-4.1-mini. Exporta em Word e PDF
 - **Contratos** (`/contratos`) — Emissão de **contrato TAC Agregado** por IA. O operador sobe os documentos (CNH, CRLV, RNTRC/ANTT, comprovante de endereço, dados bancários); o GPT-4.1-mini (visão) **extrai os campos** de cada documento-fonte correto, o backend reconfere **pendências impeditivas** em Python e preenche o **template Word soberano** (`contrato_tac_template.docx` via docxtpl — o texto jurídico nunca é tocado). Gera **comodato de rastreador** quando o agregado não usa rastreador próprio. Exporta `.docx` e oferece **preview HTML** (para "Salvar como PDF" pelo navegador)
 - **DRE** (`/dre`) — Demonstração do Resultado do Exercício com 4 gráficos analíticos (Waterfall, Donut por Grupo, Pareto 80/20, Comparativo Mensal) e chat IA financeiro com streaming em tempo real
-- **Despesas** (`/dre/despesas`) — Auditoria detalhada de `consulta_despesas_477` com filtros, drilldown por grupo/evento e exportação CSV em streaming
-- **Conhecimentos** (`/dre/conhecimentos`) — Auditoria detalhada de `conhecimentos_emitidos` com filtros e exportação CSV em streaming
+- **Despesas** (`/dre/despesas`) — Auditoria detalhada de `consulta_despesas_477` com filtros, drilldown por grupo/evento, **AutoFilter estilo Excel por coluna** (funil no cabeçalho; via `report-filter.js`) e exportação CSV em streaming
+- **Conhecimentos** (`/dre/conhecimentos`) — Auditoria detalhada de `conhecimentos_emitidos` com filtros, **AutoFilter estilo Excel por coluna** e exportação CSV em streaming
 - **Faturamento por Tomador** (`/faturamento`) — Matriz **tomador × meses** (faturamento e nº de cargas) de `conhecimentos_emitidos`, agregada via DAX e **consolidada por raiz de CNPJ** (junta filiais do mesmo grupo). Toggle R$/Cargas, busca, ordenação e CSV; cards e subtotal acompanham o filtro
+- **Análise por Veículo** (`/veiculos`) — Análise de receita/custo por **Cavalo / Carreta / Motorista / Proprietário**, sobre `Auditoria Receita` (receita **rateada**, nunca duplica). Filtro por **mês/competência (multi-seleção)** e por tipo (Frota/Agregado/Carreteiro). Na visão **Cavalo + só Frota**: custos reais por cavalo — **Pedágio** (Sem Parar), **Combustível/ARLA** (ValeCard, com **consumo km/L** via hodômetro), **Pessoal** (folha de motoristas) e **Manut. Cavalo / Seguro / Rastreador** (despesas) rateados → **Resultado Frota**. Na visão **Carreta**: **Manut. Carreta** rateada entre as carretas Rizza (frota+agregado). **Painel lateral (drawer)** ao clicar em qualquer linha, com cargas, abastecimentos, pedágios, manutenção real (itens identificados pela placa), relacionamentos (carretas/cavalos/motoristas/rotas) e quebra por veículo. **Placas normalizadas para Mercosul** (funde grafia antiga + nova do mesmo veículo)
 - **Admin** (`/admin`) — Gerenciamento de usuários, papéis, **permissão de acesso por aba** (cada usuário recebe quais abas enxerga; admin vê todas por bypass) e permissões por tipo de operação
 
 ---
@@ -120,7 +121,7 @@ URL de produção: **https://rizza.carvalhoia.com**
 
 ```
 Tabela Auditoria/
-├── server.py                    # Backend Flask (rotas + lógica) — ~2.800 linhas
+├── server.py                    # Backend Flask (rotas + lógica) — ~4.100 linhas
 ├── init_db.py                   # Criação de todas as tabelas locais (idempotente)
 ├── requirements.txt             # Dependências Python
 ├── Dockerfile                   # Imagem Docker
@@ -139,6 +140,8 @@ Tabela Auditoria/
 ├── dre-despesas.html            # Auditoria detalhada de despesas
 ├── dre-conhecimentos.html       # Auditoria detalhada de conhecimentos
 ├── faturamento.html             # Faturamento por tomador (matriz tomador × mês, admin)
+├── veiculos.html                # Análise por Veículo (cavalo/carreta/motorista/proprietário + drawer de detalhe, admin)
+├── report-filter.js             # Componente de AutoFilter estilo Excel (compartilhado por Conhecimentos e Despesas)
 ├── embarques.html               # Landing de embarques (KPIs + atalhos)
 ├── embarques-novo.html          # Formulário de lançamento de carga
 ├── embarques-relatorio.html     # Listagem + filtros + CSV + edição + histórico
@@ -233,6 +236,8 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 - `GET /dre` — DRE (admin)
 - `GET /dre/despesas` — Despesas (admin)
 - `GET /dre/conhecimentos` — Conhecimentos (admin)
+- `GET /faturamento` — Faturamento por Tomador (admin)
+- `GET /veiculos` — Análise por Veículo (admin)
 - `GET /admin` — Admin (admin)
 - `GET /embarques` — Landing de embarques
 - `GET /embarques/novo` — Formulário de lançamento
@@ -268,6 +273,11 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 
 ### Faturamento por Tomador (admin)
 - `GET /api/faturamento/tomadores?ano=2026` — matriz tomador × mês (faturamento + nº de cargas) de `conhecimentos_emitidos`, agregada via DAX (`SUM(valor_frete)` + `DISTINCTCOUNT(primeiro_manifesto)`) e consolidada por raiz de CNPJ no backend
+- `GET /report-filter.js` — componente JS do AutoFilter (servido como estático, igual ao `nav-perms.js`)
+
+### Análise por Veículo (admin)
+- `GET /api/veiculos/analise?dim=&meses=&tipos=` — agrega `Auditoria Receita` por `dim` (cavalo|carreta|motorista|proprietario), filtrado por competência (`meses=YYYY-MM,...`) e tipo. Receita = `SUM(receita_rateada)`; FROTA tem pagamento de frete = 0. Em **cavalo+só Frota** anexa custos rateados (pedágio Sem Parar, combustível/ARLA + km hodômetro do ValeCard, pessoal/folha, manut. cavalo/seguro/rastreador das despesas). Em **carreta** anexa manut. carreta (base de rateio = todas as carretas Rizza, fixa). Placas normalizadas em Mercosul; placa vendida (`PLACAS_VENDIDAS`) não conta como frota
+- `GET /api/veiculos/detalhe?dim=&valor=&meses=&tipos=` — detalhe (drawer) de um veículo/pessoa: cargas, abastecimentos (ValeCard), pedágios (Sem Parar), manutenção real (despesas via placa no `historico_despesa`), relacionamentos e quebra por veículo. Reconcilia com a linha da tabela (respeita o filtro de tipo; resolve as 2 grafias Mercosul via `_placa_grafias`)
 
 ### Admin
 - `GET /api/admin/users` — lista usuários
@@ -416,8 +426,12 @@ CREATE TABLE auditoria_users (
 - `public consulta_despesas_477` — 50 colunas. Filtrada pela coluna calculada `REF` (formato `YYYY/MM`)
 - `public tarifas_frete` — tabela de tarifas por cliente/rota/veículo
 - `public motoristas_047` — motoristas (chave única `cpf`)
-- `public veiculost_045` — veículos (cavalo/carreta/truck)
-- `Auditoria Receita` — fato de auditoria
+- `public veiculost_045` — veículos (cavalo/carreta/truck) — usado em Embarques
+- `public veiculos_045` — cadastro de veículos (`placa`, `proprietario`, `tipo`, `disponivel`, `modelo`) — usado na Análise por Veículo
+- `public semparar_lancamentos` — pedágios Sem Parar (`placa_veiculo`, `data` texto DD/MM/YYYY, `valor`, `sentido_praca`, `embarcador`)
+- `public abastecimentos_valecard` — abastecimentos ValeCard (`placa`, `dch_data`, `produto`, `ncd_quantidade` litros, `mcd_valor_total/unitario`, `nsd_hodometro`, `estabelecimento`, `motorista`)
+- `public custo_pessoal` — folha por funcionário (`competencia` YYYY-MM, `total_mes`) — motoristas/operação
+- `Auditoria Receita` — fato de auditoria (grão CTRB; `receita_rateada`, `placa_cavalo`, `placa_carreta`, `motorista`, `Tipo Operacao`, `CTRC`)
 
 ---
 
@@ -476,6 +490,41 @@ Emissão assistida por IA do **contrato TAC Agregado** (transportador autônomo 
 ### Princípios
 - O template `.docx` é a **única fonte** do texto do contrato; o preview HTML (mammoth) é derivado do mesmo `.docx` renderizado — não há duas versões do texto.
 - O template é derivado do contrato-origem por `_build_template.py` (rodar 1×, fora do fluxo de produção).
+
+---
+
+## Módulo Análise por Veículo
+
+Análise de receita e **custo real** por veículo/pessoa (`/veiculos`, `server.py:/api/veiculos/analise` e `/api/veiculos/detalhe`). Fonte: `Auditoria Receita` (grão CTRB) cruzada com pedágio/combustível/despesas/cadastro.
+
+### Conceitos-chave
+- **Receita sempre rateada** (`receita_rateada`) — nunca soma campo bruto (uma carga pode ter várias linhas de manifesto → duplicaria).
+- **FROTA não tem pagamento de frete** (veículo próprio) → forçado a 0 (o `frete_motorista_total` na frota é comissão do motorista próprio, não frete a terceiro).
+- **Placa Mercosul**: a conversão antigo→Mercosul muda só o 5º caractere (dígito→letra `0=A…9=J`). `_placa_mercosul` normaliza (funde as duas grafias do mesmo veículo); `_placa_grafias` faz o caminho inverso (gera as 2 grafias) para casar o dado bruto no drill-down. `veiculos_045` também é deduplicado por placa normalizada.
+- **Regra interna `PLACAS_VENDIDAS`**: cavalo vendido mas ainda no nome da Rizza no cadastro não conta como frota (ex.: `AZM6E29`).
+
+### Custos rateados (visão Cavalo + só Frota), por competência do mês
+- **Pedágio** (Sem Parar): soma líquida por placa (todos os `tipo_uso`).
+- **Combustível / ARLA** (ValeCard): diesel e ARLA separados (valor + litros). **Consumo km/L** = km do **hodômetro** (soma de deltas consecutivos válidos, ignora retrocesso e saltos > 3000 km) ÷ litros de diesel — mesma base na tela e no drawer (`_km_hodometro`).
+- **Pessoal** (folha de motoristas, `custo_pessoal`) — rateado proporcional ao faturamento; só entra se o RH lançou a competência.
+- **Manut. Cavalo** (eventos `5150`/`5154`) — proporcional ao faturamento.
+- **Seguro** (`5402` exceto fornecedor BVIX) e **Rastreador** (fornecedor AUTOTRAC) — colunas separadas, **divididos igualmente** entre os cavalos frota.
+- **Pneu** (eventos `5411`/`5412` — pneus + recapagem): o histórico **não tem placa**, então o pool do mês é **dividido cavalo×carreta pelo nº de pneus dos veículos Rizza ativos** (`_pneus_por_veiculo`: carreta=12, truck=6, cavalo `6X4`=10/`6X2`=8/`4X2`=6, fallback 8) e, dentro de cada grupo, rateado por faturamento.
+- **KM Rota** (manifesto, `COALESCE('public rotas_km'[km], distancia_km)`) e **KM Abast.** (soma de deltas válidos do hodômetro ValeCard) são colunas **distintas**; o **Km/L = KM Abast. ÷ litros diesel** (não usa o KM Rota).
+- **Resultado Frota** = receita − pedágio − combustível − ARLA − pessoal − manut. cavalo − seguro − rastreador − pneu.
+
+### Visão Carreta
+- **Manut. Carreta** (eventos `5153`/`5155`) e **Pneu** (parte-carreta do pool `5411`/`5412`) rateados proporcional ao faturamento entre as **carretas Rizza** (frota+agregado); base de rateio **fixa** (todas as carretas Rizza do mês, independe do filtro de tipo). Result. Carreta = receita − pagamento (frete ao cavalo, no agregado) − manut. carreta − pneu. Trucks (sem reboque) ficam fora do recorte Carreta.
+
+### Proprietário, gráficos e filtros
+- **Coluna Proprietário** (exceto frota): no recorte **Cavalo** mostra o dono do **próprio cavalo** (1:1 do `veiculos_045`); no recorte **Carreta** não há coluna — os **donos dos cavalos que puxaram** a carreta aparecem no drawer (podem ser vários).
+- **Donut adaptativo**: com **mais de um tipo** marcado é "Participação por Tipo"; com **um único tipo** vira **"Composição do Faturamento"** (custos diluídos na receita + **Resultado**, a sobra). Paleta dessaturada (verde reservado só ao Resultado), legenda HTML em ordem decrescente, centro com o faturamento.
+- **Filtros Mês e Tipo** são dropdowns (caixinhas + Aplicar) — marcam sem recarregar até aplicar; abrir um fecha o outro.
+
+### Painel lateral (drawer)
+Clicar em qualquer linha abre o detalhe (`/api/veiculos/detalhe`), **reconciliado com a linha** (respeita o filtro de tipo): cargas, abastecimentos detalhados, pedágios, **manutenção real** (itens identificados pela placa no `historico_despesa` — match de texto, cobertura parcial), relacionamentos (carretas/cavalos/motoristas/rotas, **com o proprietário de cada veículo**) e, em motorista/proprietário, **quebra por veículo**. Proprietário reconcilia pela base **cavalo** (não soma cavalo+carreta para evitar dupla contagem).
+
+> **Pendência conhecida**: o Km/L usa o hodômetro do ValeCard (digitado pelo motorista, sujo) → pode distorcer; por isso **KM Rota e KM Abast. aparecem lado a lado** para tornar o número auditável. O km confiável virá do **GPS do rastreamento** numa próxima fase.
 
 ---
 
@@ -559,6 +608,9 @@ Resultado Final   = Pós Investimento - Retiradas
 - [x] Viagem vazia + cidades de rota/passagem (rota planejada multi-ponto)
 - [x] Desengate de carreta carregada (status `Desengatada`: libera cavalo+motorista, carreta segue no destino, finaliza automático na saída da carreta)
 - [x] **Publicar no Power BI as 3 colunas novas de tarifas** (`icms_incluso`, `pedagio_incluso`, `prazo_recebimento`) — já publicadas; cards e "Total + Impostos" ativos
+- [x] **Análise por Veículo** (cavalo/carreta/motorista/proprietário) com custo real da frota (pedágio + combustível + folha + manutenção/seguro/rastreador) e **drawer de detalhe** por carga; normalização de placa Mercosul
+- [x] **AutoFilter estilo Excel** por coluna em Conhecimentos e Despesas (`report-filter.js`)
+- [ ] **km/L pelo GPS do rastreamento** (substituir o hodômetro do ValeCard, que é sujo, na Análise por Veículo)
 - [ ] **Conectar carga (embarques) ↔ documentos fiscais** (auditoria/conhecimentos) por placa+data ou manifesto — enriquecer auditoria com Nº da carga, "Rastreada" e Embarcador
 - [ ] **Dedupe do mapa geral** (carga de frota aparece 2× — cavalo + carreta)
 - [ ] Cache do token Power BI (atualmente requisitado a cada chamada)

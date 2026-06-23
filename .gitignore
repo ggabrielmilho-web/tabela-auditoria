@@ -3,3 +3,17 @@ __pycache__/
 *.pyc
 *.pyo
 *.log
+
+# Sensíveis / dados de cliente — NUNCA versionar
+*-recovery-codes.txt
+hostinger-recovery-codes.txt
+_contrato_origem.docx
+Contrato *.doc
+Contrato *.docx
+Posi*.xlsx
+*.xlsx
+
+# Scripts de teste/diagnóstico locais
+teste_rota.*
+check_placas_3s.py
+cruza_placas.py
