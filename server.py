@@ -1649,16 +1649,28 @@ PLACAS_VENDIDAS = {'AZM6E29'}
 
 def _cadastro_veiculos(token):
     """Cadastro de veículos (veiculos_045) com placa normalizada em Mercosul e deduplicado.
-    Retorna {placa_norm: {'proprietario','tipo','disponivel'}}. Em colisão de grafia, mantém a 1ª."""
+    Retorna {placa_norm: {'proprietario','tipo','disponivel','modelo'}}.
+
+    Colisão de grafia: a conversão antiga→Mercosul (LLL+4díg → troca o 5º char) pode gerar
+    uma string idêntica à placa Mercosul REAL de outro veículo (ex.: HOA0466→HOA0E66, que é a
+    Mercosul real de outra carreta). Nesses casos, prefere a entrada cuja placa CRUA já está em
+    Mercosul (identidade atual) em vez da antiga convertida. Entre formatos iguais, mantém a 1ª."""
+    import re
     res = execute_dax(token, "EVALUATE 'public veiculos_045'")
     linhas = clean_rows(res.get('results', [{}])[0].get('tables', [{}])[0].get('rows', []))
     cad = {}
+    cad_merc = {}  # placa_norm -> a entrada guardada veio de placa crua já-Mercosul?
     for r in linhas:
-        p = _placa_mercosul(r.get('placa'))
-        if not p or p in cad:
+        raw = re.sub(r'[^A-Za-z0-9]', '', str(r.get('placa') or '')).upper()
+        p = _placa_mercosul(raw)
+        if not p:
             continue
+        eh_merc = bool(re.fullmatch(r'[A-Z]{3}[0-9][A-Z][0-9]{2}', raw))  # placa crua já é Mercosul
+        if p in cad and not (eh_merc and not cad_merc.get(p)):
+            continue  # mantém a atual, salvo quando a nova é Mercosul genuína e a atual não era
         cad[p] = {'proprietario': r.get('proprietario'), 'tipo': r.get('tipo'),
                   'disponivel': r.get('disponivel'), 'modelo': r.get('modelo')}
+        cad_merc[p] = eh_merc
     return cad
 
 
