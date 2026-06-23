@@ -42,24 +42,44 @@ def km_entre(lat1, lng1, lat2, lng2):
 
 
 def indice_saida_origem(coords, origem_lat, origem_lng, raio_km=30):
-    """Índice do ponto MAIS PRÓXIMO da origem (dentro de `raio_km`) — recorta o trecho
-    PRÉ-origem (ex.: caminhão rodando antes do lançamento). A viagem passa a começar no
-    ponto mais perto do pátio (no marcador de origem), não antes.
+    """Índice da PRIMEIRA saída da origem — recorta só o trecho PRÉ-origem (caminhão
+    rodando/chegando antes do lançamento). A viagem passa a começar no ponto mais perto
+    do pátio do BLOCO INICIAL perto da origem.
+
+    Pega o ponto mais próximo da origem APENAS dentro do primeiro bloco contíguo dentro
+    do raio (a "estadia inicial" na origem). Assim, uma viagem que VOLTA pra base
+    (origem→destino→origem) não tem o recorte puxado pro ponto da volta — o que zerava o
+    trajeto/KPI.
 
     `coords`: lista de (lat, lng) na ordem cronológica.
-    Sem origem (None) ou sem nenhum ponto dentro do raio → 0 (não recorta; degrada sem surpresa).
+    Sem origem (None) ou nenhum ponto dentro do raio → 0 (não recorta; degrada sem surpresa).
     """
     if origem_lat is None or origem_lng is None or not coords:
         return 0
-    melhor_i, melhor_d = 0, None
-    achou = False
+    # 1) Primeira entrada na origem (1º ponto dentro do raio)
+    start = None
     for i, (la, ln) in enumerate(coords):
         if la is None or ln is None:
             continue
         d = km_entre(origem_lat, origem_lng, la, ln)
-        if d is not None and d <= raio_km and (melhor_d is None or d < melhor_d):
-            melhor_d, melhor_i, achou = d, i, True
-    return melhor_i if achou else 0
+        if d is not None and d <= raio_km:
+            start = i
+            break
+    if start is None:
+        return 0  # nunca passou perto da origem → não recorta (degrada como hoje)
+    # 2) Bloco contíguo dentro do raio a partir de `start`; escolhe o ponto mais perto
+    #    do pátio NESSE bloco inicial (encerra ao sair do raio; tolera ponto inválido).
+    melhor_i, melhor_d = start, None
+    for i in range(start, len(coords)):
+        la, ln = coords[i]
+        if la is None or ln is None:
+            continue
+        d = km_entre(origem_lat, origem_lng, la, ln)
+        if d is None or d > raio_km:
+            break  # saiu da origem → fim do bloco inicial
+        if melhor_d is None or d < melhor_d:
+            melhor_d, melhor_i = d, i
+    return melhor_i
 
 
 def normalizar_cidade(s):
