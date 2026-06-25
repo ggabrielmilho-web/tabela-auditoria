@@ -1590,7 +1590,10 @@ def api_faturamento_tomadores():
         "'public conhecimentos_emitidos'[cliente_pagador], "
         "[@mes], "
         "\"faturamento\", SUM('public conhecimentos_emitidos'[valor_frete]), "
-        "\"cargas\", DISTINCTCOUNT('public conhecimentos_emitidos'[primeiro_manifesto]))"
+        # cargas = viagens reais: NÃO conta CTe sem manifesto (cobrança que não é viagem)
+        "\"cargas\", CALCULATE(DISTINCTCOUNT('public conhecimentos_emitidos'[primeiro_manifesto]), "
+        "NOT(ISBLANK('public conhecimentos_emitidos'[primeiro_manifesto])) && "
+        "'public conhecimentos_emitidos'[primeiro_manifesto] <> \"\"))"
     )
 
     try:
