@@ -1923,13 +1923,10 @@ def _veiculos_margem_cliente(token, meses_comp, meses_set, tipos, tipos_dax):
 
     cadastro = _cadastro_veiculos(token)
 
-    # Custo por cavalo (mensal) + receita mensal por cavalo (p/ atribuir custo à viagem)
+    # Custo total da frota (cavalos). É diluído proporcional à RECEITA DE FROTA de cada cliente
+    # (taxa única = custo total / receita total de frota) — não por cavalo específico nem por faturamento total.
     custos_cav, _t = _custo_frota_por_cavalo(token, meses_set, cadastro)
-    rec_total_cav = {}
-    if 'FROTA' in tipos:
-        for r in _dax_rows(token, f"EVALUATE SUMMARIZE(FILTER({AR}, FORMAT({AR}[data_ref_ctrc],\"YYYY-MM\") IN {meses_set} "
-                           f"&& {AR}[Tipo Operacao]=\"FROTA\" && NOT(ISBLANK({AR}[placa_cavalo]))), {AR}[placa_cavalo], \"r\", SUM({AR}[receita_rateada]))"):
-            rec_total_cav[_placa_mercosul(r.get('placa_cavalo'))] = float(r.get('r') or 0)
+    total_custo_cavalo = sum(c.get('custo_total', 0.0) for c in custos_cav.values())
 
     # Taxa de custo de carreta (manut+pneu) por R$ de receita de carreta Rizza
     rizza_carretas = {p for p, v in cadastro.items()
@@ -1976,11 +1973,8 @@ def _veiculos_margem_cliente(token, meses_comp, meses_set, tipos, tipos_dax):
         frete = float(v.get('frete') or 0) if tipo != 'FROTA' else 0.0
         km = float(v.get('km') or 0)
         ctrb = v.get('ctrb')
-        cav = _placa_mercosul(v.get('cav')); car = _placa_mercosul(v.get('car'))
-        # custo da viagem
-        custo_cav_v = 0.0
-        if tipo == 'FROTA' and cav in custos_cav and rec_total_cav.get(cav, 0) > 0:
-            custo_cav_v = custos_cav[cav]['custo_total'] * (rec / rec_total_cav[cav])
+        car = _placa_mercosul(v.get('car'))
+        # custo de carreta da viagem (o cavalo é diluído depois, proporcional à receita de frota)
         custo_car_v = taxa_car * rec if car in rizza_carretas else 0.0
         # tomadores da viagem pela proporção do valor_frete dos CTRCs (liga via CTRC, não manifesto)
         by_raiz = {}
@@ -2012,14 +2006,17 @@ def _veiculos_margem_cliente(token, meses_comp, meses_set, tipos, tipos_dax):
             else:
                 a['rec_carreteiro'] += rec * frac
             a['frete_terceiros'] += frete * frac
-            a['custo_cavalo'] += custo_cav_v * frac
             a['custo_carreta'] += custo_car_v * frac
             a['km'] += km * frac
             if ctrb:
                 a['_viagens'].add(ctrb)
 
+    # Custo de cavalo diluído proporcional à receita de frota de cada cliente (taxa única)
+    total_rec_frota = sum(a['rec_frota'] for a in agg.values()) or 1.0
+    taxa_cav = total_custo_cavalo / total_rec_frota
     saida = []
     for a in agg.values():
+        a['custo_cavalo'] = taxa_cav * a['rec_frota']
         a['dim'] = max(a['_nomes'].items(), key=lambda kv: kv[1])[0] if a['_nomes'] else '(sem nome)'
         a['viagens'] = len(a.pop('_viagens'))
         a.pop('_nomes', None)
@@ -2286,27 +2283,27 @@ def _veiculos_detalhe_cliente(token, valor, meses_comp, meses_set, tipos, tipos_
     cadastro = _cadastro_veiculos(token)
     comp = {k: 0.0 for k in _COST_MONEY}
     cavalos_rows = []
-    # Custo do CAVALO por componente, alocado ∝ receita do cliente no cavalo
+    custo_cavalo = 0.0
+    # Custo de cavalo diluído proporcional à RECEITA DE FROTA do cliente (taxa única da frota),
+    # não por cavalo específico. Componentes seguem a mesma proporção.
     if 'FROTA' in tipos:
         custos_cav, _t = _custo_frota_por_cavalo(token, meses_set, cadastro)
-        rec_total_cav = {}
-        for r in _dax_rows(token, f"EVALUATE SUMMARIZE(FILTER({AR}, FORMAT({AR}[data_ref_ctrc],\"YYYY-MM\") IN {meses_set} "
-                           f"&& {AR}[Tipo Operacao]=\"FROTA\" && NOT(ISBLANK({AR}[placa_cavalo]))), {AR}[placa_cavalo], \"r\", SUM({AR}[receita_rateada]))"):
-            rec_total_cav[_placa_mercosul(r.get('placa_cavalo'))] = float(r.get('r') or 0)
+        total_custo_cavalo = sum(c.get('custo_total', 0.0) for c in custos_cav.values())
+        total_comp = {k: sum(c.get(k, 0.0) for c in custos_cav.values()) for k in _COST_MONEY}
+        total_rec_frota = _dax_val(token, f"EVALUATE ROW(\"v\", SUMX(FILTER({AR}, {AR}[Tipo Operacao]=\"FROTA\" "
+            f"&& FORMAT({AR}[data_ref_ctrc],\"YYYY-MM\") IN {meses_set}), {AR}[receita_rateada]))") or 1.0
+        taxa_cav = total_custo_cavalo / total_rec_frota
         rec_cli_cav = {}
         for c in cargas:
             if (c.get('tipo') or '') == 'FROTA':
                 p = _placa_mercosul(c.get('cavalo'))
                 rec_cli_cav[p] = rec_cli_cav.get(p, 0.0) + float(c.get('receita') or 0)
+        rec_cli_frota = sum(rec_cli_cav.values())
+        for k in _COST_MONEY:
+            comp[k] = total_comp[k] / total_rec_frota * rec_cli_frota
         for p, rc in rec_cli_cav.items():
-            tot = rec_total_cav.get(p, 0.0); cc = custos_cav.get(p, {})
-            if not tot or not cc:
-                continue
-            frac = rc / tot
-            for k in _COST_MONEY:
-                comp[k] += cc.get(k, 0.0) * frac
-            cavalos_rows.append({'placa': p, 'receita': round(rc, 2), 'custo': round(cc.get('custo_total', 0.0) * frac, 2)})
-    custo_cavalo = round(sum(comp.values()), 2)
+            cavalos_rows.append({'placa': p, 'receita': round(rc, 2), 'custo': round(taxa_cav * rc, 2)})
+        custo_cavalo = round(taxa_cav * rec_cli_frota, 2)
 
     # Custo da CARRETA (manut + pneu), taxa fixa × receita do cliente em carretas Rizza
     manut_carreta_aloc = pneu_carreta_aloc = 0.0
