@@ -934,7 +934,9 @@ function renderTabelaCliente(arr, t) {
     <th onclick="ordenar('dim')">Cliente${setaOrd('dim')}</th>
     <th onclick="ordenar('viagens')">Viagens${setaOrd('viagens')}</th>
     <th onclick="ordenar('faturamento')">Receita${setaOrd('faturamento')}</th>
-    <th>% Frota</th>
+    <th onclick="ordenar('rec_frota')">% Frota${setaOrd('rec_frota')}</th>
+    <th onclick="ordenar('rec_agregado')">% Agreg${setaOrd('rec_agregado')}</th>
+    <th onclick="ordenar('rec_carreteiro')">% Carret${setaOrd('rec_carreteiro')}</th>
     <th onclick="ordenar('custo_frota')">Custo Frota${setaOrd('custo_frota')}</th>
     <th onclick="ordenar('frete_terceiros')">Frete Terceiros${setaOrd('frete_terceiros')}</th>
     <th onclick="ordenar('resultado')">Resultado${setaOrd('resultado')}</th>
@@ -943,7 +945,7 @@ function renderTabelaCliente(arr, t) {
 
   const tb = document.getElementById('tbody');
   if (!arr.length) {
-    tb.innerHTML = `<tr><td colspan="8" class="empty-state">Nenhum registro no período/recorte.</td></tr>`;
+    tb.innerHTML = `<tr><td colspan="10" class="empty-state">Nenhum registro no período/recorte.</td></tr>`;
     document.getElementById('tfoot').innerHTML = '';
     return;
   }
@@ -952,13 +954,17 @@ function renderTabelaCliente(arr, t) {
   tb.innerHTML = arr.map(r => {
     const w = (r.faturamento / maxFat * 100).toFixed(1);
     const pf = r.faturamento ? (r.rec_frota || 0) / r.faturamento : 0;
+    const pa = r.faturamento ? (r.rec_agregado || 0) / r.faturamento : 0;
+    const pc = r.faturamento ? (r.rec_carreteiro || 0) / r.faturamento : 0;
     const v = String(r.cnpj_raiz || r.dim).replace(/"/g, '&quot;');
     const titulo = String(r.dim).replace(/"/g, '&quot;');
     return `<tr class="clickable" data-v="${v}" data-t="${titulo}" onclick="abrirDetalhe(this.dataset.v, this.dataset.t)">
       <td title="${titulo}">${r.dim}</td>
       <td>${fmtInt(r.viagens)}</td>
       <td class="bar"><div class="barfill" style="width:${w}%"></div><span>${fmtBRL(r.faturamento)}</span></td>
-      <td>${fmtPct(pf)}</td>
+      <td style="color:#5b86b0">${pf ? fmtPct(pf) : '—'}</td>
+      <td style="color:#4f9d7f">${pa ? fmtPct(pa) : '—'}</td>
+      <td style="color:#c08a5b">${pc ? fmtPct(pc) : '—'}</td>
       <td>${r.custo_frota ? fmtBRL(r.custo_frota) : '—'}</td>
       <td>${r.frete_terceiros ? fmtBRL(r.frete_terceiros) : '—'}</td>
       <td>${fmtBRL(r.resultado)}</td>
@@ -968,7 +974,9 @@ function renderTabelaCliente(arr, t) {
 
   document.getElementById('tfoot').innerHTML = `<tr>
     <td>Total (${arr.length})</td><td>${fmtInt(t.viagens)}</td><td>${fmtBRL(t.faturamento)}</td>
-    <td>${t.faturamento ? fmtPct(t.rec_frota / t.faturamento) : '—'}</td>
+    <td style="color:#5b86b0">${t.faturamento ? fmtPct(t.rec_frota / t.faturamento) : '—'}</td>
+    <td style="color:#4f9d7f">${t.faturamento ? fmtPct(t.rec_agregado / t.faturamento) : '—'}</td>
+    <td style="color:#c08a5b">${t.faturamento ? fmtPct(t.rec_carreteiro / t.faturamento) : '—'}</td>
     <td>${fmtBRL(t.cli_custo)}</td><td>${fmtBRL(t.frete_terceiros)}</td>
     <td>${fmtBRL(t.cli_resultado)}</td><td>${fmtPct(t.cli_margem)}</td>
   </tr>`;
