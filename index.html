@@ -327,9 +327,11 @@
     <select id="filterStatus" onchange="applyFilters()">
       <option value="">Status: Todos</option>
     </select>
-    <select id="filterOrfao" onchange="applyFilters()">
+    <select id="filterOrfao" onchange="applyFilters()" title="Ancoragem da receita. Órfão/Sem nota/Sem data usam a data da OS (emissão) p/ não sumir do filtro de data.">
       <option value="">Manifesto: Todos</option>
       <option value="orfao">Órfãos (sem manifesto)</option>
+      <option value="sem-nota">Com manifesto, sem nota</option>
+      <option value="sem-data">Sem data (órfão + sem nota)</option>
       <option value="com">Com manifesto</option>
     </select>
     <select id="filterMes" onchange="onMesChange()">
@@ -407,6 +409,8 @@ const DEFAULT_COLUMNS = [
   { key: 'diferenca_frete',              label: 'Diferença Frete',    type: 'money'   },
   { key: 'status_auditoria_frete',       label: 'Status Auditoria',   type: 'text'    },
   { key: 'manifesto_rateado',            label: 'Manifesto Rateado',  type: 'text'    },
+  { key: 'data_efetiva',                 label: 'Data Efetiva',       type: 'date'      },
+  { key: 'ancoragem',                    label: 'Ancoragem',          type: 'ancoragem' },
 ];
 
 const DEFAULT_KPIS = [
@@ -593,10 +597,18 @@ function applyFilters() {
       if (!c.includes(cliente)) return false;
     }
     const temManifesto = r['Manifesto'] && r['Manifesto'].toString().trim() !== '';
-    if (orfao === 'orfao' && temManifesto) return false;
-    if (orfao === 'com'   && !temManifesto) return false;
+    // Filtro de ancoragem (usa o rótulo vindo do backend; fallback p/ Manifesto se ausente)
+    const anc = r['ancoragem'] || (temManifesto ? 'ok' : 'orfao');
+    if (orfao === 'orfao'    && anc !== 'orfao') return false;
+    if (orfao === 'sem-nota' && anc !== 'sem_nota') return false;
+    if (orfao === 'sem-data' && !(anc === 'orfao' || anc === 'sem_nota')) return false;
+    if (orfao === 'com'      && !temManifesto) return false;
     if (tsFrom || tsTo) {
-      const d = r['data_ref_ctrc'] ? new Date(r['data_ref_ctrc']).getTime() : null;
+      // Só os filtros de ancoragem usam a data_efetiva (data da OS p/ os sem-data);
+      // qualquer outro caminho continua em data_ref_ctrc → idêntico a hoje.
+      const usaEfetiva = (orfao === 'orfao' || orfao === 'sem-nota' || orfao === 'sem-data');
+      const dataCampo = usaEfetiva ? (r['data_efetiva'] || r['data_ref_ctrc']) : r['data_ref_ctrc'];
+      const d = dataCampo ? new Date(dataCampo).getTime() : null;
       if (!d) return false;
       if (tsFrom && d < tsFrom) return false;
       if (tsTo   && d > tsTo)   return false;
@@ -714,6 +726,7 @@ function renderTable() {
       if (c.type === 'percent') return `<td class="num">${fmtPercent(v)}</td>`;
       if (c.type === 'date') return `<td>${fmtDate(v)}</td>`;
       if (c.type === 'tag') return `<td>${tagHtml(v)}</td>`;
+      if (c.type === 'ancoragem') return `<td>${ancoragemHtml(v)}</td>`;
       return `<td>${v || '—'}</td>`;
     }).join('') + '</tr>';
   }).join('');
@@ -755,6 +768,19 @@ function tagHtml(v) {
   let cls = l.includes('carreteiro') ? 'tag-carreteiro' : l.includes('agregado') ? 'tag-agregado' : l.includes('frota') ? 'tag-frota' : '';
   return `<span class="tag ${cls}">${v}</span>`;
 }
+
+// Rótulo de ancoragem da receita (órfão = sem manifesto; sem nota = CTRC sem dados fiscais)
+const ANCORAGEM_INFO = {
+  orfao:    ['⚠ Órfão',   '#f87171'],
+  sem_nota: ['Sem nota',  '#facc15'],
+  ok:       ['OK',        'var(--text-dim)'],
+};
+function ancoragemHtml(v) {
+  const info = ANCORAGEM_INFO[v];
+  if (!info) return '—';
+  return `<span style="font-size:.72rem;font-weight:600;color:${info[1]}">${info[0]}</span>`;
+}
+function ancoragemLabel(v) { return (ANCORAGEM_INFO[v] || ['—'])[0].replace('⚠ ', ''); }
 
 // ── RESIZE DE COLUNAS ──
 const COL_WIDTHS_KEY = 'auditoria_col_widths';
@@ -873,6 +899,7 @@ function exportCSV() {
       if (c.type === 'money' || c.type === 'num') return String(v).replace('.', ',');
       if (c.type === 'percent') return fmtPercent(v);
       if (c.type === 'date') return fmtDate(v);
+      if (c.type === 'ancoragem') return ancoragemLabel(v);
       return String(v).replace(/;/g, ',');
     }).join(';')
   );
