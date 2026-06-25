@@ -242,10 +242,6 @@
     <div class="canvas-wrap" style="height:320px;"><canvas id="chartRank"></canvas></div>
   </div>
 
-  <div class="card" id="cardBubble" style="margin-bottom:18px;display:none;">
-    <h3>Receita × Margem por Cliente <small>— tamanho da bolha = nº de viagens; linha = margem média</small></h3>
-    <div class="canvas-wrap" style="height:360px;"><canvas id="chartBubble"></canvas></div>
-  </div>
 
   <p class="hint">Na FROTA o pagamento de frete é R$ 0 (veículo próprio). Em <b>Cavalo + só Frota</b> o resultado já desconta o custo real (pedágio, combustível, ARLA, pessoal, manutenção, seguro, rastreador e pneu). Em <b>Cliente</b> a margem desconta frete a terceiros + custo de frota (cavalo+carreta) alocado por receita.</p>
 
@@ -558,13 +554,10 @@ function renderDonutLegend(items) {
 
 function renderGraficos(arr) {
   const tema = { grid: 'rgba(148,163,184,0.12)', tick: '#94a3b8' };
-  const cardBubble = document.getElementById('cardBubble');
   if (DADOS && DADOS.custos_cliente) {
-    if (cardBubble) cardBubble.style.display = '';
     renderGraficosCliente(arr, tema);
     return;
   }
-  if (cardBubble) cardBubble.style.display = 'none';
   const _tt = document.getElementById('tipoTitle');
   if (_tt) _tt.innerHTML = 'Frota × Agregado <small>— faturamento vs pagamento de frete</small>';
   const _rt = document.getElementById('rankTitle');
@@ -758,25 +751,6 @@ function renderGraficosCliente(arr, tema) {
     options: { indexAxis: 'y', maintainAspectRatio: false,
       plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => `${fmtBRL2(c.raw)} · margem ${fmtPct(top[c.dataIndex].margem || 0)}` } } },
       scales: { x: { ticks: { color: tema.tick, callback: v => fmtBRL(v) }, grid: { color: tema.grid } }, y: { ticks: { color: tema.tick }, grid: { display: false } } } }
-  });
-
-  // 4) Bubble: Receita × Margem% (tamanho = nº viagens) + linha da margem média
-  const maxV = Math.max(1, ...arr.map(r => r.viagens || 0));
-  const maxRec = Math.max(1, ...arr.map(r => r.faturamento || 0));
-  const pts = arr.map(r => ({ x: r.faturamento || 0, y: (r.margem || 0) * 100, r: 5 + 16 * Math.sqrt((r.viagens || 0) / maxV), nome: r.dim }));
-  const margemMedia = receita ? (resultado / receita) * 100 : 0;
-  destroy('bubble');
-  charts.bubble = new Chart(document.getElementById('chartBubble'), {
-    data: { datasets: [
-      { type: 'bubble', label: 'Clientes', data: pts, backgroundColor: 'rgba(91,134,176,0.45)', borderColor: '#5b86b0' },
-      { type: 'line', label: 'Margem média', data: [{ x: 0, y: margemMedia }, { x: maxRec * 1.05, y: margemMedia }], borderColor: '#4f9d7f', borderDash: [6, 4], borderWidth: 1.5, pointRadius: 0, fill: false }
-    ] },
-    options: { maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => {
-        const p = c.raw; return (p && p.nome) ? `${p.nome}: ${fmtBRL(p.x)} · margem ${p.y.toFixed(1)}%` : `margem média ${margemMedia.toFixed(1)}%`;
-      } } } },
-      scales: { x: { type: 'linear', ticks: { color: tema.tick, callback: v => fmtBRL(v) }, grid: { color: tema.grid }, title: { display: true, text: 'Receita', color: tema.tick } },
-                y: { ticks: { color: tema.tick, callback: v => v + '%' }, grid: { color: tema.grid }, title: { display: true, text: 'Margem %', color: tema.tick } } } }
   });
 }
 
