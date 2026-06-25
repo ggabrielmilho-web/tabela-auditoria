@@ -374,6 +374,10 @@ async function loadMe() {
 function setDim(d) {
   DIM = d;
   document.querySelectorAll('#dimToggle button').forEach(b => b.classList.toggle('active', b.dataset.dim === d));
+  if (d === 'cliente') {   // cliente: já traz todos os tipos marcados
+    document.querySelectorAll('#tipoPop input').forEach(c => c.checked = true);
+    atualizaTipoBtn();
+  }
   carregar();
 }
 
