@@ -2379,7 +2379,7 @@ def _veiculos_detalhe_cliente(token, valor, meses_comp, meses_set, tipos, tipos_
     cargas_out = sorted(({'data': c.get('data'), 'ctrc': c.get('ctrc'), 'tipo': c.get('tipo'),
                           'origem': c.get('origem'), 'destino': c.get('destino'), 'cliente': nome_disp,
                           'receita': round(float(c.get('receita') or 0), 2), 'km': round(float(c.get('km') or 0), 1)}
-                         for c in cargas), key=lambda x: str(x.get('data') or ''), reverse=True)
+                         for c in cargas), key=lambda x: str(x.get('data') or ''))
 
     return {'ok': True, 'dim': 'cliente', 'valor': valor, 'nome': nome_disp, 'meses': meses_comp,
             'kpis': {'receita': round(receita, 2), 'frete': round(frete_terceiros, 2),
@@ -2457,6 +2457,7 @@ def api_veiculos_detalhe():
                 f"\"receita\",{AR}[receita_rateada],\"frete\",{AR}[frete_motorista_total],\"km\",{AR}[distancia_km],"
                 f"\"status\",{AR}[status_auditoria_frete],\"motorista\",{AR}[motorista],"
                 f"\"cavalo\",{AR}[placa_cavalo],\"carreta\",{AR}[placa_carreta])")
+            cargas.sort(key=lambda r: str(r.get('data') or ''))   # data crescente
             out['cargas'] = cargas
             out['kpis'] = {
                 'receita': round(sum(float(c.get('receita') or 0) for c in cargas), 2),
@@ -2532,7 +2533,7 @@ def api_veiculos_detalhe():
                 f"EVALUATE SELECTCOLUMNS(FILTER({DZ}, {DZ}[evento] IN {eventos} && {anomes} IN {meses_set} && ({buscas})), "
                 f"\"emissao\",{DZ}[emissao],\"fornecedor\",{DZ}[nome_fornecedor],\"descricao\",{DZ}[historico_despesa],"
                 f"\"valor\",{DZ}[vlr_final],\"evento\",{DZ}[evento])")
-            man.sort(key=lambda r: -float(r.get('valor') or 0))
+            man.sort(key=lambda r: str(r.get('emissao') or ''))
             out['manutencao'] = man
             out['manutencao_total'] = round(sum(float(r.get('valor') or 0) for r in man), 2)
 
