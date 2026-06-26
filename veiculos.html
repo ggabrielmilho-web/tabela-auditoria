@@ -792,7 +792,7 @@ function renderTabela(arr, t) {
     const w = (r.faturamento / maxFat * 100).toFixed(1);
     const prop = r.tipo === 'FROTA' ? '' : (r.prop_cavalo || '');
     const cellProp = showProp ? `<td style="text-align:left;font-family:'DM Sans',sans-serif;max-width:220px;overflow:hidden;text-overflow:ellipsis" title="${esc(prop)}">${prop ? esc(prop) : '—'}</td>` : '';
-    return `<tr class="clickable" data-v="${String(r.dim).replace(/"/g, '&quot;')}" onclick="abrirDetalhe(this.dataset.v)">
+    return `<tr class="clickable" data-v="${String(r.dim).replace(/"/g, '&quot;')}" data-tp="${r.tipo}" onclick="abrirDetalhe(this.dataset.v, this.dataset.v, this.dataset.tp)">
       <td title="${String(r.dim).replace(/"/g, '&quot;')}">${r.dim}</td>
       <td><span class="pill ${r.tipo}">${r.tipo}</span></td>
       ${cellProp}
@@ -849,7 +849,7 @@ function renderTabelaFrota(arr, t) {
 
   tb.innerHTML = arr.map(r => {
     const w = (r.faturamento / maxFat * 100).toFixed(1);
-    return `<tr class="clickable" data-v="${String(r.dim).replace(/"/g, '&quot;')}" onclick="abrirDetalhe(this.dataset.v)">
+    return `<tr class="clickable" data-v="${String(r.dim).replace(/"/g, '&quot;')}" onclick="abrirDetalhe(this.dataset.v, this.dataset.v, 'FROTA')">
       <td title="${String(r.dim).replace(/"/g, '&quot;')}">${r.dim}</td>
       <td>${fmtInt(r.viagens)}</td>
       <td>${fmtInt(r.km)}</td>
@@ -909,7 +909,7 @@ function renderTabelaCarreta(arr, t) {
 
   tb.innerHTML = arr.map(r => {
     const w = (r.faturamento / maxFat * 100).toFixed(1);
-    return `<tr class="clickable" data-v="${String(r.dim).replace(/"/g, '&quot;')}" onclick="abrirDetalhe(this.dataset.v)">
+    return `<tr class="clickable" data-v="${String(r.dim).replace(/"/g, '&quot;')}" data-tp="${r.tipo}" onclick="abrirDetalhe(this.dataset.v, this.dataset.v, this.dataset.tp)">
       <td title="${String(r.dim).replace(/"/g, '&quot;')}">${r.dim}${r.rizza ? '' : ' <span style="color:var(--text-dim);font-size:0.7rem">(terceiro)</span>'}</td>
       <td><span class="pill ${r.tipo}">${r.tipo}</span></td>
       <td>${fmtInt(r.viagens)}</td>
@@ -990,11 +990,12 @@ function renderTabelaCliente(arr, t) {
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 let drawerAberto = false;
 
-async function abrirDetalhe(valor, titulo) {
+async function abrirDetalhe(valor, titulo, tipoRow) {
   if (!valor) return;
   const meses = [...mesesSel].sort();
   if (!meses.length) return;
-  const tipos = tiposSelecionados();   // mesmo filtro da tela → reconcilia com a linha
+  // se a linha clicada tem um tipo específico (recortes que quebram por tipo), o drawer usa só esse tipo
+  const tipos = tipoRow ? [tipoRow] : tiposSelecionados();
   document.getElementById('drawerTitulo').textContent = titulo || valor;
   document.getElementById('drawerSub').textContent = 'Carregando...';
   document.getElementById('drawerBody').innerHTML = '<div class="dsec-empty">Carregando detalhe...</div>';
