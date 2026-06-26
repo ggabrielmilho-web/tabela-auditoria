@@ -2250,34 +2250,45 @@ def _veiculos_detalhe_cliente(token, valor, meses_comp, meses_set, tipos, tipos_
     anomes = f'("20" & RIGHT({DZ}[mes_competencia],2) & "-" & LEFT({DZ}[mes_competencia],2))'
     digits = _re.sub(r'\D', '', valor)
     by_cnpj = len(digits) >= 8
-    raiz = digits[:8]
+    chave_alvo = digits[:8] if by_cnpj else f"nome::{valor.strip().upper()}"
 
-    # Resolve os cnpj_pagador exatos da raiz (ou casa por nome)
-    dist = _dax_rows(token, f"EVALUATE SUMMARIZE(FILTER({AR}, FORMAT({AR}[data_ref_ctrc],\"YYYY-MM\") IN {meses_set}), {AR}[cnpj_pagador], {AR}[cliente_pagador])")
-    alvo, nome_disp = [], valor
-    for r in dist:
-        cn = str(r.get('cnpj_pagador') or ''); nm = (str(r.get('cliente_pagador') or '').strip())
-        if (by_cnpj and _re.sub(r'\D', '', cn)[:8] == raiz) or (not by_cnpj and nm.upper() == valor.upper()):
-            alvo.append(cn)
-            if nm:
-                nome_disp = nm
-    if alvo:
-        cset = '{' + ','.join('"' + c.replace('"', '') + '"' for c in sorted(set(alvo))) + '}'
-        filtro_cli = f"{AR}[cnpj_pagador] IN {cset}"
-    else:
-        filtro_cli = f"UPPER({AR}[cliente_pagador]) = \"{valor.upper()}\""
-    tipo_clause = f"{AR}[Tipo Operacao] IN {tipos_dax}"
-
-    # Cargas do cliente
-    cargas = _dax_rows(token, f"EVALUATE SELECTCOLUMNS(FILTER({AR}, FORMAT({AR}[data_ref_ctrc],\"YYYY-MM\") IN {meses_set} && {tipo_clause} && {filtro_cli}), "
+    # Participação do cliente em cada viagem vem da proporção dos CTRCs (igual à tabela) — não por cnpj inteiro
+    ctrc_map = _ctrc_tomador_map(token, meses_comp)
+    vrows = _dax_rows(token, f"EVALUATE SELECTCOLUMNS(FILTER({AR}, FORMAT({AR}[data_ref_ctrc],\"YYYY-MM\") IN {meses_set} && {AR}[Tipo Operacao] IN {tipos_dax}), "
         f"\"data\",{AR}[data_ref_ctrc],\"mes\",FORMAT({AR}[data_ref_ctrc],\"YYYY-MM\"),\"ctrb\",{AR}[CTRB],\"ctrc\",{AR}[CTRC],"
         f"\"origem\",{AR}[cidade_uf_origem],\"destino\",{AR}[cidade_uf_destino],\"tipo\",{AR}[Tipo Operacao],"
         f"\"receita\",{AR}[receita_rateada],\"frete\",{AR}[frete_motorista_total],\"km\",{AR}[distancia_km],"
-        f"\"cavalo\",{AR}[placa_cavalo],\"carreta\",{AR}[placa_carreta],\"motorista\",{AR}[motorista])")
+        f"\"cavalo\",{AR}[placa_cavalo],\"carreta\",{AR}[placa_carreta],\"cnpj\",{AR}[cnpj_pagador],\"nome\",{AR}[cliente_pagador])")
 
-    receita = sum(float(c.get('receita') or 0) for c in cargas)
-    frete_terceiros = sum(float(c.get('frete') or 0) for c in cargas if (c.get('tipo') or '') != 'FROTA')
-    km = sum(float(c.get('km') or 0) for c in cargas)
+    nome_disp = valor
+    cargas = []
+    for v in vrows:
+        by_ch = {}
+        for c in str(v.get('ctrc') or '').split(','):
+            e = ctrc_map.get(_norm_manifesto(c))
+            if e:
+                by_ch[e['chave']] = by_ch.get(e['chave'], 0.0) + e['vf']
+                if e['chave'] == chave_alvo and e.get('nome'):
+                    nome_disp = e['nome']
+        tot_vf = sum(by_ch.values())
+        if tot_vf > 0:
+            share = by_ch.get(chave_alvo, 0.0) / tot_vf
+        else:  # viagem sem CTRC casado → cai no cnpj único da Auditoria
+            cn = _re.sub(r'\D', '', str(v.get('cnpj') or ''))
+            rz = cn[:8] if len(cn) >= 8 else f"nome::{(str(v.get('nome') or '').strip()).upper()}"
+            share = 1.0 if rz == chave_alvo else 0.0
+            if share and str(v.get('nome') or '').strip():
+                nome_disp = str(v.get('nome')).strip()
+        if share <= 0:
+            continue
+        cargas.append({'data': v.get('data'), 'mes': v.get('mes'), 'ctrb': v.get('ctrb'), 'ctrc': v.get('ctrc'),
+                       'origem': v.get('origem'), 'destino': v.get('destino'), 'tipo': v.get('tipo'),
+                       'receita': float(v.get('receita') or 0) * share, 'frete': float(v.get('frete') or 0) * share,
+                       'km': float(v.get('km') or 0) * share, 'cavalo': v.get('cavalo'), 'carreta': v.get('carreta')})
+
+    receita = sum(c['receita'] for c in cargas)
+    frete_terceiros = sum(c['frete'] for c in cargas if (c.get('tipo') or '') != 'FROTA')
+    km = sum(c['km'] for c in cargas)
     viagens = len({c.get('ctrb') for c in cargas if c.get('ctrb')})
 
     cadastro = _cadastro_veiculos(token)
