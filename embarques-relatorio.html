@@ -420,18 +420,15 @@
     return html;
   }
 
-  // ETA realista (~600 km/dia) client-side — espelha eta_realista() do backend
+  // Chegada realista (600 km/dia = 25 km/h) rateado — espelha eta_realista() do backend
   function etaRealistaCliente(c) {
     const dist = c.distancia_planejada_km;
     const partida = c.data_saida_real || c.data_carregamento;
     if (!dist || !partida) return null;
     const base = new Date(partida);
     if (isNaN(base)) return null;
-    if (dist < 300 && c.duracao_estimada_min) {
-      return new Date(base.getTime() + c.duracao_estimada_min * 60000);
-    }
-    const dias = Math.max(1, Math.ceil(dist / 600));
-    return new Date(base.getTime() + dias * 86400000);
+    const horas = dist / 25;   // 600 km/dia ÷ 24h = 25 km/h, rateado (sem arredondar)
+    return new Date(base.getTime() + horas * 3600000);
   }
 
   // Célula "Agendamento": agendamento_final → previsão → ETA, com tooltip das 3 datas

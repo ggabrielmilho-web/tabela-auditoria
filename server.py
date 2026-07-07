@@ -4002,17 +4002,15 @@ RASTREIO_ALERTA_SEM_GPS_DIAS = float(os.getenv('RASTREAMENTO_ALERTA_SEM_GPS_DIAS
 
 
 def eta_realista(distancia_km, partida_dt, duracao_ors_min=None, km_dia=KM_DIA_PADRAO):
-    """Chegada estimada considerando a lei do motorista (~600 km/dia).
-    Rotas curtas (<300 km) usam o tempo direto do ORS; longas dividem em dias.
-    Trabalha em UTC (partida_dt naive UTC). Retorna datetime naive UTC ou None."""
+    """Chegada estimada com o ritmo do motorista, RATEADO (sem arredondar):
+    km_dia (600) / 24h = 25 km/h  ->  horas = distancia / (km_dia/24).
+    Ex.: 606 km -> 24,2h; 2789 km -> ~111,6h. Trabalha em UTC (partida_dt naive UTC).
+    (duracao_ors_min fica na assinatura por compatibilidade; não é mais usado.)"""
     from datetime import timedelta
-    import math
-    if not distancia_km or not partida_dt:
+    if not distancia_km or not partida_dt or not km_dia:
         return None
-    if distancia_km < 300 and duracao_ors_min:
-        return partida_dt + timedelta(minutes=duracao_ors_min)
-    dias = max(1, math.ceil(distancia_km / km_dia))
-    return partida_dt + timedelta(days=dias)
+    horas = float(distancia_km) / (km_dia / 24.0)   # 600 km/dia = 25 km/h
+    return partida_dt + timedelta(hours=horas)
 
 
 def _decode_polyline(s, precision=5):
