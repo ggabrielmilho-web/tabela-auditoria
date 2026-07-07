@@ -444,7 +444,7 @@
     const tip = [
       `📅 Agendamento: ${ag ? fmtDateTime(ag) : '—'}`,
       `💭 Embarcador: ${prev ? fmtData(prev) : '—'}`,
-      `🤖 ETA realista: ${eta ? fmtDateTime(eta.toISOString()) : '—'}`,
+      `🤖 Chegada realista: ${eta ? fmtDateTime(eta.toISOString()) : '—'}`,
     ].join('\n');
     let multi = '';
     const dests = c.agendamentos_destinos || [];
