@@ -79,7 +79,9 @@ _PAGINA_ROTA = {
     'contratos': '/contratos', 'veiculos': '/veiculos',
 }
 # Ordem de preferência ao escolher a primeira aba permitida.
-_PAGINA_ORDEM = ['auditoria', 'tarifas', 'embarques', 'reuniao', 'dre',
+# 'embarques' vem antes de 'tarifas': quem não tem Auditoria e tem Embarques
+# cai direto no Embarques (só depois em Tarifas).
+_PAGINA_ORDEM = ['auditoria', 'embarques', 'tarifas', 'reuniao', 'dre',
                  'despesas', 'conhecimentos', 'faturamento', 'contratos', 'veiculos']
 
 

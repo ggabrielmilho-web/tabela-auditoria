@@ -779,18 +779,32 @@
   }
 
   async function onUfDestinoChange(i) {
-    const uf = document.getElementById(`dest-uf-${i}`).value;
+    const selUf = document.getElementById(`dest-uf-${i}`);
+    const uf = selUf.value;
+    const selCid = document.getElementById(`dest-cidade-${i}`);
     DESTINOS[i].uf = uf;
     DESTINOS[i].cidade = '';
     DESTINOS[i].cidades = [];
-    renderDestinos();
-    if (!uf) return;
+    // Atualiza SÓ o select de cidade desta linha — não re-renderiza a lista inteira,
+    // senão o próprio <select> de UF (com o foco) seria destruído e o Tab "voltaria".
+    if (!uf) {
+      selCid.disabled = true;
+      selCid.innerHTML = '<option value="">Selecione a UF</option>';
+      return;
+    }
+    selCid.disabled = true;
+    selCid.innerHTML = '<option value="">Carregando...</option>';
     try {
       const r = await fetch(`https://servicodados.ibge.gov.br/api/v1/localidades/estados/${uf}/municipios`);
       const arr = await r.json();
+      if (selUf.value !== uf) return;  // usuário já trocou de UF (digitação rápida) → ignora resposta
       DESTINOS[i].cidades = arr.map(c => c.nome);
-      renderDestinos();
-    } catch (e) {}
+      selCid.innerHTML = '<option value="">— Selecione —</option>' +
+        DESTINOS[i].cidades.map(c => `<option value="${c}">${c}</option>`).join('');
+      selCid.disabled = false;
+    } catch (e) {
+      selCid.innerHTML = '<option value="">Erro IBGE</option>';
+    }
   }
 
   // Converte o datetime-local (horário BR) p/ UTC ISO antes de enviar
@@ -828,16 +842,29 @@
     `).join('');
   }
   async function onUfRotaChange(i) {
-    const uf = document.getElementById(`rota-uf-${i}`).value;
+    const selUf = document.getElementById(`rota-uf-${i}`);
+    const uf = selUf.value;
+    const selCid = document.getElementById(`rota-cidade-${i}`);
     ROTA[i].uf = uf; ROTA[i].cidade = ''; ROTA[i].cidades = [];
-    renderRota();
-    if (!uf) return;
+    // Mesmo motivo do destino: atualiza só a cidade desta linha p/ não perder o foco/Tab no UF.
+    if (!uf) {
+      selCid.disabled = true;
+      selCid.innerHTML = '<option value="">Selecione a UF</option>';
+      return;
+    }
+    selCid.disabled = true;
+    selCid.innerHTML = '<option value="">Carregando...</option>';
     try {
       const r = await fetch(`https://servicodados.ibge.gov.br/api/v1/localidades/estados/${uf}/municipios`);
       const arr = await r.json();
+      if (selUf.value !== uf) return;  // digitação rápida trocou a UF → ignora resposta
       ROTA[i].cidades = arr.map(c => c.nome);
-      renderRota();
-    } catch (e) {}
+      selCid.innerHTML = '<option value="">— Selecione —</option>' +
+        ROTA[i].cidades.map(c => `<option value="${c}">${c}</option>`).join('');
+      selCid.disabled = false;
+    } catch (e) {
+      selCid.innerHTML = '<option value="">Erro IBGE</option>';
+    }
   }
   function rotaPayload() {
     return ROTA.filter(d => d.uf && d.cidade).map(d => ({ cidade: d.cidade, uf: d.uf }));
