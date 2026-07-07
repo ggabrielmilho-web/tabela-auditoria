@@ -159,6 +159,7 @@
       <div class="info-row"><span class="k">Cavalo</span><span class="v mono" id="iCavalo">—</span></div>
       <div class="info-row"><span class="k">Rastreado via</span><span class="v mono" id="iRastreio">—</span></div>
       <div class="info-row"><span class="k">Data de saída</span><span class="v" id="iDataSaida">—</span></div>
+      <div class="info-row"><span class="k">Chegada no destino</span><span class="v" id="iDataChegada">—</span></div>
     </div>
 
     <div class="card">
@@ -340,6 +341,7 @@
       elRastreio.textContent = '🛰️ Sem rastreio';
     }
     document.getElementById('iDataSaida').textContent = fmtData(c.data_saida_real);
+    document.getElementById('iDataChegada').textContent = fmtData(c.no_local_desde);
 
     // Ações
     if (c.status === 'Em rota' || c.status === 'Aberta' || c.status === 'No destino' || c.status === 'Desengatada') {
