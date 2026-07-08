@@ -33,6 +33,15 @@ CONFIG = {
     'dre_dataset_id':  os.getenv('POWERBI_DRE_DATASET_ID', ''),   # DRE
 }
 
+# ── Config Mercado Livre (OAuth) ──
+ML_CONFIG = {
+    'client_id':     os.getenv('ML_CLIENT_ID', ''),      # App ID do Mercado Livre
+    'client_secret': os.getenv('ML_CLIENT_SECRET', ''),  # Secret Key do app
+    'redirect_uri':  os.getenv('ML_REDIRECT_URI', 'https://rizza.carvalhoia.com/mercadolivre/callback'),
+}
+ML_TOKEN_URL = 'https://api.mercadolibre.com/oauth/token'
+
+
 # ── Banco de dados ──
 def get_db():
     return psycopg2.connect(
@@ -243,6 +252,85 @@ def login_post():
 def logout():
     session.clear()
     return redirect('/login')
+
+
+def _ml_page(titulo, corpo):
+    """Página neutra de retorno do Mercado Livre (mesmo visual do /sem-acesso)."""
+    return (
+        "<!DOCTYPE html><html lang='pt-BR'><head><meta charset='UTF-8'>"
+        "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+        f"<title>{titulo}</title><style>body{{font-family:sans-serif;background:#0a0e17;"
+        "color:#e2e8f0;display:flex;min-height:100vh;align-items:center;justify-content:center;"
+        "margin:0;text-align:center;padding:1.5rem}code{background:#1e293b;padding:.2rem .4rem;"
+        "border-radius:4px;word-break:break-all}a{color:#38bdf8}</style></head><body><div>"
+        f"{corpo}</div></body></html>"
+    )
+
+
+@app.route('/mercadolivre/callback')
+def mercadolivre_callback():
+    """
+    Retorno do OAuth do Mercado Livre.
+
+    Fase 1: confirma que a autorização chegou. Se ML_CLIENT_ID/ML_CLIENT_SECRET
+    estiverem configurados, já troca o `code` por um access_token e mostra o
+    resultado. A persistência do token e o uso da API vêm na fase 2.
+    """
+    erro = request.args.get('error')
+    code = request.args.get('code')
+
+    if erro:
+        desc = request.args.get('error_description', '')
+        return _ml_page(
+            'Autorização negada',
+            f"<h1>Autorização não concluída</h1><p>Mercado Livre retornou: "
+            f"<code>{erro}</code></p><p>{desc}</p>"
+        ), 400
+
+    if not code:
+        return _ml_page(
+            'Callback Mercado Livre',
+            "<h1>Callback ativo ✅</h1><p>Esta é a URI de redirecionamento do app "
+            "do Mercado Livre. Ela só recebe dados durante o fluxo de login.</p>"
+        )
+
+    # Sem credenciais configuradas ainda: só confirma que o retorno chegou.
+    if not ML_CONFIG['client_id'] or not ML_CONFIG['client_secret']:
+        return _ml_page(
+            'Autorização recebida',
+            "<h1>Autorização recebida ✅</h1>"
+            f"<p>Código de autorização:</p><p><code>{code}</code></p>"
+            "<p>Falta configurar <code>ML_CLIENT_ID</code> e "
+            "<code>ML_CLIENT_SECRET</code> para trocar por um token.</p>"
+        )
+
+    # Troca o code por access_token.
+    try:
+        resp = requests.post(ML_TOKEN_URL, data={
+            'grant_type':    'authorization_code',
+            'client_id':     ML_CONFIG['client_id'],
+            'client_secret': ML_CONFIG['client_secret'],
+            'code':          code,
+            'redirect_uri':  ML_CONFIG['redirect_uri'],
+        }, headers={'Accept': 'application/json'}, timeout=20)
+    except Exception as e:
+        return _ml_page('Erro', f"<h1>Falha ao contatar o Mercado Livre</h1><p>{e}</p>"), 502
+
+    if resp.status_code != 200:
+        return _ml_page(
+            'Erro na troca de token',
+            f"<h1>Não foi possível gerar o token</h1><p><code>{resp.status_code}</code></p>"
+            f"<p><code>{resp.text}</code></p>"
+        ), resp.status_code
+
+    dados = resp.json()
+    # Fase 2: persistir dados['access_token'] / dados['refresh_token'] / dados['user_id'].
+    return _ml_page(
+        'Conectado',
+        "<h1>Conta conectada ✅</h1><p>Token gerado com sucesso para o usuário "
+        f"<code>{dados.get('user_id', '?')}</code>.</p>"
+        "<p>Já dá para usar a API do Mercado Livre.</p>"
+    )
 
 
 # ════════════════════════════════════════
