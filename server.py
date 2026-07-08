@@ -4055,6 +4055,56 @@ def _km_restante(polyline_enc, pos_lat, pos_lng):
     return round(rem, 1)
 
 
+# Raio (km) que conta como "dentro da cidade do destino" — por POSIÇÃO, nunca por nome.
+RAIO_CHEGADA_DESTINO_KM = float(os.getenv('RASTREAMENTO_RAIO_CHEGADA_DESTINO', '20'))
+
+
+def _indice_chegada_destino(traj, dest_lat, dest_lng):
+    """Índice do ponto de CHEGADA no destino, decidido por POSIÇÃO (ignora o nome que o 3S
+    reporta). Escada:
+      1) primeiro ponto dentro do raio que INICIA uma parada de >= CHEGADA_MIN_PARADO
+         (parado = vel <= PARADO_KMH), permanecendo dentro do raio → o local da descarga;
+      2) senão, o ponto de MAIOR APROXIMAÇÃO do destino dentro do raio (descarga rápida <1h
+         ou buraco de GPS no destino).
+    Retorna None se nenhum ponto entrou no raio (não corta → deixa o trajeto inteiro)."""
+    if not traj or dest_lat is None or dest_lng is None:
+        return None
+    import geocoding as _geo
+    from datetime import datetime as _dtc
+    def _t(s):
+        try:
+            return _dtc.fromisoformat(str(s).replace('Z', ''))
+        except Exception:
+            return None
+    parado_kmh = getattr(rastreamento_worker, 'PARADO_KMH', 3)
+    parado_min = getattr(rastreamento_worker, 'CHEGADA_MIN_PARADO', 60)
+    dest_lat, dest_lng = float(dest_lat), float(dest_lng)
+    dentro = []  # (idx, distância_km) dos pontos dentro do raio do destino
+    for i, p in enumerate(traj):
+        d = _geo.km_entre(p['lat'], p['lng'], dest_lat, dest_lng)
+        if d is not None and d <= RAIO_CHEGADA_DESTINO_KM:
+            dentro.append((i, d))
+    if not dentro:
+        return None
+    dentro_set = {i for i, _ in dentro}
+    n = len(traj)
+    # Regra 1: primeira parada de >= parado_min dentro do raio.
+    for i, _d in dentro:
+        if (traj[i].get('velocidade') or 0) > parado_kmh:
+            continue
+        t0 = _t(traj[i].get('data'))
+        if t0 is None:
+            continue
+        j = i
+        while j < n and j in dentro_set and (traj[j].get('velocidade') or 0) <= parado_kmh:
+            tj = _t(traj[j].get('data'))
+            if tj is not None and (tj - t0).total_seconds() >= parado_min * 60:
+                return i  # onde ele parou (início da parada)
+            j += 1
+    # Regra 2: maior aproximação do destino dentro do raio.
+    return min(dentro, key=lambda x: x[1])[0]
+
+
 def _kpi_ao_vivo(traj):
     """KPIs calculados ao vivo a partir dos pontos do trajeto da viagem (só da viagem,
     pois traj já vem filtrado por data_saida_real). Espelha _consolidar_kpi do worker."""
@@ -4226,10 +4276,12 @@ def api_rastreamento_trajeto(carga_id):
             inicio = _base - _td(hours=12)
         else:
             inicio = carga.get('inicio_viagem') or (_dt.utcnow() - _td(days=15))
-        # Fim na CHEGADA ao destino quando entregue (não conta o pós-entrega: destino → cidade
-        # seguinte). Em andamento segue ao vivo (agora).
+        # Entregue: busca LARGO (até a conclusão). O recorte "até a chegada" é feito
+        # depois por DISTÂNCIA ao destino — NÃO por no_local_desde, que o 3S pode ter
+        # cravado cedo (etiqueta uma posição a 100+ km com o nome da cidade-destino), o
+        # que fazia o trajeto "voltar" ao finalizar. Em andamento segue ao vivo (agora).
         if carga.get('status') == 'Entregue':
-            fim = carga.get('no_local_desde') or carga.get('data_conclusao') or _dt.utcnow()
+            fim = carga.get('data_conclusao') or carga.get('no_local_desde') or _dt.utcnow()
         else:
             fim = _dt.utcnow()
 
@@ -4314,6 +4366,22 @@ def api_rastreamento_trajeto(carga_id):
                     rastreado_via = {'placa': carga['cavalo_placa'], 'tipo': 'cavalo',
                                      'fallback_carreta_muda': True}
                     fallback_cavalo = True
+
+        # ── Entregue: corta o desenho no ponto de CHEGADA no destino, decidido por POSIÇÃO
+        # (onde ele parou ~1h no destino; senão, maior aproximação dentro do raio) — NÃO pelo
+        # horário no_local_desde, que o 3S pode ter cravado a 100+ km por mentir o nome da
+        # cidade. Assim o trajeto NUNCA "volta" ao finalizar. Chegada correta fica igual.
+        if carga.get('status') == 'Entregue' and destinos:
+            _dfin = destinos[-1]
+            _dla, _dln = _dfin.get('latitude'), _dfin.get('longitude')
+            if _dla is not None and _dln is not None:
+                def _corta_chegada(traj):
+                    idx = _indice_chegada_destino(traj, _dla, _dln)
+                    return traj[:idx + 1] if idx is not None else traj
+                traj_cavalo = _corta_chegada(traj_cavalo)
+                traj_c1 = _corta_chegada(traj_c1)
+                traj_c2 = _corta_chegada(traj_c2)
+                traj_principal = _corta_chegada(traj_principal)
 
         # KPIs já consolidados?
         cur.execute("""

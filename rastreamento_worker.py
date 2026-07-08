@@ -44,6 +44,10 @@ RAIO_SAIDA_DESTINO_KM = float(os.getenv('RASTREAMENTO_RAIO_SAIDA_DESTINO', '60')
 # CHEGADA/"No destino" passa a olhar o cavalo (vivo). Não é regra de chegada; só decide
 # qual posição está utilizável. O fechamento continua exigindo a carreta fresca.
 FRESCOR_H = float(os.getenv('RASTREAMENTO_FRESCOR_H', '12'))
+# Raio (km) que conta como "dentro da cidade do destino". Chegada/No destino passam a ser
+# decididas por POSIÇÃO (distância ao centroide), não pelo nome que o 3S reporta (mente a
+# 100+ km). Mesmo env var lido no server.py (corte do mapa) p/ manter os dois coerentes.
+RAIO_CHEGADA_DESTINO_KM = float(os.getenv('RASTREAMENTO_RAIO_CHEGADA_DESTINO', '20'))
 
 _running = False
 _thread = None
@@ -553,22 +557,28 @@ def _processar_cargas(cur):
                 _logger.info(f'[Carga {carga_id}/{placa}] Saída automática da origem detectada')
                 status = 'Em rota'
 
-        # ── CHEGADA NA CIDADE DO DESTINO (marca no_local_desde; segue 'Em rota' + ícone 📦)
-        # Vale também p/ 'Desengatada' (desengate "Em rota" antes do GPS confirmar a chegada):
-        # o worker detecta a chegada da carreta e só então a saída finaliza — sem fechar cedo.
-        if status in ('Em rota', 'Desengatada') and no_local_desde is None:
-            if ref_cidade is not None and _mesma_cidade(ref_cidade, ref_uf, dest_cidade, dest_uf):
+        # ── CHEGADA NO DESTINO por POSIÇÃO (marca no_local_desde; segue 'Em rota' + ícone 📦).
+        # Decidida por DISTÂNCIA + PARADO, NUNCA pelo nome — o 3S etiqueta a cidade-destino a
+        # 100+ km (viu-se cravar chegada a 111 km!). A placa rastreada está dentro do raio do
+        # destino, fresca e parada → é onde ela encostou p/ descarga. Vale também p/ 'Desengatada'.
+        if status in ('Em rota', 'Desengatada') and no_local_desde is None \
+                and centroide_dest[0] is not None and placa_fresca \
+                and (pos_vel is None or pos_vel <= PARADO_KMH):
+            _d_dest = geocoding.km_entre(pos_lat, pos_lng, centroide_dest[0], centroide_dest[1])
+            if _d_dest is not None and _d_dest <= RAIO_CHEGADA_DESTINO_KM:
                 cur.execute("UPDATE embarques_cargas SET no_local_desde=NOW(), atualizado_em=NOW() WHERE id=%s", (carga_id,))
-                _logger.info(f'[Carga {carga_id}/{placa}] Chegou na cidade do destino ({dest_cidade}/{dest_uf})')
+                _logger.info(f'[Carga {carga_id}/{placa}] Chegou e parou no destino ({_d_dest:.1f} km do centro)')
                 no_local_desde = datetime.utcnow()
 
-        # ── PROMOÇÃO p/ 'No destino' (na cidade da descarga há >= CHEGADA_MIN_PARADO E parado agora)
-        if status == 'Em rota' and no_local_desde is not None \
-                and ref_cidade is not None and _mesma_cidade(ref_cidade, ref_uf, dest_cidade, dest_uf) \
+        # ── PROMOÇÃO p/ 'No destino' (parado no raio do destino há >= CHEGADA_MIN_PARADO).
+        # Também por POSIÇÃO (distância ao destino), não por nome.
+        if status == 'Em rota' and no_local_desde is not None and placa_fresca \
+                and centroide_dest[0] is not None \
                 and (datetime.utcnow() - no_local_desde) >= timedelta(minutes=CHEGADA_MIN_PARADO) \
-                and (ref_vel is None or ref_vel <= PARADO_KMH):
+                and (pos_vel is None or pos_vel <= PARADO_KMH) \
+                and (geocoding.km_entre(pos_lat, pos_lng, centroide_dest[0], centroide_dest[1]) or 9e9) <= RAIO_CHEGADA_DESTINO_KM:
             cur.execute("UPDATE embarques_cargas SET status='No destino', atualizado_em=NOW() WHERE id=%s", (carga_id,))
-            _logger.info(f'[Carga {carga_id}/{placa}] Parado na cidade do destino há +{CHEGADA_MIN_PARADO}min → status "No destino"')
+            _logger.info(f'[Carga {carga_id}/{placa}] Parado no destino há +{CHEGADA_MIN_PARADO}min → status "No destino"')
             status = 'No destino'
 
         # ── SAÍDA DO DESTINO (= entrega automática) — 'Em rota', 'No destino' ou 'Desengatada'
