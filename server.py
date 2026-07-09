@@ -2200,6 +2200,11 @@ def api_veiculos_analise():
         "[dim], 'Auditoria Receita'[Tipo Operacao], "
         "\"faturamento\", SUM('Auditoria Receita'[receita_rateada]), "
         "\"pagamento\", SUM('Auditoria Receita'[frete_motorista_total]), "
+        # Vale-pedágio (repasse) e retenção (SEST/INSS/IRRF) p/ desdobrar o pagamento em colunas visuais.
+        # frete_motorista_total = valor_a_pagar + vale_pedagio; retenção vem do ctrbs_oss (join 1:1 por CTRB).
+        "\"vale_pedagio\", SUM('Auditoria Receita'[vale_pedagio]), "
+        "\"retencao\", SUMX(VALUES('Auditoria Receita'[CTRB]), "
+        "COALESCE(LOOKUPVALUE('public ctrbs_oss'[total_retencoes], 'public ctrbs_oss'[ctrb], 'Auditoria Receita'[CTRB]), 0)), "
         # KM igual ao BI: prefere rotas_km (distância de rota), cai no distancia_km cru só se não achar
         "\"km\", SUMX('Auditoria Receita', COALESCE(LOOKUPVALUE('public rotas_km'[km],"
         "'public rotas_km'[cidade_uf_origem],'Auditoria Receita'[cidade_uf_origem],"
@@ -2247,20 +2252,31 @@ def api_veiculos_analise():
         key = (nome, tipo)
         a = agg.get(key)
         if a is None:
-            a = {'dim': nome, 'tipo': tipo, 'faturamento': 0.0, 'pagamento': 0.0, 'km': 0.0, 'viagens': 0}
+            a = {'dim': nome, 'tipo': tipo, 'faturamento': 0.0, 'frete_total': 0.0,
+                 'vale_pedagio': 0.0, 'retencao': 0.0, 'km': 0.0, 'viagens': 0}
             agg[key] = a
+        frota = (tipo == 'FROTA')
         a['faturamento'] += float(r.get('faturamento') or 0)
         # Frota = veículo próprio: não há pagamento de frete a terceiro (o frete_motorista aí é comissão do motorista próprio)
-        a['pagamento'] += 0.0 if tipo == 'FROTA' else float(r.get('pagamento') or 0)
+        # frete_total = pagamento de frete cheio (bruto + vale-pedágio) — base do Resultado (inalterado).
+        a['frete_total'] += 0.0 if frota else float(r.get('pagamento') or 0)
+        # Vale-pedágio (repasse) e retenção (SEST/INSS/IRRF): só agregado/carreteiro; exibidos separados do Pagamento.
+        a['vale_pedagio'] += 0.0 if frota else float(r.get('vale_pedagio') or 0)
+        a['retencao'] += 0.0 if frota else float(r.get('retencao') or 0)
         a['km'] += float(r.get('km') or 0)
         a['viagens'] += int(r.get('viagens') or 0)
 
     saida = []
     for a in agg.values():
         a['faturamento'] = round(a['faturamento'], 2)
-        a['pagamento'] = round(a['pagamento'], 2)
+        # Desdobra o frete cheio em Pagamento (líquido) + Retenção + Pedágio (somam de volta o frete_total).
+        # Resultado usa o frete_total → permanece idêntico ao de antes (é só uma separação visual).
+        frete_total = a.pop('frete_total')
+        a['vale_pedagio'] = round(a['vale_pedagio'], 2)
+        a['retencao'] = round(a['retencao'], 2)
+        a['pagamento'] = round(max(frete_total - a['vale_pedagio'] - a['retencao'], 0.0), 2)
         a['km'] = round(a['km'], 1)
-        a['resultado'] = round(a['faturamento'] - a['pagamento'], 2)
+        a['resultado'] = round(a['faturamento'] - frete_total, 2)
         saida.append(a)
     saida.sort(key=lambda x: x['faturamento'], reverse=True)
 
