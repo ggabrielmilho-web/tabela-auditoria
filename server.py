@@ -3055,6 +3055,23 @@ def _eh_rizza(proprietario):
     return 'RIZZA' in (proprietario or '').upper()
 
 
+def _norm_tipo_veiculo(tipo):
+    """Classifica o TIPO cru do veiculos_045 em Cavalo/Carreta/Truck.
+    Usa prefixo/palavra-chave (não match exato) porque o Winthor cadastra variações
+    como 'CAVALO TRUCADO', 'TOCO', 'BALSA' que antes eram descartadas por engano —
+    sumindo o veículo do lançamento de carga. Tipos desconhecidos viram None."""
+    t = str(tipo or '').strip().upper()
+    if not t:
+        return None
+    if t.startswith('CAVALO'):                       # CAVALO, CAVALO TRUCADO, ...
+        return 'Cavalo'
+    if t.startswith('CARRETA') or t == 'BALSA':      # BALSA é reboque (prancha)
+        return 'Carreta'
+    if t.startswith('TRUCK') or t == 'TOCO':         # TOCO = rígido de eixo simples
+        return 'Truck'
+    return None                                      # OUTROS e desconhecidos ficam fora
+
+
 def _pode_editar_carga(criado_por_id):
     """Admin ou quem criou a carga pode editar."""
     if session.get('role') == 'admin':
@@ -3238,7 +3255,6 @@ def api_embarques_veiculos():
         rows = result.get('results', [{}])[0].get('tables', [{}])[0].get('rows', [])
         data = clean_rows(rows)
 
-        tipos_map = {'CAVALO': 'Cavalo', 'CARRETA': 'Carreta', 'TRUCK': 'Truck'}
         normalizados = []
         for r in data:
             placa        = _pick(r, 'placa', 'PLACA', 'Placa')
@@ -3249,7 +3265,7 @@ def api_embarques_veiculos():
             proprietario = _pick(r, 'proprietario', 'PROPRIETARIO', 'Proprietario', 'proprietário', 'Proprietário')
             if not placa or not tipo:
                 continue
-            tipo_norm = tipos_map.get(str(tipo).strip().upper())
+            tipo_norm = _norm_tipo_veiculo(tipo)
             if not tipo_norm:
                 continue
             partes = [str(marca or '').strip(), str(modelo or '').strip()]
