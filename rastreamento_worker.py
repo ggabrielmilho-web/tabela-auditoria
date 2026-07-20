@@ -489,12 +489,14 @@ def _processar_cargas(cur):
 
         # Detecta a saída da origem 1x e persiste (trajeto/KPIs leem daqui depois).
         # Nunca grava NULL → não recalcula nos próximos ciclos.
+        iv_detectado = None   # presença REAL na origem (None = placa nunca vista lá)
         if inicio_viagem is None:
-            iv = geocoding.detectar_inicio_viagem(
+            iv_detectado = geocoding.detectar_inicio_viagem(
                 placa, origem_cid, origem_uf, data_carreg, cur.connection,
                 origem_lat=float(origem_lat) if origem_lat is not None else None,
                 origem_lng=float(origem_lng) if origem_lng is not None else None,
             )
+            iv = iv_detectado
             if iv is None:
                 from datetime import time as _t
                 iv = (datetime.combine(data_carreg, _t()) if data_carreg
@@ -544,18 +546,36 @@ def _processar_cargas(cur):
             ref_cidade = ref_uf = ref_vel = None
 
         # ── SAÍDA DA ORIGEM (status Aberta → Em rota)
-        if status == 'Aberta':
+        # GUARDA (simétrica à de _esteve_no_destino, no fechamento): só é "saída da origem"
+        # se a placa REALMENTE esteve na origem. Sem isso, "está longe da origem" era lido
+        # como "saiu dela", e a viagem abria no próprio lançamento nos dois casos em que o
+        # veículo nunca passou no pátio: rastreador mudo (posição congelada semanas atrás,
+        # virando data_saida_real com carimbo velho) ou carreta ainda a caminho pra carregar.
+        # Exige também posição fresca — dado velho não move status (igual chegada/fechamento).
+        if status == 'Aberta' and placa_fresca:
             if _saiu_da_cidade(cur, placa, pos_cidade, origem_cid, origem_uf, centroide_origem, RAIO_SAIDA_ORIGEM_KM):
-                # data_saida_real = horário GPS da posição (não NOW do worker), pra alinhar
-                # com os pontos e nunca excluir o histórico da viagem na janela.
-                cur.execute("""
-                    UPDATE embarques_cargas
-                    SET status='Em rota', saida_auto=TRUE, data_saida_real=%s,
-                        atualizado_em=NOW()
-                    WHERE id=%s
-                """, (pos_data, carga_id))
-                _logger.info(f'[Carga {carga_id}/{placa}] Saída automática da origem detectada')
-                status = 'Em rota'
+                # A prova de presença é a própria detecção do início da viagem (última
+                # posição DENTRO da origem). Ela também vira data_saida_real — melhor que o
+                # horário do ciclo, que só diz quando o worker percebeu, não quando saiu.
+                saida_real = iv_detectado if iv_detectado is not None else geocoding.detectar_inicio_viagem(
+                    placa, origem_cid, origem_uf, data_carreg, cur.connection,
+                    origem_lat=float(origem_lat) if origem_lat is not None else None,
+                    origem_lng=float(origem_lng) if origem_lng is not None else None,
+                )
+                if saida_real is None:
+                    _logger.info(f'[Carga {carga_id}/{placa}] Longe da origem, mas a placa nunca foi vista NA origem — não abre viagem (aguarda GPS ou saída manual)')
+                else:
+                    # Corrige junto o inicio_viagem, que pode ter sido gravado como fallback
+                    # (data_carregamento@00:00) num ciclo anterior a esta detecção.
+                    cur.execute("""
+                        UPDATE embarques_cargas
+                        SET status='Em rota', saida_auto=TRUE, data_saida_real=%s,
+                            inicio_viagem=%s, atualizado_em=NOW()
+                        WHERE id=%s
+                    """, (saida_real, saida_real, carga_id))
+                    _logger.info(f'[Carga {carga_id}/{placa}] Saída automática da origem detectada ({saida_real})')
+                    status = 'Em rota'
+                    inicio_viagem = saida_real
 
         # ── CHEGADA NO DESTINO por POSIÇÃO (marca no_local_desde; segue 'Em rota' + ícone 📦).
         # Decidida por DISTÂNCIA + PARADO, NUNCA pelo nome — o 3S etiqueta a cidade-destino a
