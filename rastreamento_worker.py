@@ -380,6 +380,13 @@ def _consolidar_kpi(cur, carga_id, final=False):
     placa = _placa_tracking(cavalo_placa, carreta1_placa, carreta2_placa, cur)
     if not placa:
         return
+    # Último destino (maior ordem) — usado só no corte de fallback abaixo.
+    cur.execute("""
+        SELECT latitude, longitude FROM embarques_cargas_destinos
+        WHERE carga_id=%s ORDER BY ordem DESC LIMIT 1
+    """, (carga_id,))
+    _rd = cur.fetchone()
+    dest_lat, dest_lng = (_rd[0], _rd[1]) if _rd else (None, None)
     # Janela da viagem: [saída da origem, CHEGADA ao destino].
     # Busca LARGO por DATA (data_carregamento c/ folga de fuso) — NÃO por inicio_viagem,
     # que é definido por nome de cidade e o 3S mente (etiqueta a origem a 100+ km). O
@@ -405,6 +412,26 @@ def _consolidar_kpi(cur, carga_id, final=False):
         coords = [(float(la), float(ln)) for (la, ln, _v, _d) in rows]
         idx = geocoding.indice_saida_origem(coords, float(origem_lat), float(origem_lng))
         rows = rows[idx:]
+
+    # ── FALLBACK: chegada NÃO detectada (no_local_desde nulo). Aí a janela por data vai
+    # até a conclusão/agora e soma a viagem de VOLTA — a carga C-2026-000261 fechou com
+    # 1588 km numa rota de 928 porque entregou em Guarulhos e voltou pra Goiás. Corta na
+    # chegada por POSIÇÃO, exatamente como o mapa já faz em _indice_chegada_destino.
+    # Com no_local_desde preenchido (o caso normal) NADA muda aqui.
+    if rows and no_local_desde is None and dest_lat is not None:
+        # Guarda: destino perto da origem (ida-e-volta curta) — o corte poderia cair no
+        # começo do trajeto e encolher a viagem. Degrada pro comportamento de hoje.
+        d_od = geocoding.km_entre(origem_lat, origem_lng, dest_lat, dest_lng) \
+            if origem_lat is not None else None
+        if d_od is None or d_od > RAIO_CHEGADA_DESTINO_KM * 2:
+            i_cheg = geocoding.indice_chegada_destino(
+                rows, dest_lat, dest_lng,
+                raio_km=RAIO_CHEGADA_DESTINO_KM,
+                parado_kmh=PARADO_KMH, parado_min=CHEGADA_MIN_PARADO)
+            if i_cheg is not None:
+                _logger.info(f'[Carga {carga_id}/{placa}] KPI sem chegada registrada — '
+                             f'cortando na chegada por posição ({len(rows)} → {i_cheg + 1} pontos)')
+                rows = rows[:i_cheg + 1]
     if len(rows) < 2:
         cur.execute("""
             INSERT INTO embarques_cargas_rastreio_kpi (carga_id, placa, consolidado_em, consolidado_final)

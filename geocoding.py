@@ -82,6 +82,55 @@ def indice_saida_origem(coords, origem_lat, origem_lng, raio_km=30):
     return melhor_i
 
 
+def indice_chegada_destino(pontos, dest_lat, dest_lng, raio_km=20.0,
+                           parado_kmh=3, parado_min=60):
+    """Índice do ponto de CHEGADA no destino, decidido por POSIÇÃO (nunca pelo nome da
+    cidade, que o 3S erra a 100+ km). Mesma escada de regras do gêmeo em
+    server.py:_indice_chegada_destino (que opera sobre o trajeto já serializado do mapa):
+      1) primeiro ponto dentro do raio que INICIA uma parada de >= parado_min,
+         permanecendo dentro do raio → o local da descarga;
+      2) senão, o ponto de MAIOR APROXIMAÇÃO dentro do raio (descarga rápida < 1h, ou
+         buraco de GPS bem em cima da entrega).
+
+    `pontos`: lista de (lat, lng, velocidade, data) em ordem cronológica.
+    Retorna None se nenhum ponto entrou no raio — o caller então não corta nada.
+    """
+    if dest_lat is None or dest_lng is None or not pontos:
+        return None
+    dest_lat, dest_lng = float(dest_lat), float(dest_lng)
+    dentro = []          # (índice, distância_km)
+    for i, p in enumerate(pontos):
+        la, ln = p[0], p[1]
+        if la is None or ln is None:
+            continue
+        d = km_entre(float(la), float(ln), dest_lat, dest_lng)
+        if d is not None and d <= raio_km:
+            dentro.append((i, d))
+    if not dentro:
+        return None
+    dentro_set = {i for i, _ in dentro}
+    n = len(pontos)
+
+    def _vel(p):
+        return p[2] or 0
+
+    # Regra 1: primeira parada de >= parado_min dentro do raio.
+    for i, _d in dentro:
+        if _vel(pontos[i]) > parado_kmh:
+            continue
+        t0 = pontos[i][3]
+        if t0 is None:
+            continue
+        j = i
+        while j < n and j in dentro_set and _vel(pontos[j]) <= parado_kmh:
+            tj = pontos[j][3]
+            if tj is not None and (tj - t0).total_seconds() >= parado_min * 60:
+                return i    # onde ele parou (início da parada)
+            j += 1
+    # Regra 2: maior aproximação do destino dentro do raio.
+    return min(dentro, key=lambda x: x[1])[0]
+
+
 def normalizar_cidade(s):
     """UPPERCASE + sem acento + trim. Compara 'São Paulo' == 'SAO PAULO'."""
     if not s:
