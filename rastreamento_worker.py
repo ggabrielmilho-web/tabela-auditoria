@@ -400,13 +400,24 @@ def _consolidar_kpi(cur, carga_id, final=False):
         inicio = inicio_viagem or data_saida_real or (datetime.utcnow() - timedelta(days=15))
     fim = no_local_desde or data_conclusao or datetime.utcnow()
 
-    cur.execute("""
-        SELECT latitude, longitude, velocidade, data_posicao
-        FROM embarques_posicoes_historico
-        WHERE placa=%s AND data_posicao BETWEEN %s AND %s
-        ORDER BY data_posicao
-    """, (placa, inicio, fim))
-    rows = cur.fetchall()
+    def _pontos(p):
+        cur.execute("""
+            SELECT latitude, longitude, velocidade, data_posicao
+            FROM embarques_posicoes_historico
+            WHERE placa=%s AND data_posicao BETWEEN %s AND %s
+            ORDER BY data_posicao
+        """, (p, inicio, fim))
+        return cur.fetchall()
+
+    rows = _pontos(placa)
+    # Carreta sem trilha na janela (rastreador mudo): consolida pelo CAVALO, senão o KPI
+    # final gravaria distância nula. Hoje isso não aparece na tela (o endpoint ignora o
+    # persistido quando cai no cavalo), mas deixa lixo no banco.
+    if len(rows) < 2 and cavalo_placa and (cavalo_placa or '').strip().upper() != placa:
+        alt = _pontos((cavalo_placa or '').strip().upper())
+        if len(alt) >= 2:
+            _logger.info(f'[Carga {carga_id}] KPI: carreta {placa} sem trilha — consolidando pelo cavalo {cavalo_placa}')
+            placa, rows = (cavalo_placa or '').strip().upper(), alt
     # Recorta o trecho PRÉ-origem (caminhão rodando antes do lançamento)
     if rows and origem_lat is not None and origem_lng is not None:
         coords = [(float(la), float(ln)) for (la, ln, _v, _d) in rows]
@@ -554,23 +565,29 @@ def _processar_cargas(cur):
         centroide_dest = (float(dest_lat), float(dest_lng)) if dest_lat is not None else (None, None)
         centroide_origem = (float(origem_lat), float(origem_lng)) if origem_lat is not None else (None, None)
 
-        # Frescor da posição da placa rastreada. Se a CARRETA estiver sem sinal recente, a
-        # CHEGADA/"No destino" passam a olhar o CAVALO (vivo) — mesmas regras (nome+parado).
-        # Saída-da-origem e fechamento continuam SÓ na placa rastreada (carreta), e o
-        # fechamento só dispara com ela fresca (senão, posição velha fecharia errado).
+        # Frescor da placa rastreada + REFERÊNCIA DE POSIÇÃO para a detecção.
+        # A carreta continua sendo a principal (ela acompanha a carga; o cavalo desengata e
+        # puxa outra). Mas com a carreta MUDA — rastreador sem energia ou com defeito — a
+        # detecção (saída da origem, chegada e promoção) passa a ler a posição do CAVALO,
+        # senão a carga trava em 'Aberta' para sempre.
+        # O FECHAMENTO não usa esta referência: continua exigindo `placa` (carreta) fresca,
+        # porque o cavalo pode já ter largado a carreta e ido para outra viagem.
+        # Em carga 'Desengatada' não há fallback nenhum — o cavalo foi liberado.
         placa_fresca = pos_data is not None and (datetime.utcnow() - pos_data) <= timedelta(hours=FRESCOR_H)
-        if placa_fresca:
-            ref_cidade, ref_uf, ref_vel = pos_cidade, pos_uf, pos_vel
-        elif not desengatada:
+        placa_ref = placa
+        ref_lat, ref_lng, ref_cidade, ref_vel = pos_lat, pos_lng, pos_cidade, pos_vel
+        ref_fresca = placa_fresca
+        ref_via_cavalo = False
+        if not placa_fresca and not desengatada:
             cav = _pos_fresca(cur, cavalo_placa)
             if cav:
-                ref_cidade, ref_uf = cav[2], cav[3]
+                placa_ref = (cavalo_placa or '').strip().upper()
+                ref_lat, ref_lng = float(cav[0]), float(cav[1])
+                ref_cidade = cav[2]        # só o nome é consumido (_saiu_da_cidade)
                 ref_vel = float(cav[5]) if cav[5] is not None else None
-                _logger.info(f'[Carga {carga_id}] Carreta {placa} sem sinal recente — chegada via cavalo {cavalo_placa}')
-            else:
-                ref_cidade = ref_uf = ref_vel = None
-        else:
-            ref_cidade = ref_uf = ref_vel = None
+                ref_fresca = True
+                ref_via_cavalo = True
+                _logger.info(f'[Carga {carga_id}] Carreta {placa} sem sinal recente — detecção via cavalo {placa_ref}')
 
         # ── SAÍDA DA ORIGEM (status Aberta → Em rota)
         # GUARDA (simétrica à de _esteve_no_destino, no fechamento): só é "saída da origem"
@@ -579,13 +596,15 @@ def _processar_cargas(cur):
         # veículo nunca passou no pátio: rastreador mudo (posição congelada semanas atrás,
         # virando data_saida_real com carimbo velho) ou carreta ainda a caminho pra carregar.
         # Exige também posição fresca — dado velho não move status (igual chegada/fechamento).
-        if status == 'Aberta' and placa_fresca:
-            if _saiu_da_cidade(cur, placa, pos_cidade, origem_cid, origem_uf, centroide_origem, RAIO_SAIDA_ORIGEM_KM):
+        if status == 'Aberta' and ref_fresca:
+            if _saiu_da_cidade(cur, placa_ref, ref_cidade, origem_cid, origem_uf, centroide_origem, RAIO_SAIDA_ORIGEM_KM):
                 # A prova de presença é a própria detecção do início da viagem (última
                 # posição DENTRO da origem). Ela também vira data_saida_real — melhor que o
                 # horário do ciclo, que só diz quando o worker percebeu, não quando saiu.
-                saida_real = iv_detectado if iv_detectado is not None else geocoding.detectar_inicio_viagem(
-                    placa, origem_cid, origem_uf, data_carreg, cur.connection,
+                # No fallback pelo cavalo, `iv_detectado` é da carreta e não serve: redetecta.
+                saida_real = (iv_detectado if (iv_detectado is not None and not ref_via_cavalo)
+                              else None) or geocoding.detectar_inicio_viagem(
+                    placa_ref, origem_cid, origem_uf, data_carreg, cur.connection,
                     origem_lat=float(origem_lat) if origem_lat is not None else None,
                     origem_lng=float(origem_lng) if origem_lng is not None else None,
                 )
@@ -609,9 +628,9 @@ def _processar_cargas(cur):
         # 100+ km (viu-se cravar chegada a 111 km!). A placa rastreada está dentro do raio do
         # destino, fresca e parada → é onde ela encostou p/ descarga. Vale também p/ 'Desengatada'.
         if status in ('Em rota', 'Desengatada') and no_local_desde is None \
-                and centroide_dest[0] is not None and placa_fresca \
-                and (pos_vel is None or pos_vel <= PARADO_KMH):
-            _d_dest = geocoding.km_entre(pos_lat, pos_lng, centroide_dest[0], centroide_dest[1])
+                and centroide_dest[0] is not None and ref_fresca \
+                and (ref_vel is None or ref_vel <= PARADO_KMH):
+            _d_dest = geocoding.km_entre(ref_lat, ref_lng, centroide_dest[0], centroide_dest[1])
             if _d_dest is not None and _d_dest <= RAIO_CHEGADA_DESTINO_KM:
                 cur.execute("UPDATE embarques_cargas SET no_local_desde=NOW(), atualizado_em=NOW() WHERE id=%s", (carga_id,))
                 _logger.info(f'[Carga {carga_id}/{placa}] Chegou e parou no destino ({_d_dest:.1f} km do centro)')
@@ -619,11 +638,12 @@ def _processar_cargas(cur):
 
         # ── PROMOÇÃO p/ 'No destino' (parado no raio do destino há >= CHEGADA_MIN_PARADO).
         # Também por POSIÇÃO (distância ao destino), não por nome.
-        if status == 'Em rota' and no_local_desde is not None and placa_fresca \
+        if status == 'Em rota' and no_local_desde is not None and ref_fresca \
                 and centroide_dest[0] is not None \
                 and (datetime.utcnow() - no_local_desde) >= timedelta(minutes=CHEGADA_MIN_PARADO) \
-                and (pos_vel is None or pos_vel <= PARADO_KMH) \
-                and (geocoding.km_entre(pos_lat, pos_lng, centroide_dest[0], centroide_dest[1]) or 9e9) <= RAIO_CHEGADA_DESTINO_KM:
+                and (ref_vel is None or ref_vel <= PARADO_KMH) \
+                and (_d := geocoding.km_entre(ref_lat, ref_lng, centroide_dest[0], centroide_dest[1])) is not None \
+                and _d <= RAIO_CHEGADA_DESTINO_KM:
             cur.execute("UPDATE embarques_cargas SET status='No destino', atualizado_em=NOW() WHERE id=%s", (carga_id,))
             _logger.info(f'[Carga {carga_id}/{placa}] Parado no destino há +{CHEGADA_MIN_PARADO}min → status "No destino"')
             status = 'No destino'
