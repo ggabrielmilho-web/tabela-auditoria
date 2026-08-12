@@ -12,6 +12,7 @@ import tempfile
 import functools
 import psycopg2
 import requests
+import pgr
 from flask import Flask, Response, jsonify, send_from_directory, request, session, redirect, url_for, send_file, stream_with_context
 from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -79,18 +80,21 @@ def admin_required(f):
 
 # Abas concedíveis por usuário (a aba Admin NÃO entra — é exclusiva de role=admin).
 PAGINAS_VALIDAS = {'auditoria', 'tarifas', 'embarques', 'reuniao', 'dre',
-                   'despesas', 'conhecimentos', 'faturamento', 'contratos', 'veiculos'}
+                   'despesas', 'conhecimentos', 'faturamento', 'contratos', 'veiculos',
+                   'pgr'}
 # Chave da aba → rota inicial (para redirect sem loop).
 _PAGINA_ROTA = {
     'auditoria': '/', 'tarifas': '/tarifas', 'embarques': '/embarques',
     'reuniao': '/reuniao', 'dre': '/dre', 'despesas': '/dre/despesas',
     'conhecimentos': '/dre/conhecimentos', 'faturamento': '/faturamento',
-    'contratos': '/contratos', 'veiculos': '/veiculos',
+    'contratos': '/contratos', 'veiculos': '/veiculos', 'pgr': '/pgr',
 }
 # Ordem de preferência ao escolher a primeira aba permitida.
 # 'embarques' vem antes de 'tarifas': quem não tem Auditoria e tem Embarques
 # cai direto no Embarques (só depois em Tarifas).
-_PAGINA_ORDEM = ['auditoria', 'embarques', 'tarifas', 'reuniao', 'dre',
+# 'pgr' fica junto da família de rastreamento (perto de Embarques): é segurança
+# operacional, não financeiro.
+_PAGINA_ORDEM = ['auditoria', 'embarques', 'pgr', 'tarifas', 'reuniao', 'dre',
                  'despesas', 'conhecimentos', 'faturamento', 'contratos', 'veiculos']
 
 
@@ -395,6 +399,86 @@ def faturamento_page():
 @page_required('veiculos')
 def veiculos_page():
     return send_from_directory('.', 'veiculos.html')
+
+
+# ── PGR — excesso de velocidade ──────────────────────────────────────
+#
+# Acesso duplo, de propósito: o time interno abre pelo app com o login normal
+# (aba 'pgr' concedida no Admin), e o diretor abre pelo link do WhatsApp sem
+# logar — se ele tiver que autenticar às 7h da manhã no celular, não abre.
+# O token é POR RELATÓRIO e tem validade: vazou um link, expôs um dia. A página
+# é beco sem saída, sem navegação para o resto do app.
+
+def _pgr_dia_autorizado(dia_str):
+    """(dia, erro_http). Libera por sessão (aba/admin) ou por token de leitura."""
+    from datetime import date as _date
+    try:
+        dia = _date.fromisoformat(dia_str) if dia_str else None
+    except ValueError:
+        return None, ('Data inválida', 400)
+
+    # 1) sessão com a aba concedida (ou admin)
+    if 'user_id' in session and (
+            session.get('role') == 'admin'
+            or 'pgr' in (session.get('paginas_permitidas') or [])):
+        return dia or _pgr_ultimo_dia(), None
+
+    # 2) token de leitura
+    token = request.args.get('t')
+    if token:
+        conn = get_db()
+        try:
+            cur = conn.cursor()
+            dia_tok = pgr.validar_token(cur, token, dia)
+            conn.commit()
+            cur.close()
+        finally:
+            conn.close()
+        if dia_tok:
+            return dia_tok, None
+        return None, ('Link inválido ou expirado', 403)
+
+    return None, ('Não autorizado', 401)
+
+
+def _pgr_ultimo_dia():
+    """Dia mais recente já apurado (a página abre nele quando não pedem data)."""
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT MAX(dia) FROM pgr_eventos")
+        r = cur.fetchone()
+        cur.close()
+    finally:
+        conn.close()
+    from datetime import datetime as _dt, timedelta as _td
+    return (r and r[0]) or (_dt.utcnow() - _td(hours=3) - _td(days=1)).date()
+
+
+@app.route('/pgr')
+def pgr_page():
+    dia, erro = _pgr_dia_autorizado(request.args.get('data'))
+    if erro:
+        # Sem sessão e sem token válido: manda logar (o interno) em vez de 401 seco.
+        if 'user_id' not in session and not request.args.get('t'):
+            return redirect('/login')
+        return erro[0], erro[1]
+    return send_from_directory('.', 'pgr.html')
+
+
+@app.route('/api/pgr')
+def api_pgr():
+    dia, erro = _pgr_dia_autorizado(request.args.get('data'))
+    if erro:
+        return jsonify({'ok': False, 'error': erro[0]}), erro[1]
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        dados = pgr.listar_dia(cur, dia)
+        cur.close()
+    finally:
+        conn.close()
+    return jsonify({'ok': True, **dados})
 
 
 @app.route('/embarques')

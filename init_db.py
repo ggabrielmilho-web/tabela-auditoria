@@ -428,6 +428,27 @@ cur.execute("""
         PRIMARY KEY (dia, placa)
     );
 """)
+# Lacuna só é falta de sinal se o veículo se moveu durante ela: parado, o
+# aparelho reporta de 1 em 1 h (ou 12 em 12). Medido em 11/08, as maiores
+# lacunas do dia (243, 239, 142 min) tinham deslocamento 0,0 km — eram pátio.
+# São estas duas colunas que o relatório usa para alarmar.
+cur.execute("ALTER TABLE pgr_cobertura ADD COLUMN IF NOT EXISTS minutos_sem_sinal_mov INTEGER;")
+cur.execute("ALTER TABLE pgr_cobertura ADD COLUMN IF NOT EXISTS maior_gap_mov_min INTEGER;")
+
+# Token de leitura por relatório: o diretor abre o link do WhatsApp sem logar.
+# Por RELATÓRIO, não mestre (vazou, expôs um dia); com validade; e a página é
+# beco sem saída, sem navegação para o resto do app.
+cur.execute("""
+    CREATE TABLE IF NOT EXISTS pgr_tokens (
+        token       VARCHAR(64) PRIMARY KEY,
+        dia         DATE NOT NULL,
+        criado_em   TIMESTAMP DEFAULT NOW(),
+        expira_em   TIMESTAMP NOT NULL,
+        acessos     INTEGER DEFAULT 0,
+        ultimo_acesso TIMESTAMP
+    );
+""")
+cur.execute("CREATE INDEX IF NOT EXISTS ix_pgr_tokens_dia ON pgr_tokens (dia);")
 
 print("✅ Tabelas do PGR (pgr_eventos, pgr_cobertura) prontas.\n")
 

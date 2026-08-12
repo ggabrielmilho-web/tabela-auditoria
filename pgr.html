@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PGR · Excessos de velocidade</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:#0a0e17; --surface:#111827; --surface2:#1a2235; --border:#1e293b;
+    --text:#e2e8f0; --text-dim:#94a3b8; --accent:#38bdf8; --accent2:#818cf8;
+    --green:#34d399; --red:#f87171; --orange:#fb923c; --yellow:#fbbf24;
+    --sans:'DM Sans',-apple-system,'Segoe UI',Roboto,sans-serif;
+    --mono:'JetBrains Mono',ui-monospace,'SF Mono',Consolas,monospace;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:var(--sans); background:var(--bg); color:var(--text);
+         padding:16px 12px 32px; -webkit-font-smoothing:antialiased; }
+  .wrap { max-width:620px; margin:0 auto; }
+
+  header { border-bottom:1px solid var(--border); padding-bottom:12px; margin-bottom:12px; }
+  .eyebrow { font-family:var(--mono); font-size:.66rem; letter-spacing:.14em; text-transform:uppercase;
+             color:var(--accent); font-weight:500; }
+  h1 { font-size:1.18rem; font-weight:700; margin-top:5px; letter-spacing:-.01em; }
+  .sub { font-family:var(--mono); font-size:.72rem; color:var(--text-dim); margin-top:3px; }
+
+  .nav { display:flex; gap:8px; align-items:center; margin-top:10px; }
+  /* `display:flex` ganha do [hidden] da UA stylesheet — sem esta regra a
+     navegação apareceria no acesso por token, e a página deixaria de ser o
+     beco sem saída que contém o link vazado. */
+  .nav[hidden] { display:none; }
+  .nav a, .nav button { font-family:var(--mono); font-size:.68rem; color:var(--text-dim);
+        background:var(--surface); border:1px solid var(--border); border-radius:5px;
+        padding:4px 9px; text-decoration:none; cursor:pointer; }
+  .nav a:hover, .nav button:hover { color:var(--text); border-color:var(--accent); }
+  .nav input[type=date] { font-family:var(--mono); font-size:.68rem; background:var(--surface);
+        color:var(--text); border:1px solid var(--border); border-radius:5px; padding:3px 7px;
+        color-scheme:dark; }
+
+  .kpis { display:flex; gap:18px; margin-bottom:14px; flex-wrap:wrap; }
+  .kpi { display:flex; align-items:baseline; gap:5px; }
+  .kpi .v { font-family:var(--mono); font-size:1.08rem; font-weight:500; font-variant-numeric:tabular-nums; }
+  .kpi .l { font-size:.66rem; color:var(--text-dim); font-weight:600; }
+  .kpi.al .v { color:var(--red); }
+
+  table { width:100%; border-collapse:collapse; }
+  thead th { font-size:.58rem; text-transform:uppercase; letter-spacing:.07em; color:var(--text-dim);
+             font-weight:700; text-align:left; padding:0 6px 6px; border-bottom:1px solid var(--border); }
+  thead th.r { text-align:right; }
+  tbody tr { border-bottom:1px solid rgba(30,41,59,.6); }
+  tbody tr:last-child { border-bottom:none; }
+  td { padding:8px 6px; vertical-align:top; }
+
+  .c-placa { width:82px; white-space:nowrap; }
+  .pl { font-family:var(--mono); font-size:.84rem; font-weight:500; letter-spacing:.02em; display:block; }
+  .tp { font-size:.56rem; letter-spacing:.09em; color:var(--text-dim); font-weight:700; text-transform:uppercase; }
+  .tp em { font-style:normal; }
+  .op-frota { color:var(--accent); }
+  .op-agregado { color:var(--accent2); }
+
+  .c-reg, .c-pico { font-family:var(--mono); text-align:right; font-variant-numeric:tabular-nums;
+                    white-space:nowrap; width:1%; }
+  .c-reg { font-size:.92rem; }
+  .c-reg i { font-style:normal; font-size:.62rem; color:var(--text-dim); }
+  .c-pico { font-size:.96rem; font-weight:500; padding-right:12px; }
+  .p1 { color:var(--yellow); } .p2 { color:var(--orange); } .p3 { color:var(--red); }
+
+  .c-det { padding-left:0; }
+  .lin1 { font-size:.72rem; line-height:1.4; color:var(--text-dim); }
+  .lin1 b { font-weight:600; }
+  .lin2 { font-size:.72rem; line-height:1.45; color:var(--text); margin-top:2px; }
+  .mot { font-family:var(--mono); font-size:.66rem; }
+  .uf { color:var(--text-dim); font-size:.92em; }
+  .sus { font-family:var(--mono); font-size:.58rem; color:var(--orange); border:1px solid var(--orange);
+         border-radius:3px; padding:0 4px; margin-left:6px; text-transform:uppercase; letter-spacing:.06em; }
+
+  .dot { display:inline-block; width:6px; height:6px; border-radius:50%; margin-right:5px;
+         vertical-align:middle; position:relative; top:-1px; }
+  .d-carregado { background:var(--orange); }
+  .d-parcial { background:var(--yellow); }
+  .d-vazio { background:var(--text-dim); }
+  .d-nao_confirmado { background:transparent; box-shadow:inset 0 0 0 1.5px var(--text-dim); }
+  .d-carregado ~ b { color:var(--orange); }
+  .d-parcial ~ b { color:var(--yellow); }
+  .d-vazio ~ b, .d-nao_confirmado ~ b { color:var(--text-dim); }
+
+  .aviso { border:1px solid var(--border); border-left:2px solid var(--yellow); border-radius:5px;
+           padding:9px 11px; margin-top:14px; }
+  .aviso h3 { font-size:.68rem; color:var(--yellow); font-weight:700; text-transform:uppercase;
+              letter-spacing:.07em; margin-bottom:5px; }
+  .aviso p { font-size:.66rem; color:var(--text-dim); line-height:1.5; }
+  .aviso ul { list-style:none; margin-top:6px; }
+  .aviso li { font-family:var(--mono); font-size:.68rem; color:var(--text); padding:2px 0; }
+  .aviso li span { color:var(--text-dim); font-size:.92em; }
+
+  .vazio-msg { text-align:center; padding:34px 12px; color:var(--text-dim); font-size:.8rem; }
+  .vazio-msg b { color:var(--green); display:block; font-size:1rem; margin-bottom:5px; }
+
+  footer { border-top:1px solid var(--border); margin-top:14px; padding-top:12px;
+           display:flex; flex-direction:column; gap:7px; }
+  footer p { font-size:.66rem; line-height:1.55; color:var(--text-dim); }
+  footer b { color:var(--text); font-weight:600; }
+  .leg { display:flex; gap:14px; flex-wrap:wrap; font-size:.62rem; color:var(--text-dim); }
+  .leg span::before { content:''; display:inline-block; width:7px; height:7px; border-radius:2px; margin-right:5px; }
+  .l1::before { background:var(--yellow); } .l2::before { background:var(--orange); } .l3::before { background:var(--red); }
+
+  @media (max-width:420px) {
+    .c-placa { width:72px; }
+    .c-pico { padding-right:8px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Rizza Transportes · PGR</div>
+    <h1 id="titulo">Excessos acima de 95 km/h</h1>
+    <div class="sub" id="subtitulo">carregando…</div>
+    <div class="nav" id="nav" hidden>
+      <button id="ant">‹ dia anterior</button>
+      <input type="date" id="data">
+      <button id="prox">dia seguinte ›</button>
+      <a href="/embarques" id="voltar">voltar ao app</a>
+    </div>
+  </header>
+
+  <div id="conteudo"></div>
+</div>
+
+<script>
+const qs = new URLSearchParams(location.search);
+const TOKEN = qs.get('t');           // acesso por link do WhatsApp (sem login)
+const $ = id => document.getElementById(id);
+
+// Faixas de gravidade na cor do pico (layout aprovado).
+const sev = p => p >= 110 ? 'p3' : (p >= 103 ? 'p2' : 'p1');
+const marcaUF = t => (t || '').replace(/\/([A-Z]{2})\b/g, '/<span class="uf">$1</span>');
+const esc = s => (s == null ? '' : String(s)).replace(/[&<>"]/g, c =>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const hm = m => m >= 60 ? `${Math.floor(m/60)}h${String(m%60).padStart(2,'0')}` : `${m}min`;
+
+function linha(l) {
+  const tipo = (l.tipo_veiculo || '').toUpperCase();
+  const abrev = {CARRETA:'car', CAVALO:'cav', TRUCK:'trk'}[tipo] || (tipo ? tipo.toLowerCase().slice(0,3) : '');
+  const op = (l.tipo_operacao || '').toLowerCase();
+  // Contexto do manifesto ainda não é apurado — mostra "—" para o layout já
+  // nascer com o lugar do dado, e a chegada do motor ser só preencher.
+  const ctx = l.tomador
+    ? `${esc(l.tomador)} · ${esc([l.origem, l.destino].filter(Boolean).join(' → '))}`
+    : '—';
+  const mot = l.motorista ? ` · <span class="mot">${esc(l.motorista)}</span>` : '';
+  const selo = l.sustentado ? '<span class="sus">sustentado</span>' : '';
+  return `<tr>
+    <td class="c-placa"><span class="pl">${esc(l.placa)}</span>
+      <span class="tp">${abrev}${op ? ' · <em class="op-' + op + '">' + op + '</em>' : ''}</span></td>
+    <td class="c-reg">${l.registros}<i>×</i></td>
+    <td class="c-pico ${sev(l.pico)}">${l.pico}</td>
+    <td class="c-det">
+      <div class="lin1"><span class="dot d-${l.situacao_carga}"></span><b>${esc(l.situacao_rotulo)}</b> · ${ctx}${mot}${selo}</div>
+      <div class="lin2">${marcaUF(l.cidades.map(esc).join(', '))}</div>
+    </td>
+  </tr>`;
+}
+
+function render(d) {
+  const t = d.totais;
+  const [a, m, dd] = d.dia.split('-');
+  const dataBr = `${dd}/${m}/${a}`;
+  $('titulo').textContent = `Excessos acima de ${d.limiar} km/h`;
+  $('subtitulo').textContent = `${dataBr} · horário de Brasília`;
+  document.title = `PGR · Excessos — ${dataBr}`;
+
+  if (!d.linhas.length) {
+    $('conteudo').innerHTML = `<div class="vazio-msg"><b>Nenhum excesso registrado</b>
+      ${t.placas_monitoradas} veículo(s) monitorado(s) no dia.</div>` + rodape(d);
+    return;
+  }
+
+  const kpis = `<div class="kpis">
+    <div class="kpi"><span class="v">${t.veiculos}</span><span class="l">veículos</span></div>
+    <div class="kpi al"><span class="v">${t.registros}</span><span class="l">registros</span></div>
+    <div class="kpi al"><span class="v">${t.pico}</span><span class="l">pico km/h</span></div>
+    <div class="kpi"><span class="v">${t.sustentados}</span><span class="l">sustentados</span></div>
+    <div class="kpi"><span class="v op-frota">${t.frota}</span><span class="l">frota</span>
+      <span class="v op-agregado" style="margin-left:8px">${t.agregado}</span><span class="l">agregado</span></div>
+  </div>`;
+
+  const tabela = `<table>
+    <thead><tr><th>Placa</th><th class="r">Reg</th>
+      <th class="r" style="padding-right:12px">Pico</th><th>Situação e trechos</th></tr></thead>
+    <tbody>${d.linhas.map(linha).join('')}</tbody></table>`;
+
+  $('conteudo').innerHTML = kpis + tabela + cobertura(d) + rodape(d);
+}
+
+function cobertura(d) {
+  if (!d.sem_cobertura.length) return '';
+  // Placa que some do relatório lê como "comportou-se bem". Com o rótulo, lê
+  // como "não sabemos" — são coisas muito diferentes num relatório de segurança.
+  return `<div class="aviso">
+    <h3>Cobertura insuficiente</h3>
+    <p>Estes veículos ficaram sem sinal <b>enquanto rodavam</b>. Ausência da lista acima
+       não significa que se comportaram bem — significa que não sabemos.</p>
+    <ul>${d.sem_cobertura.map(c => `<li>${esc(c.placa)}
+      <span>· ${c.posicoes} posições · maior lacuna em movimento ${hm(c.maior_gap_mov_min)}</span></li>`).join('')}</ul>
+  </div>`;
+}
+
+function rodape(d) {
+  return `<footer>
+    <div class="leg"><span class="l1">96–102 km/h</span><span class="l2">103–109</span><span class="l3">110+</span></div>
+    <p><b>O número é recorrência, não duração.</b> O rastreador reporta a cada 2–5 min e cada
+       leitura é um instante, não um intervalo — somar tempo acima do limite seria inventar número.</p>
+    <p><b>Pico</b> = o maior entre a leitura do aparelho e a média do trecho. As duas medidas são
+       piso do valor real (a média usa distância em linha reta, que subestima), então o número
+       mostrado erra sempre para baixo.</p>
+    <p><b>Sustentado</b> = 2 ou mais registros acima do limite no mesmo episódio.</p>
+    <p>Excesso com o veículo vazio continua sendo desvio de PGR — por isso permanece na lista.</p>
+    <p><b>Carreteiro não aparece nesta lista</b> — no carreteiro puro nem o cavalo nem a carreta são
+       da Rizza, então não há rastreador nosso a bordo. O relatório cobre frota e agregado.</p>
+    <p style="color:#64748b">${d.totais.placas_monitoradas} veículo(s) com posição no dia.</p>
+  </footer>`;
+}
+
+function irPara(dia) {
+  const p = new URLSearchParams({data: dia});
+  if (TOKEN) p.set('t', TOKEN);
+  location.search = p.toString();
+}
+
+async function carregar() {
+  const p = new URLSearchParams();
+  if (qs.get('data')) p.set('data', qs.get('data'));
+  if (TOKEN) p.set('t', TOKEN);
+  const r = await fetch('/api/pgr?' + p.toString());
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}));
+    $('conteudo').innerHTML = `<div class="vazio-msg">${esc(e.error || 'Falha ao carregar')}</div>`;
+    $('subtitulo').textContent = '';
+    return;
+  }
+  const d = await r.json();
+  render(d);
+
+  // Navegação só para quem entrou logado: pelo token a página é beco sem saída.
+  if (!TOKEN) {
+    $('nav').hidden = false;
+    $('data').value = d.dia;
+    const desloca = n => {
+      const dt = new Date(d.dia + 'T12:00:00');
+      dt.setDate(dt.getDate() + n);
+      irPara(dt.toISOString().slice(0, 10));
+    };
+    $('ant').onclick = () => desloca(-1);
+    $('prox').onclick = () => desloca(1);
+    $('data').onchange = e => irPara(e.target.value);
+  }
+}
+
+carregar();
+</script>
+</body>
+</html>

@@ -38,6 +38,11 @@ MIN_REG_SUSTENTADO = int(os.getenv('PGR_MIN_REGISTROS_SUSTENTADO', '2'))
 VEL_PARADO_KMH = 3
 GAP_MAX_SUSTENTADA_MIN = 30
 
+# Cobertura: acima desta velocidade implícita (deslocamento ÷ duração) o veículo
+# estava rodando durante a lacuna — aí sim é sinal perdido, não pátio.
+VEL_IMPLICITA_MOVIMENTO_KMH = 5
+GAP_COBERTURA_RUIM_MIN = int(os.getenv('PGR_GAP_COBERTURA_RUIM', '60'))
+
 BRT_OFFSET_H = 3
 
 
@@ -108,6 +113,24 @@ def velocidade_sustentada(pontos, ini, fim):
     return int(round(km / horas))
 
 
+def pico_exibido(vel_max, vel_sustentada):
+    """Pico a mostrar = max(leitura, sustentada). Regra geral, não exceção.
+
+    As duas colunas são **piso** do pico real, não "uma medida e uma
+    estimativa":
+      - a leitura é instantânea, então o pico do intervalo é ≥ leitura;
+      - a sustentada usa haversine (subestima 5–15%) e é uma média, e o máximo
+        de qualquer função é ≥ sua média — logo o pico real é ≥ sustentada.
+
+    Mostrar o maior dos dois é o número mais correto disponível, e erra sempre
+    para baixo: se o motorista contestar, a resposta é "no mínimo X". Na
+    prática só muda o caso raro em que a amostragem perdeu o pico verdadeiro
+    (11/08: 1 de 41). `vel_max` e `vel_sustentada` seguem crus na tabela, então
+    a auditoria de onde saiu o número continua possível.
+    """
+    return max(vel_max or 0, vel_sustentada or 0)
+
+
 def resumir_episodio(ep, pontos_placa):
     """Episódio → dict pronto para gravar. O ponto de referência é o do PICO."""
     ini, fim = ep[0]['data'], ep[-1]['data']
@@ -130,25 +153,60 @@ def resumir_episodio(ep, pontos_placa):
 
 
 def resumir_cobertura(pontos):
-    """Minutos com/sem sinal e maior lacuna, para o rodapé do relatório.
+    """Cobertura do dia por placa, para o rodapé do relatório.
 
     Sem isto, "zero excessos" vira falsa segurança: não dá para distinguir
     "ninguém correu" de "o worker estava fora do ar" — ainda mais depois que a
     retenção apagar as posições.
+
+    **Lacuna só conta como falta de sinal se o veículo SE MOVEU durante ela.**
+    Parado, o aparelho reporta de 1 em 1 hora (ou 12 em 12), então lacuna longa
+    é o comportamento normal, não cegueira: medido em 11/08, as maiores
+    lacunas do dia (243, 239, 142 min) tinham deslocamento de 0,0 km — eram
+    pátio, não perda de sinal. Alarmar nelas seria acusar todo caminhão parado
+    e queimar o rótulo no primeiro dia.
+
+    O discriminador é a velocidade implícita (deslocamento ÷ duração), o mesmo
+    critério que o §8 usa para lacuna × parada.
     """
     if not pontos:
-        return {'posicoes': 0, 'minutos_com_sinal': 0,
-                'minutos_sem_sinal': 24 * 60, 'maior_gap_min': 24 * 60}
-    gaps = [(b['data'] - a['data']).total_seconds() / 60 for a, b in zip(pontos, pontos[1:])]
-    # "sem sinal" = soma das lacunas acima do gap de episódio
-    sem = sum(g for g in gaps if g > GAP_EPISODIO_MIN)
+        return {'posicoes': 0, 'minutos_com_sinal': 0, 'minutos_sem_sinal': 24 * 60,
+                'maior_gap_min': 24 * 60, 'minutos_sem_sinal_mov': 24 * 60,
+                'maior_gap_mov_min': 24 * 60}
+
+    gaps, gaps_mov = [], []
+    for a, b in zip(pontos, pontos[1:]):
+        g = (b['data'] - a['data']).total_seconds() / 60
+        if g <= 0:
+            continue
+        gaps.append(g)
+        if g <= GAP_EPISODIO_MIN:
+            continue
+        d = geocoding.km_entre(a['latitude'], a['longitude'], b['latitude'], b['longitude'])
+        if d is not None and (d / (g / 60)) > VEL_IMPLICITA_MOVIMENTO_KMH:
+            gaps_mov.append(g)
+
     total = (pontos[-1]['data'] - pontos[0]['data']).total_seconds() / 60
+    sem = sum(g for g in gaps if g > GAP_EPISODIO_MIN)
     return {
         'posicoes': len(pontos),
         'minutos_com_sinal': int(round(total - sem)),
         'minutos_sem_sinal': int(round(sem + (24 * 60 - total))),
         'maior_gap_min': int(round(max(gaps))) if gaps else 0,
+        # as duas que o relatório usa para alarmar
+        'minutos_sem_sinal_mov': int(round(sum(gaps_mov))),
+        'maior_gap_mov_min': int(round(max(gaps_mov))) if gaps_mov else 0,
     }
+
+
+def cobertura_insuficiente(cob):
+    """True se perdemos o veículo EM MOVIMENTO tempo demais.
+
+    Placa que não aparece no relatório lê como "comportou-se bem"; com este
+    rótulo, lê como "não sabemos". São coisas muito diferentes para quem
+    recebe.
+    """
+    return (cob.get('maior_gap_mov_min') or 0) >= GAP_COBERTURA_RUIM_MIN
 
 
 # ── Persistência ─────────────────────────────────────────────────────
@@ -221,16 +279,159 @@ def apurar_dia(cur, dia, cadastro=None):
         c = resumir_cobertura(pontos)
         cur.execute("""
             INSERT INTO pgr_cobertura (dia, placa, posicoes, minutos_com_sinal,
-                                       minutos_sem_sinal, maior_gap_min, apurado_em)
-            VALUES (%s,%s,%s,%s,%s,%s,NOW())
+                                       minutos_sem_sinal, maior_gap_min,
+                                       minutos_sem_sinal_mov, maior_gap_mov_min, apurado_em)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,NOW())
             ON CONFLICT (dia, placa) DO UPDATE SET
                 posicoes = EXCLUDED.posicoes,
                 minutos_com_sinal = EXCLUDED.minutos_com_sinal,
                 minutos_sem_sinal = EXCLUDED.minutos_sem_sinal,
                 maior_gap_min = EXCLUDED.maior_gap_min,
+                minutos_sem_sinal_mov = EXCLUDED.minutos_sem_sinal_mov,
+                maior_gap_mov_min = EXCLUDED.maior_gap_mov_min,
                 apurado_em = NOW()
         """, (dia, placa, c['posicoes'], c['minutos_com_sinal'],
-              c['minutos_sem_sinal'], c['maior_gap_min']))
+              c['minutos_sem_sinal'], c['maior_gap_min'],
+              c['minutos_sem_sinal_mov'], c['maior_gap_mov_min']))
 
     _logger.info(f'PGR {dia:%d/%m/%Y}: {n_ev} episódios em {len(por_placa)} placas')
     return n_ev
+
+
+# ── Leitura (o relatório e o envio leem DAQUI, nunca recalculam) ─────
+
+_SITUACAO_ROTULO = {
+    'carregado': 'carregado', 'vazio': 'vazio',
+    'parcial': 'parcial', 'nao_confirmado': 'não confirmado',
+}
+
+
+def _situacao_consolidada(situacoes):
+    """Placa com episódios em situações diferentes vira 'parcial'.
+
+    Apareceu em 4 de 20 placas no levantamento: entrega de manhã, volta à
+    tarde, corre nas duas pernas. Por isso são quatro situações, não duas.
+    """
+    s = {x for x in situacoes if x}
+    if not s:
+        return 'nao_confirmado'
+    if len(s) == 1:
+        return s.pop()
+    if s <= {'carregado', 'vazio', 'parcial'}:
+        return 'parcial'
+    return 'nao_confirmado'
+
+
+def listar_dia(cur, dia):
+    """Payload do relatório de um dia: uma linha por placa + cobertura.
+
+    O grão gravado é o EPISÓDIO; a linha do relatório é a agregação — mesmo
+    padrão do resto do app (grão CTRB → agrega).
+    """
+    cur.execute("""
+        SELECT placa, tipo_veiculo, tipo_operacao, ini, fim, registros, vel_max,
+               vel_sustentada, sustentado, cidade, uf, endereco, situacao_carga,
+               manifesto, tomador, origem, destino, motorista
+        FROM pgr_eventos WHERE dia = %s ORDER BY placa, ini
+    """, (dia,))
+    cols = ('placa', 'tipo_veiculo', 'tipo_operacao', 'ini', 'fim', 'registros',
+            'vel_max', 'vel_sustentada', 'sustentado', 'cidade', 'uf', 'endereco',
+            'situacao_carga', 'manifesto', 'tomador', 'origem', 'destino', 'motorista')
+    eventos = [dict(zip(cols, r)) for r in cur.fetchall()]
+
+    cur.execute("""
+        SELECT placa, posicoes, maior_gap_min, maior_gap_mov_min, minutos_sem_sinal_mov
+        FROM pgr_cobertura WHERE dia = %s
+    """, (dia,))
+    cobertura = {r[0]: {'posicoes': r[1], 'maior_gap_min': r[2],
+                        'maior_gap_mov_min': r[3], 'minutos_sem_sinal_mov': r[4]}
+                 for r in cur.fetchall()}
+
+    por_placa = {}
+    for e in eventos:
+        p = por_placa.setdefault(e['placa'], {
+            'placa': e['placa'], 'tipo_veiculo': e['tipo_veiculo'],
+            'tipo_operacao': e['tipo_operacao'], 'registros': 0, 'pico': 0,
+            'sustentado': False, 'cidades': [], 'situacoes': [], 'episodios': [],
+            'tomador': e['tomador'], 'origem': e['origem'], 'destino': e['destino'],
+            'motorista': e['motorista'], 'manifesto': e['manifesto'],
+        })
+        p['registros'] += e['registros'] or 0
+        p['pico'] = max(p['pico'], pico_exibido(e['vel_max'], e['vel_sustentada']))
+        p['sustentado'] = p['sustentado'] or bool(e['sustentado'])
+        p['situacoes'].append(e['situacao_carga'])
+        cid = f"{e['cidade']}/{e['uf']}" if e['cidade'] and e['uf'] else (e['cidade'] or '')
+        if cid and cid not in p['cidades']:
+            p['cidades'].append(cid)
+        p['episodios'].append({
+            'ini': e['ini'].strftime('%H:%M') if e['ini'] else None,
+            'fim': e['fim'].strftime('%H:%M') if e['fim'] else None,
+            'registros': e['registros'], 'vel_max': e['vel_max'],
+            'vel_sustentada': e['vel_sustentada'],
+            'pico': pico_exibido(e['vel_max'], e['vel_sustentada']),
+            'sustentado': e['sustentado'], 'cidade': e['cidade'], 'uf': e['uf'],
+            'endereco': e['endereco'], 'situacao_carga': e['situacao_carga'],
+        })
+
+    linhas = []
+    for p in por_placa.values():
+        p['situacao_carga'] = _situacao_consolidada(p['situacoes'])
+        p['situacao_rotulo'] = _SITUACAO_ROTULO.get(p['situacao_carga'], p['situacao_carga'])
+        p['cobertura'] = cobertura.get(p['placa'], {})
+        del p['situacoes']
+        linhas.append(p)
+    linhas.sort(key=lambda x: (-x['pico'], -x['registros'], x['placa']))
+
+    # Placa que não aparece lê como "comportou-se bem"; sem este bloco não dá
+    # para distinguir isso de "não sabemos".
+    sem_cobertura = sorted(
+        ({'placa': pl, **c} for pl, c in cobertura.items() if cobertura_insuficiente(c)),
+        key=lambda x: -(x['maior_gap_mov_min'] or 0))
+
+    return {
+        'dia': dia.isoformat(),
+        'linhas': linhas,
+        'sem_cobertura': sem_cobertura,
+        'totais': {
+            'veiculos': len(linhas),
+            'registros': sum(l['registros'] for l in linhas),
+            'pico': max((l['pico'] for l in linhas), default=0),
+            'sustentados': sum(1 for l in linhas if l['sustentado']),
+            'com_carga': sum(1 for l in linhas if l['situacao_carga'] in ('carregado', 'parcial')),
+            'frota': sum(1 for l in linhas if (l['tipo_operacao'] or '').upper() == 'FROTA'),
+            'agregado': sum(1 for l in linhas if (l['tipo_operacao'] or '').upper() == 'AGREGADO'),
+            'placas_monitoradas': len(cobertura),
+        },
+        'limiar': LIMIAR_KMH,
+    }
+
+
+# ── Token de leitura (link do WhatsApp sem login) ────────────────────
+
+def criar_token(cur, dia, validade_dias=7):
+    """Token de leitura de UM relatório. Vazou um link, expôs um dia."""
+    import secrets
+    token = secrets.token_urlsafe(24)
+    cur.execute("""
+        INSERT INTO pgr_tokens (token, dia, expira_em)
+        VALUES (%s, %s, NOW() + %s::interval)
+    """, (token, dia, f'{validade_dias} days'))
+    return token
+
+
+def validar_token(cur, token, dia=None):
+    """Devolve o dia do token se válido; None se inexistente/expirado.
+
+    Registra o acesso — barato, e ajuda a saber depois se o diretor abriu.
+    """
+    if not token:
+        return None
+    cur.execute("SELECT dia FROM pgr_tokens WHERE token = %s AND expira_em > NOW()", (token,))
+    r = cur.fetchone()
+    if not r:
+        return None
+    if dia is not None and r[0] != dia:
+        return None
+    cur.execute("""UPDATE pgr_tokens SET acessos = acessos + 1, ultimo_acesso = NOW()
+                   WHERE token = %s""", (token,))
+    return r[0]
