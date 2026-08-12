@@ -25,6 +25,7 @@ URL de produção: **https://rizza.carvalhoia.com**
 - **Conhecimentos** (`/dre/conhecimentos`) — Auditoria detalhada de `conhecimentos_emitidos` com filtros, **AutoFilter estilo Excel por coluna** e exportação CSV em streaming
 - **Faturamento por Tomador** (`/faturamento`) — Matriz **tomador × meses** (faturamento e nº de cargas) de `conhecimentos_emitidos`, agregada via DAX e **consolidada por raiz de CNPJ** (junta filiais do mesmo grupo). Toggle R$/Cargas, busca, ordenação e CSV; cards e subtotal acompanham o filtro
 - **Análise por Veículo** (`/veiculos`) — Análise de receita/custo por **Cavalo / Carreta / Motorista / Proprietário**, sobre `Auditoria Receita` (receita **rateada**, nunca duplica). Filtros de **mês/competência** e **tipo** (Frota/Agregado/Carreteiro) como **dropdown (caixinhas + Aplicar)**. Na visão **Cavalo + só Frota**: custos reais por cavalo — **Pedágio** (Sem Parar), **Combustível/ARLA** (ValeCard, com **consumo km/L** via hodômetro), **Pessoal** (folha), **Manut. Cavalo / Seguro / Rastreador** e **Pneu** (eventos 5411/5412, split cavalo×carreta por nº de pneus) rateados → **Resultado Frota**; mostra **KM Rota** (manifesto) e **KM Abast.** (hodômetro) lado a lado. Na visão **Carreta**: **Manut. Carreta** + **Pneu** rateados entre as carretas Rizza (frota+agregado). **Coluna Proprietário** (dono do cavalo no recorte cavalo; donos dos cavalos no drawer da carreta). **Donut "Composição do Faturamento"** quando só um tipo está marcado (custos diluídos na receita + Resultado). **Painel lateral (drawer)** com cargas, abastecimentos, pedágios, manutenção real, relacionamentos e quebra por veículo. **Placas normalizadas para Mercosul** (funde grafia antiga + nova; trata colisão preferindo a Mercosul real)
+- **PGR — Excesso de velocidade** (`/pgr`) — Relatório diário das placas que passaram de 95 km/h, enviado por WhatsApp toda manhã (imagem-resumo + link). Detecção sobre o histórico de GPS **backfillado** da 3S, com **situação de carga provada por posição** (carregado / parcial / vazio / não confirmado), rodovia do pico e rodapé de **cobertura por placa**. Acesso por sessão (aba `pgr`) **ou** por token de leitura no link. Ver Módulo PGR
 - **Admin** (`/admin`) — Gerenciamento de usuários, papéis, **permissão de acesso por aba** (cada usuário recebe quais abas enxerga; admin vê todas por bypass) e permissões por tipo de operação
 
 ---
@@ -148,6 +149,15 @@ Tabela Auditoria/
 ├── mapa.html                    # Mapa geral (todos os veículos)
 ├── mapa-carga.html              # Mapa de uma carga (trajeto + rota planejada)
 │
+│   # ── Módulo PGR (excesso de velocidade) ──
+├── pgr.py                       # Motor: episódios, sustentada, situação de carga, persistência
+├── pgr_imagem.py                # Imagem-resumo do WhatsApp (fitz.Story)
+├── pgr_envio.py                 # Envio via UazAPI (passo 3 do job diário)
+├── pgr.html                     # Página /pgr (sessão ou token de leitura)
+├── backfill_historico.py        # Reprocessamento manual do histórico da 3S
+├── placas.py                    # Normalização antiga ↔ Mercosul (server + pgr)
+├── fonts/                       # JetBrains Mono embutida na imagem (+ OFL)
+│
 │   # ── Módulo Contratos TAC ──
 ├── contratos_service.py         # Extração IA (visão) + pendências + render do template
 ├── contrato_tac_template.docx   # Template Word soberano (texto jurídico fixo + campos docxtpl)
@@ -217,6 +227,29 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 | `RASTREAMENTO_RETENCAO_DIAS` | Retenção do histórico de posições | `30` |
 | `RASTREAMENTO_RECONSTRUCAO_DIAS` | Teto p/ trás na detecção da saída da origem (`inicio_viagem`) | `15` |
 | `KM_DIA_PADRAO` | Km/dia usado na ETA realista | `600` |
+| `BACKFILL_HISTORICO` | Liga o backfill diário do histórico da 3S | `true` |
+| `BACKFILL_HORA_UTC` | Hora (UTC) do job diário — 04 = 01:00 BRT | `4` |
+| `BACKFILL_ESPACO_SEG` | Segundos entre chamadas do backfill (~6/min) | `10` |
+
+### PGR (relatório de excesso de velocidade)
+| Variável | Descrição | Default |
+|---|---|---|
+| `PGR_LIMIAR` | Limite de velocidade (km/h) | `95` |
+| `PGR_TETO` | Teto anti-ruído — acima disso é equipamento travado | `130` |
+| `PGR_GAP_EPISODIO` | Minutos que separam dois episódios | `10` |
+| `PGR_MIN_REGISTROS_SUSTENTADO` | Registros no episódio p/ marcar "sustentado" | `2` |
+| `PGR_GAP_COBERTURA_RUIM` | Minutos sem sinal **em movimento** p/ alarmar cobertura | `60` |
+| `PGR_DESVIO_CORREDOR` | `(dist_O + dist_D) / dist_OD` aceitável | `1.35` |
+| `PGR_RAIO_CIDADE` | Raio (km) que conta como "esteve na cidade" | `25` |
+| `PGR_DIAS_LOOKBACK` | Dias de posição carregados p/ provar a passagem pela origem | `12` |
+| `PGR_MAX_DIAS_MANIFESTO` | Teto de idade do manifesto (sanidade, não critério) | `20` |
+| `PGR_MANIFESTOS_DIAS` | Janela do cache de manifestos | `30` |
+| `PGR_SYNC_CADASTRO` | Liga a sincronização 12/12h do cache (server) | `true` |
+| `PGR_IMG_MAX_LINHAS` | Placas na imagem do WhatsApp | `6` |
+| `PGR_ENVIO` | **Liga o envio** por WhatsApp | `false` |
+| `PGR_UAZAPI_TO` | Destinatário(s), separados por vírgula | — |
+| `PGR_BASE_URL` | Base do link do relatório (`https://rizza.carvalhoia.com`) | — |
+| `UAZAPI_URL` / `UAZAPI_TOKEN` | Credenciais da UazAPI | — |
 
 ---
 
@@ -419,6 +452,11 @@ CREATE TABLE auditoria_users (
 | `municipios_ibge` | Centroides IBGE p/ geocoding de origem/destino |
 | `embarques_3s_log` | Log de chamadas a APIs externas (provider `3S` / `ORS` / `SIM`) |
 | `embarques_simulacao` | Fonte de posições quando `MODO_SIMULADO=true` |
+| `pgr_eventos` | Resultado do PGR, grão de **episódio** (sobrevive à retenção das posições; `UNIQUE(placa, ini)` p/ reprocesso) |
+| `pgr_cobertura` | Cobertura por placa/dia — separa lacuna qualquer de lacuna **em movimento** |
+| `pgr_tokens` | Token de leitura por relatório (link do WhatsApp), com validade e contagem de acesso |
+| `pgr_cadastro_veiculos` | Cache de `veiculos_045` (o worker não fala Power BI) |
+| `pgr_manifestos` | Cache de `Auditoria Receita`, já geocodificado, p/ provar a situação de carga |
 | `icms_aliquota` | Matriz ICMS de transporte (origem UF × destino UF): `aliquota`, `tipo`, `isento`, `observacao`. Popula via `seed_icms.py`; consumida por `/api/icms` e pelo "Total + Impostos" das Tarifas |
 
 ### Tabelas Power BI (somente leitura via DAX)
@@ -529,6 +567,103 @@ Clicar em qualquer linha abre o detalhe (`/api/veiculos/detalhe`), **reconciliad
 
 ---
 
+## Módulo PGR (excesso de velocidade)
+
+Relatório diário das placas que passaram de 95 km/h, por WhatsApp. Motor em
+`pgr.py`, imagem em `pgr_imagem.py`, envio em `pgr_envio.py`, página em `pgr.html`.
+
+### O job diário — a ordem não pode inverter
+```
+1. backfill do dia anterior   (rastreamento_worker, 04:00 UTC)  → completa as posições
+2. apura pgr_eventos                                            → lê posições já completas
+3. envia a imagem + link                                        → lê a tabela, não recalcula
+```
+Apurar antes do backfill entrega ~81% de cobertura em vez de 100% — e ninguém
+percebe, o número só vem menor. O envio lendo da tabela garante que a mensagem e
+a página mostram o mesmo número.
+
+### Por que existe o backfill
+`/ListaUltimaPosicaoVeiculos` devolve só o **último** ponto: tudo que o aparelho
+transmitiu entre dois ciclos do worker se perdia. `POST /HistoricoPosicao` traz
+o dia inteiro. Medido contra o alerta nativo da 3S (1 Hz no aparelho), em 11/08:
+polling ao vivo pegou 26 de 32 episódios (81%); o backfill pegou 37 de 37. Não é
+detecção absoluta — é o fechamento da lacuna de **amostragem** (a cadência
+continua sendo a do aparelho, 2–5 min).
+
+### Regras de detecção
+- **Limiar 95, teto 130** (anti-ruído: houve equipamento marcando 214 km/h constante por 19 min).
+- **Episódio** = registros a menos de 10 min entre si.
+- **"Nº de registros", nunca "tempo acima"** — cada leitura é um instante, não um intervalo. Somar seria inventar número.
+- **Pico exibido = `max(leitura, sustentada)`**. As duas são *piso* do valor real (a leitura é instantânea; a média usa haversine, que subestima 5–15%, e o máximo é ≥ a média). Erra sempre para baixo. `vel_max` e `vel_sustentada` ficam crus na tabela para auditoria.
+- **Sustentado** = 2+ registros no mesmo episódio. A média do trecho é coluna informativa, não critério.
+
+### Situação de carga — provada por posição, nunca por data
+Casar por data é frágil nos dois sentidos: estrito perde viagem longa, frouxo
+casa 100% e mente. O risco real é dizer *"a 105 carregado de Nestlé"* quando o
+caminhão já tinha entregado. Três testes, todos geográficos:
+
+1. **Corredor** — o ponto do excesso está entre origem e destino? (`dO + dD ≤ 1,35 × dOD`)
+2. **Passou pela origem** antes do excesso (prova que pegou a carga)
+3. **Ainda não chegou ao destino** (se chegou, já entregou)
+
+Exige posições dos **dias anteriores** (`PGR_DIAS_LOOKBACK`): a carga pode ter
+sido pega uma semana antes — houve caso de carregar dia 06, ficar 3 dias parado
+e só exceder no dia 10.
+
+**Vazio** só com evidência positiva (passou pelo destino antes). Sem prova fica
+**não confirmado** — dizer "vazio" sem prova é o mesmo erro de dizer "carregado"
+sem prova, na direção oposta. **Parcial** = pelo menos um episódio provado com
+carga e outros não.
+
+> ⚠️ **Calibração pendente:** os limiares vieram de um estudo sobre 10 dias de
+> posição de produção e ainda não foram reconferidos contra a base backfillada.
+
+### Cobertura — só lacuna EM MOVIMENTO conta
+Parado, o aparelho reporta de 1 em 1 hora (ou 12 em 12), então lacuna longa é
+comportamento normal, não cegueira: as maiores lacunas de 11/08 (243, 239, 142
+min) tinham deslocamento de **0,0 km** — eram pátio. O discriminador é a
+velocidade implícita (deslocamento ÷ duração). Placa com lacuna real em
+movimento aparece rotulada: sem isso, placa ausente lê como "comportou-se bem"
+quando o certo é "não sabemos".
+
+### Por que o relatório persiste o resultado
+A retenção de 30 dias apagaria as posições que geraram o relatório, e o PGR do
+mês passado deixaria de ser reproduzível. `pgr_eventos` guarda o resultado (grão
+de **episódio**, para permitir ranking por motorista e drill-down) e
+`pgr_cobertura` guarda o rodapé. Dezenas de linhas/dia contra ~63 mil posições.
+`UNIQUE (placa, ini)` faz upsert, então o dia é reprocessável.
+
+### Caches do Power BI (o worker não fala DAX)
+O módulo de rastreamento é Postgres puro. Dar DAX ao worker acoplaria dois
+mundos limpos e criaria dependência de credencial num job de madrugada. O
+`server.py` alimenta `pgr_cadastro_veiculos` (tipo do veículo) e
+`pgr_manifestos` (já geocodificado) a cada 12h; o job só lê. Cache velho vira
+aviso no log — rótulo faltando é falha macia, job quebrado não.
+
+`tipo_operacao` (frota/agregado) sai do **manifesto**, não do cadastro: é
+propriedade da viagem, porque a regra é sobre o par cavalo+carreta e o evento de
+PGR tem uma placa só.
+
+### Entrega
+Imagem com as 6 placas mais relevantes + link. A imagem ordena por **sustentado
+→ recorrência → pico** (diferente da página, que ordena por gravidade): 81% dos
+episódios são pico isolado, então ordenar por pico mostraria o ruído e esconderia
+a conduta. O corte é explícito ("+N no relatório completo"), senão quem recebe lê
+6 e entende que foram 6. Dia com ≤3 placas vai inteiro; **dia zerado também é
+enviado**, com o contador de cobertura — silêncio seria ambíguo.
+
+Renderização via `fitz.Story` (PyMuPDF, já dependência do projeto) — sem
+navegador headless. JetBrains Mono embutida em `fonts/` (com a OFL).
+
+### Reprocessamento manual
+```bash
+python backfill_historico.py 2026-08-11              # um dia (Brasília)
+python backfill_historico.py 2026-08-01 2026-08-11   # intervalo
+```
+Idempotente (`UNIQUE(placa, data_posicao)`). ~16 min por dia de 93 veículos.
+
+---
+
 ## Mapa DRE (estrutura contábil)
 
 Definido em `server.py:MAPA_DRE` — mapeia cada `descr_evento` para um Grupo + Subgrupo. Total: ~80 mapeamentos.
@@ -617,6 +752,10 @@ Resultado Final   = Pós Investimento - Retiradas
 - [x] **Filtros Mês/Tipo como dropdown** (caixinhas + Aplicar)
 - [x] **Fix da colisão de placa** antiga×Mercosul no cadastro (preferir a Mercosul real)
 - [x] **AutoFilter estilo Excel** por coluna em Conhecimentos e Despesas (`report-filter.js`)
+- [x] **Backfill do histórico da 3S** (`/HistoricoPosicao`) — cobertura de detecção de 81% → 100% contra o gabarito de 1 Hz
+- [x] **Relatório PGR de excesso de velocidade** (aba `/pgr`, imagem + link por WhatsApp, situação de carga provada por GPS)
+- [ ] **Calibrar a situação de carga** contra a base backfillada (limiares vieram de estudo sobre outra amostra)
+- [ ] **PGR fase 2**: ranking por motorista, evolução mês a mês, filtros e CSV
 - [ ] **km/L pelo GPS do rastreamento** (substituir o hodômetro do ValeCard, que é sujo, na Análise por Veículo)
 - [ ] **Conectar carga (embarques) ↔ documentos fiscais** (auditoria/conhecimentos) por placa+data ou manifesto — enriquecer auditoria com Nº da carga, "Rastreada" e Embarcador
 - [ ] **Dedupe do mapa geral** (carga de frota aparece 2× — cavalo + carreta)
@@ -634,5 +773,3 @@ Resultado Final   = Pós Investimento - Retiradas
 
 Repositório: https://github.com/ggabrielmilho-web/tabela-auditoria
 Domínio: rizza.carvalhoia.com
-</content>
-</invoke>

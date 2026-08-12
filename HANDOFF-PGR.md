@@ -304,13 +304,19 @@ Espaçar as chamadas.
 **Feito** (commit `a86be6d`, ver §19): backfill diário, fix do token da 3S, retenção por tempo,
 tabelas `pgr_eventos` e `pgr_cobertura`, `backfill_historico.py`.
 
+**Fase 1 concluída** — tudo implementado e commitado, **nada deployado ainda**:
+- [x] Apuração (episódios, sustentada, `pgr_eventos`) — `pgr.py`
+- [x] Situação de carga pelos 3 testes de GPS (§8) → ver §21
+- [x] Cobertura por placa/dia, contando só lacuna **em movimento**
+- [x] Página `/pgr` (aba com permissão) + acesso por token de leitura
+- [x] Imagem-resumo + envio por WhatsApp (UazAPI) — `pgr_imagem.py`, `pgr_envio.py`
+- [x] Caches do Power BI (`pgr_cadastro_veiculos`, `pgr_manifestos`)
+
 **Falta:**
-- [ ] Apuração: detecção + agrupamento em episódio + velocidade sustentada → grava `pgr_eventos`
-- [ ] Validação de carga pelos 3 testes de GPS (§8) → `situacao_carga`
-- [ ] Cobertura por placa/dia → `pgr_cobertura`
-- [ ] Página `/pgr` (aba com permissão) + visão de dia lendo da tabela
-- [ ] Envio (WhatsApp; **não existe infra de e-mail no projeto** — `smtplib` é stdlib)
-- [ ] Regenerar o demo do layout com os números certos na janela de Brasília
+- [ ] **Deploy + reprocessamento de 10 e 11/08** (bloqueia o resto — ver §22)
+- [ ] **Calibrar a situação de carga** contra a base backfillada (§21)
+- [ ] Regenerar o demo do layout com os números certos
+- [ ] Fase 2: ranking por motorista, evolução, filtros, CSV
 
 **Ordem obrigatória do job diário — não pode inverter:**
 ```
@@ -470,3 +476,74 @@ filtros, CSV). **Ressalva do ranking por motorista:** o motorista vem do casamen
 manifesto, então onde a carga ficou "não confirmado" não há motorista — o ranking por placa é
 sempre completo, o por motorista terá buracos. Mostrar a cobertura do ranking, não fingir que
 está inteiro.
+
+---
+
+## 21. ⚠️ Situação de carga — o que mudou e o que falta calibrar
+
+**Uma armadilha ao portar o `pgr_validado.py`.** Aquele script usava
+**corredor + sentido + janela por data**. Portado como estava, ele rejeita o
+`TZC0I41` com *"emissão 5d antes (limite 3d)"* — e esse é exatamente o caso que
+o §8 usa como **prova de que validar por data não serve** (carregou em Nerópolis
+06/08, ficou 3 dias parado em Uberlândia, excedeu em 10/08). Qualquer limite de
+"dias plausíveis" rejeita essa viagem, que era legítima.
+
+Implementado, então, o que o §8 **descreve** — três testes, todos por posição:
+
+1. **corredor** — `(dO + dD) / dOD ≤ 1,35`
+2. **passou pela ORIGEM** antes do excesso (prova que pegou a carga)
+3. **ainda NÃO tinha chegado ao destino** (se chegou, já entregou)
+
+A data entra só como sanidade (excesso não pode ser anterior à emissão; teto de
+20 dias para não casar manifesto antigo demais).
+
+Isso exige posições dos **dias anteriores** — `_historico_lookback` carrega 12
+dias amostrados a cada 15 min (para saber se passou por uma cidade não é preciso
+a série inteira).
+
+### O que ainda não dá para afirmar
+
+**Os limiares não foram recalibrados.** Vieram do estudo da sessão anterior, que
+rodou sobre 10 dias de posição de produção. No banco de desenvolvimento só há
+**1 dia** backfillado, e com 1 dia o teste "passou pela origem" fica fraco
+justamente onde mais importa: **Uberlândia é a base**, quase todo veículo passa
+por lá, então manifesto com origem Uberlândia casa fácil demais.
+
+Rodando local em 11/08 (9 placas): 7 casaram como `carregado`, 2 `não
+confirmado`. Contra o layout aprovado, **3 batem exatamente** (HNH1302, QOD5F57,
+HKE0321) e os demais divergem — o esperado, dado que o demo enxergava 10 dias de
+trajetória e a base local enxerga 1.
+
+**Ao calibrar depois do reprocessamento:** comparar placa a placa com o demo do
+§11 e, se aparecer falso positivo, considerar **reativar o teste de SENTIDO**
+(estava se aproximando do destino?) como guarda extra — ele existia no script
+validado e é o que melhor separa a perna de ida da de volta.
+
+## 22. Deploy — o que rodar, em ordem
+
+Nada foi deployado ainda. Todos os commits estão em `main`.
+
+```bash
+cd /opt/stacks/rizza-auditoria && git pull \
+  && docker build -t ghcr.io/ggabrielmilho-web/rizza-auditoria:latest . \
+  && docker service update --force --image ghcr.io/ggabrielmilho-web/rizza-auditoria:latest rizza-auditoria_app
+
+docker exec $(docker ps -q -f name=rizza-auditoria) python init_db.py
+docker exec $(docker ps -q -f name=rizza-auditoria) python backfill_historico.py 2026-08-10 2026-08-11
+```
+
+**Conferir logo após o deploy** — se `/ValidaLogin` continuar 1:1 com as outras
+chamadas, o fix do token não pegou e o backfill gasta o dobro da cota:
+```sql
+select endpoint, count(*) from embarques_3s_log
+where chamado_em > now() - interval '10 min' group by 1;
+```
+
+**Variáveis novas no Portainer** (ver README para a lista completa):
+`UAZAPI_URL`, `UAZAPI_TOKEN`, `PGR_UAZAPI_TO`, `PGR_BASE_URL`, `PGR_ENVIO`.
+
+Subir com **`PGR_ENVIO=false`** no primeiro deploy: o job apura, dá para conferir
+em `/pgr`, e só então ligar o envio — assim o diretor não recebe a primeira
+mensagem antes de alguém ter visto o conteúdo.
+
+Conceder a aba **`pgr`** aos usuários no Admin (admin já vê por bypass).
