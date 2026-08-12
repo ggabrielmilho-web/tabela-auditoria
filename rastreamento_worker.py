@@ -886,6 +886,39 @@ def backfill_dia(dia):
     return total
 
 
+def _apurar_pgr(dia):
+    """Passo 2 do job diário: apura os excessos DEPOIS do backfill.
+
+    A ordem não pode inverter. Apurando antes do backfill, o relatório sai com
+    os ~81% de cobertura do polling ao vivo em vez dos 100% do histórico — e
+    ninguém percebe, porque o número simplesmente vem menor.
+
+    Falha aqui não pode derrubar o loop: o backfill do dia já foi gravado e a
+    apuração é reprocessável (upsert por placa+ini).
+    """
+    try:
+        import pgr
+    except ImportError:
+        _logger.warning('Módulo pgr indisponível — apuração ignorada')
+        return
+    conn = _get_db()
+    try:
+        cur = conn.cursor()
+        try:
+            n = pgr.apurar_dia(cur, dia)
+            conn.commit()
+            _logger.info(f'PGR {dia:%d/%m/%Y}: {n} episódios apurados')
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+    except Exception as e:
+        _logger.exception(f'Falha ao apurar PGR de {dia:%d/%m/%Y}: {e}')
+    finally:
+        conn.close()
+
+
 def _loop_backfill():
     """Dispara o backfill 1×/dia, na hora configurada, para o dia BRT que fechou."""
     global _ultimo_backfill_dia
@@ -900,6 +933,7 @@ def _loop_backfill():
             if agora.hour == BACKFILL_HORA_UTC and _ultimo_backfill_dia != alvo:
                 _ultimo_backfill_dia = alvo
                 backfill_dia(alvo)
+                _apurar_pgr(alvo)
         except Exception:
             _logger.exception('Falha no loop de backfill')
         for _ in range(60):
