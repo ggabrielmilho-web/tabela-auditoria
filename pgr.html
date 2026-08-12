@@ -31,6 +31,13 @@
      navegação apareceria no acesso por token, e a página deixaria de ser o
      beco sem saída que contém o link vazado. */
   .nav[hidden] { display:none; }
+  .nav { flex-wrap:wrap; }
+  /* estilo dos links injetados pelo nav-perms (data-nav-style="btn-anchor") */
+  .nav a.btn-sm { font-family:var(--mono); font-size:.68rem; color:var(--text-dim);
+        background:var(--surface); border:1px solid var(--border); border-radius:5px;
+        padding:4px 9px; text-decoration:none; }
+  .nav a.btn-sm:hover { color:var(--text); border-color:var(--accent); }
+  .nav a.btn-sm.active { color:var(--accent); border-color:var(--accent); }
   .nav a, .nav button { font-family:var(--mono); font-size:.68rem; color:var(--text-dim);
         background:var(--surface); border:1px solid var(--border); border-radius:5px;
         padding:4px 9px; text-decoration:none; cursor:pointer; }
@@ -122,13 +129,28 @@
       <button id="ant">‹ dia anterior</button>
       <input type="date" id="data">
       <button id="prox">dia seguinte ›</button>
-      <a href="/embarques" id="voltar">voltar ao app</a>
+    </div>
+    <!-- Menu do app. O nav-perms.js só injeta se /api/me responder ok, e ela é
+         @login_required — então quem abre pelo link com token não recebe menu
+         nenhum e a página segue sendo beco sem saída. -->
+    <div class="nav" id="navapp" hidden>
+      <span data-nav-menu data-nav-style="btn-anchor" data-nav-active="pgr"></span>
     </div>
   </header>
 
   <div id="conteudo"></div>
 </div>
 
+<script>
+// Só carrega o menu do app quando NÃO é acesso por token: /api/me é
+// @login_required, então pelo link do WhatsApp ele responderia 401 e sujaria o
+// console de quem só quer ler o relatório.
+if (!new URLSearchParams(location.search).get('t')) {
+  var _s = document.createElement('script');
+  _s.src = '/nav-perms.js';
+  document.head.appendChild(_s);
+}
+</script>
 <script>
 const qs = new URLSearchParams(location.search);
 const TOKEN = qs.get('t');           // acesso por link do WhatsApp (sem login)
@@ -260,6 +282,7 @@ async function carregar() {
   // Navegação só para quem entrou logado: pelo token a página é beco sem saída.
   if (!TOKEN) {
     $('nav').hidden = false;
+    $('navapp').hidden = false;
     $('data').value = d.dia;
     const desloca = n => {
       const dt = new Date(d.dia + 'T12:00:00');

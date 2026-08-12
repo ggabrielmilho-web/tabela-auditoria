@@ -32,6 +32,8 @@ MAX_LINHAS = int(os.getenv('PGR_IMG_MAX_LINHAS', '12'))
 LINHAS_SEM_CORTE = int(os.getenv('PGR_IMG_SEM_CORTE', '3'))
 
 LARGURA = 620
+FUNDO = '#0a0e17'
+_RGB_FUNDO = (0x0a / 255, 0x0e / 255, 0x17 / 255)
 
 _CSS = """
 * { font-family: sans-serif; }
@@ -174,7 +176,7 @@ def montar_html(dados):
 
 
 def _envelope(interno):
-    return (f'<div style="background-color:#0a0e17;padding:14pt">{interno}</div>')
+    return (f'<div style="background-color:{FUNDO};padding:14pt">{interno}</div>')
 
 
 def gerar_png(dados, dpi=150):
@@ -217,6 +219,15 @@ def gerar_png(dados, dpi=150):
         writer.end_page()
     writer.close()
 
-    doc = fitz.Document('pdf', buf.getvalue())
-    pix = doc[0].get_pixmap(dpi=dpi)
+    # A página gerada pelo Story não tem fundo: o branco do PDF vazava nas
+    # margens e virava uma moldura branca em volta da imagem no WhatsApp.
+    # Desenhar por baixo na própria página não funciona (o writer já fechou o
+    # content stream), então montamos uma página nova: pinta o fundo e sobrepõe
+    # o conteúdo, que é vetorial e não carrega fundo próprio.
+    origem = fitz.Document('pdf', buf.getvalue())
+    final = fitz.open()
+    destino = final.new_page(width=LARGURA, height=altura)
+    destino.draw_rect(destino.rect, color=_RGB_FUNDO, fill=_RGB_FUNDO)
+    destino.show_pdf_page(destino.rect, origem, 0)
+    pix = destino.get_pixmap(dpi=dpi)
     return pix.tobytes('png'), mostradas, ocultas

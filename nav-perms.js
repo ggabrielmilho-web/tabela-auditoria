@@ -11,6 +11,9 @@
     { id: 'auditoria',     page: 'auditoria',     href: '/',                  label: '⚡ Auditoria' },
     { id: 'embarques',     page: 'embarques',     href: '/embarques',         label: '🚚 Embarques' },
     { id: 'mapa',          page: 'embarques',     href: '/embarques/mapa',    label: '🗺️ Mapa' },
+    // Junto da família de rastreamento, não perto do DRE: é segurança
+    // operacional, não financeiro.
+    { id: 'pgr',           page: 'pgr',           href: '/pgr',               label: '🚦 PGR' },
     { id: 'tarifas',       page: 'tarifas',       href: '/tarifas',           label: '📋 Tarifas' },
     { id: 'reuniao',       page: 'reuniao',       href: '/reuniao',           label: '🎙 Reunião' },
     { id: 'contratos',     page: 'contratos',     href: '/contratos',         label: '📋 Contratos' },
