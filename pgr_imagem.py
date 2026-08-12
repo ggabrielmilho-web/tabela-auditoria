@@ -27,7 +27,7 @@ DIR_FONTES = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fonts')
 # No celular, a imagem do WhatsApp aparece com ~1/3 da tela antes de precisar
 # abrir. Acima disso a lista deixa de ser escaneável e a imagem perde a razão
 # de existir.
-MAX_LINHAS = int(os.getenv('PGR_IMG_MAX_LINHAS', '6'))
+MAX_LINHAS = int(os.getenv('PGR_IMG_MAX_LINHAS', '12'))
 # Dia magro cabe inteiro: obrigar a clicar para ver duas linhas não faz sentido.
 LINHAS_SEM_CORTE = int(os.getenv('PGR_IMG_SEM_CORTE', '3'))
 
@@ -37,6 +37,16 @@ _CSS = """
 * { font-family: sans-serif; }
 .mono, .placa, .pico, .reg, .kpi-v { font-family: jbmono; }
 """
+
+
+# Mesma semântica de cor da página: laranja carregado, amarelo parcial,
+# apagado vazio, contorno vazio para não confirmado (aqui, cinza).
+_SITUACAO = {
+    'carregado': ('#fb923c', 'carregado'),
+    'parcial': ('#fbbf24', 'parcial'),
+    'vazio': ('#94a3b8', 'vazio'),
+    'nao_confirmado': ('#64748b', 'não confirmado'),
+}
 
 
 def _cor_faixa(pico):
@@ -110,12 +120,36 @@ def montar_html(dados):
     for l in mostradas:
         selo = ('<span style="color:#fb923c;font-size:6.5pt"> SUST</span>'
                 if l.get('sustentado') else '')
+        tipo = (l.get('tipo_veiculo') or '').upper()
+        abrev = {'CARRETA': 'car', 'CAVALO': 'cav', 'TRUCK': 'trk'}.get(tipo, tipo[:3].lower())
+        op = (l.get('tipo_operacao') or '').lower()
+        cor_op = '#38bdf8' if op == 'frota' else '#818cf8'
+        sub = (f'{abrev}' + (f' &#183; <span style="color:{cor_op}">{op}</span>' if op else ''))
+
+        cor_sit, rot = _SITUACAO[l.get('situacao_carga', 'nao_confirmado')]
+        ctx = ''
+        if l.get('tomador'):
+            rota = ' &#8594; '.join(x for x in (l.get('origem'), l.get('destino')) if x)
+            ctx = f' &#183; {_escapar(l["tomador"])}'
+            if rota:
+                ctx += f' &#183; {_escapar(rota)}'
+            if l.get('motorista'):
+                ctx += f' &#183; {_escapar(l["motorista"])}'
+        else:
+            ctx = ' &#183; &#8212;'
+
+        cidades = ', '.join(_escapar(c) for c in (l.get('cidades') or [])[:8])
+
         tr.append(
             f'<tr>'
-            f'<td class="placa" style="font-size:10pt;color:#e2e8f0">{_escapar(l["placa"])}{selo}</td>'
+            f'<td style="font-size:9.5pt;color:#e2e8f0"><b class="mono">{_escapar(l["placa"])}</b>'
+            f'<div style="font-size:6pt;color:#94a3b8">{sub}</div></td>'
             f'<td class="reg" style="font-size:8.5pt;color:#94a3b8;text-align:right">{l["registros"]}x</td>'
-            f'<td class="pico" style="font-size:11.5pt;color:{_cor_faixa(l["pico"])};text-align:right">{l["pico"]}</td>'
-            f'<td style="font-size:8pt;color:#94a3b8">&#160;{_escapar(_rodovia(l))}</td>'
+            f'<td class="pico" style="font-size:11pt;color:{_cor_faixa(l["pico"])};text-align:right">{l["pico"]}</td>'
+            f'<td style="font-size:7.5pt">'
+            f'<div style="color:#94a3b8">&#160;<span style="color:{cor_sit}">&#9679; <b>{rot}</b></span>{ctx}{selo}</div>'
+            f'<div style="color:#cbd5e1;font-size:7.5pt">&#160;{cidades}</div>'
+            f'</td>'
             f'</tr>')
     # Sem `width` nos <td>: o Story não suporta e as colunas colapsam umas
     # sobre as outras. A largura sai do conteúdo, e a mono mantém o alinhamento.

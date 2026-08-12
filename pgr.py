@@ -534,6 +534,86 @@ def apurar_dia(cur, dia, cadastro=None):
 
 # ── Leitura (o relatório e o envio leem DAQUI, nunca recalculam) ─────
 
+# Ruído de razão social: a partir daqui o nome deixa de identificar a empresa.
+_LIXO_RAZAO = {
+    'LTDA', 'LTD', 'LT', 'SA', 'S/A', 'S.A', 'S.A.', 'ME', 'EPP', 'EIRELI', 'CIA',
+    'IND', 'IND.', 'INDUSTRIA', 'INDUSTRIAL', 'COM', 'COM.', 'COMERCIO', 'COMERCIAL',
+    'DISTRIBUICAO', 'DISTRIBUIDORA', 'DIST', 'LOGISTICA', 'LOG', 'TRANSPORTES',
+    'TRANSPORTE', 'IMPORTACAO', 'EXPORTACAO', 'ARMAZENS', 'ARMAZEM', 'GERAIS',
+    'PRODUTOS', 'ALIMENTOS', 'SERVICOS', 'PARTICIPACOES', 'EMPREENDIMENTOS',
+}
+_CONECTIVOS = {'DE', 'DA', 'DO', 'DAS', 'DOS', 'E'}
+
+
+def _titulo(tok):
+    """Capitaliza preservando sigla curta (JC, RG) e conectivo minúsculo."""
+    if tok in _CONECTIVOS:
+        return tok.lower()
+    if len(tok) <= 3 and not any(v in tok for v in 'AEIOU'):
+        return tok            # sigla: JC, RG, TNT
+    return tok.capitalize()
+
+
+def nome_curto(razao, max_tokens=3):
+    """Razão social crua → nome legível.
+
+    'MARTINS URN-MG DISTRIBUICAO LT' → 'Martins'
+    'PERNOD RICARD BRASIL IND E COMERCIO LTDA' → 'Pernod Ricard Brasil'
+
+    A razão social completa ocupa metade da linha e empurra a rota para a
+    quebra; o que identifica a empresa são as primeiras palavras. Vários
+    tomadores no mesmo manifesto (separados por vírgula) viram 'Fulano +N'.
+    """
+    s = (str(razao).strip() if razao else '')
+    if not s:
+        return None
+    partes = [p.strip() for p in s.split(',') if p.strip()]
+    extras = len(partes) - 1
+    tokens, usados = [], 0
+    for tok in partes[0].upper().split():
+        limpo = tok.strip('.,;')
+        if limpo in _LIXO_RAZAO or any(c.isdigit() for c in limpo) or '-' in limpo:
+            break
+        tokens.append(_titulo(limpo))
+        if limpo not in _CONECTIVOS:
+            usados += 1
+        if usados >= max_tokens:
+            break
+    nome = ' '.join(tokens) or partes[0][:24]
+    return f'{nome} +{extras}' if extras > 0 else nome
+
+
+def nome_pessoa(nome, max_tokens=3):
+    """'DANIEL DOS SANTOS ALMEIDA' → 'Daniel dos Santos'."""
+    s = (str(nome).strip() if nome else '')
+    if not s:
+        return None
+    tokens, usados = [], 0
+    for tok in s.upper().split():
+        tokens.append(_titulo(tok))
+        if tok not in _CONECTIVOS:
+            usados += 1
+        if usados >= max_tokens:
+            break
+    return ' '.join(tokens)
+
+
+def cidade_uf_titulo(s):
+    """'UBERLANDIA/MG' → 'Uberlandia/MG'. UF fica em caixa alta.
+
+    A origem/destino vem do Power BI em caixa alta, enquanto as cidades do
+    trecho vêm do 3S já capitalizadas — misturar os dois na mesma linha fica
+    visualmente inconsistente.
+    """
+    s = (str(s).strip() if s else '')
+    if not s:
+        return None
+    if '/' in s:
+        cid, uf = s.rsplit('/', 1)
+        return f'{" ".join(_titulo(t) for t in cid.upper().split())}/{uf.strip().upper()}'
+    return ' '.join(_titulo(t) for t in s.upper().split())
+
+
 _SITUACAO_ROTULO = {
     'carregado': 'carregado', 'vazio': 'vazio',
     'parcial': 'parcial', 'nao_confirmado': 'não confirmado',
@@ -590,9 +670,18 @@ def listar_dia(cur, dia):
             'placa': e['placa'], 'tipo_veiculo': e['tipo_veiculo'],
             'tipo_operacao': e['tipo_operacao'], 'registros': 0, 'pico': 0,
             'sustentado': False, 'cidades': [], 'situacoes': [], 'episodios': [],
-            'tomador': e['tomador'], 'origem': e['origem'], 'destino': e['destino'],
-            'motorista': e['motorista'], 'manifesto': e['manifesto'],
+            'tomador': None, 'origem': None, 'destino': None,
+            'motorista': None, 'manifesto': None,
         })
+        # O contexto da placa vem de um episódio que TENHA manifesto, não do
+        # primeiro em ordem cronológica: numa placa "parcial", o primeiro
+        # episódio do dia costuma ser o vazio, e a linha saía com "—" mesmo
+        # havendo carga provada no resto do dia.
+        if e['tomador'] and not p['tomador']:
+            p.update({k: e[k] for k in
+                      ('tomador', 'origem', 'destino', 'motorista', 'manifesto')})
+        if e['tipo_operacao'] and not p['tipo_operacao']:
+            p['tipo_operacao'] = e['tipo_operacao']
         p['registros'] += e['registros'] or 0
         p['pico'] = max(p['pico'], pico_exibido(e['vel_max'], e['vel_sustentada']))
         p['sustentado'] = p['sustentado'] or bool(e['sustentado'])
@@ -615,9 +704,16 @@ def listar_dia(cur, dia):
         p['situacao_carga'] = _situacao_consolidada(p['situacoes'])
         p['situacao_rotulo'] = _SITUACAO_ROTULO.get(p['situacao_carga'], p['situacao_carga'])
         p['cobertura'] = cobertura.get(p['placa'], {})
+        p['tomador'] = nome_curto(p['tomador'])
+        p['motorista'] = nome_pessoa(p['motorista'])
+        p['origem'] = cidade_uf_titulo(p['origem'])
+        p['destino'] = cidade_uf_titulo(p['destino'])
         del p['situacoes']
         linhas.append(p)
-    linhas.sort(key=lambda x: (-x['pico'], -x['registros'], x['placa']))
+    # Por RECORRÊNCIA, não por gravidade — é a ordem do layout aprovado, e a
+    # que serve para cobrar: 81% dos episódios são pico isolado, então quem
+    # tocou 117 uma vez é ruído e quem fez 13 registros é conduta.
+    linhas.sort(key=lambda x: (-x['registros'], -x['pico'], x['placa']))
 
     # Placa que não aparece lê como "comportou-se bem"; sem este bloco não dá
     # para distinguir isso de "não sabemos".

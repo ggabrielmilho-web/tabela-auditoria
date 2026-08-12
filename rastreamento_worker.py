@@ -810,8 +810,18 @@ def _veiculos_para_backfill(cur):
 
 
 def _gravar_historico(cur, pontos):
-    """INSERT dos pontos do histórico. Idempotente por UNIQUE(placa, data_posicao)."""
-    gravados = 0
+    """UPSERT dos pontos do histórico. Devolve (inseridos, enriquecidos).
+
+    `DO NOTHING` seria idempotente, mas descartaria informação: o ponto que já
+    veio do polling ao vivo ocupa a chave (placa, data_posicao) e **não tem**
+    `endereco` nem `odometer` — colunas que só o /HistoricoPosicao entrega.
+    Resultado prático: em dias já polados o relatório mostrava a cidade em vez
+    da rodovia, porque o pico do episódio caía num ponto vindo do polling.
+
+    Então completa o que está nulo, sem sobrescrever o que já existe: a linha
+    do polling é tão válida quanto a do histórico para os campos comuns.
+    """
+    inseridos = enriquecidos = 0
     for p in pontos:
         lat, lng = _safe_float(p.get('latitude')), _safe_float(p.get('longitude'))
         if lat is None or lng is None:
@@ -821,13 +831,20 @@ def _gravar_historico(cur, pontos):
                 placa, id_veiculo_3s, data_posicao, latitude, longitude,
                 velocidade, ignicao, uf, cidade, endereco, odometer
             ) VALUES (%s,%s,%s,%s,%s,%s,NULL,%s,%s,%s,%s)
-            ON CONFLICT (placa, data_posicao) DO NOTHING
+            ON CONFLICT (placa, data_posicao) DO UPDATE SET
+                endereco = COALESCE(embarques_posicoes_historico.endereco, EXCLUDED.endereco),
+                odometer = COALESCE(embarques_posicoes_historico.odometer, EXCLUDED.odometer)
+            RETURNING (xmax = 0)
         """, (p['placa'], _safe_int(p.get('idVeiculo')), _parse_data(p.get('data')),
               lat, lng, _safe_int(p.get('velocidade'), 0),
               (p.get('uf') or '')[:2], (p.get('cidade') or '')[:120],
               (p.get('endereco') or '')[:200] or None, _safe_int(p.get('odometer'))))
-        gravados += cur.rowcount
-    return gravados
+        r = cur.fetchone()
+        if r and r[0]:
+            inseridos += 1
+        else:
+            enriquecidos += 1
+    return inseridos, enriquecidos
 
 
 def backfill_dia(dia):
@@ -857,7 +874,7 @@ def backfill_dia(dia):
     _logger.info(f'Backfill {dia:%d/%m/%Y} (BRT): {len(veiculos)} veículos, '
                  f'~{len(veiculos) * BACKFILL_ESPACO_SEG / 60:.0f} min')
 
-    total = falhas = 0
+    total = total_enriq = falhas = 0
     for i, (placa, idv) in enumerate(veiculos):
         if not _running:
             _logger.warning('Backfill interrompido: worker parando')
@@ -868,7 +885,7 @@ def backfill_dia(dia):
             pontos = tres_s_client.historico_posicao(idv, placa, dt_ini, dt_fim)
             cur = conn.cursor()
             try:
-                n = _gravar_historico(cur, pontos)
+                n, enriq = _gravar_historico(cur, pontos)
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -876,16 +893,19 @@ def backfill_dia(dia):
             finally:
                 cur.close()
             total += n
+            total_enriq += enriq
             # INFO, não DEBUG: num job de ~16 min o silêncio no log é
             # indistinguível de travamento, e foi o que levou a disparar o
             # backfill várias vezes achando que o anterior tinha morrido.
-            _logger.info(f'  [{i + 1}/{len(veiculos)}] {placa}: {len(pontos)} pontos, {n} novos')
+            _logger.info(f'  [{i + 1}/{len(veiculos)}] {placa}: {len(pontos)} pontos, '
+                         f'{n} novos, {enriq} completados')
         except Exception as e:
             falhas += 1
             _logger.warning(f'  {placa}: falha no backfill — {e}')
 
     conn.close()
-    _logger.info(f'Backfill {dia:%d/%m/%Y} concluído: {total} posições novas, {falhas} falhas')
+    _logger.info(f'Backfill {dia:%d/%m/%Y} concluído: {total} posições novas, '
+                 f'{total_enriq} completadas, {falhas} falhas')
     return total
 
 
