@@ -1658,6 +1658,29 @@ def api_dre_conhecimentos():
         return jsonify({'ok': False, 'error': str(e)}), 500
 
 
+# ── Grupo econômico (raízes de CNPJ que são o mesmo cliente) ──
+# A consolidação padrão de cliente é a raiz do CNPJ (8 primeiros dígitos), o que já junta as
+# filiais. Quando o mesmo grupo fatura por mais de uma raiz, a raiz secundária é mapeada aqui
+# para a principal — senão o cliente aparece partido em duas linhas. Vale para o Faturamento
+# por Tomador e para o recorte Cliente da Análise por Veículo (ambos passam por _raiz_cnpj).
+GRUPOS_ECONOMICOS = {
+    '43214055': '18485037',   # MARTINS COM E SERV DE DISTR → MARTINS URN-MG DISTRIBUICAO
+}
+
+
+def _raiz_cnpj(cnpj):
+    """Raiz do CNPJ (8 dígitos) já resolvida para a raiz do grupo econômico.
+    Devolve None quando não há 8 dígitos — aí o chamador cai no fallback por nome.
+    Em viagem mista o `cnpj_pagador` vem como lista; mantém-se o comportamento
+    histórico de considerar o primeiro CNPJ da lista."""
+    import re as _re
+    d = _re.sub(r'\D', '', str(cnpj or ''))
+    if len(d) < 8:
+        return None
+    raiz = d[:8]
+    return GRUPOS_ECONOMICOS.get(raiz, raiz)
+
+
 @app.route('/api/faturamento/tomadores')
 @page_required('faturamento')
 def api_faturamento_tomadores():
@@ -1699,15 +1722,13 @@ def api_faturamento_tomadores():
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
 
-    # Consolida por raiz de CNPJ (8 primeiros dígitos). Sem CNPJ → cai no nome (fallback).
-    import re as _re
-    tomadores = {}          # chave -> {cnpj_raiz, nome, _nomes:{nome:freq}, meses:{1..12:{fat,cargas}}, total_*}
+    # Consolida por raiz de CNPJ (+ grupo econômico). Sem CNPJ → cai no nome (fallback).
+    tomadores = {}        # chave -> {cnpj_raiz, nome, _nomes:{nome:freq}, meses:{1..12:{fat,cargas}}, total_*}
     totais_mes = {m: {'faturamento': 0.0, 'cargas': 0} for m in range(1, 13)}
 
     for r in linhas:
-        cnpj = _re.sub(r'\D', '', str(r.get('cnpj_pagador') or ''))
         nome = (str(r.get('cliente_pagador') or '').strip()) or '(sem nome)'
-        raiz = cnpj[:8] if len(cnpj) >= 8 else None
+        raiz = _raiz_cnpj(r.get('cnpj_pagador'))   # já resolve o grupo econômico
         chave = raiz or f"nome::{nome.upper()}"
         try:
             mes = int(r.get('@mes'))
@@ -1977,7 +1998,6 @@ def _ctrc_tomador_map(token, meses_comp):
 
     O CTRC é o elo confiável entre a viagem (Auditoria) e o cliente — o nº de manifesto da Auditoria
     nem sempre é o `primeiro_manifesto` do conhecimentos. Janela = ano(s) dos meses pedidos."""
-    import re as _re
     CE = "'public conhecimentos_emitidos'"
     anos = sorted({m[:4] for m in meses_comp})
     anos_set = '{' + ','.join(f'"{a}"' for a in anos) + '}'
@@ -1988,8 +2008,7 @@ def _ctrc_tomador_map(token, meses_comp):
         c = _norm_manifesto(r.get('serie_numero_ctrc'))   # mesmo normalizador (tira espaço/pontuação)
         if not c:
             continue
-        cnpj = _re.sub(r'\D', '', str(r.get('cnpj_pagador') or ''))
-        raiz = cnpj[:8] if len(cnpj) >= 8 else None
+        raiz = _raiz_cnpj(r.get('cnpj_pagador'))   # já resolve o grupo econômico
         nome = (str(r.get('cliente_pagador') or '').strip()) or '(sem nome)'
         e = mp.get(c)
         if e is None:
@@ -2006,7 +2025,6 @@ def _veiculos_margem_cliente(token, meses_comp, meses_set, tipos, tipos_dax):
     são divididas aqui na **proporção do valor_frete dos CTRCs** (conhecimentos_emitidos), casando pelo
     nº do manifesto. Cada viagem distribui sua receita_rateada + custo (cavalo+carreta) entre os tomadores;
     nº de viagens/clientes passa a refletir a participação real. Custo só da operação (sem deduções)."""
-    import re as _re
     AR = "'Auditoria Receita'"
     DZ = "'public consulta_despesas_477'"
     anomes = f'("20" & RIGHT({DZ}[mes_competencia],2) & "-" & LEFT({DZ}[mes_competencia],2))'
@@ -2040,8 +2058,7 @@ def _veiculos_margem_cliente(token, meses_comp, meses_set, tipos, tipos_dax):
     ctrc_map = _ctrc_tomador_map(token, meses_comp)
 
     def _chave(cnpj_raw, nome):
-        cnpj = _re.sub(r'\D', '', str(cnpj_raw or ''))
-        raiz = cnpj[:8] if len(cnpj) >= 8 else None
+        raiz = _raiz_cnpj(cnpj_raw)   # já resolve o grupo econômico
         return (raiz or f"nome::{(nome or '').strip().upper()}"), raiz
 
     agg = {}
@@ -2351,12 +2368,10 @@ _COST_LABEL = {'pedagio': 'Pedágio', 'combustivel': 'Combustível', 'arla': 'AR
 def _veiculos_detalhe_cliente(token, valor, meses_comp, meses_set, tipos, tipos_dax):
     """Detalhe (drawer) de um cliente (raiz de CNPJ ou nome): KPIs, custo de frota por componente
     (cavalo + carreta) alocado, quebra por tipo, top rotas, cavalos que atenderam, evolução mensal e cargas."""
-    import re as _re
     AR = "'Auditoria Receita'"; DZ = "'public consulta_despesas_477'"
     anomes = f'("20" & RIGHT({DZ}[mes_competencia],2) & "-" & LEFT({DZ}[mes_competencia],2))'
-    digits = _re.sub(r'\D', '', valor)
-    by_cnpj = len(digits) >= 8
-    chave_alvo = digits[:8] if by_cnpj else f"nome::{valor.strip().upper()}"
+    # `valor` é a raiz vinda da linha (já canônica); passa pelo mapa p/ aceitar também a raiz secundária
+    chave_alvo = _raiz_cnpj(valor) or f"nome::{valor.strip().upper()}"
 
     # Participação do cliente em cada viagem vem da proporção dos CTRCs (igual à tabela) — não por cnpj inteiro
     ctrc_map = _ctrc_tomador_map(token, meses_comp)
@@ -2380,8 +2395,7 @@ def _veiculos_detalhe_cliente(token, valor, meses_comp, meses_set, tipos, tipos_
         if tot_vf > 0:
             share = by_ch.get(chave_alvo, 0.0) / tot_vf
         else:  # viagem sem CTRC casado → cai no cnpj único da Auditoria
-            cn = _re.sub(r'\D', '', str(v.get('cnpj') or ''))
-            rz = cn[:8] if len(cn) >= 8 else f"nome::{(str(v.get('nome') or '').strip()).upper()}"
+            rz = _raiz_cnpj(v.get('cnpj')) or f"nome::{(str(v.get('nome') or '').strip()).upper()}"
             share = 1.0 if rz == chave_alvo else 0.0
             if share and str(v.get('nome') or '').strip():
                 nome_disp = str(v.get('nome')).strip()
