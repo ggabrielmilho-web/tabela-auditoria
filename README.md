@@ -248,7 +248,7 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 | `PGR_IMG_MAX_LINHAS` | Placas na imagem do WhatsApp | `6` |
 | `PGR_ENVIO` | **Liga o envio** por WhatsApp | `false` |
 | `PGR_UAZAPI_TO` | Destinatário(s), separados por vírgula | — |
-| `PGR_BASE_URL` | Base do link do relatório (`https://rizza.carvalhoia.com`) | — |
+| `PGR_BASE_URL` (ou `PGR_URL`) | Base do link do relatório (`https://rizza.carvalhoia.com`) | — |
 | `UAZAPI_URL` / `UAZAPI_TOKEN` | Credenciais da UazAPI | — |
 
 ---

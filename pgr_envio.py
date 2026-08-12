@@ -39,7 +39,9 @@ _logger = logging.getLogger(__name__)
 UAZAPI_URL = (os.getenv('UAZAPI_URL', '') or '').rstrip('/')
 UAZAPI_TOKEN = os.getenv('UAZAPI_TOKEN', '') or ''
 DESTINATARIOS = os.getenv('PGR_UAZAPI_TO', '') or ''
-BASE_URL = (os.getenv('PGR_BASE_URL', '') or '').rstrip('/')
+# Aceita os dois nomes: a stack de produção subiu com PGR_URL e a divergência
+# falhava em silêncio — a mensagem saía sem link e nada no log gritava.
+BASE_URL = (os.getenv('PGR_BASE_URL') or os.getenv('PGR_URL') or '').rstrip('/')
 ENVIO_ATIVO = os.getenv('PGR_ENVIO', 'false').lower() == 'true'
 
 TIMEOUT = 30
@@ -118,11 +120,13 @@ def montar_legenda(dados, url, ocultas=0):
               f'{t["veiculos"]} veículos · {t["registros"]} registros · '
               f'pico {t["pico"]} km/h · {t["sustentados"]} sustentados']
     if ocultas:
-        linhas.append(f'\nA imagem mostra os {t["veiculos"] - ocultas} principais.')
-        linhas.append(f'📄 lista completa ({t["veiculos"]}):')
-    elif url:
-        linhas.append('\n📄 relatório completo:')
+        # Sem URL, o aviso do corte ainda precisa existir — senão quem recebe lê
+        # as linhas da imagem e entende que foram só aquelas. Mas o rótulo do
+        # link só entra se houver link, senão a frase fica pendurada.
+        linhas.append(f'\nA imagem mostra os {t["veiculos"] - ocultas} de '
+                      f'{t["veiculos"]} veículos.')
     if url:
+        linhas.append('\n📄 relatório completo:')
         linhas.append(url)
     return '\n'.join(linhas)
 
