@@ -13,6 +13,7 @@ import functools
 import psycopg2
 import requests
 import pgr
+import placas
 from flask import Flask, Response, jsonify, send_from_directory, request, session, redirect, url_for, send_file, stream_with_context
 from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -455,15 +456,79 @@ def _pgr_ultimo_dia():
     return (r and r[0]) or (_dt.utcnow() - _td(hours=3) - _td(days=1)).date()
 
 
+_PGR_EXPIRADO_HTML = """<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PGR · link expirado</title><style>
+body{background:#0a0e17;color:#e2e8f0;font-family:'DM Sans',-apple-system,'Segoe UI',sans-serif;
+display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:24px}
+div{max-width:340px;text-align:center}
+h1{font-size:1.05rem;font-weight:700;margin-bottom:10px}
+p{font-size:.82rem;line-height:1.6;color:#94a3b8}
+</style></head><body><div>
+<h1>Este relatório expirou</h1>
+<p>O link do relatório de PGR vale por alguns dias. Peça um link novo para ver
+este dia, ou acesse pelo sistema.</p>
+</div></body></html>"""
+
+
 @app.route('/pgr')
 def pgr_page():
     dia, erro = _pgr_dia_autorizado(request.args.get('data'))
     if erro:
-        # Sem sessão e sem token válido: manda logar (o interno) em vez de 401 seco.
+        # Sem sessão e sem token: é usuário interno, manda logar.
         if 'user_id' not in session and not request.args.get('t'):
             return redirect('/login')
+        # Com token inválido/vencido: o destinatário é o diretor às 7h da
+        # manhã — 403 cru é o pior desfecho possível para esse usuário.
+        if request.args.get('t'):
+            return Response(_PGR_EXPIRADO_HTML, status=410, mimetype='text/html')
         return erro[0], erro[1]
     return send_from_directory('.', 'pgr.html')
+
+
+def sincronizar_cadastro_pgr():
+    """veiculos_045 (Power BI) → pgr_cadastro_veiculos.
+
+    Roda aqui, e não no worker, de propósito: o módulo de rastreamento é
+    Postgres puro e dar DAX a ele acoplaria dois mundos limpos, além de criar
+    dependência de credencial num job de madrugada. O job de apuração só lê a
+    tabela.
+    """
+    token = get_token()
+    cad = _cadastro_veiculos(token)
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        n = 0
+        for placa, v in cad.items():
+            cur.execute("""
+                INSERT INTO pgr_cadastro_veiculos
+                    (placa_norm, proprietario, tipo, modelo, eh_rizza, atualizado_em)
+                VALUES (%s,%s,%s,%s,%s,NOW())
+                ON CONFLICT (placa_norm) DO UPDATE SET
+                    proprietario = EXCLUDED.proprietario,
+                    tipo = EXCLUDED.tipo,
+                    modelo = EXCLUDED.modelo,
+                    eh_rizza = EXCLUDED.eh_rizza,
+                    atualizado_em = NOW()
+            """, (placa, v.get('proprietario'), _norm_tipo_veiculo(v.get('tipo')),
+                  v.get('modelo'), _eh_rizza(v.get('proprietario'))))
+            n += 1
+        conn.commit()
+        cur.close()
+    finally:
+        conn.close()
+    return n
+
+
+@app.route('/api/pgr/sync-cadastro', methods=['POST'])
+@admin_required
+def api_pgr_sync_cadastro():
+    try:
+        n = sincronizar_cadastro_pgr()
+        return jsonify({'ok': True, 'veiculos': n})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
 
 
 @app.route('/api/pgr')
@@ -1853,34 +1918,11 @@ def api_faturamento_tomadores():
                     'count': len(saida)})
 
 
-def _placa_mercosul(placa):
-    """Normaliza placa para o padrão Mercosul (rótulo único por veículo).
-
-    Conversão oficial antigo (LLL-NNNN) → Mercosul (LLL N L NN): muda SOMENTE o
-    5º caractere (o 2º dígito), trocando o dígito por letra na ordem fixa
-    0→A, 1→B, 2→C, 3→D, 4→E, 5→F, 6→G, 7→H, 8→I, 9→J. Os demais não mudam.
-    Placa já em Mercosul (ou fora do padrão) é mantida como está. Assim as duas
-    grafias do mesmo veículo colapsam numa única chave Mercosul.
-    """
-    import re
-    s = re.sub(r'[^A-Za-z0-9]', '', str(placa or '')).upper()
-    if re.fullmatch(r'[A-Z]{3}[0-9]{4}', s):           # padrão antigo → converte 5º char
-        return s[:4] + 'ABCDEFGHIJ'[int(s[4])] + s[5:]
-    return s                                            # já Mercosul (LLL N L NN) ou não-padrão
-
-
-def _placa_grafias(placa):
-    """Grafias possíveis no dado bruto de uma placa: Mercosul + antiga.
-    A normalização antigo→Mercosul troca o 5º char (dígito→letra A–J). Aqui revertemos
-    a letra de volta ao dígito para obter a grafia antiga, e retornamos as duas formas."""
-    import re
-    s = re.sub(r'[^A-Za-z0-9]', '', str(placa or '')).upper()
-    formas = {s}
-    if re.fullmatch(r'[A-Z]{3}[0-9][A-J][0-9]{2}', s):           # Mercosul → gera a antiga
-        formas.add(s[:4] + str('ABCDEFGHIJ'.index(s[4])) + s[5:])
-    elif re.fullmatch(r'[A-Z]{3}[0-9]{4}', s):                   # antiga → gera a Mercosul
-        formas.add(s[:4] + 'ABCDEFGHIJ'[int(s[4])] + s[5:])
-    return list(formas)
+# A implementação vive em placas.py para ser compartilhada com o PGR sem import
+# circular (server importa pgr) e sem duplicar a lógica. Aliases mantidos para
+# não mexer em nenhum ponto de chamada existente.
+_placa_mercosul = placas.mercosul
+_placa_grafias = placas.grafias
 
 
 # Regra interna: placas que continuam no cadastro como Rizza mas NÃO são mais frota
@@ -1896,17 +1938,16 @@ def _cadastro_veiculos(token):
     uma string idêntica à placa Mercosul REAL de outro veículo (ex.: HOA0466→HOA0E66, que é a
     Mercosul real de outra carreta). Nesses casos, prefere a entrada cuja placa CRUA já está em
     Mercosul (identidade atual) em vez da antiga convertida. Entre formatos iguais, mantém a 1ª."""
-    import re
     res = execute_dax(token, "EVALUATE 'public veiculos_045'")
     linhas = clean_rows(res.get('results', [{}])[0].get('tables', [{}])[0].get('rows', []))
     cad = {}
     cad_merc = {}  # placa_norm -> a entrada guardada veio de placa crua já-Mercosul?
     for r in linhas:
-        raw = re.sub(r'[^A-Za-z0-9]', '', str(r.get('placa') or '')).upper()
+        raw = placas.limpar(r.get('placa'))
         p = _placa_mercosul(raw)
         if not p:
             continue
-        eh_merc = bool(re.fullmatch(r'[A-Z]{3}[0-9][A-Z][0-9]{2}', raw))  # placa crua já é Mercosul
+        eh_merc = placas.eh_mercosul(raw)  # placa crua já é Mercosul
         if p in cad and not (eh_merc and not cad_merc.get(p)):
             continue  # mantém a atual, salvo quando a nova é Mercosul genuína e a atual não era
         cad[p] = {'proprietario': r.get('proprietario'), 'tipo': r.get('tipo'),
@@ -4875,6 +4916,25 @@ if __name__ == '__main__':
         print(f"\n⚠️  Variáveis Power BI faltando no .env: {', '.join(missing)}")
     else:
         print("✅ Configuração Power BI OK")
+
+    # Cache do cadastro de veículos para o PGR. Fica aqui (e não no worker)
+    # porque é este lado que fala Power BI. A cada 12h, então nunca passa disso
+    # de defasagem e não precisa combinar relógio com o job de apuração.
+    if os.getenv('PGR_SYNC_CADASTRO', 'true').lower() == 'true':
+        import threading as _th
+
+        def _loop_cadastro_pgr():
+            while True:
+                try:
+                    n = sincronizar_cadastro_pgr()
+                    print(f"✅ PGR: cadastro de veículos sincronizado ({n})")
+                except Exception as e:
+                    # Falha aqui é macia: a apuração segue e o rótulo de tipo
+                    # sai em branco. Não pode derrubar o processo.
+                    print(f"⚠️  PGR: falha ao sincronizar cadastro: {e}")
+                time.sleep(12 * 3600)
+
+        _th.Thread(target=_loop_cadastro_pgr, daemon=True, name='PgrCadastro').start()
 
     # Boot do worker de rastreamento
     if os.getenv('START_WORKER', '').lower() == 'true':

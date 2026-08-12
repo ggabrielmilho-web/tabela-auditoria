@@ -24,6 +24,7 @@ import logging
 from datetime import datetime, timedelta
 
 import geocoding
+import placas
 
 _logger = logging.getLogger(__name__)
 
@@ -232,21 +233,53 @@ def _posicoes_do_dia(cur, dia):
     return por_placa
 
 
+IDADE_MAX_CADASTRO_DIAS = 3
+
+
+def cadastro_do_cache(cur):
+    """placa → dados do veículo, lidos de pgr_cadastro_veiculos.
+
+    O cache é alimentado pelo server.py (o lado que fala Power BI). Se estiver
+    velho, avisa no log e segue com o que tem: rótulo faltando é falha macia,
+    job quebrado no meio da madrugada não é.
+
+    Só devolve o que é propriedade do VEÍCULO. `tipo_operacao` (frota/agregado)
+    não sai daqui — é propriedade da viagem (a regra é sobre o par
+    cavalo+carreta), então vem do casamento com o manifesto.
+    """
+    cur.execute("SELECT placa_norm, tipo, proprietario, eh_rizza, atualizado_em "
+                "FROM pgr_cadastro_veiculos")
+    linhas = cur.fetchall()
+    if not linhas:
+        _logger.warning('PGR: cache de cadastro VAZIO — tipo de veículo sairá em branco. '
+                        'Rodar POST /api/pgr/sync-cadastro.')
+        return {}
+    mais_novo = max(r[4] for r in linhas if r[4]) if any(r[4] for r in linhas) else None
+    if mais_novo and (datetime.utcnow() - mais_novo).days > IDADE_MAX_CADASTRO_DIAS:
+        _logger.warning(f'PGR: cache de cadastro com {(datetime.utcnow() - mais_novo).days}d '
+                        f'(atualizado em {mais_novo:%d/%m %H:%M}) — seguindo com o que tem.')
+    return {r[0]: {'tipo_veiculo': r[1], 'proprietario': r[2], 'eh_rizza': r[3]}
+            for r in linhas}
+
+
 def apurar_dia(cur, dia, cadastro=None):
     """Apura um dia de Brasília e grava pgr_eventos + pgr_cobertura.
 
-    `cadastro`: placa → {'tipo_veiculo','tipo_operacao'} (de veiculos_045).
-    Opcional — sem ele os campos ficam nulos e a apuração continua válida.
+    `cadastro`: placa → {'tipo_veiculo', ...}. Se None, lê do cache local.
+    Sem ele os campos ficam nulos e a apuração continua válida.
 
     Reprocessável: o UNIQUE (placa, ini) faz upsert, então rodar de novo depois
     do backfill corrige um dia que tenha sido apurado com dado incompleto.
     """
-    cadastro = cadastro or {}
+    if cadastro is None:
+        cadastro = cadastro_do_cache(cur)
     por_placa = _posicoes_do_dia(cur, dia)
     n_ev = 0
 
     for placa, pontos in sorted(por_placa.items()):
-        cad = cadastro.get(placa) or {}
+        # A placa do GPS pode vir na grafia antiga; o cache é chaveado em
+        # Mercosul (as duas grafias do mesmo veículo colapsam numa chave só).
+        cad = cadastro.get(placas.mercosul(placa)) or cadastro.get(placa) or {}
         for ep in agrupar_episodios(pontos):
             r = resumir_episodio(ep, pontos)
             cur.execute("""

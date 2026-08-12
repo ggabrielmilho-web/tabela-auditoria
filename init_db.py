@@ -450,6 +450,30 @@ cur.execute("""
 """)
 cur.execute("CREATE INDEX IF NOT EXISTS ix_pgr_tokens_dia ON pgr_tokens (dia);")
 
+# Cache do cadastro de veículos (veiculos_045 do Power BI).
+#
+# O módulo de rastreamento é Postgres puro — não toca Power BI em lugar nenhum.
+# Dar DAX ao worker acoplaria dois mundos limpos e criaria dependência de
+# credencial e de disponibilidade num job que roda de madrugada sem ninguém
+# olhando. O lado que já fala com o Power BI (server.py) atualiza esta tabela
+# 1×/dia; o job só lê daqui. Cache velho vira aviso no log, não job quebrado:
+# rótulo faltando é falha macia.
+#
+# Guarda só o que é propriedade do VEÍCULO. `tipo_operacao` (frota/agregado)
+# NÃO entra: é propriedade da viagem — a regra é sobre o par cavalo+carreta, e
+# uma carreta Rizza atrás de cavalo de terceiro é agregado. Isso vem do
+# casamento com o manifesto, não do cadastro.
+cur.execute("""
+    CREATE TABLE IF NOT EXISTS pgr_cadastro_veiculos (
+        placa_norm    VARCHAR(10) PRIMARY KEY,
+        proprietario  VARCHAR(180),
+        tipo          VARCHAR(12),      -- Cavalo / Carreta / Truck
+        modelo        VARCHAR(120),
+        eh_rizza      BOOLEAN,
+        atualizado_em TIMESTAMP DEFAULT NOW()
+    );
+""")
+
 print("✅ Tabelas do PGR (pgr_eventos, pgr_cobertura) prontas.\n")
 
 conn.commit()
