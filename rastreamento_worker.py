@@ -234,11 +234,11 @@ def _persistir_posicoes(cur, posicoes_raw):
         cur.execute("""
             INSERT INTO embarques_posicoes_historico (
                 placa, id_veiculo_3s, data_posicao, latitude, longitude,
-                velocidade, ignicao, uf, cidade
-            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                velocidade, ignicao, uf, cidade, endereco, odometer
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             ON CONFLICT (placa, data_posicao) DO NOTHING
         """, (placa, id_veiculo_3s, data_pos, lat, lng,
-              velocidade, ignicao, uf, cidade))
+              velocidade, ignicao, uf, cidade, endereco, odometer))
 
 
 # ── Detecção (cidade + raio + N ciclos) ─────────────────────────────
@@ -705,22 +705,35 @@ def _processar_cargas(cur):
 # ── Retenção ─────────────────────────────────────────────────────────
 
 def _purgar_posicoes_antigas(cur):
-    """DELETE posições > RETENCAO_DIAS APÓS conclusão da carga. KPIs mantidos."""
+    """DELETE posições com mais de RETENCAO_DIAS, independente de carga.
+
+    A regra anterior só purgava placas que tivessem aparecido numa carga
+    CONCLUÍDA. Como a maior parte dos veículos rastreados nunca entra numa
+    carga lançada, o histórico dessas placas nunca era purgado e crescia sem
+    teto — o que passa de detalhe a problema com o backfill diário, que grava
+    ~500 pontos por veículo por dia.
+
+    Exceção: posições de uma placa a partir do início de uma carga AINDA ABERTA
+    são preservadas mesmo passando dos RETENCAO_DIAS, para não mutilar o
+    trajeto de uma viagem em curso (carga longa, parada de dias no destino).
+    Cargas concluídas não precisam da exceção: o KPI já foi consolidado em
+    embarques_cargas_rastreio_kpi, que sobrevive à limpeza.
+    """
     cur.execute("""
-        DELETE FROM embarques_posicoes_historico
-        WHERE placa IN (
-            SELECT p FROM embarques_cargas c,
-                 LATERAL unnest(ARRAY[c.cavalo_placa, c.carreta1_placa, c.carreta2_placa]) AS p
-            WHERE c.status IN ('Entregue','Cancelada')
-              AND c.data_conclusao IS NOT NULL
-              AND c.data_conclusao < NOW() - %s::interval
-              AND p IS NOT NULL
-        )
-        AND data_posicao < NOW() - %s::interval
-    """, (f'{RETENCAO_DIAS} days', f'{RETENCAO_DIAS} days'))
+        DELETE FROM embarques_posicoes_historico h
+        WHERE h.data_posicao < NOW() - %s::interval
+          AND NOT EXISTS (
+              SELECT 1
+              FROM embarques_cargas c,
+                   LATERAL unnest(ARRAY[c.cavalo_placa, c.carreta1_placa, c.carreta2_placa]) AS p
+              WHERE p = h.placa
+                AND c.status NOT IN ('Entregue', 'Cancelada')
+                AND h.data_posicao >= COALESCE(c.inicio_viagem, c.data_saida_real, c.criado_em)
+          )
+    """, (f'{RETENCAO_DIAS} days',))
     n = cur.rowcount
     if n > 0:
-        _logger.info(f'Retenção: {n} posições históricas purgadas (> {RETENCAO_DIAS} dias após conclusão)')
+        _logger.info(f'Retenção: {n} posições históricas purgadas (> {RETENCAO_DIAS} dias)')
     return n
 
 
@@ -729,6 +742,170 @@ def _deve_rodar_retencao():
     if _ultima_retencao is None:
         return True
     return (datetime.utcnow() - _ultima_retencao).total_seconds() > 86400  # 1×/dia
+
+
+# ── Backfill do histórico (/HistoricoPosicao) ────────────────────────
+#
+# Por que existe: /ListaUltimaPosicaoVeiculos devolve só o ÚLTIMO ponto. Se o
+# aparelho transmitiu duas vezes entre dois ciclos nossos, a primeira leitura
+# se perde para sempre. Medido em 11/08 contra o alerta nativo da 3S (que
+# detecta a 1 Hz no aparelho): o polling ao vivo pegou 26 de 32 episódios de
+# excesso na janela comparável (81%); o backfill pegou 37 de 37 (100%) e ainda
+# recuperou o pico real, que o polling subestimava (OWH0F53 111 e não 104).
+#
+# Não é detecção absoluta — é o fechamento da lacuna de AMOSTRAGEM: onde o
+# aparelho transmitiu, agora nós temos. A cadência continua sendo a do
+# aparelho (2–5 min conforme o modelo).
+#
+# Papéis separados: o polling continua sendo o tempo real (mapa e detecção de
+# saída/entrega); o backfill é o registro histórico, base do PGR.
+
+BACKFILL_ATIVO = os.getenv('BACKFILL_HISTORICO', 'true').lower() == 'true'
+BACKFILL_HORA_UTC = int(os.getenv('BACKFILL_HORA_UTC', '4'))      # 04:00 UTC = 01:00 BRT
+BACKFILL_ESPACO_SEG = float(os.getenv('BACKFILL_ESPACO_SEG', '10'))  # ~6/min
+
+_ultimo_backfill_dia = None
+
+
+def _janela_dia_brasilia(dia):
+    """Dia de Brasília → (inicio, fim) NAIVE em horário de Brasília.
+
+    A 3S interpreta a requisição no mesmo fuso em que devolve o campo Data
+    (verificado: pedindo 21:00–23:59 vieram 21:02…23:57). Então o dia do
+    relatório é pedido direto, sem conversão — é justamente o desalinhamento
+    que fazia a extração antiga rodar em dia-calendário UTC e deslocar o
+    relatório em 3 horas.
+    """
+    return (datetime(dia.year, dia.month, dia.day, 0, 0, 0),
+            datetime(dia.year, dia.month, dia.day, 23, 59, 59))
+
+
+def _veiculos_para_backfill(cur):
+    """placa → id_veiculo_3s de todo veículo que o worker já viu.
+
+    Sai de embarques_posicoes_atuais (o worker atualiza a cada ciclo) para não
+    gastar uma chamada de /ListaVeiculos. Não depende de
+    embarques_veiculos_rastreio, que exige carga lançada.
+
+    O corte por atualizado_em faz a lista se auto-limpar: veículo que saiu da
+    conta da 3S para de ser devolvido pelo polling, envelhece e cai fora
+    sozinho — senão gastaríamos cota todo dia pedindo histórico de placa que
+    não existe mais (na base local são 101 linhas para 93 veículos vivos).
+    """
+    cur.execute("""
+        SELECT placa, id_veiculo_3s,
+               atualizado_em > NOW() - %s::interval AS ativo
+        FROM embarques_posicoes_atuais
+        WHERE id_veiculo_3s IS NOT NULL AND placa <> ''
+        ORDER BY placa
+    """, (f'{RETENCAO_DIAS} days',))
+    linhas = cur.fetchall()
+    fora = [p for p, _, ativo in linhas if not ativo]
+    if fora:
+        # A saída precisa ser VISÍVEL: veículo com rastreador em conserto some
+        # da lista em silêncio e sai do PGR sem ninguém saber.
+        _logger.info(f'Backfill: {len(fora)} veículo(s) fora por inatividade '
+                     f'(> {RETENCAO_DIAS}d sem posição): {", ".join(fora)}')
+    return [(p, i) for p, i, ativo in linhas if ativo]
+
+
+def _gravar_historico(cur, pontos):
+    """INSERT dos pontos do histórico. Idempotente por UNIQUE(placa, data_posicao)."""
+    gravados = 0
+    for p in pontos:
+        lat, lng = _safe_float(p.get('latitude')), _safe_float(p.get('longitude'))
+        if lat is None or lng is None:
+            continue
+        cur.execute("""
+            INSERT INTO embarques_posicoes_historico (
+                placa, id_veiculo_3s, data_posicao, latitude, longitude,
+                velocidade, ignicao, uf, cidade, endereco, odometer
+            ) VALUES (%s,%s,%s,%s,%s,%s,NULL,%s,%s,%s,%s)
+            ON CONFLICT (placa, data_posicao) DO NOTHING
+        """, (p['placa'], _safe_int(p.get('idVeiculo')), _parse_data(p.get('data')),
+              lat, lng, _safe_int(p.get('velocidade'), 0),
+              (p.get('uf') or '')[:2], (p.get('cidade') or '')[:120],
+              (p.get('endereco') or '')[:200] or None, _safe_int(p.get('odometer'))))
+        gravados += cur.rowcount
+    return gravados
+
+
+def backfill_dia(dia):
+    """Puxa /HistoricoPosicao de todos os veículos para um dia de Brasília.
+
+    Conexão e transação próprias, commit por veículo: um veículo que falhe não
+    derruba os anteriores, e nada fica segurando transação por 16 minutos.
+
+    Auto-espaçado em BACKFILL_ESPACO_SEG. Não dá para confiar no token bucket
+    do tres_s_client aqui: ele levanta RateLimitExceeded quando a espera passa
+    de 5s, o que estouraria num loop de ~93 chamadas. E o bucket é por
+    PROCESSO — como o worker é thread do mesmo Flask, backfill e polling
+    dividem os mesmos 8/min, dos quais o polling já consome ~1,4/min.
+    """
+    if tres_s_client.is_modo_simulado():
+        _logger.info('Backfill ignorado: MODO_SIMULADO')
+        return 0
+
+    dt_ini, dt_fim = _janela_dia_brasilia(dia)
+    conn = _get_db()
+    cur = conn.cursor()
+    try:
+        veiculos = _veiculos_para_backfill(cur)
+    finally:
+        cur.close()
+
+    _logger.info(f'Backfill {dia:%d/%m/%Y} (BRT): {len(veiculos)} veículos, '
+                 f'~{len(veiculos) * BACKFILL_ESPACO_SEG / 60:.0f} min')
+
+    total = falhas = 0
+    for i, (placa, idv) in enumerate(veiculos):
+        if not _running:
+            _logger.warning('Backfill interrompido: worker parando')
+            break
+        if i:
+            time.sleep(BACKFILL_ESPACO_SEG)
+        try:
+            pontos = tres_s_client.historico_posicao(idv, placa, dt_ini, dt_fim)
+            cur = conn.cursor()
+            try:
+                n = _gravar_historico(cur, pontos)
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                cur.close()
+            total += n
+            _logger.debug(f'  {placa}: {len(pontos)} pontos, {n} novos')
+        except Exception as e:
+            falhas += 1
+            _logger.warning(f'  {placa}: falha no backfill — {e}')
+
+    conn.close()
+    _logger.info(f'Backfill {dia:%d/%m/%Y} concluído: {total} posições novas, {falhas} falhas')
+    return total
+
+
+def _loop_backfill():
+    """Dispara o backfill 1×/dia, na hora configurada, para o dia BRT que fechou."""
+    global _ultimo_backfill_dia
+    _logger.info(f'Backfill agendado para {BACKFILL_HORA_UTC:02d}:00 UTC '
+                 f'(espaçamento {BACKFILL_ESPACO_SEG}s/chamada)')
+    while _running:
+        try:
+            agora = datetime.utcnow()
+            # Dia de Brasília D vai de 03:00 UTC de D a 03:00 UTC de D+1; à
+            # BACKFILL_HORA_UTC o último dia inteiramente fechado é o de ontem.
+            alvo = (agora - timedelta(hours=3)).date() - timedelta(days=1)
+            if agora.hour == BACKFILL_HORA_UTC and _ultimo_backfill_dia != alvo:
+                _ultimo_backfill_dia = alvo
+                backfill_dia(alvo)
+        except Exception:
+            _logger.exception('Falha no loop de backfill')
+        for _ in range(60):
+            if not _running:
+                break
+            time.sleep(1)
 
 
 # ── Loop principal ───────────────────────────────────────────────────
@@ -786,6 +963,10 @@ def start():
     _running = True
     _thread = threading.Thread(target=_ciclo, daemon=True, name='RastreamentoWorker')
     _thread.start()
+    if BACKFILL_ATIVO:
+        # Thread separada: o backfill leva ~16 min e travaria o ciclo de 60s
+        # (e seguraria a transação do polling aberta o tempo todo).
+        threading.Thread(target=_loop_backfill, daemon=True, name='BackfillHistorico').start()
 
 
 def stop():

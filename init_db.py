@@ -218,10 +218,20 @@ cur.execute("""
         ignicao         BOOLEAN,
         uf              CHAR(2),
         cidade          VARCHAR(120),
+        endereco        VARCHAR(200),
+        odometer        INTEGER,
         UNIQUE (placa, data_posicao)
     );
 """)
+# Bases que já existiam antes do backfill: acrescenta as duas colunas novas.
+# endereco = nome da rodovia (o /HistoricoPosicao entrega, o PGR usa no trecho);
+# odometer = base do km/L por GPS.
+cur.execute("ALTER TABLE embarques_posicoes_historico ADD COLUMN IF NOT EXISTS endereco VARCHAR(200);")
+cur.execute("ALTER TABLE embarques_posicoes_historico ADD COLUMN IF NOT EXISTS odometer INTEGER;")
 cur.execute("CREATE INDEX IF NOT EXISTS ix_pos_hist_placa_data ON embarques_posicoes_historico (placa, data_posicao);")
+# Purga da retenção varre por data_posicao sozinha (sem placa) — sem este índice
+# vira seq scan numa tabela que o backfill diário leva à casa do milhão.
+cur.execute("CREATE INDEX IF NOT EXISTS ix_pos_hist_data ON embarques_posicoes_historico (data_posicao);")
 
 # KPIs consolidados por carga (sobrevive à limpeza de posições)
 cur.execute("""
@@ -360,6 +370,66 @@ cur.execute("ALTER TABLE embarques_cargas ADD COLUMN IF NOT EXISTS descarga_moto
 cur.execute("ALTER TABLE embarques_cargas ADD COLUMN IF NOT EXISTS descarga_cavalo_placa VARCHAR(10);")
 
 print("✅ Desengate de carreta carregada (status Desengatada) pronto.\n")
+
+# ── PGR — excesso de velocidade ──────────────────────────────────────
+#
+# O relatório PERSISTE o próprio resultado em vez de recalcular a partir das
+# posições. Sem isto, a retenção de 30 dias apagaria a base do relatório e o
+# PGR do mês passado deixaria de ser reproduzível — justamente a série
+# histórica (ranking por motorista, evolução mês a mês) que dá valor de gestão.
+# São algumas dezenas de linhas por dia contra ~63 mil posições.
+#
+# Grão = EPISÓDIO, não placa-dia: a linha do relatório é agregação, igual ao
+# padrão do resto do app (grão CTRB → agrega). Sem isto não dá para rankear
+# motorista nem abrir o detalhe.
+cur.execute("""
+    CREATE TABLE IF NOT EXISTS pgr_eventos (
+        id             BIGSERIAL PRIMARY KEY,
+        dia            DATE NOT NULL,           -- dia de Brasília
+        placa          VARCHAR(10) NOT NULL,
+        tipo_veiculo   VARCHAR(12),             -- CARRETA/CAVALO/TRUCK (veiculos_045)
+        tipo_operacao  VARCHAR(12),             -- FROTA/AGREGADO
+        ini            TIMESTAMP NOT NULL,      -- BRT
+        fim            TIMESTAMP NOT NULL,
+        registros      INTEGER,                 -- leituras >95 no episódio
+        vel_max        INTEGER,
+        vel_sustentada INTEGER,                 -- média do trecho (informativa)
+        sustentado     BOOLEAN,
+        cidade         VARCHAR(120),
+        uf             CHAR(2),
+        endereco       VARCHAR(200),            -- rodovia
+        latitude       NUMERIC(10,7),
+        longitude      NUMERIC(10,7),
+        situacao_carga VARCHAR(20),             -- carregado/vazio/parcial/nao_confirmado
+        manifesto      VARCHAR(20),
+        tomador        VARCHAR(120),
+        origem         VARCHAR(60),
+        destino        VARCHAR(60),
+        motorista      VARCHAR(120),
+        apurado_em     TIMESTAMP DEFAULT NOW(),
+        UNIQUE (placa, ini)
+    );
+""")
+cur.execute("CREATE INDEX IF NOT EXISTS ix_pgr_eventos_dia ON pgr_eventos (dia);")
+cur.execute("CREATE INDEX IF NOT EXISTS ix_pgr_eventos_placa ON pgr_eventos (placa, dia);")
+
+# Cobertura por placa/dia: sem ela, "zero excessos" fica ambíguo depois que as
+# posições forem apagadas — não dá para distinguir "ninguém correu" de "o
+# worker estava fora do ar".
+cur.execute("""
+    CREATE TABLE IF NOT EXISTS pgr_cobertura (
+        dia               DATE NOT NULL,
+        placa             VARCHAR(10) NOT NULL,
+        posicoes          INTEGER,
+        minutos_com_sinal INTEGER,
+        minutos_sem_sinal INTEGER,
+        maior_gap_min     INTEGER,
+        apurado_em        TIMESTAMP DEFAULT NOW(),
+        PRIMARY KEY (dia, placa)
+    );
+""")
+
+print("✅ Tabelas do PGR (pgr_eventos, pgr_cobertura) prontas.\n")
 
 conn.commit()
 cur.close()

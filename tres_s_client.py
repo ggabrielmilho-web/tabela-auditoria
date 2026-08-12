@@ -15,7 +15,7 @@ import os
 import time
 import threading
 from collections import deque
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import psycopg2
 import requests
 from dotenv import load_dotenv
@@ -137,10 +137,25 @@ def _renovar_token():
     if not token:
         raise TresSError('LOGIN_FAIL', 'Resposta sem token')
 
-    # expiration vem ISO. Salva como naive UTC.
-    exp = datetime.fromisoformat(exp_str.replace('Z', '+00:00')).replace(tzinfo=None)
-    _salvar_token(token, exp)
+    _salvar_token(token, _expiration_para_utc(exp_str))
     return token
+
+
+def _expiration_para_utc(exp_str):
+    """expiration da 3S → naive UTC.
+
+    A API devolve a expiração em horário de BRASÍLIA e sem fuso
+    ('2026-08-12T11:07:57.5' com o UTC em 14:07). Guardar o valor cru e
+    comparar com utcnow() em _get_token fazia o token parecer vencido SEMPRE
+    (BRT = UTC-3), então toda chamada era precedida de um /ValidaLogin: cada
+    requisição custava duas, metade da cota de 10/min indo embora em login
+    redundante, e o cache em embarques_3s_token nunca surtia efeito.
+    """
+    BRT = timezone(timedelta(hours=-3))
+    dt = datetime.fromisoformat(str(exp_str).replace('Z', ''))
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=BRT)
+    return dt.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def _get_token():
@@ -240,6 +255,34 @@ def _normalizar_veiculo(v):
     }
 
 
+def _normalizar_historico(p, placa, id_veiculo):
+    """Normaliza um item de /HistoricoPosicao.
+
+    O DTO do histórico NÃO traz Placa, idVeiculo, Ignicao nem Bloqueio — por
+    isso placa/id_veiculo vêm por fora (a consulta é por veículo). Ignição fica
+    None: só o mapa a consome, a detecção de velocidade não depende dela.
+    Traz, em compensação, Endereco (nome da rodovia) e Odometro.
+    """
+    return {
+        'idPosicao':     p.get('idPosicao'),
+        'placa':         placa,
+        'idVeiculo':     id_veiculo,
+        'data':          _parse_data_br(p.get('Data') or p.get('data')),
+        'velocidade':    p.get('Velocidade') if p.get('Velocidade') is not None else p.get('velocidade'),
+        'satelite':      p.get('Satelite') or p.get('satelite'),
+        'direcao':       p.get('Direcao') or p.get('direcao'),
+        'uf':            p.get('UF') or p.get('uf'),
+        'cidade':        p.get('Cidade') or p.get('cidade'),
+        'bairro':        p.get('Bairro') or p.get('bairro'),
+        'endereco':      p.get('Endereco') or p.get('endereco'),
+        'latitude':      _to_float_br(p.get('Latitude') or p.get('latitude')),
+        'longitude':     _to_float_br(p.get('Longitude') or p.get('longitude')),
+        'odometer':      p.get('Odometro') if p.get('Odometro') is not None else p.get('odometer'),
+        'ignicao':       None,
+        'bloqueio':      None,
+    }
+
+
 def _normalizar_posicao(p):
     """PascalCase → minúsculo. Converte lat/lng/data."""
     return {
@@ -271,6 +314,10 @@ def _normalizar_posicao(p):
 # ── Wrappers públicos ──
 if MODO_SIMULADO:
     from simulador_3s import lista_veiculos, lista_ultima_posicao  # noqa: F401
+
+    def historico_posicao(id_veiculo, placa, dt_inicio, dt_fim):
+        """O simulador não tem histórico denso — backfill vira no-op."""
+        return []
 else:
     def lista_veiculos():
         data = _call('GET', '/ListaVeiculos')
@@ -279,6 +326,35 @@ else:
     def lista_ultima_posicao(id_veiculo=0):
         data = _call('GET', f'/ListaUltimaPosicaoVeiculos/{id_veiculo}')
         return [_normalizar_posicao(p) for p in (data or [])]
+
+    def historico_posicao(id_veiculo, placa, dt_inicio, dt_fim):
+        """POST /HistoricoPosicao — todas as posições transmitidas no período.
+
+        dt_inicio/dt_fim são datetimes NAIVE em horário de BRASÍLIA: a API
+        interpreta a requisição no mesmo fuso em que devolve o campo Data
+        (verificado empiricamente — pedindo 21:00–23:59 vieram 21:02…23:57).
+
+        Diferente de /ListaUltimaPosicaoVeiculos, que devolve só o último ponto
+        e por isso descarta o que o aparelho transmitiu entre dois ciclos do
+        worker, aqui vem tudo. A cadência é a mesma (2–5 min conforme o
+        aparelho); o que muda é não haver perda.
+
+        A API repete o mesmo instante com idPosicao diferente — deduplicamos
+        por data, que é a chave que o banco também usa (UNIQUE placa+data).
+        """
+        data = _call('POST', '/HistoricoPosicao', json_body={
+            'idVeiculo': id_veiculo,
+            'dataInicio': dt_inicio.strftime('%Y-%m-%dT%H:%M:%S'),
+            'dataFim': dt_fim.strftime('%Y-%m-%dT%H:%M:%S'),
+        })
+        vistos, saida = set(), []
+        for p in (data or []):
+            chave = p.get('Data') or p.get('data')
+            if chave in vistos:
+                continue
+            vistos.add(chave)
+            saida.append(_normalizar_historico(p, placa, id_veiculo))
+        return saida
 
 
 def is_modo_simulado():
