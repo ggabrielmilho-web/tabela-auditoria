@@ -474,6 +474,38 @@ cur.execute("""
     );
 """)
 
+# Cache de manifestos (Auditoria Receita do Power BI), para validar a situação
+# de carga sem dar DAX ao worker — mesmo motivo do cache de cadastro.
+#
+# Já vem GEOCODIFICADO (lat/lng de origem e destino, via municipios_ibge), para
+# o casamento no job ser aritmética local pura.
+#
+# É daqui que sai `tipo_operacao` (frota/agregado): ele é propriedade da
+# VIAGEM, não do veículo — a regra é sobre o par cavalo+carreta, e uma carreta
+# Rizza atrás de cavalo de terceiro é agregado.
+cur.execute("""
+    CREATE TABLE IF NOT EXISTS pgr_manifestos (
+        id             BIGSERIAL PRIMARY KEY,
+        manifesto      VARCHAR(30),
+        data_ref       DATE NOT NULL,
+        placa_cavalo   VARCHAR(10),
+        placa_carreta  VARCHAR(10),
+        origem         VARCHAR(80),      -- 'Cidade/UF'
+        destino        VARCHAR(80),
+        origem_lat     NUMERIC(10,7),
+        origem_lng     NUMERIC(10,7),
+        destino_lat    NUMERIC(10,7),
+        destino_lng    NUMERIC(10,7),
+        tomador        VARCHAR(160),
+        motorista      VARCHAR(160),
+        tipo_operacao  VARCHAR(12),
+        atualizado_em  TIMESTAMP DEFAULT NOW(),
+        UNIQUE (manifesto, data_ref, placa_cavalo, placa_carreta)
+    );
+""")
+cur.execute("CREATE INDEX IF NOT EXISTS ix_pgr_manif_cav ON pgr_manifestos (placa_cavalo, data_ref);")
+cur.execute("CREATE INDEX IF NOT EXISTS ix_pgr_manif_car ON pgr_manifestos (placa_carreta, data_ref);")
+
 print("✅ Tabelas do PGR (pgr_eventos, pgr_cobertura) prontas.\n")
 
 conn.commit()

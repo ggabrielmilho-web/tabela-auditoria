@@ -521,12 +521,111 @@ def sincronizar_cadastro_pgr():
     return n
 
 
+PGR_MANIFESTOS_DIAS = int(os.getenv('PGR_MANIFESTOS_DIAS', '30'))
+
+
+def _txt(v, n):
+    """Corta no tamanho da coluna. O cadastro do Winthor tem razão social longa
+    (passa de 160 em tomador/motorista) e derrubaria a sincronização inteira."""
+    s = (str(v).strip() if v is not None else '')
+    return s[:n] or None
+
+
+def _centroides_municipios(cur):
+    """(cidade_normalizada, uf) → (lat, lng), de municipios_ibge."""
+    cur.execute("SELECT cidade_normalizada, uf, latitude, longitude FROM municipios_ibge")
+    return {(r[0], r[1]): (float(r[2]), float(r[3])) for r in cur.fetchall()}
+
+
+def _geo_cidade_uf(centroides, cidade_uf):
+    """'Uberlândia/MG' → (lat, lng). None se não achar."""
+    import geocoding      # importado localmente, como nas demais funções do arquivo
+    if not cidade_uf or '/' not in str(cidade_uf):
+        return None
+    cid, uf = str(cidade_uf).rsplit('/', 1)
+    return centroides.get((geocoding.normalizar_cidade(cid), uf.strip().upper()))
+
+
+def sincronizar_manifestos_pgr(dias=None):
+    """Auditoria Receita (Power BI) → pgr_manifestos, já geocodificado.
+
+    Janela móvel: o casamento precisa de manifesto EMITIDO ANTES do excesso, e
+    uma viagem longa pode ter o CTRC emitido dias antes (§8 do handoff: o
+    TZC0I41 carregou em 06/08 e o excesso foi em 10/08). Por isso a janela é
+    generosa, não só o dia anterior.
+
+    Geocodifica na sincronização para que o job de apuração seja aritmética
+    local pura, sem depender do Power BI de madrugada.
+    """
+    dias = dias or PGR_MANIFESTOS_DIAS
+    from datetime import date as _date, timedelta as _td
+    ini = _date.today() - _td(days=dias)
+
+    token = get_token()
+    AR = "'Auditoria Receita'"
+    linhas = _dax_rows(token, (
+        f"EVALUATE SELECTCOLUMNS(FILTER({AR}, "
+        f"{AR}[data_ref_ctrc] >= DATE({ini.year},{ini.month},{ini.day})), "
+        f"\"car\",{AR}[placa_carreta],\"cav\",{AR}[placa_cavalo],"
+        f"\"dt\",{AR}[data_ref_ctrc],\"manif\",{AR}[Manifesto],"
+        f"\"orig\",{AR}[cidade_uf_origem],\"dest\",{AR}[cidade_uf_destino],"
+        f"\"tom\",{AR}[cliente_pagador],\"mot\",{AR}[motorista],"
+        f"\"tipo\",{AR}[Tipo Operacao])"))
+
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        centroides = _centroides_municipios(cur)
+        vistos, n = set(), 0
+        for r in linhas:
+            dt = str(r.get('dt') or '')[:10]
+            if not dt:
+                continue
+            cav = _placa_mercosul(r.get('cav')) or None
+            car = _placa_mercosul(r.get('car')) or None
+            if not cav and not car:
+                continue
+            chave = (r.get('manif'), dt, cav, car)
+            if chave in vistos:      # o grão da Auditoria é CTRB: várias linhas por manifesto
+                continue
+            vistos.add(chave)
+            o = _geo_cidade_uf(centroides, r.get('orig'))
+            d = _geo_cidade_uf(centroides, r.get('dest'))
+            cur.execute("""
+                INSERT INTO pgr_manifestos (manifesto, data_ref, placa_cavalo, placa_carreta,
+                    origem, destino, origem_lat, origem_lng, destino_lat, destino_lng,
+                    tomador, motorista, tipo_operacao, atualizado_em)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+                ON CONFLICT (manifesto, data_ref, placa_cavalo, placa_carreta) DO UPDATE SET
+                    origem = EXCLUDED.origem, destino = EXCLUDED.destino,
+                    origem_lat = EXCLUDED.origem_lat, origem_lng = EXCLUDED.origem_lng,
+                    destino_lat = EXCLUDED.destino_lat, destino_lng = EXCLUDED.destino_lng,
+                    tomador = EXCLUDED.tomador, motorista = EXCLUDED.motorista,
+                    tipo_operacao = EXCLUDED.tipo_operacao, atualizado_em = NOW()
+            """, (_txt(r.get('manif'), 30), dt, cav, car,
+                  _txt(r.get('orig'), 80), _txt(r.get('dest'), 80),
+                  o[0] if o else None, o[1] if o else None,
+                  d[0] if d else None, d[1] if d else None,
+                  _txt(r.get('tom'), 160), _txt(r.get('mot'), 160),
+                  _txt((r.get('tipo') or '').upper(), 12)))
+            n += 1
+        # Fora da janela não serve mais e a tabela cresceria sem teto.
+        cur.execute("DELETE FROM pgr_manifestos WHERE data_ref < %s",
+                    (_date.today() - _td(days=dias * 2),))
+        conn.commit()
+        cur.close()
+    finally:
+        conn.close()
+    return n
+
+
 @app.route('/api/pgr/sync-cadastro', methods=['POST'])
 @admin_required
 def api_pgr_sync_cadastro():
     try:
         n = sincronizar_cadastro_pgr()
-        return jsonify({'ok': True, 'veiculos': n})
+        m = sincronizar_manifestos_pgr()
+        return jsonify({'ok': True, 'veiculos': n, 'manifestos': m})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
 
@@ -4927,7 +5026,8 @@ if __name__ == '__main__':
             while True:
                 try:
                     n = sincronizar_cadastro_pgr()
-                    print(f"✅ PGR: cadastro de veículos sincronizado ({n})")
+                    m = sincronizar_manifestos_pgr()
+                    print(f"✅ PGR: cadastro sincronizado ({n} veículos, {m} manifestos)")
                 except Exception as e:
                     # Falha aqui é macia: a apuração segue e o rótulo de tipo
                     # sai em branco. Não pode derrubar o processo.

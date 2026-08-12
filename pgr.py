@@ -233,6 +233,36 @@ def _posicoes_do_dia(cur, dia):
     return por_placa
 
 
+# ── Situação de carga (HANDOFF-PGR §8) ──────────────────────────────
+#
+# Casar o excesso com o manifesto POR DATA é frágil nos dois sentidos: estrito
+# perde viagem longa (o CTRC sai dias antes de o caminhão chegar), frouxo casa
+# 100% e mente. O risco real é dizer "a 105 carregado de Nestlé" quando o
+# caminhão já tinha descarregado.
+#
+# Então a prova é POSIÇÃO, com três testes:
+#   1. corredor — o ponto do excesso está entre origem e destino?
+#   2. sentido  — estava se aproximando do destino?
+#   3. janela   — o excesso é depois da emissão e dentro do prazo plausível?
+DESVIO_MAX = float(os.getenv('PGR_DESVIO_CORREDOR', '1.35'))   # (dO+dD)/dOD
+RAIO_CIDADE_KM = float(os.getenv('PGR_RAIO_CIDADE', '25'))     # "esteve na cidade"
+# Dias de posição carregados ANTES do dia do relatório, para provar a passagem
+# pela origem. Precisa ser generoso: viagem longa fica dias parada no meio do
+# caminho (o TZC0I41 carregou em 06/08 e só excedeu em 10/08).
+DIAS_LOOKBACK = int(os.getenv('PGR_DIAS_LOOKBACK', '12'))
+# Teto de sanidade para não casar manifesto antigo demais. NÃO é o critério —
+# quem decide é a posição.
+MAX_DIAS_MANIFESTO = int(os.getenv('PGR_MAX_DIAS_MANIFESTO', '20'))
+#
+# ⚠️ CALIBRAÇÃO PENDENTE. Os limiares acima vieram do estudo da sessão anterior,
+# que rodou sobre 10 dias de posição de produção. Não foi possível recalibrá-los
+# aqui: o banco de desenvolvimento só tem 1 dia backfillado, e com 1 dia o teste
+# "passou pela origem" fica fraco justamente onde mais importa — Uberlândia é a
+# base, quase todo veículo passa por lá, então manifestos com origem Uberlândia
+# casam fácil demais. Refazer a comparação contra o layout aprovado depois do
+# reprocessamento de produção, e considerar reativar o teste de SENTIDO
+# (aproximando do destino) como guarda extra se aparecer falso positivo.
+
 IDADE_MAX_CADASTRO_DIAS = 3
 
 
@@ -262,6 +292,150 @@ def cadastro_do_cache(cur):
             for r in linhas}
 
 
+def _cortar(v, n):
+    """Corta no tamanho da coluna de pgr_eventos, que é menor que a do cache —
+    razão social longa do Winthor derrubaria a apuração inteira."""
+    s = (str(v).strip() if v is not None else '')
+    return s[:n] or None
+
+
+def _manifestos_candidatos(cur, placas_norm, dia):
+    """placa_norm → manifestos que podem cobrir um excesso do dia.
+
+    Busca por cavalo OU carreta: o rastreador está numa das duas, e a placa do
+    evento pode aparecer em qualquer dos dois campos.
+    """
+    if not placas_norm:
+        return {}
+    cur.execute("""
+        SELECT placa_cavalo, placa_carreta, manifesto, data_ref, origem, destino,
+               origem_lat, origem_lng, destino_lat, destino_lng,
+               tomador, motorista, tipo_operacao
+        FROM pgr_manifestos
+        WHERE (placa_cavalo = ANY(%s) OR placa_carreta = ANY(%s))
+          AND data_ref BETWEEN %s - 25 AND %s + 1
+    """, (list(placas_norm), list(placas_norm), dia, dia))
+    idx = {}
+    for r in cur.fetchall():
+        m = {'manifesto': r[2], 'data_ref': r[3], 'origem': r[4], 'destino': r[5],
+             'o_lat': r[6], 'o_lng': r[7], 'd_lat': r[8], 'd_lng': r[9],
+             'tomador': r[10], 'motorista': r[11], 'tipo_operacao': r[12]}
+        for p in (r[0], r[1]):
+            if p:
+                idx.setdefault(p, []).append(m)
+    return idx
+
+
+def _esteve_em(pontos, lat, lng, ate):
+    """O veículo passou a menos de RAIO_CIDADE_KM deste ponto, antes de `ate`?"""
+    for p in pontos:
+        if p['data'] > ate or p['latitude'] is None:
+            continue
+        d = geocoding.km_entre(p['latitude'], p['longitude'], lat, lng)
+        if d is not None and d <= RAIO_CIDADE_KM:
+            return True
+    return False
+
+
+def _avaliar_manifesto(ep, man, historico):
+    """Os três testes do §8 — todos por POSIÇÃO. Devolve (ok, motivo, desvio).
+
+    Deliberadamente SEM janela por data: casar por data é frágil nos dois
+    sentidos, e o caso que prova isso é o TZC0I41 — carregou em Nerópolis
+    06/08, ficou 3 dias parado em Uberlândia e só excedeu em 10/08. Qualquer
+    limite de "dias plausíveis" rejeita essa viagem, que era legítima. A data
+    entra só como sanidade (o excesso não pode ser ANTES da emissão, e há um
+    teto para não casar manifesto antigo demais).
+    """
+    if man['o_lat'] is None or man['d_lat'] is None:
+        return False, 'sem centroide', None
+    O = (float(man['o_lat']), float(man['o_lng']))
+    D = (float(man['d_lat']), float(man['d_lng']))
+    pico = max(ep, key=lambda p: p['velocidade'])
+    if pico['latitude'] is None:
+        return False, 'evento sem posicao', None
+
+    # Sanidade de data (não é o critério: quem decide é a posição)
+    delta = (ep[0]['data'].date() - man['data_ref']).days
+    if delta < 0:
+        return False, f'evento antes da emissao ({delta}d)', None
+    if delta > MAX_DIAS_MANIFESTO:
+        return False, f'manifesto {delta}d antes (teto {MAX_DIAS_MANIFESTO}d)', None
+
+    # 1) corredor — o excesso está entre origem e destino?
+    dO = geocoding.km_entre(pico['latitude'], pico['longitude'], *O)
+    dD = geocoding.km_entre(pico['latitude'], pico['longitude'], *D)
+    dOD = geocoding.km_entre(O[0], O[1], D[0], D[1]) or 1
+    if dO is None or dD is None:
+        return False, 'sem distancia', None
+    desvio = (dO + dD) / dOD
+    if desvio > DESVIO_MAX:
+        return False, f'fora do corredor ({desvio:.2f}x)', desvio
+
+    # 2) passou pela ORIGEM antes do excesso? (é o que prova que pegou a carga)
+    if not _esteve_em(historico, O[0], O[1], ep[0]['data']):
+        return False, 'nao passou pela origem', desvio
+
+    # 3) e ainda NÃO tinha chegado no destino? (se chegou, já entregou)
+    if _esteve_em(historico, D[0], D[1], ep[0]['data']):
+        return False, 'ja tinha chegado no destino', desvio
+
+    return True, 'ok', desvio
+
+
+def _situacao_do_episodio(ep, historico, candidatos):
+    """Devolve (situacao, manifesto_casado|None)."""
+    if not candidatos:
+        return 'nao_confirmado', None
+
+    aceitos, ja_entregou = [], False
+    for man in candidatos:
+        ok, motivo, desvio = _avaliar_manifesto(ep, man, historico)
+        if ok:
+            aceitos.append((desvio if desvio is not None else 9, man))
+        elif motivo == 'ja tinha chegado no destino':
+            # Evidência positiva de vazio: passou pelo destino deste manifesto
+            # antes do excesso.
+            ja_entregou = True
+    if aceitos:
+        # o mais "reto" no corredor é o mais provável
+        return 'carregado', min(aceitos, key=lambda x: x[0])[1]
+    # Sem prova, fica "não confirmado". Dizer "vazio" sem evidência é o mesmo
+    # erro de dizer "carregado" sem evidência, só na direção oposta.
+    return ('vazio' if ja_entregou else 'nao_confirmado'), None
+
+
+def _historico_lookback(cur, placas_alvo, dia):
+    """placa → posições dos DIAS ANTERIORES + o dia, para provar origem/destino.
+
+    Amostra 1 ponto a cada 15 min: para saber se o veículo passou por uma
+    cidade não é preciso a série inteira, e carregar 12 dias de todas as placas
+    na densidade cheia seria caro à toa (~676 pontos/veículo/dia).
+    """
+    if not placas_alvo:
+        return {}
+    ini, fim = janela_utc_do_dia(dia)
+    cur.execute("""
+        SELECT DISTINCT ON (placa, date_trunc('hour', data_posicao),
+                            (EXTRACT(MINUTE FROM data_posicao)::int / 15))
+               placa, data_posicao, latitude, longitude
+        FROM embarques_posicoes_historico
+        WHERE placa = ANY(%s) AND data_posicao >= %s AND data_posicao < %s
+        ORDER BY placa, date_trunc('hour', data_posicao),
+                 (EXTRACT(MINUTE FROM data_posicao)::int / 15), data_posicao
+    """, (list(placas_alvo), ini - timedelta(days=DIAS_LOOKBACK), fim))
+    out = {}
+    for placa, data, lat, lng in cur.fetchall():
+        out.setdefault(placa, []).append({
+            'data': data,
+            'latitude': float(lat) if lat is not None else None,
+            'longitude': float(lng) if lng is not None else None,
+        })
+    for v in out.values():
+        v.sort(key=lambda p: p['data'])
+    return out
+
+
 def apurar_dia(cur, dia, cadastro=None):
     """Apura um dia de Brasília e grava pgr_eventos + pgr_cobertura.
 
@@ -276,18 +450,36 @@ def apurar_dia(cur, dia, cadastro=None):
     por_placa = _posicoes_do_dia(cur, dia)
     n_ev = 0
 
+    # Só as placas que de fato excederam precisam de manifesto e de histórico.
+    placas_excesso = [p for p, pts in por_placa.items() if agrupar_episodios(pts)]
+    com_excesso = {placas.mercosul(p) for p in placas_excesso}
+    manifestos = _manifestos_candidatos(cur, com_excesso, dia)
+    if com_excesso and not manifestos:
+        _logger.warning('PGR: nenhum manifesto em cache — situação de carga sairá '
+                        '"não confirmado". Rodar POST /api/pgr/sync-cadastro.')
+    # Os testes de origem/destino precisam dos dias ANTERIORES: a carga pode ter
+    # sido pega uma semana antes do excesso.
+    historico = _historico_lookback(cur, placas_excesso, dia)
+
     for placa, pontos in sorted(por_placa.items()):
         # A placa do GPS pode vir na grafia antiga; o cache é chaveado em
         # Mercosul (as duas grafias do mesmo veículo colapsam numa chave só).
-        cad = cadastro.get(placas.mercosul(placa)) or cadastro.get(placa) or {}
+        pnorm = placas.mercosul(placa)
+        cad = cadastro.get(pnorm) or cadastro.get(placa) or {}
+        cands = manifestos.get(pnorm, [])
+        hist = historico.get(placa) or pontos
         for ep in agrupar_episodios(pontos):
             r = resumir_episodio(ep, pontos)
+            r['situacao_carga'], man = _situacao_do_episodio(ep, hist, cands)
+            r['manifesto'] = man
+            m = r['manifesto'] or {}
             cur.execute("""
                 INSERT INTO pgr_eventos (
                     dia, placa, tipo_veiculo, tipo_operacao, ini, fim, registros,
                     vel_max, vel_sustentada, sustentado, cidade, uf, endereco,
-                    latitude, longitude, situacao_carga, apurado_em
-                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+                    latitude, longitude, situacao_carga, manifesto, tomador,
+                    origem, destino, motorista, apurado_em
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
                 ON CONFLICT (placa, ini) DO UPDATE SET
                     dia = EXCLUDED.dia,
                     tipo_veiculo = EXCLUDED.tipo_veiculo,
@@ -302,11 +494,20 @@ def apurar_dia(cur, dia, cadastro=None):
                     endereco = EXCLUDED.endereco,
                     latitude = EXCLUDED.latitude,
                     longitude = EXCLUDED.longitude,
+                    situacao_carga = EXCLUDED.situacao_carga,
+                    manifesto = EXCLUDED.manifesto,
+                    tomador = EXCLUDED.tomador,
+                    origem = EXCLUDED.origem,
+                    destino = EXCLUDED.destino,
+                    motorista = EXCLUDED.motorista,
                     apurado_em = NOW()
-            """, (dia, placa, cad.get('tipo_veiculo'), cad.get('tipo_operacao'),
+            """, (dia, placa, cad.get('tipo_veiculo'), m.get('tipo_operacao'),
                   r['ini'], r['fim'], r['registros'], r['vel_max'], r['vel_sustentada'],
                   r['sustentado'], r['cidade'], r['uf'], r['endereco'],
-                  r['latitude'], r['longitude'], 'nao_confirmado'))
+                  r['latitude'], r['longitude'], r['situacao_carga'],
+                  _cortar(m.get('manifesto'), 20), _cortar(m.get('tomador'), 120),
+                  _cortar(m.get('origem'), 60), _cortar(m.get('destino'), 60),
+                  _cortar(m.get('motorista'), 120)))
             n_ev += 1
 
         c = resumir_cobertura(pontos)
@@ -350,7 +551,10 @@ def _situacao_consolidada(situacoes):
         return 'nao_confirmado'
     if len(s) == 1:
         return s.pop()
-    if s <= {'carregado', 'vazio', 'parcial'}:
+    # Basta UM episódio provado com carga para a placa ter rodado carregada em
+    # parte do dia. Rotular a placa inteira de "não confirmado" nesse caso
+    # jogaria fora prova que temos; o detalhe por episódio fica na página.
+    if 'carregado' in s:
         return 'parcial'
     return 'nao_confirmado'
 
