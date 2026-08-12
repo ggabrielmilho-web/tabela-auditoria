@@ -913,6 +913,22 @@ def _apurar_pgr(dia):
             raise
         finally:
             cur.close()
+
+        # Passo 3, em transação separada: uma falha no envio não pode desfazer
+        # a apuração já gravada.
+        try:
+            import pgr_envio
+            cur = conn.cursor()
+            try:
+                pgr_envio.enviar_relatorio(cur, dia)
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                cur.close()
+        except Exception as e:
+            _logger.exception(f'Falha ao enviar PGR de {dia:%d/%m/%Y}: {e}')
     except Exception as e:
         _logger.exception(f'Falha ao apurar PGR de {dia:%d/%m/%Y}: {e}')
     finally:

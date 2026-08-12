@@ -452,6 +452,21 @@ def criar_token(cur, dia, validade_dias=7):
     return token
 
 
+def token_do_dia(cur, dia, validade_dias=7):
+    """Token válido do dia, reaproveitando se já existir.
+
+    Sem isto, cada reenvio (ou reprocessamento) criaria um token novo e a
+    tabela viraria depósito de links órfãos ainda válidos.
+    """
+    cur.execute("""SELECT token FROM pgr_tokens
+                   WHERE dia = %s AND expira_em > NOW() + interval '1 day'
+                   ORDER BY criado_em DESC LIMIT 1""", (dia,))
+    r = cur.fetchone()
+    if r:
+        return r[0]
+    return criar_token(cur, dia, validade_dias)
+
+
 def validar_token(cur, token, dia=None):
     """Devolve o dia do token se válido; None se inexistente/expirado.
 
