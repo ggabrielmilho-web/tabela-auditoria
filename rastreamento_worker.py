@@ -876,7 +876,10 @@ def backfill_dia(dia):
             finally:
                 cur.close()
             total += n
-            _logger.debug(f'  {placa}: {len(pontos)} pontos, {n} novos')
+            # INFO, não DEBUG: num job de ~16 min o silêncio no log é
+            # indistinguível de travamento, e foi o que levou a disparar o
+            # backfill várias vezes achando que o anterior tinha morrido.
+            _logger.info(f'  [{i + 1}/{len(veiculos)}] {placa}: {len(pontos)} pontos, {n} novos')
         except Exception as e:
             falhas += 1
             _logger.warning(f'  {placa}: falha no backfill — {e}')
