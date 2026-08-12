@@ -151,9 +151,15 @@ function linha(l) {
   const op = (l.tipo_operacao || '').toLowerCase();
   // Contexto do manifesto ainda não é apurado — mostra "—" para o layout já
   // nascer com o lugar do dado, e a chegada do motor ser só preencher.
-  const ctx = l.tomador
-    ? `${esc(l.tomador)} · ${esc([l.origem, l.destino].filter(Boolean).join(' → '))}`
-    : '—';
+  // Em "vazio" o manifesto guardado é o que o veículo ACABOU de entregar — daí
+  // sai o frota/agregado da linha e o contexto útil ("entregou em X").
+  let ctx = '—';
+  if (l.tomador && l.situacao_carga === 'vazio') {
+    const q = l.entregue_em ? ` em ${l.entregue_em.slice(8,10)}/${l.entregue_em.slice(5,7)}` : '';
+    ctx = `${esc(l.tomador)} · entregou em ${esc(l.destino || '')}${q}`;
+  } else if (l.tomador) {
+    ctx = `${esc(l.tomador)} · ${esc([l.origem, l.destino].filter(Boolean).join(' → '))}`;
+  }
   const mot = l.motorista ? ` · <span class="mot">${esc(l.motorista)}</span>` : '';
   const selo = l.sustentado ? '<span class="sus">sustentado</span>' : '';
   return `<tr>
@@ -227,8 +233,6 @@ function rodape(d) {
        <b>Parcial</b> = parte dos episódios do dia com carga provada, parte não.
        <b>Não confirmado</b> = sem prova — não quer dizer vazio.</p>
     <p>Excesso com o veículo vazio continua sendo desvio de PGR — por isso permanece na lista.</p>
-    <p><b>Carreteiro não aparece nesta lista</b> — no carreteiro puro nem o cavalo nem a carreta são
-       da Rizza, então não há rastreador nosso a bordo. O relatório cobre frota e agregado.</p>
     <p style="color:#64748b">${d.totais.placas_monitoradas} veículo(s) com posição no dia.</p>
   </footer>`;
 }

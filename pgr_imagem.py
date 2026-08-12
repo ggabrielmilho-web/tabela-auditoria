@@ -127,12 +127,19 @@ def montar_html(dados):
         sub = (f'{abrev}' + (f' &#183; <span style="color:{cor_op}">{op}</span>' if op else ''))
 
         cor_sit, rot = _SITUACAO[l.get('situacao_carga', 'nao_confirmado')]
-        ctx = ''
         if l.get('tomador'):
-            rota = ' &#8594; '.join(x for x in (l.get('origem'), l.get('destino')) if x)
             ctx = f' &#183; {_escapar(l["tomador"])}'
-            if rota:
-                ctx += f' &#183; {_escapar(rota)}'
+            if l.get('situacao_carga') == 'vazio':
+                # O manifesto guardado no "vazio" é o que o veículo ACABOU de
+                # entregar — mostrar a rota inteira sugeriria que ainda está nela.
+                q = l.get('entregue_em')
+                ctx += f' &#183; entregou em {_escapar(l.get("destino") or "")}'
+                if q:
+                    ctx += f' em {q[8:10]}/{q[5:7]}'
+            else:
+                rota = ' &#8594; '.join(x for x in (l.get('origem'), l.get('destino')) if x)
+                if rota:
+                    ctx += f' &#183; {_escapar(rota)}'
             if l.get('motorista'):
                 ctx += f' &#183; {_escapar(l["motorista"])}'
         else:

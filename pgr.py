@@ -327,14 +327,17 @@ def _manifestos_candidatos(cur, placas_norm, dia):
 
 
 def _esteve_em(pontos, lat, lng, ate):
-    """O veículo passou a menos de RAIO_CIDADE_KM deste ponto, antes de `ate`?"""
+    """Quando o veículo esteve por último a menos de RAIO_CIDADE_KM daqui,
+    antes de `ate`. Devolve o datetime (falsy quando nunca esteve), para servir
+    tanto de teste quanto de data da entrega."""
+    quando = None
     for p in pontos:
         if p['data'] > ate or p['latitude'] is None:
             continue
         d = geocoding.km_entre(p['latitude'], p['longitude'], lat, lng)
         if d is not None and d <= RAIO_CIDADE_KM:
-            return True
-    return False
+            quando = p['data']
+    return quando
 
 
 def _avaliar_manifesto(ep, man, historico):
@@ -377,32 +380,39 @@ def _avaliar_manifesto(ep, man, historico):
         return False, 'nao passou pela origem', desvio
 
     # 3) e ainda NÃO tinha chegado no destino? (se chegou, já entregou)
-    if _esteve_em(historico, D[0], D[1], ep[0]['data']):
-        return False, 'ja tinha chegado no destino', desvio
+    entregue_em = _esteve_em(historico, D[0], D[1], ep[0]['data'])
+    if entregue_em:
+        return False, 'ja tinha chegado no destino', entregue_em
 
     return True, 'ok', desvio
 
 
 def _situacao_do_episodio(ep, historico, candidatos):
-    """Devolve (situacao, manifesto_casado|None)."""
+    """Devolve (situacao, manifesto|None, entregue_em|None)."""
     if not candidatos:
-        return 'nao_confirmado', None
+        return 'nao_confirmado', None, None
 
-    aceitos, ja_entregou = [], False
+    aceitos, entregues = [], []
     for man in candidatos:
-        ok, motivo, desvio = _avaliar_manifesto(ep, man, historico)
+        ok, motivo, extra = _avaliar_manifesto(ep, man, historico)
         if ok:
-            aceitos.append((desvio if desvio is not None else 9, man))
+            aceitos.append((extra if extra is not None else 9, man))
         elif motivo == 'ja tinha chegado no destino':
             # Evidência positiva de vazio: passou pelo destino deste manifesto
-            # antes do excesso.
-            ja_entregou = True
+            # antes do excesso. `extra` é QUANDO passou.
+            entregues.append((extra, man))
     if aceitos:
         # o mais "reto" no corredor é o mais provável
-        return 'carregado', min(aceitos, key=lambda x: x[0])[1]
+        return 'carregado', min(aceitos, key=lambda x: x[0])[1], None
+    if entregues:
+        # A viagem que acabou de terminar é a mais recente. Guardá-la não é
+        # detalhe: é dela que sai o frota/agregado (propriedade da VIAGEM), e é
+        # o que permite dizer "entregou em X em DD/MM" em vez de só "vazio".
+        quando, man = max(entregues, key=lambda x: x[0])
+        return 'vazio', man, quando
     # Sem prova, fica "não confirmado". Dizer "vazio" sem evidência é o mesmo
     # erro de dizer "carregado" sem evidência, só na direção oposta.
-    return ('vazio' if ja_entregou else 'nao_confirmado'), None
+    return 'nao_confirmado', None, None
 
 
 def _historico_lookback(cur, placas_alvo, dia):
@@ -470,16 +480,17 @@ def apurar_dia(cur, dia, cadastro=None):
         hist = historico.get(placa) or pontos
         for ep in agrupar_episodios(pontos):
             r = resumir_episodio(ep, pontos)
-            r['situacao_carga'], man = _situacao_do_episodio(ep, hist, cands)
+            r['situacao_carga'], man, entregue = _situacao_do_episodio(ep, hist, cands)
             r['manifesto'] = man
+            r['entregue_em'] = _utc_para_brt(entregue) if entregue else None
             m = r['manifesto'] or {}
             cur.execute("""
                 INSERT INTO pgr_eventos (
                     dia, placa, tipo_veiculo, tipo_operacao, ini, fim, registros,
                     vel_max, vel_sustentada, sustentado, cidade, uf, endereco,
                     latitude, longitude, situacao_carga, manifesto, tomador,
-                    origem, destino, motorista, apurado_em
-                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+                    origem, destino, motorista, entregue_em, apurado_em
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
                 ON CONFLICT (placa, ini) DO UPDATE SET
                     dia = EXCLUDED.dia,
                     tipo_veiculo = EXCLUDED.tipo_veiculo,
@@ -500,6 +511,7 @@ def apurar_dia(cur, dia, cadastro=None):
                     origem = EXCLUDED.origem,
                     destino = EXCLUDED.destino,
                     motorista = EXCLUDED.motorista,
+                    entregue_em = EXCLUDED.entregue_em,
                     apurado_em = NOW()
             """, (dia, placa, cad.get('tipo_veiculo'), m.get('tipo_operacao'),
                   r['ini'], r['fim'], r['registros'], r['vel_max'], r['vel_sustentada'],
@@ -507,7 +519,7 @@ def apurar_dia(cur, dia, cadastro=None):
                   r['latitude'], r['longitude'], r['situacao_carga'],
                   _cortar(m.get('manifesto'), 20), _cortar(m.get('tomador'), 120),
                   _cortar(m.get('origem'), 60), _cortar(m.get('destino'), 60),
-                  _cortar(m.get('motorista'), 120)))
+                  _cortar(m.get('motorista'), 120), r.get('entregue_em')))
             n_ev += 1
 
         c = resumir_cobertura(pontos)
@@ -648,12 +660,13 @@ def listar_dia(cur, dia):
     cur.execute("""
         SELECT placa, tipo_veiculo, tipo_operacao, ini, fim, registros, vel_max,
                vel_sustentada, sustentado, cidade, uf, endereco, situacao_carga,
-               manifesto, tomador, origem, destino, motorista
+               manifesto, tomador, origem, destino, motorista, entregue_em
         FROM pgr_eventos WHERE dia = %s ORDER BY placa, ini
     """, (dia,))
     cols = ('placa', 'tipo_veiculo', 'tipo_operacao', 'ini', 'fim', 'registros',
             'vel_max', 'vel_sustentada', 'sustentado', 'cidade', 'uf', 'endereco',
-            'situacao_carga', 'manifesto', 'tomador', 'origem', 'destino', 'motorista')
+            'situacao_carga', 'manifesto', 'tomador', 'origem', 'destino', 'motorista',
+            'entregue_em')
     eventos = [dict(zip(cols, r)) for r in cur.fetchall()]
 
     cur.execute("""
@@ -671,7 +684,7 @@ def listar_dia(cur, dia):
             'tipo_operacao': e['tipo_operacao'], 'registros': 0, 'pico': 0,
             'sustentado': False, 'cidades': [], 'situacoes': [], 'episodios': [],
             'tomador': None, 'origem': None, 'destino': None,
-            'motorista': None, 'manifesto': None,
+            'motorista': None, 'manifesto': None, 'entregue_em': None,
         })
         # O contexto da placa vem de um episódio que TENHA manifesto, não do
         # primeiro em ordem cronológica: numa placa "parcial", o primeiro
@@ -679,7 +692,8 @@ def listar_dia(cur, dia):
         # havendo carga provada no resto do dia.
         if e['tomador'] and not p['tomador']:
             p.update({k: e[k] for k in
-                      ('tomador', 'origem', 'destino', 'motorista', 'manifesto')})
+                      ('tomador', 'origem', 'destino', 'motorista', 'manifesto',
+                       'entregue_em')})
         if e['tipo_operacao'] and not p['tipo_operacao']:
             p['tipo_operacao'] = e['tipo_operacao']
         p['registros'] += e['registros'] or 0

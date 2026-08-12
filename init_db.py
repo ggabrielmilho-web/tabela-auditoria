@@ -410,6 +410,11 @@ cur.execute("""
         UNIQUE (placa, ini)
     );
 """)
+# Quando o veículo passou pelo destino do manifesto — é o que prova o "vazio".
+# Guardar o manifesto entregue (em vez de descartá-lo) é o que dá o
+# frota/agregado nessas linhas: tipo_operacao é propriedade da VIAGEM, e a
+# viagem que acabou de terminar é a que identifica o veículo naquele dia.
+cur.execute("ALTER TABLE pgr_eventos ADD COLUMN IF NOT EXISTS entregue_em TIMESTAMP;")
 cur.execute("CREATE INDEX IF NOT EXISTS ix_pgr_eventos_dia ON pgr_eventos (dia);")
 cur.execute("CREATE INDEX IF NOT EXISTS ix_pgr_eventos_placa ON pgr_eventos (placa, dia);")
 
