@@ -228,7 +228,8 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 | `RASTREAMENTO_RECONSTRUCAO_DIAS` | Teto p/ trás na detecção da saída da origem (`inicio_viagem`) | `15` |
 | `KM_DIA_PADRAO` | Km/dia usado na ETA realista | `600` |
 | `BACKFILL_HISTORICO` | Liga o backfill diário do histórico da 3S | `true` |
-| `BACKFILL_HORA_UTC` | Hora (UTC) do job diário — 04 = 01:00 BRT | `4` |
+| `PGR_HORA_BRT` | Horário do job diário em **Brasília** (`HH:MM`) | `06:35` |
+| `PGR_JANELA_DISPARO_MIN` | Tolerância p/ disparar após o horário (restart) | `30` |
 | `BACKFILL_ESPACO_SEG` | Segundos entre chamadas do backfill (~6/min) | `10` |
 
 ### PGR (relatório de excesso de velocidade)

@@ -761,8 +761,14 @@ def _deve_rodar_retencao():
 # saída/entrega); o backfill é o registro histórico, base do PGR.
 
 BACKFILL_ATIVO = os.getenv('BACKFILL_HISTORICO', 'true').lower() == 'true'
-BACKFILL_HORA_UTC = int(os.getenv('BACKFILL_HORA_UTC', '4'))      # 04:00 UTC = 01:00 BRT
 BACKFILL_ESPACO_SEG = float(os.getenv('BACKFILL_ESPACO_SEG', '10'))  # ~6/min
+
+# Horário do job diário em BRASÍLIA (HH:MM). Antes era hora cheia em UTC, o que
+# ninguém consegue conferir de cabeça — o default de 4 valia 01:00 da manhã.
+PGR_HORA_BRT = os.getenv('PGR_HORA_BRT', '06:35')
+# Tolerância: se o contêiner estiver reiniciando na hora exata, ainda dispara
+# dentro desta janela. Sem ela, um restart às 06:36 pularia o dia inteiro.
+JANELA_DISPARO_MIN = int(os.getenv('PGR_JANELA_DISPARO_MIN', '30'))
 
 _ultimo_backfill_dia = None
 
@@ -958,23 +964,48 @@ def _apurar_pgr(dia):
         conn.close()
 
 
+def _hora_agendada():
+    """PGR_HORA_BRT → (hora, minuto). Formato inválido cai no default."""
+    try:
+        h, m = PGR_HORA_BRT.strip().split(':')
+        h, m = int(h), int(m)
+        if 0 <= h <= 23 and 0 <= m <= 59:
+            return h, m
+    except (ValueError, AttributeError):
+        pass
+    _logger.warning(f'PGR_HORA_BRT inválido ({PGR_HORA_BRT!r}) — usando 06:35')
+    return 6, 35
+
+
 def _loop_backfill():
-    """Dispara o backfill 1×/dia, na hora configurada, para o dia BRT que fechou."""
+    """Job diário: backfill → apuração → envio, no horário de Brasília.
+
+    A ordem não pode inverter (apurar antes do backfill entrega ~81% de
+    cobertura em vez de 100%), mas uma falha no backfill NÃO pode impedir a
+    apuração e o envio: o dia teria os dados do polling, incompletos porém
+    reais, e o silêncio é pior — quem recebe não distingue "ninguém correu" de
+    "o job caiu".
+    """
     global _ultimo_backfill_dia
-    _logger.info(f'Backfill agendado para {BACKFILL_HORA_UTC:02d}:00 UTC '
-                 f'(espaçamento {BACKFILL_ESPACO_SEG}s/chamada)')
+    hh, mm = _hora_agendada()
+    _logger.info(f'Job do PGR agendado para {hh:02d}:{mm:02d} (Brasília) '
+                 f'— espaçamento {BACKFILL_ESPACO_SEG}s/chamada')
     while _running:
         try:
-            agora = datetime.utcnow()
-            # Dia de Brasília D vai de 03:00 UTC de D a 03:00 UTC de D+1; à
-            # BACKFILL_HORA_UTC o último dia inteiramente fechado é o de ontem.
-            alvo = (agora - timedelta(hours=3)).date() - timedelta(days=1)
-            if agora.hour == BACKFILL_HORA_UTC and _ultimo_backfill_dia != alvo:
+            agora_brt = datetime.utcnow() - timedelta(hours=3)
+            alvo = agora_brt.date() - timedelta(days=1)   # o dia BRT que fechou
+            marcado = agora_brt.replace(hour=hh, minute=mm, second=0, microsecond=0)
+            atraso = (agora_brt - marcado).total_seconds() / 60
+            if 0 <= atraso < JANELA_DISPARO_MIN and _ultimo_backfill_dia != alvo:
                 _ultimo_backfill_dia = alvo
-                backfill_dia(alvo)
+                try:
+                    backfill_dia(alvo)
+                except Exception:
+                    _logger.exception('Backfill falhou — seguindo para a apuração '
+                                      'com o que houver')
                 _apurar_pgr(alvo)
         except Exception:
-            _logger.exception('Falha no loop de backfill')
+            _logger.exception('Falha no loop do job diário')
         for _ in range(60):
             if not _running:
                 break
