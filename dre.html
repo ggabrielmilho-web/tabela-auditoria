@@ -521,7 +521,7 @@
   <div id="graficosContainer" style="display:none;" class="graficos-grid">
     <div class="grafico-card">
       <h3>📊 Cascata da DRE (Waterfall)</h3>
-      <div class="grafico-canvas-wrap muito-alto" style="height: 440px;"><canvas id="chartWaterfall"></canvas></div>
+      <div class="grafico-canvas-wrap muito-alto" id="wrapWaterfall" style="height: 440px;"><canvas id="chartWaterfall"></canvas></div>
     </div>
 
     <div class="grafico-card">
@@ -1247,7 +1247,10 @@ async function renderGraficos(jsonDre) {
   // Waterfall desenha a cascata inteira — ou seja, subtrai despesa do mês cheio
   // da receita parcial. No modo fracionado o desenho seria falso, então sai do ar
   // com o motivo escrito no lugar (esconder calado é pior que não mostrar).
-  const wrapWf = document.querySelector('#chartWaterfall').parentElement;
+  // O wrapper é alcançado pelo id próprio, NUNCA pelo .parentElement do canvas:
+  // no modo fracionado o canvas é removido daqui, e na 2ª aplicação seguida
+  // a busca pelo filho devolveria null (quebrava a tela inteira).
+  const wrapWf = document.getElementById('wrapWaterfall');
   if (frac) {
     destroyChart('waterfall');
     wrapWf.innerHTML =
