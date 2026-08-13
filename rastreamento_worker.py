@@ -761,7 +761,9 @@ def _deve_rodar_retencao():
 # saída/entrega); o backfill é o registro histórico, base do PGR.
 
 BACKFILL_ATIVO = os.getenv('BACKFILL_HISTORICO', 'true').lower() == 'true'
-BACKFILL_ESPACO_SEG = float(os.getenv('BACKFILL_ESPACO_SEG', '10'))  # ~6/min
+# 12s ≈ 5/min. Com o polling (~1/min) e os logins no MESMO processo dividindo o
+# bucket de 8/min, 10s raspava o teto e derrubava chamadas.
+BACKFILL_ESPACO_SEG = float(os.getenv('BACKFILL_ESPACO_SEG', '12'))
 
 # Horário do job diário em BRASÍLIA (HH:MM). Antes era hora cheia em UTC, o que
 # ninguém consegue conferir de cabeça — o default de 4 valia 01:00 da manhã.
@@ -853,6 +855,27 @@ def _gravar_historico(cur, pontos):
     return inseridos, enriquecidos
 
 
+def _historico_com_retry(id_veiculo, placa, dt_ini, dt_fim, tentativas=3):
+    """Busca o histórico, esperando quando o bucket da 3S estoura.
+
+    O bucket de 8/min é POR PROCESSO e o polling vive no mesmo processo, então
+    backfill (~6/min) + ciclo (~1/min) + logins raspam o teto. Quando raspava,
+    o veículo era contado como falha e PULADO — perdendo o dia inteiro dele
+    (aconteceu com 5 placas em 12/08). Esperar e repetir custa segundos; pular
+    custa o dado.
+    """
+    for tentativa in range(tentativas):
+        try:
+            return tres_s_client.historico_posicao(id_veiculo, placa, dt_ini, dt_fim)
+        except tres_s_client.RateLimitExceeded as e:
+            if tentativa == tentativas - 1:
+                raise
+            espera = BACKFILL_ESPACO_SEG * (tentativa + 1)
+            _logger.info(f'  {placa}: cota cheia ({e}) — aguardando {espera:.0f}s')
+            time.sleep(espera)
+    return []
+
+
 def backfill_dia(dia):
     """Puxa /HistoricoPosicao de todos os veículos para um dia de Brasília.
 
@@ -888,7 +911,7 @@ def backfill_dia(dia):
         if i:
             time.sleep(BACKFILL_ESPACO_SEG)
         try:
-            pontos = tres_s_client.historico_posicao(idv, placa, dt_ini, dt_fim)
+            pontos = _historico_com_retry(idv, placa, dt_ini, dt_fim)
             cur = conn.cursor()
             try:
                 n, enriq = _gravar_historico(cur, pontos)

@@ -134,10 +134,9 @@ def montar_html(dados):
             if l.get('situacao_carga') == 'vazio':
                 # O manifesto guardado no "vazio" é o que o veículo ACABOU de
                 # entregar — mostrar a rota inteira sugeriria que ainda está nela.
-                q = l.get('entregue_em')
                 ctx += f' &#183; entregou em {_escapar(l.get("destino") or "")}'
-                if q:
-                    ctx += f' em {q[8:10]}/{q[5:7]}'
+                if l.get('entregue_em_br'):
+                    ctx += f' em {_escapar(l["entregue_em_br"])}'
             else:
                 rota = ' &#8594; '.join(x for x in (l.get('origem'), l.get('destino')) if x)
                 if rota:

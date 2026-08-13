@@ -177,7 +177,7 @@ function linha(l) {
   // sai o frota/agregado da linha e o contexto útil ("entregou em X").
   let ctx = '—';
   if (l.tomador && l.situacao_carga === 'vazio') {
-    const q = l.entregue_em ? ` em ${l.entregue_em.slice(8,10)}/${l.entregue_em.slice(5,7)}` : '';
+    const q = l.entregue_em_br ? ` em ${esc(l.entregue_em_br)}` : '';
     ctx = `${esc(l.tomador)} · entregou em ${esc(l.destino || '')}${q}`;
   } else if (l.tomador) {
     ctx = `${esc(l.tomador)} · ${esc([l.origem, l.destino].filter(Boolean).join(' → '))}`;

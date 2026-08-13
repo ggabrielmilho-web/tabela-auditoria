@@ -722,6 +722,14 @@ def listar_dia(cur, dia):
         p['motorista'] = nome_pessoa(p['motorista'])
         p['origem'] = cidade_uf_titulo(p['origem'])
         p['destino'] = cidade_uf_titulo(p['destino'])
+        # `entregue_em` sai do banco como datetime. Quem consome precisa só do
+        # "09/08", e cada consumidor formatando por conta própria já causou um
+        # bug em cada ponta: a imagem fatiava o datetime (TypeError) e o JS
+        # fatiava o que o jsonify vira ("Sat, 09 Aug 2026…" → "Au/09"). Sai
+        # daqui pronto, e o ISO fica para quem ler a API.
+        q = p['entregue_em']
+        p['entregue_em'] = q.isoformat(timespec='seconds') if q else None
+        p['entregue_em_br'] = q.strftime('%d/%m') if q else None
         del p['situacoes']
         linhas.append(p)
     # Por RECORRÊNCIA, não por gravidade — é a ordem do layout aprovado, e a

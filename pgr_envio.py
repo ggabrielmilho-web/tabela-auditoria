@@ -21,11 +21,13 @@ Variáveis de ambiente:
     UAZAPI_URL      https://<instancia>.uazapi.com
     UAZAPI_TOKEN    token da instância
     PGR_UAZAPI_TO   destinatário(s), separados por vírgula
+    PGR_INTERVALO_ENVIO_SEG  segundos entre um destinatário e o próximo (75)
     PGR_BASE_URL    https://rizza.carvalhoia.com  (base do link do relatório)
 """
 
 import os
 import re
+import time
 import base64
 import logging
 
@@ -43,6 +45,8 @@ DESTINATARIOS = os.getenv('PGR_UAZAPI_TO', '') or ''
 # falhava em silêncio — a mensagem saía sem link e nada no log gritava.
 BASE_URL = (os.getenv('PGR_BASE_URL') or os.getenv('PGR_URL') or '').rstrip('/')
 ENVIO_ATIVO = os.getenv('PGR_ENVIO', 'false').lower() == 'true'
+# Intervalo entre um destinatário e o próximo.
+INTERVALO_ENVIO_SEG = float(os.getenv('PGR_INTERVALO_ENVIO_SEG', '75'))
 
 TIMEOUT = 30
 
@@ -157,11 +161,18 @@ def enviar_relatorio(cur, dia):
     legenda = montar_legenda(dados, url, ocultas)
 
     ok = 0
-    for numero in _numeros():
+    numeros = _numeros()
+    for i, numero in enumerate(numeros):
+        # Espaçamento entre destinatários: disparo em rajada para vários
+        # números é o padrão que a UazAPI trata como suspeito. O helper da
+        # Rizza já deixava o intervalo por conta do chamador.
+        if i:
+            _logger.info(f'PGR: aguardando {INTERVALO_ENVIO_SEG:.0f}s até o próximo destinatário')
+            time.sleep(INTERVALO_ENVIO_SEG)
         # Sem retry, por política: reenviar em falha é risco de banimento.
         if enviar_imagem(numero, png, caption=legenda):
             ok += 1
-            _logger.info(f'PGR {dia:%d/%m}: enviado para {numero}')
+            _logger.info(f'PGR {dia:%d/%m}: enviado para {numero} ({i + 1}/{len(numeros)})')
         else:
             _logger.warning(f'PGR {dia:%d/%m}: FALHA no envio para {numero}')
     return ok
