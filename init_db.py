@@ -415,6 +415,13 @@ cur.execute("""
 # frota/agregado nessas linhas: tipo_operacao é propriedade da VIAGEM, e a
 # viagem que acabou de terminar é a que identifica o veículo naquele dia.
 cur.execute("ALTER TABLE pgr_eventos ADD COLUMN IF NOT EXISTS entregue_em TIMESTAMP;")
+# O par da viagem, vindo do manifesto casado. `placa` é só quem carregava o
+# rastreador (quase sempre a carreta); sem o par não dá para filtrar por cavalo,
+# porque o cavalo raramente é a placa do evento.
+cur.execute("ALTER TABLE pgr_eventos ADD COLUMN IF NOT EXISTS placa_cavalo VARCHAR(10);")
+cur.execute("ALTER TABLE pgr_eventos ADD COLUMN IF NOT EXISTS placa_carreta VARCHAR(10);")
+cur.execute("CREATE INDEX IF NOT EXISTS ix_pgr_eventos_cav ON pgr_eventos (placa_cavalo);")
+cur.execute("CREATE INDEX IF NOT EXISTS ix_pgr_eventos_car ON pgr_eventos (placa_carreta);")
 cur.execute("CREATE INDEX IF NOT EXISTS ix_pgr_eventos_dia ON pgr_eventos (dia);")
 cur.execute("CREATE INDEX IF NOT EXISTS ix_pgr_eventos_placa ON pgr_eventos (placa, dia);")
 

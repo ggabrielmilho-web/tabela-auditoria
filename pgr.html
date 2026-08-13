@@ -38,6 +38,49 @@
         padding:4px 9px; text-decoration:none; }
   .nav a.btn-sm:hover { color:var(--text); border-color:var(--accent); }
   .nav a.btn-sm.active { color:var(--accent); border-color:var(--accent); }
+  .nav .sep { width:1px; height:20px; background:var(--border); margin:0 2px; }
+  .filtro { font-family:var(--mono); font-size:.68rem; background:var(--surface); color:var(--text-dim);
+        border:1px solid var(--border); border-radius:5px; padding:4px 6px; max-width:150px; }
+  .filtro:hover { border-color:var(--accent); }
+  .filtro.on { color:var(--accent); border-color:var(--accent); }
+
+  /* Seletor de mês — mesmo componente da aba Veículos, para a interação ser a
+     mesma em todo o app (caixinhas + Aplicar). */
+  .mespicker { position:relative; display:inline-block; }
+  .mes-btn { font-family:var(--mono); font-size:.68rem; color:var(--text-dim); background:var(--surface);
+        border:1px solid var(--border); border-radius:5px; padding:4px 9px; cursor:pointer; min-width:96px; text-align:left; }
+  .mes-btn:hover { border-color:var(--accent2); }
+  .mes-btn.on { color:var(--accent); border-color:var(--accent); }
+  .mes-btn::after { content:'▾'; float:right; color:var(--text-dim); margin-left:8px; }
+  .mes-pop { position:absolute; top:calc(100% + 6px); left:0; z-index:50; width:244px; display:none;
+        background:var(--surface2); border:1px solid var(--border); border-radius:10px; padding:12px;
+        box-shadow:0 14px 36px rgba(0,0,0,.55); }
+  .mes-pop.open { display:block; }
+  .mes-pop-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;
+        font-weight:700; font-size:.9rem; }
+  .mes-pop-head button { width:28px; height:28px; background:var(--surface); border:1px solid var(--border);
+        border-radius:6px; color:var(--text); cursor:pointer; font-size:1rem; line-height:1; }
+  .mes-pop-head button:hover { border-color:var(--accent); color:var(--accent); }
+  .mes-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; }
+  .mes-cell { padding:9px 0; text-align:center; border-radius:7px; background:var(--surface);
+        border:1px solid var(--border); color:var(--text-dim); font-size:.78rem; font-weight:600;
+        cursor:pointer; text-transform:capitalize; user-select:none; }
+  .mes-cell:hover { border-color:var(--accent2); color:var(--text); }
+  .mes-cell.sel { background:var(--accent); border-color:var(--accent); color:#0a0e17; }
+  /* Mês sem dia apurado não é clicável: a base começou agora, e oferecer um mês
+     vazio faria a tela parecer quebrada. */
+  .mes-cell.off { opacity:.28; cursor:not-allowed; }
+  .mes-cell.off:hover { border-color:var(--border); color:var(--text-dim); }
+  .mes-pop-foot { display:flex; justify-content:space-between; margin-top:12px; }
+  .mes-pop-foot button { background:none; border:none; color:var(--accent); font-weight:700;
+        font-size:.8rem; cursor:pointer; padding:2px 4px; }
+
+  .dia-head { display:flex; align-items:baseline; gap:10px; margin:18px 0 4px; padding-top:10px;
+        border-top:1px solid var(--border); }
+  .dia-head:first-child { margin-top:0; border-top:none; padding-top:0; }
+  .dia-head h2 { font-family:var(--mono); font-size:.82rem; font-weight:500; color:var(--accent); }
+  .dia-head .resumo { font-size:.66rem; color:var(--text-dim); }
+  .nota { font-size:.66rem; color:var(--text-dim); margin-bottom:10px; }
   .nav a, .nav button { font-family:var(--mono); font-size:.68rem; color:var(--text-dim);
         background:var(--surface); border:1px solid var(--border); border-radius:5px;
         padding:4px 9px; text-decoration:none; cursor:pointer; }
@@ -129,6 +172,26 @@
       <button id="ant">‹ dia anterior</button>
       <input type="date" id="data">
       <button id="prox">dia seguinte ›</button>
+      <span class="sep"></span>
+      <div class="mespicker">
+        <button class="mes-btn" id="mesBtn" onclick="toggleMesPop(event)">Mês</button>
+        <div class="mes-pop" id="mesPop" onclick="event.stopPropagation()">
+          <div class="mes-pop-head">
+            <button type="button" onclick="mudaAno(-1)">‹</button>
+            <span id="mesAno"></span>
+            <button type="button" onclick="mudaAno(1)">›</button>
+          </div>
+          <div class="mes-grid" id="mesGrid"></div>
+          <div class="mes-pop-foot">
+            <button type="button" onclick="limparMeses()">Limpar</button>
+            <button type="button" onclick="aplicarMeses()">Aplicar</button>
+          </div>
+        </div>
+      </div>
+      <select id="fCavalo" class="filtro"><option value="">cavalo</option></select>
+      <select id="fCarreta" class="filtro"><option value="">carreta</option></select>
+      <select id="fMotorista" class="filtro"><option value="">motorista</option></select>
+      <button id="limpaFiltro" hidden>limpar filtros</button>
     </div>
     <!-- Menu do app. O nav-perms.js só injeta se /api/me responder ok, e ela é
          @login_required — então quem abre pelo link com token não recebe menu
@@ -171,8 +234,6 @@ function linha(l) {
   const tipo = (l.tipo_veiculo || '').toUpperCase();
   const abrev = {CARRETA:'car', CAVALO:'cav', TRUCK:'trk'}[tipo] || (tipo ? tipo.toLowerCase().slice(0,3) : '');
   const op = (l.tipo_operacao || '').toLowerCase();
-  // Contexto do manifesto ainda não é apurado — mostra "—" para o layout já
-  // nascer com o lugar do dado, e a chegada do motor ser só preencher.
   // Em "vazio" o manifesto guardado é o que o veículo ACABOU de entregar — daí
   // sai o frota/agregado da linha e o contexto útil ("entregou em X").
   let ctx = '—';
@@ -182,6 +243,14 @@ function linha(l) {
   } else if (l.tomador) {
     ctx = `${esc(l.tomador)} · ${esc([l.origem, l.destino].filter(Boolean).join(' → '))}`;
   }
+  // O cavalo do par entra quando a placa da linha não é ele — o rastreador
+  // costuma estar na carreta, então sem isto o cavalo (e o responsável pela
+  // condução) some do relatório.
+  const pnorm = (p) => (p || '').toUpperCase();
+  let par = '';
+  if (l.placa_cavalo && pnorm(l.placa_cavalo) !== pnorm(l.placa) && tipo !== 'CAVALO') {
+    par = ` · <span class="mot">cavalo ${esc(l.placa_cavalo)}</span>`;
+  }
   const mot = l.motorista ? ` · <span class="mot">${esc(l.motorista)}</span>` : '';
   const selo = l.sustentado ? '<span class="sus">sustentado</span>' : '';
   return `<tr>
@@ -190,24 +259,34 @@ function linha(l) {
     <td class="c-reg">${l.registros}<i>×</i></td>
     <td class="c-pico ${sev(l.pico)}">${l.pico}</td>
     <td class="c-det">
-      <div class="lin1"><span class="dot d-${l.situacao_carga}"></span><b>${esc(l.situacao_rotulo)}</b> · ${ctx}${mot}${selo}</div>
+      <div class="lin1"><span class="dot d-${l.situacao_carga}"></span><b>${esc(l.situacao_rotulo)}</b> · ${ctx}${par}${mot}${selo}</div>
       <div class="lin2">${marcaUF(l.cidades.map(esc).join(', '))}</div>
     </td>
   </tr>`;
 }
 
+const CABECALHO = `<thead><tr><th>Placa</th><th class="r">Reg</th>
+  <th class="r" style="padding-right:12px">Pico</th><th>Situação e trechos</th></tr></thead>`;
+
+function tabela(linhas) {
+  return `<table>${CABECALHO}<tbody>${linhas.map(linha).join('')}</tbody></table>`;
+}
+
+function brData(iso) { const [a,m,d] = iso.split('-'); return `${d}/${m}/${a}`; }
+
 function render(d) {
   const t = d.totais;
-  const [a, m, dd] = d.dia.split('-');
-  const dataBr = `${dd}/${m}/${a}`;
+  const periodo = d.modo === 'periodo';
   $('titulo').textContent = `Excessos acima de ${d.limiar} km/h`;
-  $('subtitulo').textContent = `${dataBr} · horário de Brasília`;
-  document.title = `PGR · Excessos — ${dataBr}`;
 
-  if (!d.linhas.length) {
-    $('conteudo').innerHTML = `<div class="vazio-msg"><b>Nenhum excesso registrado</b>
-      ${t.placas_monitoradas} veículo(s) monitorado(s) no dia.</div>` + rodape(d);
-    return;
+  if (periodo) {
+    const nomes = (d.meses || []).map(m => MES_CURTO[+m.split('-')[1] - 1] + '/' + m.split('-')[0]);
+    $('subtitulo').textContent = `${nomes.join(' · ')} · horário de Brasília`;
+    document.title = `PGR · ${nomes.join(' ')}`;
+  } else {
+    const dia = d.dias[0] ? d.dias[0].dia : '';
+    $('subtitulo').textContent = `${brData(dia)} · horário de Brasília`;
+    document.title = `PGR · Excessos — ${brData(dia)}`;
   }
 
   const kpis = `<div class="kpis">
@@ -219,28 +298,50 @@ function render(d) {
       <span class="v op-agregado" style="margin-left:8px">${op(t.agregado)}</span><span class="l">agregado</span></div>
   </div>`;
 
-  const tabela = `<table>
-    <thead><tr><th>Placa</th><th class="r">Reg</th>
-      <th class="r" style="padding-right:12px">Pico</th><th>Situação e trechos</th></tr></thead>
-    <tbody>${d.linhas.map(linha).join('')}</tbody></table>`;
+  // Honestidade: "Agosto" com 3 blocos parece quebrado se a tela não disser
+  // quantos dias existem de fato. Mesma razão do rodapé de cobertura.
+  let nota = '';
+  if (periodo) {
+    const comDado = d.dias.length;
+    nota = `<div class="nota">${comDado} dia(s) exibido(s) de ${d.dias_apurados} apurado(s) no período` +
+           (FILTRO_ATIVO ? ' · filtro aplicado' : '') + '</div>';
+  }
 
-  $('conteudo').innerHTML = kpis + tabela + cobertura(d) + rodape(d);
+  if (!d.dias.length || !t.registros) {
+    $('conteudo').innerHTML = kpis + nota + `<div class="vazio-msg"><b>Nenhum excesso registrado</b>
+      ${periodo ? 'Nenhum episódio no recorte selecionado.' : t.placas_monitoradas + ' veículo(s) monitorado(s) no dia.'}</div>` + rodape(d);
+    return;
+  }
+
+  let corpo = '';
+  for (const b of d.dias) {
+    if (!b.linhas.length) continue;
+    if (periodo) {
+      corpo += `<div class="dia-head"><h2>${brData(b.dia)}</h2>
+        <span class="resumo">${b.totais.veiculos} veículos · ${b.totais.registros} registros ·
+        pico ${b.totais.pico}</span></div>`;
+    }
+    corpo += tabela(b.linhas) + (periodo ? '' : cobertura(b));
+  }
+  $('conteudo').innerHTML = kpis + nota + corpo + rodape(d);
 }
 
-function cobertura(d) {
-  if (!d.sem_cobertura.length) return '';
+function cobertura(b) {
+  if (!b.sem_cobertura || !b.sem_cobertura.length) return '';
   // Placa que some do relatório lê como "comportou-se bem". Com o rótulo, lê
   // como "não sabemos" — são coisas muito diferentes num relatório de segurança.
   return `<div class="aviso">
     <h3>Cobertura insuficiente</h3>
     <p>Estes veículos ficaram sem sinal <b>enquanto rodavam</b>. Ausência da lista acima
        não significa que se comportaram bem — significa que não sabemos.</p>
-    <ul>${d.sem_cobertura.map(c => `<li>${esc(c.placa)}
+    <ul>${b.sem_cobertura.map(c => `<li>${esc(c.placa)}
       <span>· ${c.posicoes} posições · maior lacuna em movimento ${hm(c.maior_gap_mov_min)}</span></li>`).join('')}</ul>
   </div>`;
 }
 
 function rodape(d) {
+  const mon = d.dias && d.dias.length === 1 && d.dias[0].totais
+    ? `<p style="color:#64748b">${d.dias[0].totais.placas_monitoradas} veículo(s) com posição no dia.</p>` : '';
   return `<footer>
     <div class="leg"><span class="l1">96–102 km/h</span><span class="l2">103–109</span><span class="l3">110+</span></div>
     <p><b>O número é recorrência, não duração.</b> O rastreador reporta a cada 2–5 min e cada
@@ -255,8 +356,91 @@ function rodape(d) {
        <b>Parcial</b> = parte dos episódios do dia com carga provada, parte não.
        <b>Não confirmado</b> = sem prova — não quer dizer vazio.</p>
     <p>Excesso com o veículo vazio continua sendo desvio de PGR — por isso permanece na lista.</p>
-    <p style="color:#64748b">${d.totais.placas_monitoradas} veículo(s) com posição no dia.</p>
+    ${mon}
   </footer>`;
+}
+
+// ── Seletor de mês (mesmo componente da aba Veículos) ──
+const MES_CURTO = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+let mesesSel = new Set();
+let mesesComDado = new Set();       // 'YYYY-MM' que têm dia apurado
+let anoPicker = new Date().getFullYear();
+let FILTRO_ATIVO = false;
+
+function renderMesGrid() {
+  $('mesAno').textContent = anoPicker;
+  $('mesGrid').innerHTML = MES_CURTO.map((nm, i) => {
+    const ym = `${anoPicker}-${String(i + 1).padStart(2, '0')}`;
+    const tem = mesesComDado.has(ym);
+    const cls = (mesesSel.has(ym) ? 'sel ' : '') + (tem ? '' : 'off');
+    const acao = tem ? ` onclick="toggleMes('${ym}')"` : '';
+    return `<div class="mes-cell ${cls}"${acao}>${nm}</div>`;
+  }).join('');
+}
+function toggleMes(ym) { mesesSel.has(ym) ? mesesSel.delete(ym) : mesesSel.add(ym); renderMesGrid(); }
+function mudaAno(d) { anoPicker += d; renderMesGrid(); }
+function toggleMesPop(e) { e.stopPropagation(); $('mesPop').classList.toggle('open'); renderMesGrid(); }
+function limparMeses() { mesesSel.clear(); renderMesGrid(); }
+function aplicarMeses() {
+  $('mesPop').classList.remove('open');
+  const p = new URLSearchParams();
+  if (mesesSel.size) p.set('meses', [...mesesSel].sort().join(','));
+  for (const [id, k] of [['fCavalo','cavalo'],['fCarreta','carreta'],['fMotorista','motorista']]) {
+    if ($(id).value) p.set(k, $(id).value);
+  }
+  location.search = p.toString();
+}
+document.addEventListener('click', () => $('mesPop') && $('mesPop').classList.remove('open'));
+
+function aplicarFiltros() { aplicarMeses(); }
+
+async function montarControles(d) {
+  $('nav').hidden = false;
+  $('navapp').hidden = false;
+
+  const dia = d.modo === 'dia' && d.dias[0] ? d.dias[0].dia : '';
+  if (dia) $('data').value = dia;
+  const desloca = n => {
+    const dt = new Date((dia || new Date().toISOString().slice(0,10)) + 'T12:00:00');
+    dt.setDate(dt.getDate() + n);
+    irPara(dt.toISOString().slice(0, 10));
+  };
+  $('ant').onclick = () => desloca(-1);
+  $('prox').onclick = () => desloca(1);
+  $('data').onchange = e => irPara(e.target.value);
+
+  const r = await fetch('/api/pgr/opcoes?' + new URLSearchParams(
+    mesesSel.size ? {meses: [...mesesSel].sort().join(',')} : {}));
+  if (!r.ok) return;
+  const o = await r.json();
+  mesesComDado = new Set((o.meses || []).map(m => m.mes));
+  if (o.meses && o.meses.length) anoPicker = +o.meses[0].mes.split('-')[0];
+  renderMesGrid();
+
+  const preenche = (id, itens, sel) => {
+    const el = $(id);
+    const rotulo = el.options[0].textContent;
+    el.innerHTML = `<option value="">${rotulo}</option>` + itens.map(i => {
+      const v = i.valor !== undefined ? i.valor : i;
+      const t = i.label !== undefined ? i.label : i;
+      return `<option value="${esc(v)}"${v === sel ? ' selected' : ''}>${esc(t)}</option>`;
+    }).join('');
+    el.classList.toggle('on', !!sel);
+    el.onchange = aplicarFiltros;
+  };
+  preenche('fCavalo', o.cavalos || [], qs.get('cavalo') || '');
+  preenche('fCarreta', o.carretas || [], qs.get('carreta') || '');
+  preenche('fMotorista', o.motoristas || [], qs.get('motorista') || '');
+
+  if (mesesSel.size) {
+    const nomes = [...mesesSel].sort().map(m => MES_CURTO[+m.split('-')[1] - 1]);
+    $('mesBtn').textContent = nomes.join(', ');
+    $('mesBtn').classList.add('on');
+  }
+  if (FILTRO_ATIVO || mesesSel.size) {
+    $('limpaFiltro').hidden = false;
+    $('limpaFiltro').onclick = () => { location.search = ''; };
+  }
 }
 
 function irPara(dia) {
@@ -267,8 +451,13 @@ function irPara(dia) {
 
 async function carregar() {
   const p = new URLSearchParams();
-  if (qs.get('data')) p.set('data', qs.get('data'));
+  for (const k of ['data', 'meses', 'cavalo', 'carreta', 'motorista']) {
+    if (qs.get(k)) p.set(k, qs.get(k));
+  }
   if (TOKEN) p.set('t', TOKEN);
+  (qs.get('meses') || '').split(',').filter(Boolean).forEach(m => mesesSel.add(m));
+  FILTRO_ATIVO = !!(qs.get('cavalo') || qs.get('carreta') || qs.get('motorista'));
+
   const r = await fetch('/api/pgr?' + p.toString());
   if (!r.ok) {
     const e = await r.json().catch(() => ({}));
@@ -279,20 +468,9 @@ async function carregar() {
   const d = await r.json();
   render(d);
 
-  // Navegação só para quem entrou logado: pelo token a página é beco sem saída.
-  if (!TOKEN) {
-    $('nav').hidden = false;
-    $('navapp').hidden = false;
-    $('data').value = d.dia;
-    const desloca = n => {
-      const dt = new Date(d.dia + 'T12:00:00');
-      dt.setDate(dt.getDate() + n);
-      irPara(dt.toISOString().slice(0, 10));
-    };
-    $('ant').onclick = () => desloca(-1);
-    $('prox').onclick = () => desloca(1);
-    $('data').onchange = e => irPara(e.target.value);
-  }
+  // Controles só para quem entrou logado: pelo token a página é beco sem saída
+  // e o modo período fica fora do alcance de um link vazado.
+  if (!TOKEN) montarControles(d);
 }
 
 carregar();

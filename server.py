@@ -630,8 +630,41 @@ def api_pgr_sync_cadastro():
         return jsonify({'ok': False, 'error': str(e)}), 500
 
 
+def _pgr_sessao_ok():
+    """Visão de período e filtros são SÓ para quem está logado.
+
+    O token do link do WhatsApp é preso a UM dia, de propósito: se ele abrisse o
+    modo período, um link vazado exporia meses de operação em vez de um dia.
+    """
+    return 'user_id' in session and (
+        session.get('role') == 'admin'
+        or 'pgr' in (session.get('paginas_permitidas') or []))
+
+
+def _meses_pedidos():
+    return [m.strip() for m in (request.args.get('meses') or '').split(',')
+            if m.strip()]
+
+
 @app.route('/api/pgr')
 def api_pgr():
+    meses = _meses_pedidos()
+    if meses:
+        if not _pgr_sessao_ok():
+            return jsonify({'ok': False, 'error': 'Não autorizado'}), 401
+        conn = get_db()
+        try:
+            cur = conn.cursor()
+            dados = pgr.listar_periodo(
+                cur, meses,
+                cavalo=request.args.get('cavalo') or None,
+                carreta=request.args.get('carreta') or None,
+                motorista=request.args.get('motorista') or None)
+            cur.close()
+        finally:
+            conn.close()
+        return jsonify({'ok': True, 'modo': 'periodo', **dados})
+
     dia, erro = _pgr_dia_autorizado(request.args.get('data'))
     if erro:
         return jsonify({'ok': False, 'error': erro[0]}), erro[1]
@@ -642,7 +675,27 @@ def api_pgr():
         cur.close()
     finally:
         conn.close()
-    return jsonify({'ok': True, **dados})
+    # Mesmo no dia único devolve `dias`, para a página ter um formato só.
+    return jsonify({'ok': True, 'modo': 'dia',
+                    'dias': [dados], 'totais': dados['totais'],
+                    'dias_apurados': 1, 'limiar': dados['limiar']})
+
+
+@app.route('/api/pgr/opcoes')
+def api_pgr_opcoes():
+    """Meses com dia apurado + valores que existem no período selecionado."""
+    if not _pgr_sessao_ok():
+        return jsonify({'ok': False, 'error': 'Não autorizado'}), 401
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        meses = pgr.meses_apurados(cur)
+        sel = _meses_pedidos() or [m['mes'] for m in meses[:1]]
+        opcoes = pgr.opcoes_filtro(cur, sel)
+        cur.close()
+    finally:
+        conn.close()
+    return jsonify({'ok': True, 'meses': meses, **opcoes})
 
 
 @app.route('/embarques')

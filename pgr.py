@@ -319,7 +319,8 @@ def _manifestos_candidatos(cur, placas_norm, dia):
     for r in cur.fetchall():
         m = {'manifesto': r[2], 'data_ref': r[3], 'origem': r[4], 'destino': r[5],
              'o_lat': r[6], 'o_lng': r[7], 'd_lat': r[8], 'd_lng': r[9],
-             'tomador': r[10], 'motorista': r[11], 'tipo_operacao': r[12]}
+             'tomador': r[10], 'motorista': r[11], 'tipo_operacao': r[12],
+             'placa_cavalo': r[0], 'placa_carreta': r[1]}
         for p in (r[0], r[1]):
             if p:
                 idx.setdefault(p, []).append(m)
@@ -489,8 +490,9 @@ def apurar_dia(cur, dia, cadastro=None):
                     dia, placa, tipo_veiculo, tipo_operacao, ini, fim, registros,
                     vel_max, vel_sustentada, sustentado, cidade, uf, endereco,
                     latitude, longitude, situacao_carga, manifesto, tomador,
-                    origem, destino, motorista, entregue_em, apurado_em
-                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+                    origem, destino, motorista, entregue_em,
+                    placa_cavalo, placa_carreta, apurado_em
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
                 ON CONFLICT (placa, ini) DO UPDATE SET
                     dia = EXCLUDED.dia,
                     tipo_veiculo = EXCLUDED.tipo_veiculo,
@@ -512,6 +514,8 @@ def apurar_dia(cur, dia, cadastro=None):
                     destino = EXCLUDED.destino,
                     motorista = EXCLUDED.motorista,
                     entregue_em = EXCLUDED.entregue_em,
+                    placa_cavalo = EXCLUDED.placa_cavalo,
+                    placa_carreta = EXCLUDED.placa_carreta,
                     apurado_em = NOW()
             """, (dia, placa, cad.get('tipo_veiculo'), m.get('tipo_operacao'),
                   r['ini'], r['fim'], r['registros'], r['vel_max'], r['vel_sustentada'],
@@ -519,7 +523,8 @@ def apurar_dia(cur, dia, cadastro=None):
                   r['latitude'], r['longitude'], r['situacao_carga'],
                   _cortar(m.get('manifesto'), 20), _cortar(m.get('tomador'), 120),
                   _cortar(m.get('origem'), 60), _cortar(m.get('destino'), 60),
-                  _cortar(m.get('motorista'), 120), r.get('entregue_em')))
+                  _cortar(m.get('motorista'), 120), r.get('entregue_em'),
+                  m.get('placa_cavalo'), m.get('placa_carreta')))
             n_ev += 1
 
         c = resumir_cobertura(pontos)
@@ -651,32 +656,22 @@ def _situacao_consolidada(situacoes):
     return 'nao_confirmado'
 
 
-def listar_dia(cur, dia):
-    """Payload do relatório de um dia: uma linha por placa + cobertura.
+_COLS_EVENTO = ('placa', 'tipo_veiculo', 'tipo_operacao', 'ini', 'fim', 'registros',
+                'vel_max', 'vel_sustentada', 'sustentado', 'cidade', 'uf', 'endereco',
+                'situacao_carga', 'manifesto', 'tomador', 'origem', 'destino', 'motorista',
+                'entregue_em', 'placa_cavalo', 'placa_carreta')
 
-    O grão gravado é o EPISÓDIO; a linha do relatório é a agregação — mesmo
-    padrão do resto do app (grão CTRB → agrega).
-    """
-    cur.execute("""
-        SELECT placa, tipo_veiculo, tipo_operacao, ini, fim, registros, vel_max,
-               vel_sustentada, sustentado, cidade, uf, endereco, situacao_carga,
-               manifesto, tomador, origem, destino, motorista, entregue_em
-        FROM pgr_eventos WHERE dia = %s ORDER BY placa, ini
-    """, (dia,))
-    cols = ('placa', 'tipo_veiculo', 'tipo_operacao', 'ini', 'fim', 'registros',
-            'vel_max', 'vel_sustentada', 'sustentado', 'cidade', 'uf', 'endereco',
-            'situacao_carga', 'manifesto', 'tomador', 'origem', 'destino', 'motorista',
-            'entregue_em')
-    eventos = [dict(zip(cols, r)) for r in cur.fetchall()]
+_SELECT_EVENTO = """
+    SELECT placa, tipo_veiculo, tipo_operacao, ini, fim, registros, vel_max,
+           vel_sustentada, sustentado, cidade, uf, endereco, situacao_carga,
+           manifesto, tomador, origem, destino, motorista, entregue_em,
+           placa_cavalo, placa_carreta
+    FROM pgr_eventos
+"""
 
-    cur.execute("""
-        SELECT placa, posicoes, maior_gap_min, maior_gap_mov_min, minutos_sem_sinal_mov
-        FROM pgr_cobertura WHERE dia = %s
-    """, (dia,))
-    cobertura = {r[0]: {'posicoes': r[1], 'maior_gap_min': r[2],
-                        'maior_gap_mov_min': r[3], 'minutos_sem_sinal_mov': r[4]}
-                 for r in cur.fetchall()}
 
+def _agregar_por_placa(eventos, cobertura):
+    """Episodios de UM dia -> uma linha por placa. Coracao das duas visoes."""
     por_placa = {}
     for e in eventos:
         p = por_placa.setdefault(e['placa'], {
@@ -685,15 +680,16 @@ def listar_dia(cur, dia):
             'sustentado': False, 'cidades': [], 'situacoes': [], 'episodios': [],
             'tomador': None, 'origem': None, 'destino': None,
             'motorista': None, 'manifesto': None, 'entregue_em': None,
+            'placa_cavalo': None, 'placa_carreta': None,
         })
-        # O contexto da placa vem de um episódio que TENHA manifesto, não do
-        # primeiro em ordem cronológica: numa placa "parcial", o primeiro
-        # episódio do dia costuma ser o vazio, e a linha saía com "—" mesmo
+        # O contexto da placa vem de um episodio que TENHA manifesto, nao do
+        # primeiro em ordem cronologica: numa placa "parcial", o primeiro
+        # episodio do dia costuma ser o vazio, e a linha saia com "-" mesmo
         # havendo carga provada no resto do dia.
         if e['tomador'] and not p['tomador']:
             p.update({k: e[k] for k in
                       ('tomador', 'origem', 'destino', 'motorista', 'manifesto',
-                       'entregue_em')})
+                       'entregue_em', 'placa_cavalo', 'placa_carreta')})
         if e['tipo_operacao'] and not p['tipo_operacao']:
             p['tipo_operacao'] = e['tipo_operacao']
         p['registros'] += e['registros'] or 0
@@ -722,41 +718,196 @@ def listar_dia(cur, dia):
         p['motorista'] = nome_pessoa(p['motorista'])
         p['origem'] = cidade_uf_titulo(p['origem'])
         p['destino'] = cidade_uf_titulo(p['destino'])
-        # `entregue_em` sai do banco como datetime. Quem consome precisa só do
-        # "09/08", e cada consumidor formatando por conta própria já causou um
+        # `entregue_em` sai do banco como datetime. Quem consome precisa so do
+        # "09/08", e cada consumidor formatando por conta propria ja causou um
         # bug em cada ponta: a imagem fatiava o datetime (TypeError) e o JS
-        # fatiava o que o jsonify vira ("Sat, 09 Aug 2026…" → "Au/09"). Sai
-        # daqui pronto, e o ISO fica para quem ler a API.
+        # fatiava o que o jsonify vira ("Sat, 09 Aug 2026...") . Sai daqui
+        # pronto, e o ISO fica para quem ler a API.
         q = p['entregue_em']
         p['entregue_em'] = q.isoformat(timespec='seconds') if q else None
         p['entregue_em_br'] = q.strftime('%d/%m') if q else None
         del p['situacoes']
         linhas.append(p)
-    # Por RECORRÊNCIA, não por gravidade — é a ordem do layout aprovado, e a
-    # que serve para cobrar: 81% dos episódios são pico isolado, então quem
-    # tocou 117 uma vez é ruído e quem fez 13 registros é conduta.
+    # Por RECORRENCIA, nao por gravidade - e a ordem do layout aprovado, e a
+    # que serve para cobrar: 81% dos episodios sao pico isolado, entao quem
+    # tocou 117 uma vez e ruido e quem fez 13 registros e conduta.
     linhas.sort(key=lambda x: (-x['registros'], -x['pico'], x['placa']))
+    return linhas
 
-    # Placa que não aparece lê como "comportou-se bem"; sem este bloco não dá
-    # para distinguir isso de "não sabemos".
-    sem_cobertura = sorted(
+
+def _totais(linhas, n_monitoradas):
+    """No periodo, `veiculos` precisa ser DISTINTO: somar a contagem de cada dia
+    daria mais caminhoes do que a frota tem."""
+    return {
+        'veiculos': len({l['placa'] for l in linhas}),
+        'registros': sum(l['registros'] for l in linhas),
+        'pico': max((l['pico'] for l in linhas), default=0),
+        'sustentados': sum(1 for l in linhas if l['sustentado']),
+        'com_carga': sum(1 for l in linhas if l['situacao_carga'] in ('carregado', 'parcial')),
+        'frota': len({l['placa'] for l in linhas if (l['tipo_operacao'] or '').upper() == 'FROTA'}),
+        'agregado': len({l['placa'] for l in linhas if (l['tipo_operacao'] or '').upper() == 'AGREGADO'}),
+        'placas_monitoradas': n_monitoradas,
+    }
+
+
+def _cobertura_do_dia(cur, dia):
+    cur.execute("""
+        SELECT placa, posicoes, maior_gap_min, maior_gap_mov_min, minutos_sem_sinal_mov
+        FROM pgr_cobertura WHERE dia = %s
+    """, (dia,))
+    return {r[0]: {'posicoes': r[1], 'maior_gap_min': r[2],
+                   'maior_gap_mov_min': r[3], 'minutos_sem_sinal_mov': r[4]}
+            for r in cur.fetchall()}
+
+
+def _sem_cobertura(cobertura):
+    """Placa que nao aparece le como 'comportou-se bem'; sem este bloco nao da
+    para distinguir isso de 'nao sabemos'."""
+    return sorted(
         ({'placa': pl, **c} for pl, c in cobertura.items() if cobertura_insuficiente(c)),
         key=lambda x: -(x['maior_gap_mov_min'] or 0))
 
+
+def listar_dia(cur, dia):
+    """Payload de UM dia: uma linha por placa + cobertura.
+
+    O grao gravado e o EPISODIO; a linha do relatorio e a agregacao - mesmo
+    padrao do resto do app (grao CTRB -> agrega).
+    """
+    cur.execute(_SELECT_EVENTO + ' WHERE dia = %s ORDER BY placa, ini', (dia,))
+    eventos = [dict(zip(_COLS_EVENTO, r)) for r in cur.fetchall()]
+    cobertura = _cobertura_do_dia(cur, dia)
+    linhas = _agregar_por_placa(eventos, cobertura)
     return {
         'dia': dia.isoformat(),
         'linhas': linhas,
-        'sem_cobertura': sem_cobertura,
-        'totais': {
-            'veiculos': len(linhas),
-            'registros': sum(l['registros'] for l in linhas),
-            'pico': max((l['pico'] for l in linhas), default=0),
-            'sustentados': sum(1 for l in linhas if l['sustentado']),
-            'com_carga': sum(1 for l in linhas if l['situacao_carga'] in ('carregado', 'parcial')),
-            'frota': sum(1 for l in linhas if (l['tipo_operacao'] or '').upper() == 'FROTA'),
-            'agregado': sum(1 for l in linhas if (l['tipo_operacao'] or '').upper() == 'AGREGADO'),
-            'placas_monitoradas': len(cobertura),
-        },
+        'sem_cobertura': _sem_cobertura(cobertura),
+        'totais': _totais(linhas, len(cobertura)),
+        'limiar': LIMIAR_KMH,
+    }
+
+
+def meses_apurados(cur):
+    """Meses que TEM dia apurado, do mais recente para o mais antigo.
+
+    Sai de pgr_cobertura, nao de pgr_eventos: um dia sem nenhum excesso tambem
+    foi apurado, e some da lista se a fonte for a tabela de eventos.
+    """
+    cur.execute("""
+        SELECT to_char(dia, 'YYYY-MM') AS mes, COUNT(DISTINCT dia) AS dias,
+               MIN(dia) AS primeiro, MAX(dia) AS ultimo
+        FROM pgr_cobertura GROUP BY 1 ORDER BY 1 DESC
+    """)
+    return [{'mes': r[0], 'dias': r[1],
+             'primeiro': r[2].isoformat(), 'ultimo': r[3].isoformat()}
+            for r in cur.fetchall()]
+
+
+def opcoes_filtro(cur, meses):
+    """Valores que EXISTEM no periodo, para o dropdown nao oferecer vazio.
+
+    Sai dos dados apurados, nao do cadastro: oferecer os 6.645 veiculos do
+    veiculos_045 daria uma lista impossivel e cheia de opcao que nao retorna
+    nada.
+    """
+    if not meses:
+        return {'cavalos': [], 'carretas': [], 'motoristas': []}
+    cur.execute("""
+        SELECT placa, tipo_veiculo, placa_cavalo, placa_carreta, motorista
+        FROM pgr_eventos WHERE to_char(dia, 'YYYY-MM') = ANY(%s)
+    """, (list(meses),))
+    # Tudo normalizado em Mercosul: a placa do evento vem crua do GPS (às vezes
+    # na grafia antiga) e a do manifesto já vem normalizada, então sem isto o
+    # mesmo veículo aparecia DUAS vezes na lista (HIF2439 e HIF2E39) e escolher
+    # uma perderia os eventos da outra.
+    cavalos, carretas, motoristas = set(), set(), {}
+    for placa, tipo, cav, car, mot in cur.fetchall():
+        t = (tipo or '').upper()
+        if t == 'CAVALO':
+            cavalos.add(placas.mercosul(placa))
+        elif t in ('CARRETA', 'TRUCK'):
+            carretas.add(placas.mercosul(placa))
+        if cav:
+            cavalos.add(placas.mercosul(cav))
+        if car:
+            carretas.add(placas.mercosul(car))
+        if mot:
+            motoristas[mot] = nome_pessoa(mot)
+    return {
+        'cavalos': sorted(cavalos),
+        'carretas': sorted(carretas),
+        'motoristas': [{'valor': k, 'label': v}
+                       for k, v in sorted(motoristas.items(), key=lambda x: x[1] or '')],
+    }
+
+
+def listar_periodo(cur, meses, cavalo=None, carreta=None, motorista=None):
+    """Um bloco por DIA, cada um no mesmo formato de `listar_dia`.
+
+    A linha continua sendo placa-no-dia: agregar o periodo inteiro numa linha
+    so perderia o quando, e a lista de cidades viraria um paragrafo.
+
+    Filtro de cavalo/carreta casa a placa do evento OU a do par no manifesto —
+    o rastreador costuma estar na carreta, entao um cavalo quase nunca e a
+    placa do evento; procurar so por ela devolveria quase nada.
+    """
+    if not meses:
+        return {'dias': [], 'totais': _totais([], 0), 'limiar': LIMIAR_KMH,
+                'dias_apurados': 0, 'meses': []}
+
+    where = ["to_char(dia, 'YYYY-MM') = ANY(%s)"]
+    args = [list(meses)]
+    # A placa chega normalizada em Mercosul, mas no banco convivem as duas
+    # grafias (evento vem crua do GPS, par vem do manifesto). Casa contra ambas.
+    if cavalo:
+        where.append('(placa = ANY(%s) OR placa_cavalo = ANY(%s))')
+        g = placas.grafias(cavalo)
+        args += [g, g]
+    if carreta:
+        where.append('(placa = ANY(%s) OR placa_carreta = ANY(%s))')
+        g = placas.grafias(carreta)
+        args += [g, g]
+    if motorista:
+        where.append('motorista = %s')
+        args.append(motorista)
+
+    cur.execute(_SELECT_EVENTO.replace('FROM pgr_eventos', ', dia FROM pgr_eventos')
+                + ' WHERE ' + ' AND '.join(where) +
+                ' ORDER BY dia DESC, placa, ini', args)
+    por_dia = {}
+    for r in cur.fetchall():
+        e = dict(zip(_COLS_EVENTO, r[:-1]))
+        por_dia.setdefault(r[-1], []).append(e)
+
+    cur.execute("""SELECT DISTINCT dia FROM pgr_cobertura
+                   WHERE to_char(dia, 'YYYY-MM') = ANY(%s) ORDER BY dia DESC""",
+                (list(meses),))
+    dias_apurados = [r[0] for r in cur.fetchall()]
+
+    filtrando = bool(cavalo or carreta or motorista)
+    blocos, todas = [], []
+    for dia in dias_apurados:
+        eventos = por_dia.get(dia, [])
+        # Com filtro, dia sem ocorrencia daquele veiculo/motorista vira ruido:
+        # seriam 30 blocos vazios. Sem filtro, o dia zerado importa - e a
+        # diferenca entre "ninguem correu" e "nao sabemos".
+        if filtrando and not eventos:
+            continue
+        cobertura = _cobertura_do_dia(cur, dia)
+        linhas = _agregar_por_placa(eventos, cobertura)
+        todas += linhas
+        blocos.append({
+            'dia': dia.isoformat(),
+            'linhas': linhas,
+            'sem_cobertura': [] if filtrando else _sem_cobertura(cobertura),
+            'totais': _totais(linhas, len(cobertura)),
+        })
+
+    return {
+        'dias': blocos,
+        'totais': _totais(todas, 0),
+        'dias_apurados': len(dias_apurados),
+        'meses': sorted(meses),
         'limiar': LIMIAR_KMH,
     }
 
