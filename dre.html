@@ -104,6 +104,46 @@
   .btn-aplicar:hover { opacity: 0.85; }
   .btn-aplicar:disabled { opacity: 0.45; cursor: not-allowed; }
 
+  /* RECORTE POR DIA (modo fracionado) */
+  .dia-toggle {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-size: 0.78rem; color: var(--text-dim); cursor: pointer; user-select: none;
+  }
+  .dia-toggle input { accent-color: var(--accent); cursor: pointer; }
+  .dia-toggle:hover { color: var(--accent); }
+  .dias-campos { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .dias-campos span { font-size: 0.78rem; color: var(--text-dim); }
+  .dias-campos input[type="number"] {
+    width: 58px; padding: 6px 8px; background: var(--surface2);
+    border: 1px solid var(--border); border-radius: 6px; color: var(--text);
+    font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; text-align: center;
+  }
+  .dias-campos input[type="number"]:focus { outline: none; border-color: var(--accent); }
+  .dias-hint { font-style: italic; opacity: 0.75; }
+
+  .aviso-fracionado {
+    background: rgba(251,191,36,0.08); border: 1px solid rgba(251,191,36,0.35);
+    border-left: 3px solid var(--yellow); border-radius: 8px;
+    padding: 12px 16px; margin-bottom: 18px;
+    font-size: 0.82rem; color: var(--text); line-height: 1.55;
+  }
+  .aviso-fracionado strong { color: var(--yellow); }
+  .aviso-fracionado .det { color: var(--text-dim); font-size: 0.78rem; display: block; margin-top: 5px; }
+
+  .base-tag {
+    display: inline-block; margin-left: 8px; padding: 2px 7px;
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 4px;
+    font-size: 0.62rem; font-weight: 600; color: var(--text-dim);
+    text-transform: uppercase; letter-spacing: 0.04em; vertical-align: middle;
+  }
+  /* grid + place-items em vez de flex: com flex, o <strong> e os nós de texto
+     viram flex items e os espaços entre eles colapsam ("por dia"para ver) */
+  .grafico-indisponivel {
+    display: grid; place-items: center; height: 100%;
+    padding: 24px; text-align: center; font-size: 0.8rem;
+    color: var(--text-dim); line-height: 1.6; max-width: 42ch; margin: 0 auto;
+  }
+
   .info-modo {
     margin-left: auto; font-size: 0.78rem; color: var(--text-dim);
     font-family: 'JetBrains Mono', monospace;
@@ -441,12 +481,28 @@
       <div id="chipsMeses"></div>
       <button class="chip-acao" onclick="toggleTodosMeses()">selecionar todos</button>
     </div>
+    <div class="filtro-linha">
+      <span class="filtro-label">Dias</span>
+      <label class="dia-toggle">
+        <input type="checkbox" id="chkDias" onchange="toggleDias()">
+        <span>Recortar por dia</span>
+      </label>
+      <div class="dias-campos" id="diasCampos" style="display:none;">
+        <span>de</span>
+        <input type="number" id="diaIni" min="1" max="31" value="1">
+        <span>até</span>
+        <input type="number" id="diaFim" min="1" max="31" value="15">
+        <span class="dias-hint">recorta só a receita — a despesa vem do mês inteiro</span>
+      </div>
+    </div>
     <div class="filtros-aplicar-row">
       <button class="btn-aplicar" id="btnAplicar" onclick="carregarDRE()">Aplicar</button>
       <button class="chip-acao" onclick="limparTodos()">limpar todos</button>
       <div class="info-modo" id="infoModo"></div>
     </div>
   </div>
+
+  <div id="avisoFracionado" class="aviso-fracionado" style="display:none;"></div>
 
   <div id="conteudo">
     <div class="status-box">Selecione o período e clique em Aplicar</div>
@@ -469,17 +525,17 @@
     </div>
 
     <div class="grafico-card">
-      <h3>🍩 Composição por Grupo</h3>
+      <h3>🍩 Composição por Grupo <span id="tagDonut"></span></h3>
       <div class="grafico-canvas-wrap alto"><canvas id="chartDonutGrupo"></canvas></div>
     </div>
 
     <div class="grafico-card">
-      <h3>⭐ Análise de Pareto <span class="destaque" id="paretoInsight"></span></h3>
+      <h3>⭐ Análise de Pareto <span class="destaque" id="paretoInsight"></span><span id="tagPareto"></span></h3>
       <div class="grafico-canvas-wrap muito-alto"><canvas id="chartPareto"></canvas></div>
     </div>
 
     <div class="grafico-card" id="cardMensal" style="display:none;">
-      <h3>📈 Comparativo Mensal</h3>
+      <h3 id="tituloMensal">📈 Comparativo Mensal</h3>
       <div class="grafico-canvas-wrap muito-alto"><canvas id="chartMensal"></canvas></div>
     </div>
   </div>
@@ -581,6 +637,45 @@ function mesesSelecionadosLista() {
   return lista;
 }
 
+// ── Recorte por dia ──────────────────────────────────────────────────
+// Fraciona SÓ a receita. A despesa continua vindo da competência (mês cheio),
+// porque o REF do ERP não tem dia. Por isso todas as linhas que subtraem
+// despesa da receita ficam sem sentido no modo fracionado — a tela avisa e
+// suprime os visuais que fazem essa conta (linha de Resultado e Waterfall).
+function toggleDias() {
+  const on = document.getElementById('chkDias').checked;
+  document.getElementById('diasCampos').style.display = on ? 'flex' : 'none';
+}
+
+function diasSelecionados() {
+  if (!document.getElementById('chkDias').checked) return null;
+  let ini = parseInt(document.getElementById('diaIni').value, 10);
+  let fim = parseInt(document.getElementById('diaFim').value, 10);
+  if (!Number.isFinite(ini)) ini = 1;
+  if (!Number.isFinite(fim)) fim = 31;
+  ini = Math.min(Math.max(ini, 1), 31);
+  fim = Math.min(Math.max(fim, 1), 31);
+  if (ini > fim) [ini, fim] = [fim, ini];
+  document.getElementById('diaIni').value = ini;
+  document.getElementById('diaFim').value = fim;
+  return { ini, fim };
+}
+
+function renderAvisoFracionado(json) {
+  const box = document.getElementById('avisoFracionado');
+  if (!json || !json.fracionado) { box.style.display = 'none'; return; }
+  box.style.display = 'block';
+  box.innerHTML =
+    `<strong>⚠ Modo fracionado — dias ${json.dia_ini} a ${json.dia_fim}.</strong> ` +
+    `A <strong>receita</strong> é só desse intervalo; a <strong>despesa</strong> é do mês inteiro ` +
+    `(a competência do ERP não tem dia). ` +
+    `Compare cada série com ela mesma entre os períodos — receita com receita, despesa com despesa.` +
+    `<span class="det">Por isso as linhas abaixo de Receita Bruta (Receita Líquida, EBITDA, LAIR, ` +
+    `Lucro Líquido, Resultado Final) e os % ficam negativos por construção e não são prejuízo. ` +
+    `A linha de Resultado do comparativo e a cascata Waterfall ficam ocultas neste modo. ` +
+    `Desmarque "Recortar por dia" para ver o resultado real.</span>`;
+}
+
 window.addEventListener('DOMContentLoaded', () => {
   const hoje = new Date();
   anosSelecionados.add(hoje.getFullYear());
@@ -603,18 +698,22 @@ async function carregarDRE() {
 
   try {
     const mesesStr = lista.join(',');
-    const resp = await fetch(`/api/dre?meses=${encodeURIComponent(mesesStr)}`,
+    const dias = diasSelecionados();
+    const qsDias = dias ? `&dia_ini=${dias.ini}&dia_fim=${dias.fim}` : '';
+    const resp = await fetch(`/api/dre?meses=${encodeURIComponent(mesesStr)}${qsDias}`,
                              { credentials: 'same-origin' });
     const json = await resp.json();
     if (!json.ok) throw new Error(json.error || 'Erro');
 
     // Disponibilizar pro chat o quanto antes
     window.dreData = json;
+    renderAvisoFracionado(json);
 
+    const sufixoDias = json.fracionado ? ` | dias ${json.dia_ini}-${json.dia_fim}` : '';
     document.getElementById('infoModo').textContent =
-      json.modo === 'mensal'
+      (json.modo === 'mensal'
         ? `Modo: mensal (${json.meses.length} meses) | ${lista.length} combinações`
-        : 'Modo: acumulado';
+        : 'Modo: acumulado') + sufixoDias;
 
     if (json.modo === 'acumulado') renderAcumulado(json.estrutura, lista);
     else renderMensalTabela(json.estrutura, json.meses, lista);
@@ -1046,11 +1145,20 @@ function renderPareto(subgrupos, totalGeral) {
 }
 
 // ── COMPARATIVO MENSAL (Receita | Despesa Total | Resultado linha) ──
-function renderMensal(estrutura, meses) {
+function renderMensal(estrutura, meses, jsonDre) {
   destroyChart('mensal');
   const card = document.getElementById('cardMensal');
   if (!meses || meses.length < 2) { card.style.display = 'none'; return; }
   card.style.display = 'block';
+
+  // No modo fracionado a receita é do recorte e a despesa do mês inteiro: as duas
+  // barras seguem comparáveis com elas mesmas ano a ano, mas a DIFERENÇA entre elas
+  // (a linha de Resultado) não significa nada. Some a linha e rotula as bases.
+  const frac = !!(jsonDre && jsonDre.fracionado);
+  const sufRec = frac ? ` (dias ${jsonDre.dia_ini}-${jsonDre.dia_fim})` : '';
+  const sufDes = frac ? ' (mês cheio)' : '';
+  document.getElementById('tituloMensal').innerHTML =
+    '📈 Comparativo Mensal' + (frac ? '<span class="base-tag">bases diferentes</span>' : '');
 
   const findLinha = key => estrutura.find(e => e.key === key);
   const receita = findLinha('receita_bruta');
@@ -1074,20 +1182,23 @@ function renderMensal(estrutura, meses) {
 
   const datasets = [
     {
-      label: 'Receita Bruta', type: 'bar',
+      label: 'Receita Bruta' + sufRec, type: 'bar',
       data: dadosReceita,
       backgroundColor: '#22D3EE',
       borderRadius: 4,
       order: 2
     },
     {
-      label: 'Despesa Total', type: 'bar',
+      label: 'Despesa Total' + sufDes, type: 'bar',
       data: dadosDespesa,
       backgroundColor: '#F87171',
       borderRadius: 4,
       order: 2
-    },
-    {
+    }
+  ];
+
+  if (!frac) {
+    datasets.push({
       label: 'Resultado Final', type: 'line',
       data: dadosResultado,
       borderColor: '#FACC15',
@@ -1096,8 +1207,8 @@ function renderMensal(estrutura, meses) {
       pointRadius: 6, pointBackgroundColor: '#FACC15',
       pointBorderColor: '#0a0e17', pointBorderWidth: 2,
       order: 1
-    }
-  ];
+    });
+  }
 
   chartsInstances.mensal = new Chart(document.getElementById('chartMensal'), {
     data: { labels: meses, datasets },
@@ -1131,18 +1242,39 @@ function renderMensal(estrutura, meses) {
 
 async function renderGraficos(jsonDre) {
   document.getElementById('graficosContainer').style.display = 'grid';
+  const frac = !!jsonDre.fracionado;
 
-  // Para Waterfall: precisamos da estrutura acumulada. Em modo mensal, usar os totais.
-  let estruturaParaWaterfall;
-  if (jsonDre.modo === 'acumulado') {
-    estruturaParaWaterfall = jsonDre.estrutura.map(e => ({ linha: e.linha, tipo: e.tipo, valor: e.valor }));
+  // Waterfall desenha a cascata inteira — ou seja, subtrai despesa do mês cheio
+  // da receita parcial. No modo fracionado o desenho seria falso, então sai do ar
+  // com o motivo escrito no lugar (esconder calado é pior que não mostrar).
+  const wrapWf = document.querySelector('#chartWaterfall').parentElement;
+  if (frac) {
+    destroyChart('waterfall');
+    wrapWf.innerHTML =
+      '<div class="grafico-indisponivel">A cascata subtrai a despesa do mês inteiro da receita ' +
+      'do recorte — o desenho não teria sentido.<br>Desmarque <strong>“Recortar por dia”</strong> ' +
+      'para ver o Waterfall.</div>';
   } else {
-    estruturaParaWaterfall = jsonDre.estrutura.map(e => ({ linha: e.linha, tipo: e.tipo, valor: e.total }));
+    if (!document.getElementById('chartWaterfall')) {
+      wrapWf.innerHTML = '<canvas id="chartWaterfall"></canvas>';
+    }
+    // Para Waterfall: precisamos da estrutura acumulada. Em modo mensal, usar os totais.
+    let estruturaParaWaterfall;
+    if (jsonDre.modo === 'acumulado') {
+      estruturaParaWaterfall = jsonDre.estrutura.map(e => ({ linha: e.linha, tipo: e.tipo, valor: e.valor }));
+    } else {
+      estruturaParaWaterfall = jsonDre.estrutura.map(e => ({ linha: e.linha, tipo: e.tipo, valor: e.total }));
+    }
+    renderWaterfall(estruturaParaWaterfall);
   }
-  renderWaterfall(estruturaParaWaterfall);
+
+  // Rótulo de base nos gráficos que continuam válidos (despesa = sempre mês cheio)
+  const tagMes = frac ? '<span class="base-tag">mês cheio</span>' : '';
+  document.getElementById('tagDonut').innerHTML = tagMes;
+  document.getElementById('tagPareto').innerHTML = tagMes;
 
   // Comparativo mensal — só em modo mensal
-  if (jsonDre.modo === 'mensal') renderMensal(jsonDre.estrutura, jsonDre.meses);
+  if (jsonDre.modo === 'mensal') renderMensal(jsonDre.estrutura, jsonDre.meses, jsonDre);
   else { destroyChart('mensal'); document.getElementById('cardMensal').style.display = 'none'; }
 
   // Buscar detalhamento para os outros gráficos
@@ -1192,6 +1324,19 @@ function atualizarSugestoes() {
   const valorEbitda = acumulado ? ebitda?.valor : ebitda?.total;
 
   const sugestoes = [];
+
+  // No modo fracionado só receita e despesa são comparáveis — não sugerir
+  // pergunta sobre lucro/margem, que ali não significa nada.
+  if (window.dreData?.fracionado) {
+    const d = `${window.dreData.dia_ini}-${window.dreData.dia_fim}`;
+    cont.innerHTML = [
+      `Como evoluiu a receita dos dias ${d} entre os períodos?`,
+      'A receita está acelerando ou desacelerando?',
+      'Em qual período a receita do recorte foi maior?',
+      'A despesa cresceu mais que a receita?',
+    ].map(s => `<button onclick="usarSugestao(this)">${s}</button>`).join('');
+    return;
+  }
 
   if (padrao === 'mesmo_mes_varios_anos') {
     sugestoes.push('Compare este mês ao longo dos anos');
@@ -1263,6 +1408,13 @@ function coletarContexto() {
   const padrao = detectarPadraoSelecao(mesesAtuais);
 
   const ctx = { periodo, modo, padrao };
+
+  // Sem isto o modelo lê a margem negativa estrutural do modo fracionado como prejuízo
+  if (dre.fracionado) {
+    ctx.fracionado = true;
+    ctx.dia_ini = dre.dia_ini;
+    ctx.dia_fim = dre.dia_fim;
+  }
 
   const getVal = item => modo === 'acumulado' ? item?.valor : item?.total;
   const dreDict = {};

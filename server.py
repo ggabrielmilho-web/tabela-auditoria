@@ -1661,8 +1661,19 @@ def _parse_meses_param(meses_str):
     return sorted(set(pares))
 
 
-def _meses_para_periodos(pares):
-    """[(2025,1),(2025,3)] → [(y, m, nome_curto, primeiro_dia, ultimo_dia), ...]"""
+def _meses_para_periodos(pares, dia_ini=None, dia_fim=None):
+    """[(2025,1),(2025,3)] → [(y, m, nome_curto, primeiro_dia, ultimo_dia), ...]
+
+    `dia_ini`/`dia_fim` recortam a janela DENTRO de cada mês (modo fracionado).
+    Os dias são grampeados no tamanho real do mês — pedir "1 a 31" em fevereiro
+    devolve 1 a 28/29, senão date() estouraria em mês curto.
+
+    ATENÇÃO: o recorte por dia só afeta a RECEITA. A despesa é filtrada por
+    competência (`REF`, YYYY/MM) em `_calcular_dre_periodo` e continua vindo do
+    mês inteiro — não existe fracionamento de despesa por dia (decisão do
+    negócio: a competência do SSW não é uma data). Ver `fracionado` na resposta
+    de /api/dre, que obriga o front a rotular as duas bases.
+    """
     from datetime import date
     from calendar import monthrange
     nomes_curtos = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun',
@@ -1670,8 +1681,12 @@ def _meses_para_periodos(pares):
     result = []
     for y, m in pares:
         ult = monthrange(y, m)[1]
+        d1 = min(max(dia_ini or 1, 1), ult)
+        d2 = min(dia_fim or ult, ult)
+        if d2 < d1:
+            d2 = d1
         nome = f"{nomes_curtos[m-1]}/{str(y)[2:]}"
-        result.append((y, m, nome, date(y, m, 1), date(y, m, ult)))
+        result.append((y, m, nome, date(y, m, d1), date(y, m, d2)))
     return result
 
 
@@ -1700,13 +1715,30 @@ def _iterar_meses(start_date, end_date):
 @page_required('dre')
 def api_dre():
     from datetime import datetime
+
+    # ── Recorte por dia (modo fracionado) — só vale junto com `meses=` ──
+    # Fraciona APENAS a receita; a despesa continua por competência (mês cheio).
+    dia_ini = dia_fim = None
+    if request.args.get('dia_ini') or request.args.get('dia_fim'):
+        try:
+            dia_ini = int(request.args.get('dia_ini') or 1)
+            dia_fim = int(request.args.get('dia_fim') or 31)
+        except (TypeError, ValueError):
+            return jsonify({'ok': False, 'error': 'dia_ini/dia_fim devem ser números'}), 400
+        if not (1 <= dia_ini <= 31 and 1 <= dia_fim <= 31):
+            return jsonify({'ok': False, 'error': 'dia_ini/dia_fim devem estar entre 1 e 31'}), 400
+        if dia_ini > dia_fim:
+            return jsonify({'ok': False, 'error': 'dia_ini não pode ser maior que dia_fim'}), 400
+
+    fracionado = (dia_ini, dia_fim) != (None, None) and (dia_ini, dia_fim) != (1, 31)
+
     meses_param = request.args.get('meses')
     if meses_param:
         try:
             pares = _parse_meses_param(meses_param)
             if not pares:
                 raise ValueError('lista vazia')
-            meses = _meses_para_periodos(pares)
+            meses = _meses_para_periodos(pares, dia_ini, dia_fim)
         except Exception:
             return jsonify({'ok': False, 'error': 'Parâmetro meses inválido. Use YYYY-MM,YYYY-MM,...'}), 400
     else:
@@ -1719,6 +1751,10 @@ def api_dre():
 
     estrutura = [{'linha': l, 'tipo': t, 'key': k} for l, t, k in DRE_LINHAS]
 
+    # Metadados do recorte por dia — o front usa p/ rotular as bases e suprimir
+    # os visuais que subtraem despesa cheia de receita parcial.
+    meta_frac = {'fracionado': fracionado, 'dia_ini': dia_ini, 'dia_fim': dia_fim}
+
     if len(meses) == 1:
         (_, _, _, prim, ult) = meses[0]
         totais = _calcular_dre_periodo(prim, ult)
@@ -1727,7 +1763,7 @@ def api_dre():
             v = totais[item['key']]
             item['valor'] = v
             item['pct'] = (v / rb) if (item['tipo'] == 'Subtotal' and rb) else None
-        return jsonify({'ok': True, 'modo': 'acumulado', 'estrutura': estrutura})
+        return jsonify({'ok': True, 'modo': 'acumulado', 'estrutura': estrutura, **meta_frac})
 
     # Modo mensal
     totais_por_mes = []
@@ -1753,7 +1789,8 @@ def api_dre():
         item['total'] = v
         item['total_pct'] = (v / rb_total) if (item['tipo'] == 'Subtotal' and rb_total) else None
 
-    return jsonify({'ok': True, 'modo': 'mensal', 'meses': [m[2] for m in meses], 'estrutura': estrutura})
+    return jsonify({'ok': True, 'modo': 'mensal', 'meses': [m[2] for m in meses],
+                    'estrutura': estrutura, **meta_frac})
 
 
 def _query_despesas_periodo(start, end, grupo=None, evento=None):
@@ -3126,6 +3163,25 @@ def _montar_prompt_chat(contexto):
     partes.append(f"MODO: {modo}")
     partes.append(f"PADRÃO DE SELEÇÃO: {padrao}")
     partes.append(f"COMO INTERPRETAR: {_DESCRICAO_PADRAO.get(padrao, '')}\n")
+
+    # Modo fracionado: receita recortada por dia, despesa do mês inteiro.
+    # Sem este aviso o modelo lê a margem negativa estrutural como prejuízo real.
+    if contexto.get('fracionado'):
+        di, df = contexto.get('dia_ini'), contexto.get('dia_fim')
+        partes.append(
+            f"*** ATENÇÃO — MODO FRACIONADO (dias {di} a {df} de cada mês) ***\n"
+            f"A RECEITA está recortada aos dias {di}-{df}. A DESPESA é do MÊS INTEIRO "
+            f"(a competência do ERP não tem dia, não há como fracioná-la).\n"
+            f"CONSEQUÊNCIA: todas as linhas abaixo de 'Receita Bruta' (Receita Líquida, EBITDA, "
+            f"LAIR, Lucro Líquido, Resultado Final) e TODAS as margens comparam receita parcial "
+            f"com despesa cheia — são NEGATIVAS POR CONSTRUÇÃO e NÃO significam prejuízo.\n"
+            f"VOCÊ NÃO PODE: chamar esses números de prejuízo, alertar sobre margem negativa, "
+            f"citar EBITDA/Resultado/margens em reais ou %, nem comparar com o mês fechado.\n"
+            f"VOCÊ DEVE: analisar APENAS a Receita Bruta do recorte e a Despesa do mês, cada uma "
+            f"comparada consigo mesma entre os períodos (crescimento, tendência, aceleração). "
+            f"Se perguntarem sobre lucro/margem/resultado, responda que no modo fracionado só a "
+            f"receita é comparável e sugira desligar o filtro de dias para ver o resultado.\n"
+        )
 
     dre = contexto.get('dre') or {}
     if modo == 'acumulado' and dre:
