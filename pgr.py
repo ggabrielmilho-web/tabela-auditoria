@@ -868,8 +868,12 @@ def listar_periodo(cur, meses, cavalo=None, carreta=None, motorista=None):
         g = placas.grafias(carreta)
         args += [g, g]
     if motorista:
-        where.append('motorista = %s')
-        args.append(motorista)
+        # Trecho, não igualdade: o filtro da tela oferece o nome CURTO
+        # ("Pedro Henrique de S.") e o banco guarda o do manifesto inteiro
+        # ("PEDRO HENRIQUE DE S. FIGUEIREDO"). ILIKE também deixa quem digita
+        # só o primeiro nome achar a pessoa.
+        where.append('motorista ILIKE %s')
+        args.append(f'%{motorista.strip()}%')
 
     cur.execute(_SELECT_EVENTO.replace('FROM pgr_eventos', ', dia FROM pgr_eventos')
                 + ' WHERE ' + ' AND '.join(where) +

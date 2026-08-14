@@ -39,9 +39,11 @@
   .nav a.btn-sm:hover { color:var(--text); border-color:var(--accent); }
   .nav a.btn-sm.active { color:var(--accent); border-color:var(--accent); }
   .nav .sep { width:1px; height:20px; background:var(--border); margin:0 2px; }
-  .filtro { font-family:var(--mono); font-size:.68rem; background:var(--surface); color:var(--text-dim);
-        border:1px solid var(--border); border-radius:5px; padding:4px 6px; max-width:150px; }
-  .filtro:hover { border-color:var(--accent); }
+  .filtro { font-family:var(--mono); font-size:.68rem; background:var(--surface); color:var(--text);
+        border:1px solid var(--border); border-radius:5px; padding:4px 7px; width:104px; }
+  .filtro.larga { width:150px; }
+  .filtro::placeholder { color:var(--text-dim); text-transform:none; }
+  .filtro:hover, .filtro:focus { border-color:var(--accent); outline:none; }
   .filtro.on { color:var(--accent); border-color:var(--accent); }
 
   /* Seletor de mês — mesmo componente da aba Veículos, para a interação ser a
@@ -188,9 +190,12 @@
           </div>
         </div>
       </div>
-      <select id="fCavalo" class="filtro"><option value="">cavalo</option></select>
-      <select id="fCarreta" class="filtro"><option value="">carreta</option></select>
-      <select id="fMotorista" class="filtro"><option value="">motorista</option></select>
+      <input id="fCavalo" class="filtro" list="lCavalo" placeholder="cavalo" autocomplete="off">
+      <datalist id="lCavalo"></datalist>
+      <input id="fCarreta" class="filtro" list="lCarreta" placeholder="carreta" autocomplete="off">
+      <datalist id="lCarreta"></datalist>
+      <input id="fMotorista" class="filtro larga" list="lMotorista" placeholder="motorista" autocomplete="off">
+      <datalist id="lMotorista"></datalist>
       <button id="limpaFiltro" hidden>limpar filtros</button>
     </div>
     <!-- Menu do app. O nav-perms.js só injeta se /api/me responder ok, e ela é
@@ -417,20 +422,25 @@ async function montarControles(d) {
   if (o.meses && o.meses.length) anoPicker = +o.meses[0].mes.split('-')[0];
   renderMesGrid();
 
-  const preenche = (id, itens, sel) => {
+  // `input list` + `datalist`: aceita digitar E sugere, sem biblioteca — mesmo
+  // padrão do autocomplete de motorista dos Embarques. O texto digitado vai
+  // cru para o servidor: placa é normalizada em Mercosul lá, e motorista casa
+  // por trecho, então o rótulo curto ("Pedro Henrique de S.") encontra o nome
+  // completo do manifesto.
+  const preenche = (id, lista, itens, sel) => {
     const el = $(id);
-    const rotulo = el.options[0].textContent;
-    el.innerHTML = `<option value="">${rotulo}</option>` + itens.map(i => {
-      const v = i.valor !== undefined ? i.valor : i;
+    $(lista).innerHTML = itens.map(i => {
       const t = i.label !== undefined ? i.label : i;
-      return `<option value="${esc(v)}"${v === sel ? ' selected' : ''}>${esc(t)}</option>`;
+      return `<option value="${esc(t)}">`;
     }).join('');
+    el.value = sel;
     el.classList.toggle('on', !!sel);
     el.onchange = aplicarFiltros;
+    el.onkeydown = e => { if (e.key === 'Enter') aplicarFiltros(); };
   };
-  preenche('fCavalo', o.cavalos || [], qs.get('cavalo') || '');
-  preenche('fCarreta', o.carretas || [], qs.get('carreta') || '');
-  preenche('fMotorista', o.motoristas || [], qs.get('motorista') || '');
+  preenche('fCavalo', 'lCavalo', o.cavalos || [], qs.get('cavalo') || '');
+  preenche('fCarreta', 'lCarreta', o.carretas || [], qs.get('carreta') || '');
+  preenche('fMotorista', 'lMotorista', o.motoristas || [], qs.get('motorista') || '');
 
   if (mesesSel.size) {
     const nomes = [...mesesSel].sort().map(m => MES_CURTO[+m.split('-')[1] - 1]);

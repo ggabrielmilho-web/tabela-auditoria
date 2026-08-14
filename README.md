@@ -25,7 +25,7 @@ URL de produção: **https://rizza.carvalhoia.com**
 - **Conhecimentos** (`/dre/conhecimentos`) — Auditoria detalhada de `conhecimentos_emitidos` com filtros, **AutoFilter estilo Excel por coluna** e exportação CSV em streaming
 - **Faturamento por Tomador** (`/faturamento`) — Matriz **tomador × meses** (faturamento e nº de cargas) de `conhecimentos_emitidos`, agregada via DAX e **consolidada por raiz de CNPJ** (junta filiais do mesmo grupo). Toggle R$/Cargas, busca, ordenação e CSV; cards e subtotal acompanham o filtro
 - **Análise por Veículo** (`/veiculos`) — Análise de receita/custo por **Cavalo / Carreta / Motorista / Proprietário**, sobre `Auditoria Receita` (receita **rateada**, nunca duplica). Filtros de **mês/competência** e **tipo** (Frota/Agregado/Carreteiro) como **dropdown (caixinhas + Aplicar)**. Na visão **Cavalo + só Frota**: custos reais por cavalo — **Pedágio** (Sem Parar), **Combustível/ARLA** (ValeCard, com **consumo km/L** via hodômetro), **Pessoal** (folha), **Manut. Cavalo / Seguro / Rastreador** e **Pneu** (eventos 5411/5412, split cavalo×carreta por nº de pneus) rateados → **Resultado Frota**; mostra **KM Rota** (manifesto) e **KM Abast.** (hodômetro) lado a lado. Na visão **Carreta**: **Manut. Carreta** + **Pneu** rateados entre as carretas Rizza (frota+agregado). **Coluna Proprietário** (dono do cavalo no recorte cavalo; donos dos cavalos no drawer da carreta). **Donut "Composição do Faturamento"** quando só um tipo está marcado (custos diluídos na receita + Resultado). **Painel lateral (drawer)** com cargas, abastecimentos, pedágios, manutenção real, relacionamentos e quebra por veículo. **Placas normalizadas para Mercosul** (funde grafia antiga + nova; trata colisão preferindo a Mercosul real)
-- **PGR — Excesso de velocidade** (`/pgr`) — Relatório diário das placas que passaram de 95 km/h, enviado por WhatsApp toda manhã (imagem-resumo + link). Detecção sobre o histórico de GPS **backfillado** da 3S, com **situação de carga provada por posição** (carregado / parcial / vazio / não confirmado), rodovia do pico e rodapé de **cobertura por placa**. Acesso por sessão (aba `pgr`) **ou** por token de leitura no link. Ver Módulo PGR
+- **PGR — Excesso de velocidade** (`/pgr`) — Relatório diário das placas que passaram de 95 km/h, enviado por WhatsApp toda manhã (imagem-resumo + link). Detecção sobre o histórico de GPS **backfillado** da 3S, com **situação de carga provada por posição** (carregado / parcial / vazio / não confirmado), rodovia do pico e rodapé de **cobertura por placa**. Traz o **cavalo do par** nas linhas de carreta. **Filtros por cavalo, carreta e motorista** (digitáveis) e **seleção de mês** com múltipla escolha, mostrando só os meses já apurados. Acesso por sessão (aba `pgr`) **ou** por token de leitura no link — o token abre **um dia só**, sem período nem filtro. Ver Módulo PGR
 - **Admin** (`/admin`) — Gerenciamento de usuários, papéis, **permissão de acesso por aba** (cada usuário recebe quais abas enxerga; admin vê todas por bypass) e permissões por tipo de operação
 
 ---
@@ -246,7 +246,7 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 | `PGR_MAX_DIAS_MANIFESTO` | Teto de idade do manifesto (sanidade, não critério) | `20` |
 | `PGR_MANIFESTOS_DIAS` | Janela do cache de manifestos | `30` |
 | `PGR_SYNC_CADASTRO` | Liga a sincronização 12/12h do cache (server) | `true` |
-| `PGR_IMG_MAX_LINHAS` | Placas na imagem do WhatsApp | `6` |
+| `PGR_IMG_MAX_LINHAS` | Placas na imagem do WhatsApp | `12` |
 | `PGR_ENVIO` | **Liga o envio** por WhatsApp | `false` |
 | `PGR_UAZAPI_TO` | Destinatário(s), separados por vírgula | — |
 | `PGR_INTERVALO_ENVIO_SEG` | Segundos entre um destinatário e o próximo | `75` |
@@ -454,7 +454,7 @@ CREATE TABLE auditoria_users (
 | `municipios_ibge` | Centroides IBGE p/ geocoding de origem/destino |
 | `embarques_3s_log` | Log de chamadas a APIs externas (provider `3S` / `ORS` / `SIM`) |
 | `embarques_simulacao` | Fonte de posições quando `MODO_SIMULADO=true` |
-| `pgr_eventos` | Resultado do PGR, grão de **episódio** (sobrevive à retenção das posições; `UNIQUE(placa, ini)` p/ reprocesso) |
+| `pgr_eventos` | Resultado do PGR, grão de **episódio** (sobrevive à retenção das posições; `UNIQUE(placa, ini)` p/ reprocesso). Guarda o **par** `placa_cavalo`/`placa_carreta` do manifesto e o `entregue_em` que prova o "vazio" |
 | `pgr_cobertura` | Cobertura por placa/dia — separa lacuna qualquer de lacuna **em movimento** |
 | `pgr_tokens` | Token de leitura por relatório (link do WhatsApp), com validade e contagem de acesso |
 | `pgr_cadastro_veiculos` | Cache de `veiculos_045` (o worker não fala Power BI) |
@@ -646,6 +646,42 @@ aviso no log — rótulo faltando é falha macia, job quebrado não.
 propriedade da viagem, porque a regra é sobre o par cavalo+carreta e o evento de
 PGR tem uma placa só.
 
+### A tela: dia e período
+
+O modo padrão é **um dia** — é o relatório que o link do WhatsApp abre. Logado, a
+mesma tela ganha seleção de mês (múltipla, no mesmo componente da aba Veículos) e
+filtros de **cavalo, carreta e motorista**.
+
+No período, a linha continua sendo **placa-no-dia**, com um cabeçalho separando os
+dias. Agregar o período inteiro numa linha só perderia o *quando* e transformaria
+a lista de cidades num parágrafo.
+
+Detalhes que a implementação obrigou:
+
+- **Mês sem dia apurado fica desabilitado.** A base começa quando a apuração
+  começa; oferecer um mês vazio faria a tela parecer quebrada. Mês novo acende
+  sozinho conforme o job roda.
+- **A tela diz quantos dias existem** ("3 de 31 apurados") — mesma razão do
+  rodapé de cobertura: ausência não pode se confundir com "nada aconteceu".
+- **`veículos` nos KPIs é contagem DISTINTA no período.** Somar a contagem de
+  cada dia daria mais caminhões do que a frota tem.
+- **As opções de filtro saem dos dados apurados**, não do cadastro: oferecer os
+  6.645 veículos do `veiculos_045` daria uma lista impossível, cheia de escolha
+  que retorna vazio.
+- **Tudo normalizado em Mercosul.** Sem isso o mesmo veículo aparecia duas vezes
+  (`HIF2439` e `HIF2E39`: grafia crua do GPS × normalizada do manifesto) e
+  escolher uma perdia os eventos da outra. O filtro casa contra as duas grafias,
+  e aceita a placa digitada em minúscula ou na grafia antiga.
+- **Filtrar cavalo casa a placa do evento OU a do par.** O rastreador costuma
+  estar na carreta, então procurar só pela placa do evento devolveria quase nada.
+- **Motorista casa por trecho** (`ILIKE`): a lista oferece o nome curto
+  ("Pedro Henrique de S.") e o banco guarda o do manifesto inteiro; assim quem
+  digita só o primeiro nome ou o sobrenome também encontra.
+
+**Período e filtros exigem sessão.** O token do link é preso a um dia de
+propósito: se abrisse o modo período, um link vazado exporia meses de operação
+em vez de um dia.
+
 ### Entrega
 Imagem com as 6 placas mais relevantes + link. A imagem ordena por **sustentado
 → recorrência → pico** (diferente da página, que ordena por gravidade): 81% dos
@@ -757,7 +793,8 @@ Resultado Final   = Pós Investimento - Retiradas
 - [x] **Backfill do histórico da 3S** (`/HistoricoPosicao`) — cobertura de detecção de 81% → 100% contra o gabarito de 1 Hz
 - [x] **Relatório PGR de excesso de velocidade** (aba `/pgr`, imagem + link por WhatsApp, situação de carga provada por GPS)
 - [ ] **Calibrar a situação de carga** contra a base backfillada (limiares vieram de estudo sobre outra amostra)
-- [ ] **PGR fase 2**: ranking por motorista, evolução mês a mês, filtros e CSV
+- [x] **PGR: cavalo na linha, filtros (cavalo/carreta/motorista) e seleção de mês**
+- [ ] **PGR fase 2**: ranking por motorista, evolução mês a mês e CSV
 - [ ] **km/L pelo GPS do rastreamento** (substituir o hodômetro do ValeCard, que é sujo, na Análise por Veículo)
 - [ ] **Conectar carga (embarques) ↔ documentos fiscais** (auditoria/conhecimentos) por placa+data ou manifesto — enriquecer auditoria com Nº da carga, "Rastreada" e Embarcador
 - [ ] **Dedupe do mapa geral** (carga de frota aparece 2× — cavalo + carreta)
