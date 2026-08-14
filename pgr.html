@@ -230,10 +230,11 @@ const marcaUF = t => (t || '').replace(/\/([A-Z]{2})\b/g, '/<span class="uf">$1<
 const esc = s => (s == null ? '' : String(s)).replace(/[&<>"]/g, c =>
   ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const hm = m => m >= 60 ? `${Math.floor(m/60)}h${String(m%60).padStart(2,'0')}` : `${m}min`;
-// frota/agregado só existe depois do casamento com o manifesto (é propriedade
-// da VIAGEM, não do veículo). Enquanto não vem, mostra "—": zero parece dado
-// zerado quando na verdade é dado ausente.
-const op = n => n ? n : '—';
+// frota/agregado vem do manifesto casado (é propriedade da VIAGEM, não do
+// veículo). Zero é zero — "nenhum veículo do recorte é frota" é fato, não
+// lacuna. O traço fica só para o caso em que NADA foi classificado, que aí sim
+// significa "nenhum manifesto casou".
+const op = (n, algumClassificado) => (n || algumClassificado) ? n : '—';
 
 function linha(l) {
   const tipo = (l.tipo_veiculo || '').toUpperCase();
@@ -294,13 +295,14 @@ function render(d) {
     document.title = `PGR · Excessos — ${brData(dia)}`;
   }
 
+  const classificou = (t.frota || 0) + (t.agregado || 0) > 0;
   const kpis = `<div class="kpis">
     <div class="kpi"><span class="v">${t.veiculos}</span><span class="l">veículos</span></div>
     <div class="kpi al"><span class="v">${t.registros}</span><span class="l">registros</span></div>
     <div class="kpi al"><span class="v">${t.pico}</span><span class="l">pico km/h</span></div>
     <div class="kpi"><span class="v">${t.sustentados}</span><span class="l">sustentados</span></div>
-    <div class="kpi"><span class="v op-frota">${op(t.frota)}</span><span class="l">frota</span>
-      <span class="v op-agregado" style="margin-left:8px">${op(t.agregado)}</span><span class="l">agregado</span></div>
+    <div class="kpi"><span class="v op-frota">${op(t.frota, classificou)}</span><span class="l">frota</span>
+      <span class="v op-agregado" style="margin-left:8px">${op(t.agregado, classificou)}</span><span class="l">agregado</span></div>
   </div>`;
 
   // Honestidade: "Agosto" com 3 blocos parece quebrado se a tela não disser
@@ -386,13 +388,28 @@ function toggleMes(ym) { mesesSel.has(ym) ? mesesSel.delete(ym) : mesesSel.add(y
 function mudaAno(d) { anoPicker += d; renderMesGrid(); }
 function toggleMesPop(e) { e.stopPropagation(); $('mesPop').classList.toggle('open'); renderMesGrid(); }
 function limparMeses() { mesesSel.clear(); renderMesGrid(); }
+function mesPadrao() {
+  const h = new Date();
+  const atual = `${h.getFullYear()}-${String(h.getMonth() + 1).padStart(2, '0')}`;
+  if (mesesComDado.has(atual)) return atual;
+  // Mês vigente ainda sem apuração (virada de mês antes do job): usa o mais
+  // recente que tem dado, para o filtro nunca cair num recorte vazio.
+  return [...mesesComDado].sort().reverse()[0] || atual;
+}
+
 function aplicarMeses() {
   $('mesPop').classList.remove('open');
   const p = new URLSearchParams();
-  if (mesesSel.size) p.set('meses', [...mesesSel].sort().join(','));
-  for (const [id, k] of [['fCavalo','cavalo'],['fCarreta','carreta'],['fMotorista','motorista']]) {
-    if ($(id).value) p.set(k, $(id).value);
-  }
+  const campos = [['fCavalo','cavalo'],['fCarreta','carreta'],['fMotorista','motorista']];
+  const filtros = campos.map(([id, k]) => [k, ($(id).value || '').trim()]).filter(x => x[1]);
+
+  let meses = [...mesesSel];
+  // Filtrar sem escolher mês cairia no modo de UM dia, que ignora filtro: a
+  // pessoa digita a placa e nada muda na tela. Assume o mês vigente.
+  if (!meses.length && filtros.length) meses = [mesPadrao()];
+
+  if (meses.length) p.set('meses', meses.sort().join(','));
+  for (const [k, v] of filtros) p.set(k, v);
   location.search = p.toString();
 }
 document.addEventListener('click', () => $('mesPop') && $('mesPop').classList.remove('open'));
