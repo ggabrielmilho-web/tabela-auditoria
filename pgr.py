@@ -670,36 +670,98 @@ _SELECT_EVENTO = """
 """
 
 
-def _agregar_por_placa(eventos, cobertura):
-    """Episodios de UM dia -> uma linha por placa. Coracao das duas visoes."""
-    por_placa = {}
+def _grupos_de_viagem(eventos):
+    """placa -> chave da viagem, quando cavalo e carreta rodaram o MESMO servico.
+
+    A prova de que estao juntos e o MANIFESTO igual no mesmo dia — nao a
+    proximidade das placas nem o horario. Onde o manifesto nao casou
+    ("nao confirmado") nao funde: sem prova de que estao na mesma viagem,
+    juntar seria o mesmo pecado de dizer "carregado" sem prova.
+
+    Uma placa que aparece em dois manifestos agrupados no mesmo dia fica com o
+    de maior peso (mais registros), para nao partir a linha dela em duas.
+    """
+    placas_por_manif, peso = {}, {}
     for e in eventos:
-        p = por_placa.setdefault(e['placa'], {
-            'placa': e['placa'], 'tipo_veiculo': e['tipo_veiculo'],
+        m = e.get('manifesto')
+        if not m:
+            continue
+        placas_por_manif.setdefault(m, set()).add(e['placa'])
+        peso[(e['placa'], m)] = peso.get((e['placa'], m), 0) + (e['registros'] or 0)
+
+    duplas = {m: p for m, p in placas_por_manif.items() if len(p) > 1}
+    chave = {}
+    for m, placas_ in duplas.items():
+        for p in placas_:
+            atual = chave.get(p)
+            if atual is None or peso[(p, m)] > peso[(p, atual)]:
+                chave[p] = m
+    return chave
+
+
+def _registros_sem_duplicar(eps):
+    """Registros de uma viagem rastreada por dois aparelhos.
+
+    `eps`: [(ini, fim, registros)] das duas placas. Episodios que se SOBREPOEM
+    no tempo sao o mesmo trecho visto duas vezes e contam uma vez (o maior dos
+    dois); episodios que nao se sobrepoem sao trechos diferentes e somam — foi
+    o caso de Joanopolis e Porto Ferreira, que so a carreta pegou.
+
+    O maior-dos-dois e piso, nao media: dois aparelhos amostrando o mesmo
+    trecho viram entre max(a,b) e a+b momentos distintos. Mesmo criterio do
+    `pico_exibido` — erra sempre para baixo.
+    """
+    if not eps:
+        return 0
+    total, cluster_fim, cluster_max = 0, None, 0
+    for i, f, n in sorted(eps):
+        if cluster_fim is not None and i <= cluster_fim:
+            cluster_fim = max(cluster_fim, f)
+            cluster_max = max(cluster_max, n or 0)
+        else:
+            total += cluster_max
+            cluster_fim, cluster_max = f, (n or 0)
+    return total + cluster_max
+
+
+def _agregar_por_placa(eventos, cobertura):
+    """Episodios de UM dia -> uma linha por veiculo (ou por VIAGEM, quando
+    cavalo e carreta rastrearam a mesma)."""
+    viagem_de = _grupos_de_viagem(eventos)
+    por_chave = {}
+    for e in eventos:
+        chave = ('v', viagem_de[e['placa']]) if e['placa'] in viagem_de else ('p', e['placa'])
+        p = por_chave.setdefault(chave, {
+            'placas': [], 'tipos': [], 'tipo_veiculo': e['tipo_veiculo'],
             'tipo_operacao': e['tipo_operacao'], 'registros': 0, 'pico': 0,
             'sustentado': False, 'cidades': [], 'situacoes': [], 'episodios': [],
             'tomador': None, 'origem': None, 'destino': None,
             'motorista': None, 'manifesto': None, 'entregue_em': None,
-            'placa_cavalo': None, 'placa_carreta': None,
+            'placa_cavalo': None, 'placa_carreta': None, '_eps': [],
         })
-        # O contexto da placa vem de um episodio que TENHA manifesto, nao do
-        # primeiro em ordem cronologica: numa placa "parcial", o primeiro
-        # episodio do dia costuma ser o vazio, e a linha saia com "-" mesmo
-        # havendo carga provada no resto do dia.
+        if e['placa'] not in p['placas']:
+            p['placas'].append(e['placa'])
+            if e['tipo_veiculo'] and e['tipo_veiculo'] not in p['tipos']:
+                p['tipos'].append(e['tipo_veiculo'])
+        # O contexto vem de um episodio que TENHA manifesto, nao do primeiro em
+        # ordem cronologica: numa placa "parcial" o primeiro episodio do dia
+        # costuma ser o vazio, e a linha saia com "-" mesmo havendo carga
+        # provada no resto do dia.
         if e['tomador'] and not p['tomador']:
             p.update({k: e[k] for k in
                       ('tomador', 'origem', 'destino', 'motorista', 'manifesto',
                        'entregue_em', 'placa_cavalo', 'placa_carreta')})
         if e['tipo_operacao'] and not p['tipo_operacao']:
             p['tipo_operacao'] = e['tipo_operacao']
-        p['registros'] += e['registros'] or 0
         p['pico'] = max(p['pico'], pico_exibido(e['vel_max'], e['vel_sustentada']))
         p['sustentado'] = p['sustentado'] or bool(e['sustentado'])
         p['situacoes'].append(e['situacao_carga'])
+        p['_eps'].append((e['ini'], e['fim'], e['registros']))
         cid = f"{e['cidade']}/{e['uf']}" if e['cidade'] and e['uf'] else (e['cidade'] or '')
         if cid and cid not in p['cidades']:
             p['cidades'].append(cid)
         p['episodios'].append({
+            'placa': e['placa'],
             'ini': e['ini'].strftime('%H:%M') if e['ini'] else None,
             'fim': e['fim'].strftime('%H:%M') if e['fim'] else None,
             'registros': e['registros'], 'vel_max': e['vel_max'],
@@ -710,10 +772,22 @@ def _agregar_por_placa(eventos, cobertura):
         })
 
     linhas = []
-    for p in por_placa.values():
+    for p in por_chave.values():
+        fundida = len(p['placas']) > 1
+        p['placa'] = ' + '.join(p['placas'])
+        p['fundida'] = fundida
+        # Numa viagem rastreada pelos dois, somar daria um numero inflado: o
+        # veiculo de frota (dois rastreadores) pareceria sempre pior que o
+        # agregado (um so), para o mesmo comportamento.
+        p['registros'] = (_registros_sem_duplicar(p['_eps']) if fundida
+                          else sum(n or 0 for _, _, n in p['_eps']))
+        if fundida:
+            p['tipo_veiculo'] = '+'.join(p['tipos']) if p['tipos'] else None
+        del p['_eps']
         p['situacao_carga'] = _situacao_consolidada(p['situacoes'])
         p['situacao_rotulo'] = _SITUACAO_ROTULO.get(p['situacao_carga'], p['situacao_carga'])
-        p['cobertura'] = cobertura.get(p['placa'], {})
+        # Cobertura e por placa; na linha fundida vale a do primeiro rastreador.
+        p['cobertura'] = cobertura.get(p['placas'][0], {})
         p['tomador'] = nome_curto(p['tomador'])
         p['motorista'] = nome_pessoa(p['motorista'])
         p['origem'] = cidade_uf_titulo(p['origem'])
@@ -721,8 +795,7 @@ def _agregar_por_placa(eventos, cobertura):
         # `entregue_em` sai do banco como datetime. Quem consome precisa so do
         # "09/08", e cada consumidor formatando por conta propria ja causou um
         # bug em cada ponta: a imagem fatiava o datetime (TypeError) e o JS
-        # fatiava o que o jsonify vira ("Sat, 09 Aug 2026...") . Sai daqui
-        # pronto, e o ISO fica para quem ler a API.
+        # fatiava o que o jsonify vira. Sai daqui pronto.
         q = p['entregue_em']
         p['entregue_em'] = q.isoformat(timespec='seconds') if q else None
         p['entregue_em_br'] = q.strftime('%d/%m') if q else None
@@ -739,7 +812,7 @@ def _totais(linhas, n_monitoradas):
     """No periodo, `veiculos` precisa ser DISTINTO: somar a contagem de cada dia
     daria mais caminhoes do que a frota tem."""
     return {
-        'veiculos': len({l['placa'] for l in linhas}),
+        'veiculos': len({l['placa'] for l in linhas}),   # linha = veículo ou viagem
         'registros': sum(l['registros'] for l in linhas),
         'pico': max((l['pico'] for l in linhas), default=0),
         'sustentados': sum(1 for l in linhas if l['sustentado']),

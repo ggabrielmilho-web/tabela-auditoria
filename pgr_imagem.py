@@ -32,6 +32,7 @@ MAX_LINHAS = int(os.getenv('PGR_IMG_MAX_LINHAS', '12'))
 LINHAS_SEM_CORTE = int(os.getenv('PGR_IMG_SEM_CORTE', '3'))
 
 LARGURA = 620
+_ABREV = {'CARRETA': 'car', 'CAVALO': 'cav', 'TRUCK': 'trk'}
 FUNDO = '#0a0e17'
 _RGB_FUNDO = (0x0a / 255, 0x0e / 255, 0x17 / 255)
 
@@ -123,7 +124,7 @@ def montar_html(dados):
         selo = ('<span style="color:#fb923c;font-size:6.5pt"> SUST</span>'
                 if l.get('sustentado') else '')
         tipo = (l.get('tipo_veiculo') or '').upper()
-        abrev = {'CARRETA': 'car', 'CAVALO': 'cav', 'TRUCK': 'trk'}.get(tipo, tipo[:3].lower())
+        abrev = '+'.join(_ABREV.get(t, t[:3].lower()) for t in tipo.split('+') if t)
         op = (l.get('tipo_operacao') or '').lower()
         cor_op = '#38bdf8' if op == 'frota' else '#818cf8'
         sub = (f'{abrev}' + (f' &#183; <span style="color:{cor_op}">{op}</span>' if op else ''))
@@ -141,6 +142,15 @@ def montar_html(dados):
                 rota = ' &#8594; '.join(x for x in (l.get('origem'), l.get('destino')) if x)
                 if rota:
                     ctx += f' &#183; {_escapar(rota)}'
+            # A metade oposta do par — na linha fundida não entra, porque as
+            # duas placas já estão na coluna da placa.
+            if not l.get('fundida'):
+                eh_cavalo = tipo == 'CAVALO'
+                outra = l.get('placa_carreta') if eh_cavalo else l.get('placa_cavalo')
+                nela = {p.upper() for p in (l.get('placas') or [l.get('placa') or ''])}
+                if outra and outra.upper() not in nela:
+                    ctx += (f' &#183; {"carreta" if eh_cavalo else "cavalo"} '
+                            f'{_escapar(outra)}')
             if l.get('motorista'):
                 ctx += f' &#183; {_escapar(l["motorista"])}'
         else:
@@ -148,9 +158,14 @@ def montar_html(dados):
 
         cidades = ', '.join(_escapar(c) for c in (l.get('cidades') or [])[:8])
 
+        # Linha fundida traz as duas placas empilhadas na mesma célula.
+        celula_placa = ''.join(
+            f'<div><b class="mono">{_escapar(p)}</b></div>'
+            for p in (l.get('placas') or [l.get('placa')]))
+
         tr.append(
             f'<tr>'
-            f'<td style="font-size:9.5pt;color:#e2e8f0"><b class="mono">{_escapar(l["placa"])}</b>'
+            f'<td style="font-size:9.5pt;color:#e2e8f0">{celula_placa}'
             f'<div style="font-size:6pt;color:#94a3b8">{sub}</div></td>'
             f'<td class="reg" style="font-size:8.5pt;color:#94a3b8;text-align:right">{l["registros"]}x</td>'
             f'<td class="pico" style="font-size:11pt;color:{_cor_faixa(l["pico"])};text-align:right">{l["pico"]}</td>'

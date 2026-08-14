@@ -236,9 +236,13 @@ const hm = m => m >= 60 ? `${Math.floor(m/60)}h${String(m%60).padStart(2,'0')}` 
 // significa "nenhum manifesto casou".
 const op = (n, algumClassificado) => (n || algumClassificado) ? n : '—';
 
+const ABREV = {CARRETA:'car', CAVALO:'cav', TRUCK:'trk'};
+const abreviaTipo = t => (t || '').toUpperCase().split('+')
+  .map(x => ABREV[x] || (x ? x.toLowerCase().slice(0,3) : '')).filter(Boolean).join('+');
+
 function linha(l) {
   const tipo = (l.tipo_veiculo || '').toUpperCase();
-  const abrev = {CARRETA:'car', CAVALO:'cav', TRUCK:'trk'}[tipo] || (tipo ? tipo.toLowerCase().slice(0,3) : '');
+  const abrev = abreviaTipo(tipo);
   const op = (l.tipo_operacao || '').toLowerCase();
   // Em "vazio" o manifesto guardado é o que o veículo ACABOU de entregar — daí
   // sai o frota/agregado da linha e o contexto útil ("entregou em X").
@@ -249,18 +253,26 @@ function linha(l) {
   } else if (l.tomador) {
     ctx = `${esc(l.tomador)} · ${esc([l.origem, l.destino].filter(Boolean).join(' → '))}`;
   }
-  // O cavalo do par entra quando a placa da linha não é ele — o rastreador
-  // costuma estar na carreta, então sem isto o cavalo (e o responsável pela
-  // condução) some do relatório.
-  const pnorm = (p) => (p || '').toUpperCase();
+  // A METADE OPOSTA do par: linha de carreta mostra o cavalo, linha de cavalo
+  // mostra a carreta. É o que faz a linha se explicar sozinha — filtrando uma
+  // carreta, o cavalo que a puxou aparece dizendo por que está ali. Na linha
+  // já fundida não entra: as duas placas estão na própria coluna.
+  const pnorm = p => (p || '').toUpperCase();
+  const naLinha = (l.placas || [l.placa]).map(pnorm);
   let par = '';
-  if (l.placa_cavalo && pnorm(l.placa_cavalo) !== pnorm(l.placa) && tipo !== 'CAVALO') {
-    par = ` · <span class="mot">cavalo ${esc(l.placa_cavalo)}</span>`;
+  if (!l.fundida) {
+    const ehCavalo = tipo === 'CAVALO';
+    const outra = ehCavalo ? l.placa_carreta : l.placa_cavalo;
+    if (outra && !naLinha.includes(pnorm(outra))) {
+      par = ` · <span class="mot">${ehCavalo ? 'carreta' : 'cavalo'} ${esc(outra)}</span>`;
+    }
   }
   const mot = l.motorista ? ` · <span class="mot">${esc(l.motorista)}</span>` : '';
   const selo = l.sustentado ? '<span class="sus">sustentado</span>' : '';
+  const placaCel = (l.placas || [l.placa])
+    .map(p => `<span class="pl">${esc(p)}</span>`).join('');
   return `<tr>
-    <td class="c-placa"><span class="pl">${esc(l.placa)}</span>
+    <td class="c-placa">${placaCel}
       <span class="tp">${abrev}${op ? ' · <em class="op-' + op + '">' + op + '</em>' : ''}</span></td>
     <td class="c-reg">${l.registros}<i>×</i></td>
     <td class="c-pico ${sev(l.pico)}">${l.pico}</td>
