@@ -21,6 +21,8 @@
     { id: 'conhecimentos', page: 'conhecimentos', href: '/dre/conhecimentos', label: '📦 Conhecimentos' },
     { id: 'despesas',      page: 'despesas',      href: '/dre/despesas',      label: '💰 Despesas' },
     { id: 'faturamento',   page: 'faturamento',   href: '/faturamento',       label: '📊 Faturamento' },
+    // Fecha a família financeira. A contadora externa recebe SÓ esta aba.
+    { id: 'contabil',      page: 'contabil',      href: '/contabil',          label: '📒 Contábil' },
     { id: 'veiculos',      page: 'veiculos',      href: '/veiculos',          label: '🚚 Veículos' },
     { id: 'admin',         page: 'admin',         href: '/admin',             label: '⚙ Admin' }
   ];

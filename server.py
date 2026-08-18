@@ -33,6 +33,8 @@ CONFIG = {
     'dataset_id':      os.getenv('POWERBI_DATASET_ID', ''),       # Auditoria + Tarifas
     'group_id':        os.getenv('POWERBI_GROUP_ID', ''),
     'dre_dataset_id':  os.getenv('POWERBI_DRE_DATASET_ID', ''),   # DRE
+    # tabelas.contabil — 456 extrato, 441 faturamento, 571 ACNI, 479 eventos.
+    'contabil_dataset_id': os.getenv('POWERBI_CONTABIL_DATASET_ID', ''),
 }
 
 # ── Config Mercado Livre (OAuth) ──
@@ -82,13 +84,14 @@ def admin_required(f):
 # Abas concedíveis por usuário (a aba Admin NÃO entra — é exclusiva de role=admin).
 PAGINAS_VALIDAS = {'auditoria', 'tarifas', 'embarques', 'reuniao', 'dre',
                    'despesas', 'conhecimentos', 'faturamento', 'contratos', 'veiculos',
-                   'pgr'}
+                   'pgr', 'contabil'}
 # Chave da aba → rota inicial (para redirect sem loop).
 _PAGINA_ROTA = {
     'auditoria': '/', 'tarifas': '/tarifas', 'embarques': '/embarques',
     'reuniao': '/reuniao', 'dre': '/dre', 'despesas': '/dre/despesas',
     'conhecimentos': '/dre/conhecimentos', 'faturamento': '/faturamento',
     'contratos': '/contratos', 'veiculos': '/veiculos', 'pgr': '/pgr',
+    'contabil': '/contabil',
 }
 # Ordem de preferência ao escolher a primeira aba permitida.
 # 'embarques' vem antes de 'tarifas': quem não tem Auditoria e tem Embarques
@@ -96,7 +99,8 @@ _PAGINA_ROTA = {
 # 'pgr' fica junto da família de rastreamento (perto de Embarques): é segurança
 # operacional, não financeiro.
 _PAGINA_ORDEM = ['auditoria', 'embarques', 'pgr', 'tarifas', 'reuniao', 'dre',
-                 'despesas', 'conhecimentos', 'faturamento', 'contratos', 'veiculos']
+                 'despesas', 'conhecimentos', 'faturamento', 'contratos', 'veiculos',
+                 'contabil']
 
 
 def _primeira_pagina_permitida():
@@ -388,6 +392,49 @@ def dre_despesas_page():
 @page_required('conhecimentos')
 def dre_conhecimentos_page():
     return send_from_directory('.', 'dre-conhecimentos.html')
+
+
+@app.route('/contabil')
+@page_required('contabil')
+def contabil_page():
+    return send_from_directory('.', 'contabil.html')
+
+
+@app.route('/contabil/extrato')
+@page_required('contabil')
+def contabil_extrato_page():
+    return send_from_directory('.', 'contabil-extrato.html')
+
+
+@app.route('/contabil/faturas')
+@page_required('contabil')
+def contabil_faturas_page():
+    return send_from_directory('.', 'contabil-faturas.html')
+
+
+@app.route('/contabil/acni')
+@page_required('contabil')
+def contabil_acni_page():
+    return send_from_directory('.', 'contabil-acni.html')
+
+
+@app.route('/contabil/eventos')
+@page_required('contabil')
+def contabil_eventos_page():
+    return send_from_directory('.', 'contabil-eventos.html')
+
+
+@app.route('/contabil/contas-fixas')
+@page_required('contabil')
+def contabil_contas_fixas_page():
+    return send_from_directory('.', 'contabil-contas-fixas.html')
+
+
+@app.route('/contabil/de-para')
+@page_required('contabil')
+def contabil_depara_page():
+    # A tela de status virou a de configuração, que faz as duas coisas.
+    return redirect('/contabil/eventos')
 
 
 @app.route('/faturamento')
@@ -3182,6 +3229,927 @@ def api_dre_conhecimentos_csv():
         mimetype='text/csv; charset=utf-8',
         headers={'Content-Disposition': f'attachment; filename="{nome}"'}
     )
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# CONTÁBIL — dataset tabelas.contabil (456 extrato · 441 faturamento ·
+#            571 ACNI · 479 eventos)
+#
+# Fonte das medidas: Rizza/contabil_pbi.py (dict MEDIDAS), validado por
+# Rizza/contabil_testes.py. Não reescrever DAX aqui de cabeça — copiar de lá.
+# ════════════════════════════════════════════════════════════════════════════
+
+_T456     = "'public extrato_bancario_456'"
+_T456_TOT = "'public extrato_bancario_456_totais'"
+_T441     = "'public faturas_441'"
+_T441_CTR = "'public faturas_441_ctrcs'"
+_T571     = "'public acni_571'"
+_T479     = "'public eventos_479'"
+
+# Conta contábil de cada conta do 456, chaveada por (banco, agencia, conta).
+# As nove primeiras casam pelo número da conta no plano da PERSETO; as três
+# marcadas saem de 1.1.1.02 porque NÃO são disponibilidade — foi deduzido do
+# comportamento do movimento, não lido de cadastro, então está comentado:
+#   BB GARANTIDA  — 6 lançamentos, todos saque do limite p/ a conta corrente do
+#                   BB. É conta garantida = empréstimo, logo passivo.
+#   D.D SOLAR     — 210 lançamentos transferindo o produto do desconto p/ o
+#                   Bradesco. DD = duplicatas descontadas, conta redutora.
+#   TRIBANCO      — conta bancária de verdade (entra por FAT/ACN, sai por
+#                   transferência) que não existe no plano. Precisa ser criada.
+#   CAIXA PAMBANK — instituição de pagamento: 4.418 lançamentos CPG pagando
+#                   frete/pedágio contra 634 MAN de abastecimento. Não é banco.
+def _norm_conta(v):
+    """'0001067129' e '1067129' são a mesma conta: o SSW preenche com zero à
+    esquerda em um lugar e sem em outro."""
+    return str(v or '').strip().lstrip('0') or '0'
+
+
+def chave_banco(banco, agencia, conta):
+    return f'BANCO:{_norm_conta(banco)}/{_norm_conta(agencia)}/{_norm_conta(conta)}'
+
+
+# As contas fixas moram em `contabil_conta_fixa`, editável pela tela — abrir
+# conta bancária não pode exigir deploy, e duas (TRIBANCO, CAIXA PAMBANK) já
+# nasceram pendentes de criação no plano. Cache curto porque _quadro_bancos
+# consulta 13 vezes por requisição e a tabela muda uma vez por ano.
+_cache_fixas = {'valor': None, 'expira': 0}
+
+
+def contas_fixas(forcar=False):
+    """{chave: (classificacao, codigo_reduzido, descricao, observacao)}"""
+    if not forcar and _cache_fixas['valor'] and time.time() < _cache_fixas['expira']:
+        return _cache_fixas['valor']
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT f.chave, f.classificacao, p.codigo_reduzido, f.descricao, f.observacao
+          FROM contabil_conta_fixa f
+          LEFT JOIN contabil_plano_contas p ON p.classificacao = f.classificacao
+    """)
+    d = {r[0]: (r[1], r[2], r[3], r[4]) for r in cur.fetchall()}
+    cur.close(); conn.close()
+    _cache_fixas['valor'] = d
+    _cache_fixas['expira'] = time.time() + 60
+    return d
+
+
+def _conta_contabil_456(banco, agencia, conta):
+    """(classificacao, codigo_reduzido, observacao) da conta bancária."""
+    cls, cod, desc, obs = contas_fixas().get(
+        chave_banco(banco, agencia, conta), (None, None, '', ''))
+    return cls, cod, (obs or desc or '')
+
+
+def contabil_dax(dax):
+    """Executa DAX no dataset contábil e devolve linhas já sem o prefixo da tabela.
+
+    O executeQueries corta a resposta e devolve HTTP 200 assim mesmo. São dois
+    tetos diferentes: 100.000 linhas e **15 MiB de payload** — este último morde
+    muito antes, porque depende da largura da linha. Medido: a mesma consulta
+    devolve 10.127 linhas com 29 colunas e as 22.835 completas com 3.
+
+    Resultado cortado é pior que erro, porque parece resposta — foi assim que a
+    ponte 456×477 mediu 8,67% de cobertura quando a real é 100%.
+
+    A boa notícia é que o serviço avisa: `results[0]['error']` só existe quando
+    houve corte (`DaxByteCountNotSupported`). É essa a guarda; a contagem de
+    linhas fica como cinto de segurança."""
+    token = get_token()
+    result = execute_dax(token, dax, dataset_id=CONFIG['contabil_dataset_id'])
+    bloco = (result.get('results') or [{}])[0]
+    erro = bloco.get('error')
+    if erro:
+        raise RuntimeError(
+            f"Consulta cortada pelo Power BI ({erro.get('code')}): {erro.get('message')} "
+            f"— reduza as colunas ou fatie o período.")
+    rows = (bloco.get('tables') or [{}])[0].get('rows', [])
+    if len(rows) >= 100000:
+        raise RuntimeError(
+            f'Consulta devolveu {len(rows):,} linhas — teto do executeQueries. '
+            f'O resultado está cortado; agregue no DAX ou fatie a consulta.')
+    return clean_rows(rows)
+
+
+# Colunas do extrato que interessam ao fechamento. Selecionar explicitamente não
+# é só higiene: puxar a tabela inteira (29 colunas) estoura os 15 MiB e o
+# serviço devolve meia resposta. Ficam de fora id, RowNumber, ano/ordem e os
+# carimbos de carga, que não dizem nada para quem concilia.
+_COLS_EXTRATO = [
+    ('conta_apelido', 'conta_apelido'), ('data', 'data'), ('orig', 'orig'),
+    ('nlanca', 'nlanca'), ('documento', 'documento'), ('cnpj', 'cnpj'),
+    ('cliente_fornecedor', 'cliente_fornecedor'), ('historico', 'historico'),
+    ('valor', 'valor'), ('sit', 'sit'), ('saldo', 'saldo'),
+    ('transferencia_interna', 'transferencia_interna'),
+    ('ref_477_uni', 'ref_477_uni'), ('ref_477_numlancto', 'ref_477_numlancto'),
+    ('ref_477_parcela', 'ref_477_parcela'),
+]
+
+
+def _select_extrato(filtro):
+    """SELECTCOLUMNS do extrato já com a regra de classificação como coluna."""
+    cols = ', '.join(f'"{apelido}", {_T456}[{col}]' for apelido, col in _COLS_EXTRATO)
+    return (f'EVALUATE SELECTCOLUMNS(ADDCOLUMNS(FILTER({_T456}, {filtro}), '
+            f'"regra", {_SWITCH_REGRA_456}), {cols}, "regra", [regra])')
+
+
+# Classificação do movimento do 456 conforme a especificação da contadora
+# (PARA GABRIEL.xlsx). A ordem do SWITCH importa: "VIA RET BCO" é testado sem
+# amarrar à origem, porque o mesmo histórico aparece em BCO **e** em MAN — a
+# regra dela ficou presa a BCO e deixava 13 linhas (R$ 2,7 mi) sem classificação.
+_SWITCH_REGRA_456 = f"""SWITCH(TRUE(),
+    {_T456}[transferencia_interna] = TRUE(), "TRANSFERENCIA",
+    {_T456}[orig] = "CPG" && NOT ISBLANK({_T456}[ref_477_numlancto]), "477 (evento)",
+    {_T456}[orig] = "FAT", "CLIENTE",
+    {_T456}[orig] = "ACN", "ADTO CLIENTE",
+    SEARCH("VIA RET BCO", {_T456}[historico], 1, 0) > 0, "RET BCO",
+    LEFT({_T456}[historico], 4) = "FDBI", "DESC DUPLICATA",
+    LEFT({_T456}[historico], 7) = "ESTORNO", "ESTORNO",
+    "SEM REGRA")"""
+
+
+def _quadro_bancos():
+    """Uma linha por banco — a tela que a contadora desenhou.
+
+    Vem de extrato_bancario_456_totais, que é o rodapé do próprio extrato do SSW
+    gravado na carga. Não é soma nossa: por isso a coluna 'confere'."""
+    tot = contabil_dax(
+        f'EVALUATE SELECTCOLUMNS({_T456_TOT}, '
+        f'"banco", [banco], "agencia", [agencia], "conta", [conta], '
+        f'"conta_apelido", [conta_apelido], "banco_nome", [banco_nome], '
+        f'"periodo_ini", [periodo_ini], "periodo_fim", [periodo_fim], '
+        f'"saldo_inicial", [saldo_inicial], "total_creditos", [total_creditos], '
+        f'"total_debitos", [total_debitos], "saldo_final", [saldo_final], '
+        f'"movimentos", [movimentos])')
+
+    # Conferência: a contagem carregada bate com a do rodapé?
+    carregado = {r['conta_apelido']: r['n'] for r in contabil_dax(
+        f'EVALUATE SUMMARIZECOLUMNS({_T456}[conta_apelido], "n", COUNTROWS({_T456}))')}
+
+    for r in tot:
+        cls, cod, obs = _conta_contabil_456(r['banco'], r['agencia'], r['conta'])
+        r['conta_contabil'] = cls
+        r['codigo_reduzido'] = cod
+        r['observacao'] = obs
+        r['confere'] = carregado.get(r['conta_apelido']) == r['movimentos']
+    return tot
+
+
+def _classificacao_456(mes=None):
+    """Quantos movimentos ainda não têm regra de classificação, por banco."""
+    filtro = f'{_T456}[realizado] = TRUE()'
+    if mes:
+        filtro += f' && FORMAT({_T456}[data], "YYYY-MM") = "{mes}"'
+    return contabil_dax(
+        f'EVALUATE SUMMARIZE(ADDCOLUMNS(FILTER({_T456}, {filtro}), '
+        f'"@regra", {_SWITCH_REGRA_456}), '
+        f'{_T456}[conta_apelido], [@regra], '
+        f'"n", COUNTROWS({_T456}), "valor", SUM({_T456}[valor]))')
+
+
+def _movimento_por_mes():
+    """Agregado (conta × mês) do 456 — 13 × nº de meses, algumas dezenas de linhas.
+
+    Traz o total COM programado e o total só do realizado. O primeiro existe
+    porque é ele que reproduz o rodapé do SSW (conferido: o crédito do rodapé é
+    o de tudo, não o do realizado); o segundo é o que a contabilidade usa."""
+    return contabil_dax(f"""EVALUATE SUMMARIZE(
+        ADDCOLUMNS({_T456}, "@mes", FORMAT({_T456}[data], "YYYY-MM")),
+        {_T456}[conta_apelido], [@mes],
+        "n", COUNTROWS({_T456}),
+        "cred", CALCULATE(SUM({_T456}[valor]), {_T456}[valor] > 0),
+        "deb", CALCULATE(SUM({_T456}[valor]), {_T456}[valor] < 0),
+        "n_real", CALCULATE(COUNTROWS({_T456}), {_T456}[realizado] = TRUE()),
+        "cred_real", CALCULATE(SUM({_T456}[valor]), {_T456}[valor] > 0, {_T456}[realizado] = TRUE()),
+        "deb_real", CALCULATE(SUM({_T456}[valor]), {_T456}[valor] < 0, {_T456}[realizado] = TRUE()),
+        "prog", CALCULATE(SUM({_T456}[valor]), {_T456}[realizado] = FALSE()))""")
+
+
+def _saldos_por_mes(bancos):
+    """Encadeia o saldo mês a mês a partir do saldo inicial do rodapé.
+
+    Não precisa reextrair o SSW por mês: a identidade
+    `saldo_inicial + créditos + débitos = saldo_final` foi conferida e fecha ao
+    centavo nas 13 contas. Encadeando os meses, o fechamento de cada mês fica
+    derivado — e o último mês tem que reproduzir o saldo_final do rodapé, que é
+    a prova de que a corrente inteira está certa.
+    """
+    mov = _movimento_por_mes()
+    por_conta = {}
+    for m in mov:
+        por_conta.setdefault(m['conta_apelido'], []).append(m)
+
+    ini_rodape = {b['conta_apelido']: (b['saldo_inicial'] or 0) for b in bancos}
+    fim_rodape = {b['conta_apelido']: (b['saldo_final'] or 0) for b in bancos}
+
+    # Todo mês entra para TODA conta, mesmo sem movimento. Sem isso a conta some
+    # do consolidado no mês parado e o total de abertura de um mês deixa de ser
+    # o total de fechamento do anterior — o saldo dela continua existindo.
+    meses = sorted({m['@mes'] for m in mov})
+
+    saldos, prova = {}, {}
+    for conta in ini_rodape:
+        do_mes = {l['@mes']: l for l in por_conta.get(conta, [])}
+        corrente = ini_rodape.get(conta, 0)
+        for mes in meses:
+            l = do_mes.get(mes)
+            abertura = corrente
+            corrente = abertura + ((l['cred'] or 0) + (l['deb'] or 0) if l else 0)
+            saldos[(conta, mes)] = {
+                'saldo_inicial': abertura, 'saldo_final': corrente,
+                'total_creditos': (l['cred'] or 0) if l else 0,
+                'total_debitos': -(l['deb'] or 0) if l else 0,
+                'movimentos': (l['n'] or 0) if l else 0,
+                'creditos_realizado': (l['cred_real'] or 0) if l else 0,
+                'debitos_realizado': -(l['deb_real'] or 0) if l else 0,
+                'programados_valor': (l['prog'] or 0) if l else 0,
+                'movimentos_realizado': (l['n_real'] or 0) if l else 0,
+            }
+        # A corrente fechou onde o rodapé do SSW disse que fecharia?
+        prova[conta] = abs(corrente - fim_rodape.get(conta, 0)) < 0.01
+    return saldos, meses, prova
+
+
+@app.route('/api/contabil/quadro')
+@page_required('contabil')
+def api_contabil_quadro():
+    """Quadro por banco. Sem `mes` = a janela inteira que o robô extraiu (os
+    números são o rodapé do SSW). Com `mes=YYYY-MM` = o fechamento daquele mês,
+    derivado dos movimentos e provado contra o rodapé."""
+    mes = (request.args.get('mes') or '').strip() or None
+    try:
+        bancos = _quadro_bancos()
+        saldos, meses, prova = _saldos_por_mes(bancos)
+
+        if mes:
+            for b in bancos:
+                s = saldos.get((b['conta_apelido'], mes))
+                b.update(s or {'saldo_inicial': None, 'saldo_final': None,
+                               'total_creditos': 0, 'total_debitos': 0, 'movimentos': 0})
+                # No mês o saldo é derivado, não é o rodapé impresso. O que
+                # sustenta o número é a corrente fechar no fim da janela.
+                b['confere'] = prova.get(b['conta_apelido'], False)
+                b['origem_saldo'] = 'corrente conferida contra o rodapé'
+        else:
+            for b in bancos:
+                b['origem_saldo'] = 'rodapé do extrato do SSW'
+
+        regras = _classificacao_456(mes)
+
+        # Guardas: transferência entre contas próprias aparece 2× (crédito no
+        # destino, débito na origem) e programado é previsão, não extrato.
+        fm = f', FORMAT({_T456}[data], "YYYY-MM") = "{mes}"' if mes else ''
+        m = contabil_dax(f"""EVALUATE ROW(
+            "movimentos", CALCULATE(COUNTROWS({_T456}){fm}),
+            "programados", CALCULATE(COUNTROWS({_T456}), {_T456}[realizado] = FALSE(){fm}),
+            "transf_linhas", CALCULATE(COUNTROWS({_T456}), {_T456}[transferencia_interna] = TRUE(){fm}),
+            "transf_valor", CALCULATE(SUMX({_T456}, ABS({_T456}[valor])), {_T456}[transferencia_interna] = TRUE(){fm}),
+            "creditos", CALCULATE(SUM({_T456}[valor]), {_T456}[valor] > 0,
+                        {_T456}[transferencia_interna] = FALSE(), {_T456}[realizado] = TRUE(){fm}),
+            "creditos_brutos", CALCULATE(SUM({_T456}[valor]), {_T456}[valor] > 0{fm}),
+            "debitos", CALCULATE(SUM({_T456}[valor]), {_T456}[valor] < 0,
+                       {_T456}[transferencia_interna] = FALSE(), {_T456}[realizado] = TRUE(){fm}),
+            "programados_valor", CALCULATE(SUM({_T456}[valor]), {_T456}[realizado] = FALSE(){fm}))""")[0]
+
+        sem_regra = [r for r in regras if r.get('@regra') == 'SEM REGRA']
+        m['sem_regra_linhas'] = sum(r['n'] or 0 for r in sem_regra)
+        m['sem_regra_valor'] = sum(r['valor'] or 0 for r in sem_regra)
+        # O saldo_final do rodapé é o número do SSW e **inclui os programados**
+        # (conferido: o total de crédito do rodapé é o de tudo, não o do
+        # realizado). Como os demais cards aplicam a guarda, mostrar só ele
+        # deixaria dois números de bases diferentes lado a lado. Vão os dois.
+        m['saldo_consolidado'] = sum(b['saldo_final'] or 0 for b in bancos)
+        m['saldo_realizado'] = m['saldo_consolidado'] - (m.get('programados_valor') or 0)
+        m['sem_conta_contabil'] = sum(1 for b in bancos if not b['conta_contabil'])
+
+        return jsonify({'ok': True, 'bancos': bancos, 'regras': regras, 'totais': m,
+                        'mes': mes, 'meses': meses,
+                        'prova_corrente': all(prova.values()),
+                        'contas_provadas': sum(1 for v in prova.values() if v),
+                        'contas_total': len(prova)})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/contabil/banco')
+@page_required('contabil')
+def api_contabil_banco():
+    """Detalhe de uma conta (drawer): quebra por origem, por regra e maiores movimentos."""
+    apelido = (request.args.get('conta') or '').strip()
+    if not apelido:
+        return jsonify({'ok': False, 'error': 'Informe conta'}), 400
+    alvo = apelido.replace('"', '""')
+    try:
+        filtro = f'FILTER({_T456}, {_T456}[conta_apelido] = "{alvo}")'
+        origem = contabil_dax(
+            f'EVALUATE SUMMARIZECOLUMNS({_T456}[orig], {filtro}, '
+            f'"n", COUNTROWS({_T456}), "valor", SUM({_T456}[valor]))')
+        regra = contabil_dax(
+            f'EVALUATE SUMMARIZE(ADDCOLUMNS(FILTER({filtro}, {_T456}[realizado] = TRUE()), '
+            f'"@regra", {_SWITCH_REGRA_456}), [@regra], '
+            f'"n", COUNTROWS({_T456}), "valor", SUM({_T456}[valor]))')
+        maiores = contabil_dax(
+            f'EVALUATE TOPN(12, SELECTCOLUMNS({filtro}, "data", [data], "orig", [orig], '
+            f'"documento", [documento], "cliente_fornecedor", [cliente_fornecedor], '
+            f'"historico", [historico], "valor", [valor], "sit", [sit]), ABS([valor]), DESC)')
+        return jsonify({'ok': True, 'origem': origem, 'regra': regra, 'maiores': maiores})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+def _filtro_periodo_456(start, end, banco=None, transferencias=False, programados=False):
+    partes = [f'{_T456}[data] >= {_dax_data_str(start)}', f'{_T456}[data] <= {_dax_data_str(end)}']
+    if banco:
+        partes.append(f'{_T456}[conta_apelido] = "{banco.replace(chr(34), chr(34) * 2)}"')
+    if not transferencias:
+        partes.append(f'{_T456}[transferencia_interna] = FALSE()')
+    if not programados:
+        partes.append(f'{_T456}[realizado] = TRUE()')
+    return ' && '.join(partes)
+
+
+def _dax_data_str(s):
+    """'2026-01-31' → DATE(2026,1,31)."""
+    y, m, d = str(s).split('-')
+    return f'DATE({int(y)},{int(m)},{int(d)})'
+
+
+@app.route('/api/contabil/extrato')
+@page_required('contabil')
+def api_contabil_extrato():
+    start, end = request.args.get('start'), request.args.get('end')
+    if not start or not end:
+        return jsonify({'ok': False, 'error': 'Informe start e end (YYYY-MM-DD)'}), 400
+    banco = request.args.get('banco') or None
+    transf = request.args.get('transferencias') == '1'
+    prog = request.args.get('programados') == '1'
+    try:
+        filtro = _filtro_periodo_456(start, end, banco, transf, prog)
+        data = contabil_dax(_select_extrato(filtro))
+        # Conferência de integridade: o que veio tem que bater com o que o
+        # próprio modelo conta. Sem isso um corte de payload passa por resposta.
+        esperado = contabil_dax(
+            f'EVALUATE ROW("n", CALCULATE(COUNTROWS({_T456}), {filtro}))')[0]['n'] or 0
+        if len(data) != esperado:
+            raise RuntimeError(
+                f'Vieram {len(data):,} linhas mas o modelo tem {esperado:,} no filtro — '
+                f'resposta cortada. Reduza o período.')
+        # O que ficou de fora precisa aparecer na tela — nunca esconder calado.
+        oculto = contabil_dax(f"""EVALUATE ROW(
+            "transf_linhas", CALCULATE(COUNTROWS({_T456}),
+                {_T456}[data] >= {_dax_data_str(start)}, {_T456}[data] <= {_dax_data_str(end)},
+                {_T456}[transferencia_interna] = TRUE()),
+            "transf_valor", CALCULATE(SUMX({_T456}, ABS({_T456}[valor])),
+                {_T456}[data] >= {_dax_data_str(start)}, {_T456}[data] <= {_dax_data_str(end)},
+                {_T456}[transferencia_interna] = TRUE()),
+            "programados", CALCULATE(COUNTROWS({_T456}),
+                {_T456}[data] >= {_dax_data_str(start)}, {_T456}[data] <= {_dax_data_str(end)},
+                {_T456}[realizado] = FALSE()))""")[0]
+        cols = list(data[0].keys()) if data else []
+        return jsonify({'ok': True, 'columns': cols, 'data': data, 'count': len(data),
+                        'oculto': oculto, 'guardas': {'transferencias': transf, 'programados': prog}})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/contabil/faturas')
+@page_required('contabil')
+def api_contabil_faturas():
+    """441 em dois grãos. `grao=fatura` (padrão) ou `grao=ctrc`.
+
+    ATENÇÃO ao grão CTRC: valor_frete é o valor CHEIO do CTRC, e um CTRC
+    repartido entre faturas aparece inteiro em cada uma (45 faturas,
+    R$ 172.850,39). Para valor por fatura, use vlr_ctrcs do grão fatura."""
+    grao = request.args.get('grao', 'fatura')
+    start, end = request.args.get('start'), request.args.get('end')
+    try:
+        dax = _dax_faturas(grao, start, end)
+        data = contabil_dax(dax)
+        cols = list(data[0].keys()) if data else []
+        return jsonify({'ok': True, 'grao': grao, 'columns': cols, 'data': data,
+                        'count': len(data), 'data_filtro': _DATA_441[grao]})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+# A data de recorte da fatura é a que a contadora especificou no PARA
+# GABRIEL.xlsx: "SOMENTE DOCUMENTOS COM JUROS/DESCONTOS LANÇADOS PELA DATA DA
+# LIQUIDAÇÃO DA PARCELA" — ou seja, `pagamento`.
+_DATA_441 = {'fatura': 'pagamento', 'ctrc': 'faturas do período'}
+
+# Teto de faturas para montar a lista literal no DAX. Acima disso a consulta
+# fica gigante; melhor avisar do que devolver meia resposta.
+_MAX_FATURAS_IN = 3000
+
+
+def _faturas_do_periodo(start, end):
+    """Números de fatura liquidados no período, no formato do grão CTRC.
+
+    `faturas_441` grava '0038407-1' e `faturas_441_ctrcs` grava '0038407' — é o
+    mesmo número sem o dígito verificador, zeros à esquerda preservados.
+    """
+    linhas = contabil_dax(
+        f'EVALUATE SELECTCOLUMNS(FILTER({_T441}, '
+        f'{_T441}[pagamento] >= {_dax_data_str(start)} && '
+        f'{_T441}[pagamento] <= {_dax_data_str(end)}), "fatura", [fatura])')
+    return sorted({str(l['fatura']).split('-')[0].strip()
+                   for l in linhas if l.get('fatura')})
+
+
+def _dax_faturas(grao, start, end):
+    if grao != 'ctrc':
+        if start and end:
+            return (f'EVALUATE FILTER({_T441}, {_T441}[pagamento] >= {_dax_data_str(start)} '
+                    f'&& {_T441}[pagamento] <= {_dax_data_str(end)})')
+        return f'EVALUATE FILTER({_T441}, TRUE())'
+
+    # O grão CTRC é DETALHE DA FATURA. Recortá-lo pela emissão do próprio CTRC
+    # devolve outro conjunto — uma fatura liquidada em agosto carrega CTRC
+    # emitido em junho. Medido: 264 faturas de agosto contra 34 CTRCs emitidos
+    # em agosto. O recorte certo é "os CTRCs das faturas do período".
+    if not (start and end):
+        return f'EVALUATE FILTER({_T441_CTR}, TRUE())'
+    numeros = _faturas_do_periodo(start, end)
+    if not numeros:
+        return f'EVALUATE FILTER({_T441_CTR}, FALSE())'
+    if len(numeros) > _MAX_FATURAS_IN:
+        raise RuntimeError(
+            f'{len(numeros):,} faturas no período — lista grande demais para o '
+            f'detalhe de CTRC. Reduza o período ou use "sem recorte".')
+    lista = '{ ' + ', '.join(f'"{n}"' for n in numeros) + ' }'
+    return f'EVALUATE FILTER({_T441_CTR}, {_T441_CTR}[fatura] IN {lista})'
+
+
+@app.route('/api/contabil/acni')
+@page_required('contabil')
+def api_contabil_acni():
+    """571. O rodapé do SSW infla 90% ao repetir o mestre por documento aplicado;
+    aqui o total de adiantamento sai só das linhas mestre."""
+    start, end = request.args.get('start'), request.args.get('end')
+    try:
+        # "CONTABILIZAR SOMENTE OS ITENS QUE TEM DATA DE LIQUIDAÇÃO — PELA DATA
+        # DA LIQUIDAÇÃO" (PARA GABRIEL.xlsx). Então o recorte é `liquidac`, não
+        # `data` (que é a data do crédito do adiantamento).
+        if start and end:
+            f = (f'{_T571}[liquidac] >= {_dax_data_str(start)} '
+                 f'&& {_T571}[liquidac] <= {_dax_data_str(end)}')
+            dax, filtro_tot = f'EVALUATE FILTER({_T571}, {f})', f', {f}'
+        else:
+            dax, filtro_tot = f'EVALUATE FILTER({_T571}, TRUE())', ''
+        data = contabil_dax(dax)
+        tot = contabil_dax(f"""EVALUATE ROW(
+            "recebido", CALCULATE(SUM({_T571}[valor]), {_T571}[linha_mestre] = TRUE(){filtro_tot}),
+            "aplicado", CALCULATE(SUM({_T571}[valor_doc]){filtro_tot}),
+            "em_aberto", CALCULATE(SUM({_T571}[saldo_acni]){filtro_tot}),
+            "acnis", CALCULATE(COUNTROWS({_T571}), {_T571}[linha_mestre] = TRUE(){filtro_tot}),
+            "linhas", CALCULATE(COUNTROWS({_T571}){filtro_tot}),
+            "com_liquidacao", CALCULATE(COUNTROWS({_T571}), NOT ISBLANK({_T571}[liquidac])),
+            "sem_liquidacao", CALCULATE(COUNTROWS({_T571}), ISBLANK({_T571}[liquidac])))""")[0]
+        cols = list(data[0].keys()) if data else []
+        return jsonify({'ok': True, 'columns': cols, 'data': data,
+                        'count': len(data), 'totais': tot, 'data_filtro': 'liquidac'})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/contabil/de-para')
+@page_required('contabil')
+def api_contabil_depara():
+    """Status do de-para evento → conta contábil. SOMENTE LEITURA.
+
+    A contadora preenche no cadastro de evento do SSW (tela 503); o robô do 479
+    puxa às 04:00 e grava. O app não escreve: duas fontes divergem sempre.
+
+    Hoje o 479 traz conta do plano DO SSW (5.02.02.01.0025), não do plano
+    contábil (4.1.6.01.0013) — são dois planos diferentes, e no SSW o grupo 5 é
+    despesa enquanto no plano contábil o grupo 5 é apuração. Por isso a coluna
+    'plano_contabil' testa se a conta começa com 3 ou 4, que é o critério da
+    própria contadora (PARA GABRIEL.xlsx, linha 44)."""
+    try:
+        uso = contabil_dax_477_eventos()
+        cad = {str(e['codigo']).strip(): e for e in contabil_dax(
+            f'EVALUATE SELECTCOLUMNS({_T479}, "codigo", [codigo], "evento", [evento], '
+            f'"grupo", [grupo], "conta_debito", [conta_debito], "conta_credito", [conta_credito])')}
+
+        total = sum(u['valor'] or 0 for u in uso)
+        acum = 0.0
+        for u in uso:
+            cod = str(u['evento']).strip()
+            reg = cad.get(cod) or {}
+            conta = reg.get('conta_debito')
+            u['conta_debito'] = conta
+            u['conta_credito'] = reg.get('conta_credito')
+            u['grupo_ssw'] = reg.get('grupo')
+            u['cadastrado'] = cod in cad
+            u['plano_contabil'] = bool(conta) and str(conta).strip()[:1] in ('3', '4')
+            acum += (u['valor'] or 0)
+            u['pct_acumulado'] = (acum / total) if total else 0
+
+        mapeado = sum(u['valor'] or 0 for u in uso if u['plano_contabil'])
+        return jsonify({'ok': True, 'eventos': uso, 'totais': {
+            'eventos': len(uso), 'valor': total,
+            'mapeados': sum(1 for u in uso if u['plano_contabil']),
+            'valor_mapeado': mapeado,
+            'pct_mapeado': (mapeado / total) if total else 0,
+            'sem_cadastro': sum(1 for u in uso if not u['cadastrado']),
+            'ref_inicial': REF_INICIAL_477,
+        }})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+# Escopo do projeto contábil: JANEIRO DE 2026 EM DIANTE. O que é anterior não
+# será reprocessado (decisão do Gabriel, 17/08/2026). Vale para tudo que tocar o
+# 477 — priorização, de-para, arquivo de importação.
+#
+# Não é detalhe de filtro: muda a conclusão. No histórico completo a despesa é
+# R$ 332,4 mi e os maiores eventos são os fretes; em 2026 são R$ 70,8 mi e o
+# topo vira imobilizado, CDC e ICMS. Os três eventos aposentados (5213, 5216,
+# 5410) têm ZERO em 2026 — deixam de ser pendência.
+REF_INICIAL_477 = '2026/01'
+
+
+def ref_final_477():
+    """Teto do escopo = a competência corrente.
+
+    O 477 tem lançamento com competência FUTURA — parcela a vencer de
+    financiamento e consórcio. São 117 competências além de 2026/12, somando
+    R$ 18,5 mi. Um filtro só com piso (`REF >= '2026/01'`) é comparação de
+    texto e varre tudo isso para dentro, inflando a despesa do exercício em 26%.
+    """
+    from datetime import date
+    h = date.today()
+    return f'{h.year:04d}/{h.month:02d}'
+
+
+def filtro_ref_477(tabela="'public consulta_despesas_477'"):
+    """Escopo do projeto contábil, nas duas pontas e com formato validado.
+    `LEN = 7` derruba REF malformado (existe '20ES/6' na base)."""
+    return (f'{tabela}[REF] >= "{REF_INICIAL_477}" && '
+            f'{tabela}[REF] <= "{ref_final_477()}" && '
+            f'LEN({tabela}[REF]) = 7')
+
+
+def contabil_dax_477_eventos():
+    """Eventos usados na despesa dentro do escopo, com valor.
+
+    Vem do dataset do DRE (o 477 mora lá), não do contábil. Ordenar por valor é
+    o que faz o preenchimento começar onde está o dinheiro."""
+    token = get_token()
+    dax = ("EVALUATE SUMMARIZECOLUMNS("
+           "'public consulta_despesas_477'[evento], "
+           "'public consulta_despesas_477'[descr_evento], "
+           f"FILTER(ALL('public consulta_despesas_477'), {filtro_ref_477()}), "
+           "\"lancamentos\", COUNTROWS('public consulta_despesas_477'), "
+           "\"valor\", SUM('public consulta_despesas_477'[vlr_final]))")
+    result = execute_dax(token, dax, dataset_id=CONFIG['dre_dataset_id'])
+    rows = clean_rows(result.get('results', [{}])[0].get('tables', [{}])[0].get('rows', []))
+    agg = {}
+    for r in rows:
+        k = (str(r.get('evento') or '').strip(), r.get('descr_evento') or '')
+        a = agg.setdefault(k, {'evento': k[0], 'descr_evento': k[1],
+                               'lancamentos': 0, 'valor': 0.0})
+        a['lancamentos'] += r.get('lancamentos') or 0
+        a['valor'] += r.get('valor') or 0.0
+    return sorted(agg.values(), key=lambda x: -x['valor'])
+
+
+# ── Configuração: plano de contas, eventos e contas fixas ──────────────────
+# Tudo que é DECISÃO da contadora mora em tabela e é editável por ela. Só o
+# encanamento — como a partida dobrada se monta, qual data recorta cada
+# relatório, as guardas — fica no código. O objetivo é ela nunca precisar
+# pedir deploy para mudar uma regra.
+
+VALORES_DESPESA = ('SIM', 'NAO', 'PARCIAL')
+VALORES_PROVISAO = ('SIM', 'NAO')
+
+
+@app.route('/api/contabil/plano-contas')
+@page_required('contabil')
+def api_contabil_plano_contas():
+    """Alimenta os campos de escolha. `?analitica=1` traz só quem recebe lançamento."""
+    so_analitica = request.args.get('analitica') == '1'
+    grupos = [g for g in (request.args.get('grupos') or '').split(',') if g]
+    try:
+        conn = get_db(); cur = conn.cursor()
+        sql = ("SELECT classificacao, codigo_reduzido, descricao, niveis, analitica, grupo "
+               "FROM contabil_plano_contas WHERE 1=1")
+        p = []
+        if so_analitica:
+            sql += " AND analitica = TRUE"
+        if grupos:
+            sql += " AND grupo = ANY(%s)"; p.append(grupos)
+        cur.execute(sql + " ORDER BY classificacao", p)
+        data = [{'classificacao': r[0], 'codigo': r[1], 'descricao': r[2],
+                 'niveis': r[3], 'analitica': r[4], 'grupo': r[5]} for r in cur.fetchall()]
+        cur.close(); conn.close()
+        return jsonify({'ok': True, 'data': data, 'count': len(data)})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+def _config_eventos():
+    """Valor corrente por evento = a linha mais nova. A tabela é append-only,
+    então 'corrente' é uma consulta, não um campo que alguém mantém."""
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("""
+        SELECT DISTINCT ON (evento)
+               evento, descricao, conta_debito, conta_credito, tem_nota,
+               contabiliza_despesa, contabiliza_provisao, aproveita_credito,
+               importar_fiscal, validar_simples, grupo_importacao, observacao,
+               usuario_nome, criado_em
+          FROM contabil_evento_conta
+         ORDER BY evento, criado_em DESC, id DESC
+    """)
+    cols = ['evento', 'descricao', 'conta_debito', 'conta_credito', 'tem_nota',
+            'contabiliza_despesa', 'contabiliza_provisao', 'aproveita_credito',
+            'importar_fiscal', 'validar_simples', 'grupo_importacao', 'observacao',
+            'usuario_nome', 'criado_em']
+    d = {}
+    for r in cur.fetchall():
+        item = dict(zip(cols, r))
+        item['criado_em'] = item['criado_em'].isoformat() if item['criado_em'] else None
+        d[str(item['evento']).strip()] = item
+    cur.close(); conn.close()
+    return d
+
+
+@app.route('/api/contabil/eventos')
+@page_required('contabil')
+def api_contabil_eventos():
+    """Lista de configuração dos eventos, ordenada por R$ com % acumulado.
+
+    A lista é a UNIÃO de: eventos usados no 477 no escopo ∪ cadastro do 479 ∪
+    o que já tem configuração aqui. Só o 479 não basta: ele é substituição
+    total a cada carga, e evento desativado no SSW some de lá — a linha não
+    pode desaparecer da tela e levar junto a vinculação de um fechamento."""
+    try:
+        uso = {u['evento']: u for u in contabil_dax_477_eventos()}
+        cad = {str(e['codigo']).strip(): e for e in contabil_dax(
+            f'EVALUATE SELECTCOLUMNS({_T479}, "codigo", [codigo], "evento", [evento], '
+            f'"grupo", [grupo], "conta_debito", [conta_debito], '
+            f'"conta_credito", [conta_credito])')}
+        cfg = _config_eventos()
+
+        total = sum(u['valor'] or 0 for u in uso.values())
+        chaves = sorted(set(uso) | set(cad) | set(cfg),
+                        key=lambda k: -(uso.get(k, {}).get('valor') or 0))
+
+        linhas, acum = [], 0.0
+        for k in chaves:
+            u = uso.get(k, {})
+            c = cfg.get(k, {})
+            r = cad.get(k, {})
+            valor = u.get('valor') or 0
+            acum += valor
+            despesa = (c.get('contabiliza_despesa') or '').upper()
+            provisao = (c.get('contabiliza_provisao') or '').upper()
+            linhas.append({
+                'evento': k,
+                'descricao': c.get('descricao') or r.get('evento') or u.get('descr_evento') or '',
+                'lancamentos': u.get('lancamentos') or 0,
+                'valor': valor,
+                'pct_acumulado': (acum / total) if total else 0,
+                'no_477': k in uso, 'no_479': k in cad,
+                'conta_ssw': r.get('conta_debito'),
+                'grupo_ssw': r.get('grupo'),
+                'conta_debito': c.get('conta_debito'),
+                'conta_credito': c.get('conta_credito'),
+                'tem_nota': c.get('tem_nota'),
+                'contabiliza_despesa': despesa or None,
+                'contabiliza_provisao': provisao or None,
+                'aproveita_credito': c.get('aproveita_credito'),
+                'importar_fiscal': c.get('importar_fiscal'),
+                'validar_simples': c.get('validar_simples'),
+                'grupo_importacao': c.get('grupo_importacao'),
+                'observacao': c.get('observacao'),
+                'editado_por': c.get('usuario_nome'),
+                'editado_em': c.get('criado_em'),
+                # Precisa de conta quando gera despesa (SIM/PARCIAL) ou quando o
+                # pagamento debita a conta do evento em vez de fornecedores.
+                'precisa_conta': despesa in ('SIM', 'PARCIAL') or provisao == 'NAO',
+            })
+
+        precisam = [l for l in linhas if l['precisa_conta']]
+        prontos = [l for l in precisam if l['conta_debito']]
+        return jsonify({'ok': True, 'eventos': linhas, 'totais': {
+            'eventos': len(linhas), 'valor': total,
+            'precisam_conta': len(precisam),
+            'valor_precisa': sum(l['valor'] for l in precisam),
+            'preenchidos': len(prontos),
+            'valor_preenchido': sum(l['valor'] for l in prontos),
+            'sem_configuracao': sum(1 for l in linhas if not l['contabiliza_despesa']),
+            'ref_inicial': REF_INICIAL_477, 'ref_final': ref_final_477(),
+        }})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/contabil/eventos', methods=['POST'])
+@page_required('contabil')
+def api_contabil_eventos_salvar():
+    """Grava uma LINHA NOVA. Nunca UPDATE — o histórico é a própria tabela."""
+    b = request.get_json(silent=True) or {}
+    evento = str(b.get('evento') or '').strip()
+    if not evento:
+        return jsonify({'ok': False, 'error': 'Informe o evento'}), 400
+
+    despesa = (b.get('contabiliza_despesa') or '').strip().upper() or None
+    provisao = (b.get('contabiliza_provisao') or '').strip().upper() or None
+    if despesa and despesa not in VALORES_DESPESA:
+        return jsonify({'ok': False, 'error':
+                        f'contabiliza_despesa deve ser {" / ".join(VALORES_DESPESA)}'}), 400
+    if provisao and provisao not in VALORES_PROVISAO:
+        return jsonify({'ok': False, 'error':
+                        f'contabiliza_provisao deve ser {" / ".join(VALORES_PROVISAO)}'}), 400
+
+    try:
+        conn = get_db(); cur = conn.cursor()
+
+        # Conta só entra se existir no plano E receber lançamento. É a trava que
+        # impede '4.1.6.01.013' digitado torto de chegar no arquivo de importação.
+        for campo in ('conta_debito', 'conta_credito'):
+            v = (b.get(campo) or '').strip()
+            if not v:
+                continue
+            cur.execute("SELECT analitica FROM contabil_plano_contas WHERE classificacao = %s", (v,))
+            r = cur.fetchone()
+            if not r:
+                cur.close(); conn.close()
+                return jsonify({'ok': False, 'error':
+                                f'{campo}: a conta {v} não existe no plano'}), 400
+            if not r[0]:
+                cur.close(); conn.close()
+                return jsonify({'ok': False, 'error':
+                                f'{campo}: {v} é conta sintética e não recebe lançamento'}), 400
+
+        atual = _config_eventos().get(evento, {})
+        cur.execute("""
+            INSERT INTO contabil_evento_conta
+                (evento, descricao, conta_debito, conta_credito, tem_nota,
+                 contabiliza_despesa, contabiliza_provisao, aproveita_credito,
+                 importar_fiscal, validar_simples, grupo_importacao, observacao,
+                 usuario_id, usuario_nome)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            RETURNING id, criado_em
+        """, (
+            evento,
+            (b.get('descricao') or atual.get('descricao') or '')[:200] or None,
+            (b.get('conta_debito') or '').strip() or None,
+            (b.get('conta_credito') or '').strip() or None,
+            b.get('tem_nota'), despesa, provisao,
+            b.get('aproveita_credito'), b.get('importar_fiscal'), b.get('validar_simples'),
+            (b.get('grupo_importacao') or '').strip() or None,
+            (b.get('observacao') or '').strip() or None,
+            session.get('user_id'), session.get('nome'),
+        ))
+        novo_id, criado = cur.fetchone()
+        conn.commit(); cur.close(); conn.close()
+        return jsonify({'ok': True, 'id': novo_id,
+                        'criado_em': criado.isoformat() if criado else None})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/contabil/eventos/historico')
+@page_required('contabil')
+def api_contabil_eventos_historico():
+    evento = (request.args.get('evento') or '').strip()
+    if not evento:
+        return jsonify({'ok': False, 'error': 'Informe o evento'}), 400
+    try:
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("""
+            SELECT id, conta_debito, conta_credito, tem_nota, contabiliza_despesa,
+                   contabiliza_provisao, observacao, usuario_nome, criado_em
+              FROM contabil_evento_conta
+             WHERE evento = %s ORDER BY criado_em DESC, id DESC
+        """, (evento,))
+        data = [{'id': r[0], 'conta_debito': r[1], 'conta_credito': r[2],
+                 'tem_nota': r[3], 'contabiliza_despesa': r[4],
+                 'contabiliza_provisao': r[5], 'observacao': r[6],
+                 'usuario_nome': r[7],
+                 'criado_em': r[8].isoformat() if r[8] else None}
+                for r in cur.fetchall()]
+        cur.close(); conn.close()
+        return jsonify({'ok': True, 'data': data, 'count': len(data)})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/contabil/contas-fixas')
+@page_required('contabil')
+def api_contabil_contas_fixas():
+    try:
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("""
+            SELECT f.chave, f.classificacao, p.codigo_reduzido, p.descricao,
+                   f.descricao, f.observacao, f.usuario_nome, f.atualizado_em
+              FROM contabil_conta_fixa f
+              LEFT JOIN contabil_plano_contas p ON p.classificacao = f.classificacao
+             ORDER BY (f.chave = 'FORNECEDOR_PADRAO') DESC, f.descricao
+        """)
+        data = [{'chave': r[0], 'classificacao': r[1], 'codigo': r[2],
+                 'conta_descricao': r[3], 'descricao': r[4], 'observacao': r[5],
+                 'usuario_nome': r[6],
+                 'atualizado_em': r[7].isoformat() if r[7] else None}
+                for r in cur.fetchall()]
+        cur.close(); conn.close()
+        return jsonify({'ok': True, 'data': data,
+                        'pendentes': sum(1 for x in data if not x['classificacao'])})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/contabil/contas-fixas', methods=['POST'])
+@page_required('contabil')
+def api_contabil_contas_fixas_salvar():
+    b = request.get_json(silent=True) or {}
+    chave = (b.get('chave') or '').strip()
+    classificacao = (b.get('classificacao') or '').strip() or None
+    if not chave:
+        return jsonify({'ok': False, 'error': 'Informe a chave'}), 400
+    try:
+        conn = get_db(); cur = conn.cursor()
+        if classificacao:
+            cur.execute("SELECT analitica FROM contabil_plano_contas WHERE classificacao = %s",
+                        (classificacao,))
+            r = cur.fetchone()
+            if not r:
+                cur.close(); conn.close()
+                return jsonify({'ok': False, 'error':
+                                f'A conta {classificacao} não existe no plano'}), 400
+            if not r[0]:
+                cur.close(); conn.close()
+                return jsonify({'ok': False, 'error':
+                                f'{classificacao} é sintética e não recebe lançamento'}), 400
+        cur.execute("""
+            UPDATE contabil_conta_fixa
+               SET classificacao = %s, observacao = %s,
+                   usuario_nome = %s, atualizado_em = NOW()
+             WHERE chave = %s
+        """, (classificacao, (b.get('observacao') or '').strip() or None,
+              session.get('nome'), chave))
+        if cur.rowcount == 0:
+            cur.close(); conn.close()
+            return jsonify({'ok': False, 'error': f'Chave {chave} não existe'}), 404
+        conn.commit(); cur.close(); conn.close()
+        contas_fixas(forcar=True)   # o quadro por banco lê daqui
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+def _csv_contabil(nome, dax_fn):
+    """Streaming CSV com BOM, mesmo padrão das Despesas/Conhecimentos."""
+    def gerar():
+        yield '﻿'
+        data = dax_fn()
+        if not data:
+            yield _csv_linha(['sem dados'])
+            return
+        cols = list(data[0].keys())
+        yield _csv_linha(cols)
+        for row in data:
+            yield _csv_linha([row.get(c) for c in cols])
+    return Response(gerar(), mimetype='text/csv; charset=utf-8',
+                    headers={'Content-Disposition': f'attachment; filename="{nome}"'})
+
+
+@app.route('/api/contabil/extrato/csv')
+@page_required('contabil')
+def api_contabil_extrato_csv():
+    start, end = request.args.get('start'), request.args.get('end')
+    if not start or not end:
+        return jsonify({'ok': False, 'error': 'Informe start e end'}), 400
+    banco = request.args.get('banco') or None
+    transf = request.args.get('transferencias') == '1'
+    prog = request.args.get('programados') == '1'
+    filtro = _filtro_periodo_456(start, end, banco, transf, prog)
+    return _csv_contabil(f'extrato_456_{start}_{end}.csv',
+                         lambda: contabil_dax(_select_extrato(filtro)))
+
+
+@app.route('/api/contabil/faturas/csv')
+@page_required('contabil')
+def api_contabil_faturas_csv():
+    grao = request.args.get('grao', 'fatura')
+    start, end = request.args.get('start'), request.args.get('end')
+    sufixo = f'_{start}_{end}' if start and end else ''
+    return _csv_contabil(f'441_{grao}{sufixo}.csv',
+                         lambda: contabil_dax(_dax_faturas(grao, start, end)))
+
+
+@app.route('/api/contabil/acni/csv')
+@page_required('contabil')
+def api_contabil_acni_csv():
+    start, end = request.args.get('start'), request.args.get('end')
+    if start and end:
+        dax = (f'EVALUATE FILTER({_T571}, {_T571}[liquidac] >= {_dax_data_str(start)} '
+               f'&& {_T571}[liquidac] <= {_dax_data_str(end)})')
+        nome = f'571_acni_{start}_{end}.csv'
+    else:
+        dax, nome = f'EVALUATE FILTER({_T571}, TRUE())', '571_acni.csv'
+    return _csv_contabil(nome, lambda: contabil_dax(dax))
 
 
 # ════════════════════════════════════════

@@ -150,6 +150,130 @@ cur.execute("""
 """)
 cur.execute("CREATE INDEX IF NOT EXISTS ix_cargas_log_carga ON embarques_cargas_log (carga_id, editado_em DESC);")
 
+# ── Contábil: de-para evento → conta contábil ──────────────────────────────
+# APPEND-ONLY de propósito. Cada salvamento é uma linha nova; nada é UPDATE nem
+# DELETE. Três motivos:
+#
+# 1. `eventos_479` é substituição total a cada carga — se o SSW desativar um
+#    evento, a linha some de lá. A vinculação não pode sumir junto, senão um
+#    fechamento anterior perde a conta que usou.
+# 2. O histórico É a tabela. Não precisa de log paralelo que pode divergir.
+# 3. Dá para responder "qual era a conta em setembro" — é o que protege mês já
+#    fechado de mudar sozinho quando ela corrigir um cadastro em outubro.
+#
+# `descricao` é snapshot, mesmo idioma de embarques_cargas: o evento pode sumir
+# da origem e a linha tem que continuar legível.
+cur.execute("""
+    CREATE TABLE IF NOT EXISTS contabil_evento_conta (
+        id                   SERIAL PRIMARY KEY,
+        evento               VARCHAR(10) NOT NULL,
+        descricao            VARCHAR(200),
+        conta_debito         VARCHAR(30),
+        conta_credito        VARCHAR(30),
+        -- As flags da contadora. Ficam aqui, e não em código, porque são
+        -- decisão dela: trocar um evento de SIM para NÃO é UPDATE de linha,
+        -- não deploy. O motor lê o valor; não conhece a lista de eventos.
+        tem_nota             BOOLEAN,
+        contabiliza_despesa  VARCHAR(10),   -- SIM | NAO | PARCIAL
+        contabiliza_provisao VARCHAR(10),   -- SIM | NAO
+        aproveita_credito    BOOLEAN,
+        importar_fiscal      BOOLEAN,
+        validar_simples      BOOLEAN,
+        grupo_importacao     VARCHAR(60),
+        observacao           TEXT,
+        usuario_id           INTEGER REFERENCES auditoria_users(id),
+        usuario_nome         VARCHAR(180),
+        criado_em            TIMESTAMP DEFAULT NOW()
+    );
+""")
+cur.execute("CREATE INDEX IF NOT EXISTS ix_contabil_evento_conta "
+            "ON contabil_evento_conta (evento, criado_em DESC);")
+
+# Colunas acrescentadas depois da primeira versão da tabela (ambiente que já
+# rodou o init antes não recria a tabela, então precisa do ALTER).
+for _col, _tipo in [
+    ('tem_nota', 'BOOLEAN'), ('contabiliza_despesa', 'VARCHAR(10)'),
+    ('contabiliza_provisao', 'VARCHAR(10)'), ('aproveita_credito', 'BOOLEAN'),
+    ('importar_fiscal', 'BOOLEAN'), ('validar_simples', 'BOOLEAN'),
+    ('grupo_importacao', 'VARCHAR(60)'),
+]:
+    cur.execute(f"ALTER TABLE contabil_evento_conta "
+                f"ADD COLUMN IF NOT EXISTS {_col} {_tipo};")
+
+# Contas fixas do processo: as 13 do 456 e o default de fornecedor. Saiu do
+# dict do server.py porque abrir conta bancária não pode exigir deploy — e
+# duas (TRIBANCO, CAIXA PAMBANK) já estão pendentes de criação no plano.
+cur.execute("""
+    CREATE TABLE IF NOT EXISTS contabil_conta_fixa (
+        chave         VARCHAR(60) PRIMARY KEY,
+        classificacao VARCHAR(30),
+        descricao     VARCHAR(200),
+        observacao    TEXT,
+        usuario_nome  VARCHAR(180),
+        atualizado_em TIMESTAMP DEFAULT NOW()
+    );
+""")
+
+# Semente com o que já foi mapeado. ON CONFLICT DO NOTHING: quem já editou pela
+# tela não tem a edição sobrescrita por um init rodado de novo.
+#
+# Três contas fogem de 1.1.1.02 de propósito, e o motivo foi deduzido do
+# comportamento do movimento no 456, não lido de cadastro:
+#   BB GARANTIDA  — 6 lançamentos, todos saque de limite p/ a conta corrente do
+#                   BB. É conta garantida = empréstimo, logo passivo.
+#   D.D SOLAR     — 210 lançamentos transferindo o produto do desconto p/ o
+#                   Bradesco. DD = duplicatas descontadas, conta redutora.
+# E duas não existem no plano: TRIBANCO é conta bancária de verdade (entra por
+# FAT/ACN, sai por transferência) e CAIXA PAMBANK é instituição de pagamento
+# (4.418 lançamentos CPG pagando frete/pedágio). Ficam em branco de propósito —
+# é a pendência que aparece em destaque na tela.
+_CONTAS_FIXAS = [
+    ('FORNECEDOR_PADRAO',            '2.1.3.01.001',
+     'Contrapartida de crédito quando CONTABILIZA PROVISÃO = SIM',
+     'Confirmar com a contadora: a classificação tem 2 códigos reduzidos '
+     '(166 FORNECEDOR SC e 506 FORNECEDORES DIVERSOS)'),
+    ('BANCO:1/2591/106712',          '1.1.1.02.001', 'BB COBRANCA', None),
+    ('BANCO:1/2591/60494',           '1.1.1.02.015', 'BB APARECIDA DE GOIANIA', None),
+    ('BANCO:1/2591/1067129',         '2.1.1.08.001', 'BB GARANTIDA',
+     'PASSIVO — conta garantida, não disponibilidade'),
+    ('BANCO:21/59/3696171',          '1.1.1.02.007', 'BANESTES CONTA CORRENTE', None),
+    ('BANCO:33/3342/13005930',       '1.1.1.02.005', 'SANTANDER COBRANCA', None),
+    ('BANCO:237/2735/8653',          '1.1.1.02.003', 'BRADESCO COBRANCA', None),
+    ('BANCO:341/7734/6798',          '1.1.1.02.012', 'ITAU MOVIM FINANCEIRA (ag 7734)', None),
+    ('BANCO:341/7784/6798',          '1.1.1.02.004', 'ITAU MOVIM FINANCEIRA 2 (ag 7784)', None),
+    ('BANCO:422/13100/584531',       '1.1.1.02.006', 'SAFRA COBRANCA', None),
+    ('BANCO:756/4264/145026',        '1.1.1.02.016', 'SICOOB NCOBRANCA', None),
+    ('BANCO:999/55555/555555555',    '1.1.2.01.117', 'CAIXA D.D SOLAR CAPITAL',
+     'REDUTORA DE CLIENTES — duplicatas descontadas, não disponibilidade'),
+    ('BANCO:634/1/1063380',          None,           'TRIBANCO',
+     'Conta bancária de verdade, ausente do plano. Criar em 1.1.1.02.'),
+    ('BANCO:999/99999/9999999999',   None,           'CAIXA PAMBANK FRETE PEDAGIO',
+     'Instituição de pagamento, não banco. Ausente do plano — criar.'),
+]
+for _ch, _cl, _de, _ob in _CONTAS_FIXAS:
+    cur.execute(
+        "INSERT INTO contabil_conta_fixa (chave, classificacao, descricao, observacao, "
+        "usuario_nome) VALUES (%s,%s,%s,%s,'semente do init_db') "
+        "ON CONFLICT (chave) DO NOTHING",
+        (_ch, _cl, _de, _ob))
+
+# Plano de contas da contabilidade (PERSETO). Referência: alimenta o campo de
+# escolha da tela, para que conta inexistente não entre por digitação.
+# Populado por seed_plano_contas.py a partir do arquivo que a contadora manda.
+cur.execute("""
+    CREATE TABLE IF NOT EXISTS contabil_plano_contas (
+        classificacao   VARCHAR(30) PRIMARY KEY,
+        codigo_reduzido INTEGER,
+        descricao       VARCHAR(200) NOT NULL,
+        niveis          SMALLINT,
+        analitica       BOOLEAN,
+        grupo           VARCHAR(2),
+        atualizado_em   TIMESTAMP DEFAULT NOW()
+    );
+""")
+cur.execute("CREATE INDEX IF NOT EXISTS ix_plano_contas_grupo "
+            "ON contabil_plano_contas (grupo, classificacao);")
+
 # Dedup case-insensitive da tabela clientes existente (para cadastro manual)
 cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_clientes_nome_ci ON clientes (LOWER(TRIM(nome)));")
 

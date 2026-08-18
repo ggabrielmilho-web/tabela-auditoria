@@ -26,6 +26,7 @@ URL de produção: **https://rizza.carvalhoia.com**
 - **Faturamento por Tomador** (`/faturamento`) — Matriz **tomador × meses** (faturamento e nº de cargas) de `conhecimentos_emitidos`, agregada via DAX e **consolidada por raiz de CNPJ** (junta filiais do mesmo grupo). Toggle R$/Cargas, busca, ordenação e CSV; cards e subtotal acompanham o filtro
 - **Análise por Veículo** (`/veiculos`) — Análise de receita/custo por **Cavalo / Carreta / Motorista / Proprietário**, sobre `Auditoria Receita` (receita **rateada**, nunca duplica). Filtros de **mês/competência** e **tipo** (Frota/Agregado/Carreteiro) como **dropdown (caixinhas + Aplicar)**. Na visão **Cavalo + só Frota**: custos reais por cavalo — **Pedágio** (Sem Parar), **Combustível/ARLA** (ValeCard, com **consumo km/L** via hodômetro), **Pessoal** (folha), **Manut. Cavalo / Seguro / Rastreador** e **Pneu** (eventos 5411/5412, split cavalo×carreta por nº de pneus) rateados → **Resultado Frota**; mostra **KM Rota** (manifesto) e **KM Abast.** (hodômetro) lado a lado. Na visão **Carreta**: **Manut. Carreta** + **Pneu** rateados entre as carretas Rizza (frota+agregado). **Coluna Proprietário** (dono do cavalo no recorte cavalo; donos dos cavalos no drawer da carreta). **Donut "Composição do Faturamento"** quando só um tipo está marcado (custos diluídos na receita + Resultado). **Painel lateral (drawer)** com cargas, abastecimentos, pedágios, manutenção real, relacionamentos e quebra por veículo. **Placas normalizadas para Mercosul** (funde grafia antiga + nova; trata colisão preferindo a Mercosul real)
 - **PGR — Excesso de velocidade** (`/pgr`) — Relatório diário das placas que passaram de 95 km/h, enviado por WhatsApp toda manhã (imagem-resumo + link). Detecção sobre o histórico de GPS **backfillado** da 3S, com **situação de carga provada por posição** (carregado / parcial / vazio / não confirmado), rodovia do pico e rodapé de **cobertura por placa**. Traz o **cavalo do par** nas linhas de carreta. **Filtros por cavalo, carreta e motorista** (digitáveis) e **seleção de mês** com múltipla escolha, mostrando só os meses já apurados. Acesso por sessão (aba `pgr`) **ou** por token de leitura no link — o token abre **um dia só**, sem período nem filtro. Ver Módulo PGR
+- **Contábil** (`/contabil`) — Base contábil do SSW para o fechamento: **posição por banco** (uma linha por conta, com a conta contábil do plano da PERSETO e o ✓ de conferência contra o rodapé do próprio extrato), drawer de composição por origem/regra, e os relatórios de **extrato (456)**, **faturamento (441, grão fatura e CTRC)**, **adiantamentos (571)** com AutoFilter e CSV. Traz ainda a **configuração**: `/contabil/eventos` (conta contábil por evento, as flags da contadora, histórico de edição e prévia do impacto) e `/contabil/contas-fixas`. É a aba concedida à contadora externa — ver Módulo Contábil e `HANDOFF-CONTABIL.md`
 - **Admin** (`/admin`) — Gerenciamento de usuários, papéis, **permissão de acesso por aba** (cada usuário recebe quais abas enxerga; admin vê todas por bypass) e permissões por tipo de operação
 
 ---
@@ -41,10 +42,11 @@ URL de produção: **https://rizza.carvalhoia.com**
 - **threading** — worker daemon de rastreamento (roda dentro do mesmo processo Flask)
 
 ### Fontes de Dados
-- **Power BI REST API** — dados analíticos (DRE, tarifas, auditoria, despesas, conhecimentos) e cadastros de origem (motoristas, veículos) via consultas DAX
-  - 2 datasets diferentes:
+- **Power BI REST API** — dados analíticos (DRE, tarifas, auditoria, despesas, conhecimentos, contábil) e cadastros de origem (motoristas, veículos) via consultas DAX
+  - 3 datasets diferentes:
     - Dataset principal (auditoria + tarifas + motoristas + veículos)
     - Dataset DRE (DRE + despesas + conhecimentos)
+    - Dataset `tabelas.contabil` (extrato 456 + faturamento 441 + ACNI 571 + eventos 479)
 - **PostgreSQL local** — toda a escrita operacional: cargas, destinos, log de edição, posições GPS, KPIs de viagem, centroides de municípios
 - **3S Tecnologia (DataExportAPI)** — posições GPS dos rastreadores dos veículos (com modo simulado para desenvolvimento)
 - **OpenRouteService** — cálculo de rota rodoviária para caminhões (HGV): polyline, distância e duração
@@ -201,6 +203,7 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 | `POWERBI_GROUP_ID` | Workspace ID no Power BI |
 | `POWERBI_DATASET_ID` | Dataset ID principal (auditoria + tarifas + motoristas + veículos) |
 | `POWERBI_DRE_DATASET_ID` | Dataset ID do DRE |
+| `POWERBI_CONTABIL_DATASET_ID` | Dataset ID de `tabelas.contabil` (456 · 441 · 571 · 479) |
 
 ### IA
 | Variável | Descrição |
@@ -273,6 +276,8 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 - `GET /dre/conhecimentos` — Conhecimentos (admin)
 - `GET /faturamento` — Faturamento por Tomador (admin)
 - `GET /veiculos` — Análise por Veículo (admin)
+- `GET /contabil` — Contábil: posição por banco
+- `GET /contabil/extrato` · `/contabil/faturas` · `/contabil/acni` · `/contabil/eventos` · `/contabil/contas-fixas`
 - `GET /admin` — Admin (admin)
 - `GET /embarques` — Landing de embarques
 - `GET /embarques/novo` — Formulário de lançamento
@@ -313,6 +318,19 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 ### Análise por Veículo (admin)
 - `GET /api/veiculos/analise?dim=&meses=&tipos=` — agrega `Auditoria Receita` por `dim` (cavalo|carreta|motorista|proprietario), filtrado por competência (`meses=YYYY-MM,...`) e tipo. Grão = `(dim, Tipo Operacao)` → mesma carreta com viagens Frota **e** Agregado vira **2 linhas**. Receita = `SUM(receita_rateada)`; FROTA tem pagamento de frete = 0. Em **cavalo+só Frota** anexa custos rateados (pedágio Sem Parar, combustível/ARLA + km hodômetro do ValeCard, pessoal/folha, manut. cavalo/seguro/rastreador/**pneu** das despesas) + `prop_cavalo`. Em **carreta** anexa manut. carreta + **pneu** (base de rateio = todas as carretas Rizza, fixa) e o flag `rizza`. **Pneu** (eventos 5411/5412, sem placa) = pool dividido cavalo×carreta pelo nº de pneus dos veículos Rizza ativos (`_pneus_por_veiculo`), rateado por faturamento. Placas normalizadas em Mercosul (colisão resolve p/ a Mercosul real); placa vendida (`PLACAS_VENDIDAS`) não conta como frota
 - `GET /api/veiculos/detalhe?dim=&valor=&meses=&tipos=` — detalhe (drawer) de um veículo/pessoa: cargas, abastecimentos (ValeCard), pedágios (Sem Parar), manutenção real (despesas via placa no `historico_despesa`), relacionamentos (**com o proprietário de cada cavalo/carreta**) e quebra por veículo. Reconcilia com a linha da tabela (respeita o filtro de tipo; resolve as 2 grafias Mercosul via `_placa_grafias`)
+
+### Contábil
+- `GET /api/contabil/quadro` — 13 contas do 456 com conta contábil, saldo e `confere` (contagem carregada × rodapé do extrato), mais os totais **já com as guardas** (sem transferência interna, sem programado) e o contador de movimentos sem regra
+- `GET /api/contabil/banco?conta=` — drawer: quebra por origem, por regra de classificação e os 12 maiores movimentos
+- `GET /api/contabil/extrato?start=&end=&banco=&transferencias=&programados=` — movimentos do 456 com a coluna calculada `regra`; devolve em `oculto` o que os filtros esconderam. Confere o total recebido contra `COUNTROWS` e **aborta se vier cortado**
+- `GET /api/contabil/faturas?grao=fatura|ctrc` — 441 nos dois grãos
+- `GET /api/contabil/acni` — 571 + identidade recebido − aplicado = em aberto
+- `GET /api/contabil/plano-contas?analitica=1&grupos=3,4` — alimenta os campos de escolha
+- `GET /api/contabil/eventos` — configuração por evento, ordenada por R$ com % acumulado; a lista é a UNIÃO de (usados no 477 ∪ cadastro do 479 ∪ já configurados), para que evento desativado no SSW não desapareça
+- `POST /api/contabil/eventos` — grava uma LINHA NOVA (append-only). Recusa conta que não existe no plano, conta sintética e flag fora do domínio
+- `GET /api/contabil/eventos/historico?evento=` — quem mudou o quê, quando
+- `GET/POST /api/contabil/contas-fixas` — 13 bancárias + contrapartida de fornecedores
+- `GET /api/contabil/{extrato,faturas,acni}/csv` — CSV streaming
 
 ### Admin
 - `GET /api/admin/users` — lista usuários
@@ -473,6 +491,14 @@ CREATE TABLE auditoria_users (
 - `public custo_pessoal` — folha por funcionário (`competencia` YYYY-MM, `total_mes`) — motoristas/operação
 - `Auditoria Receita` — fato de auditoria (grão CTRB; `receita_rateada`, `placa_cavalo`, `placa_carreta`, `motorista`, `Tipo Operacao`, `CTRC`)
 
+Dataset `tabelas.contabil` (aba Contábil):
+- `public extrato_bancario_456` — movimento a movimento das 13 contas. Colunas que carregam regra: `transferencia_interna` (a mesma transferência aparece 2×), `realizado` (FALSE = programado, previsão), `ref_477_uni/numlancto/parcela` (ponte para a despesa)
+- `public extrato_bancario_456_totais` — 1 linha por conta/período com saldo inicial, créditos, débitos e saldo final **do rodapé do próprio extrato** — é a trilha de auditoria
+- `public faturas_441` — grão fatura; `vlr_ctrcs` é o valor rateado à fatura
+- `public faturas_441_ctrcs` — grão CTRC; `valor_frete` é o valor **cheio** do CTRC (ver Módulo Contábil)
+- `public acni_571` — adiantamentos, grão mestre-detalhe (`linha_mestre`)
+- `public eventos_479` — cadastro de eventos + de-para contábil (`conta_debito`, `conta_credito`)
+
 ---
 
 ## Módulo Embarques
@@ -566,6 +592,93 @@ Análise de receita e **custo real** por veículo/pessoa (`/veiculos`, `server.p
 Clicar em qualquer linha abre o detalhe (`/api/veiculos/detalhe`), **reconciliado com a linha** (respeita o filtro de tipo): cargas, abastecimentos detalhados, pedágios, **manutenção real** (itens identificados pela placa no `historico_despesa` — match de texto, cobertura parcial), relacionamentos (carretas/cavalos/motoristas/rotas, **com o proprietário de cada veículo**) e, em motorista/proprietário, **quebra por veículo**. Proprietário reconcilia pela base **cavalo** (não soma cavalo+carreta para evitar dupla contagem).
 
 > **Pendência conhecida**: o Km/L usa o hodômetro do ValeCard (digitado pelo motorista, sujo) → pode distorcer; por isso **KM Rota e KM Abast. aparecem lado a lado** para tornar o número auditável. O km confiável virá do **GPS do rastreamento** numa próxima fase.
+
+---
+
+## Módulo Contábil
+
+Base do SSW para o fechamento contábil (`/contabil`). Fonte: dataset `tabelas.contabil`,
+alimentado pelos robôs do projeto `Rizza/` (456 · 441 · 571 · 479) numa carga diária.
+
+### A tela é a que a contadora desenhou
+
+O ponto de entrada é **uma linha por banco**, com saldo inicial, créditos, débitos e saldo
+final — foi assim que ela pediu, no papel. O que o desenho não tinha e vale mais que o resto:
+
+- **Conta contábil por banco** (`CONTAS_CONTABEIS_456` em `server.py`), porque é o que vai no
+  arquivo de importação. Onze das treze mapeadas; as duas ausentes aparecem como `⚠ sem conta`.
+- **✓ confere** — o saldo vem do rodapé impresso pelo próprio extrato do SSW, e a contagem
+  carregada é comparada com ele. É o que faz contador confiar sem recalcular.
+
+Três contas fogem de `1.1.1.02` de propósito e o motivo está comentado no código: BB GARANTIDA
+é conta garantida (passivo), D.D SOLAR é duplicata descontada (redutora de clientes), e
+TRIBANCO / CAIXA PAMBANK ainda não existem no plano.
+
+### Três guardas que não são opcionais
+
+Somar coluna crua do 456 mente. As telas aplicam a regra **e mostram o que esconderam**:
+
+| Guarda | Sem ela |
+|---|---|
+| `transferencia_interna` | crédito dá R$ 129,2 mi em vez de R$ 77,4 mi — R$ 51,8 mi de dinheiro próprio virando receita |
+| `realizado` (exclui `sit='P'`) | 188 lançamentos de previsão entram como extrato |
+| `valor_frete` do grão CTRC | é o valor **cheio**; um CTRC repartido aparece inteiro em cada fatura (45 faturas, R$ 172.850,39). Para valor, `vlr_ctrcs` do grão fatura |
+
+### Classificação e de-para
+
+A coluna `regra` do extrato aplica a especificação da contadora (`PARA GABRIEL.xlsx`) e marca
+o que sobra como `SEM REGRA` — hoje 731 movimentos. `VIA RET BCO` é testado **sem amarrar à
+origem**: a regra dela ficou presa a `BCO` e o mesmo histórico aparece em `MAN`.
+
+### Configuração — decisão da contadora vai para tabela, encanamento fica no código
+
+O princípio que rege o módulo: **ela nunca deve precisar pedir deploy para mudar uma regra.**
+
+Três tabelas locais guardam o que é decisão dela, editável por `/contabil/eventos` e
+`/contabil/contas-fixas`:
+
+| Tabela | Conteúdo |
+|---|---|
+| `contabil_plano_contas` | o plano da PERSETO (312 contas, 218 analíticas). Alimenta os campos de escolha — **nenhuma conta entra por digitação** |
+| `contabil_evento_conta` | conta contábil + as flags, por evento. **APPEND-ONLY** |
+| `contabil_conta_fixa` | as 13 contas do 456 e a contrapartida de fornecedores |
+
+**Nunca vira configuração:** a mecânica da partida dobrada, qual data recorta cada relatório,
+e as guardas acima — que são correção de erro medido, não preferência.
+
+**Por que append-only:** `eventos_479` é substituição total a cada carga, e evento desativado
+no SSW some de lá. A vinculação não pode sumir junto, senão um fechamento anterior perde a
+conta que usou. Como bônus, o histórico é a própria tabela e ela responde "qual era a conta em
+setembro" — o que protege mês fechado de mudar quando alguém corrige um cadastro depois.
+
+**A conta é editada no app, não no SSW.** O plano era ela preencher na tela 503 e o robô do 479
+puxar, mas o campo que ela alcança ("Conta Contábil PIS/COFINS") **não sai no relatório**.
+
+**Só 60 dos 97 eventos precisam de conta** — os demais vão na conta fixa de fornecedores,
+conforme as flags dela. A tela marca isso e não oferece campo para quem não precisa.
+
+Contas no formato `5.02.02.01.0025` são do plano **do SSW**, que é outro plano — lá o grupo 5
+é despesa, no plano contábil o grupo 5 é apuração. Ver `HANDOFF-CONTABIL.md` §4.
+
+### ⚠ Escopo: 01/2026 até a competência corrente
+
+`REF` é **texto**, e `REF >= "2026/01"` varre competência futura: a base tem 117 REFs além de
+2026/12 (parcela a vencer de financiamento e consórcio), somando R$ 25,5 mi. O filtro fecha nas
+duas pontas e valida o formato — existe `REF = '20ES/6'` na base. Ver `filtro_ref_477()`.
+
+### ⚠ O executeQueries corta a resposta e devolve HTTP 200
+
+São dois tetos: 100.000 linhas e **15 MiB de payload**. O segundo morde muito antes e depende
+da largura da linha — a mesma consulta devolve 10.127 linhas com 29 colunas e as 22.835
+completas com 3. Resultado cortado parece resposta.
+
+`contabil_dax()` checa `results[0]['error']` (só existe quando houve corte:
+`DaxByteCountNotSupported`), e o endpoint do extrato ainda compara o total recebido com um
+`COUNTROWS` do mesmo filtro. Por isso `_COLS_EXTRATO` seleciona colunas explicitamente em vez
+de puxar a tabela.
+
+> As medidas DAX vêm de `Rizza/contabil_pbi.py` (dict `MEDIDAS`), validadas por
+> `Rizza/contabil_testes.py` — 17 testes. Ao mexer aqui, rodar lá e comparar.
 
 ---
 
@@ -794,6 +907,11 @@ Resultado Final   = Pós Investimento - Retiradas
 - [x] **Relatório PGR de excesso de velocidade** (aba `/pgr`, imagem + link por WhatsApp, situação de carga provada por GPS)
 - [ ] **Calibrar a situação de carga** contra a base backfillada (limiares vieram de estudo sobre outra amostra)
 - [x] **PGR: cavalo na linha, filtros (cavalo/carreta/motorista) e seleção de mês**
+- [x] **Aba Contábil** (posição por banco + extrato 456 / faturamento 441 / ACNI 571 + status do de-para), com as guardas de transferência interna, programados e valor cheio do CTRC
+- [x] **Configuração editável pela contadora** — eventos (conta + flags + histórico append-only) e contas fixas, com o plano de contas em tabela e trava contra conta inexistente ou sintética
+- [ ] **Gerar o arquivo de importação contábil** (`Z;data;débito;crédito;valor;histórico`) — depende de ela preencher a conta dos 60 eventos e escolher entre 166 e 506 para a contrapartida de fornecedores
+- [ ] **Regras de classificação do 456 → tabela** — hoje `_SWITCH_REGRA_456` no código, e já mudou uma vez (R$ 2,7 mi ficavam fora)
+- [ ] **Criar no plano de contas** o TRIBANCO e o CAIXA PAMBANK (hoje sem conta na aba Contábil)
 - [ ] **PGR fase 2**: ranking por motorista, evolução mês a mês e CSV
 - [ ] **km/L pelo GPS do rastreamento** (substituir o hodômetro do ValeCard, que é sujo, na Análise por Veículo)
 - [ ] **Conectar carga (embarques) ↔ documentos fiscais** (auditoria/conhecimentos) por placa+data ou manifesto — enriquecer auditoria com Nº da carga, "Rastreada" e Embarcador
