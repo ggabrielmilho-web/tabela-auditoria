@@ -1,0 +1,2498 @@
+[
+ {
+  "classificacao": "1",
+  "codigo_reduzido": 1,
+  "descricao": "ATIVO",
+  "niveis": 1,
+  "analitica": false,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.1",
+  "codigo_reduzido": 2,
+  "descricao": "ATIVO CIRCULANTE",
+  "niveis": 2,
+  "analitica": false,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.1.1",
+  "codigo_reduzido": 3,
+  "descricao": "DISPONÍVEL",
+  "niveis": 3,
+  "analitica": false,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.1.1.01",
+  "codigo_reduzido": 4,
+  "descricao": "CAIXA",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.1.1.01.001",
+  "codigo_reduzido": 5,
+  "descricao": "CAIXA GERAL",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.1.1.01.002",
+  "codigo_reduzido": 6,
+  "descricao": "FUNDO FIXO DE CAIXA",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.1.1.02",
+  "codigo_reduzido": 7,
+  "descricao": "BANCOS CONTA MOVIMENTO",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.1.1.02.001",
+  "codigo_reduzido": 8,
+  "descricao": "BANCO DO BRASIL 106712-5",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.1.1.03",
+  "codigo_reduzido": 10,
+  "descricao": "APLICAÇÕES FINANCEIRAS LIQUIDEZ IMEDIATA",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.1.2",
+  "codigo_reduzido": 12,
+  "descricao": "CLIENTES",
+  "niveis": 3,
+  "analitica": false,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.1.2.01",
+  "codigo_reduzido": 13,
+  "descricao": "DUPLICATAS A RECEBER",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.1.3",
+  "codigo_reduzido": 18,
+  "descricao": "OUTROS CRÉDITOS",
+  "niveis": 3,
+  "analitica": false,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.1.3.06",
+  "codigo_reduzido": 24,
+  "descricao": "ADIANTAMENTO A EMPREGADOS E OUTROS",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.1.3.06.001",
+  "codigo_reduzido": 25,
+  "descricao": "ADIANTAMENTO DE SALÁRIO",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.1.3.06.002",
+  "codigo_reduzido": 26,
+  "descricao": "ADIANTAMENTO DE 13º SALÁRIO",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.1.3.07",
+  "codigo_reduzido": 27,
+  "descricao": "EMPRÉSTIMO A TERCEIROS",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.1.3.08",
+  "codigo_reduzido": 28,
+  "descricao": "TRIBUTOS A RECUPERAR/COMPENSAR",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.1.3.08.002",
+  "codigo_reduzido": 30,
+  "descricao": "ICMS A RECUPERAR",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.1.3.08.004",
+  "codigo_reduzido": 32,
+  "descricao": "IMPOSTO DE RENDA PAGO POR ESTIMATIVA",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.1.3.08.005",
+  "codigo_reduzido": 33,
+  "descricao": "CONTRIBUIÇÃO SOCIAL PAGA ESTIMATIVA",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.1.3.08.012",
+  "codigo_reduzido": 40,
+  "descricao": "COFINS A RECUPERAR",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.1.3.08.013",
+  "codigo_reduzido": 41,
+  "descricao": "PIS A RECUPERAR",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.1.6",
+  "codigo_reduzido": 65,
+  "descricao": "DESPESAS PAGAS ANTECIPADAMENTE",
+  "niveis": 3,
+  "analitica": false,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.1.6.01",
+  "codigo_reduzido": 66,
+  "descricao": "DESPESAS DE MESES SEGUINTES",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.1.6.01.001",
+  "codigo_reduzido": 67,
+  "descricao": "PRÊMIOS DE SEGUROS A APROPRIAR",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.2.2",
+  "codigo_reduzido": 76,
+  "descricao": "OUTROS CRÉDITOS",
+  "niveis": 3,
+  "analitica": false,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.2.2.04",
+  "codigo_reduzido": 80,
+  "descricao": "SÓCIOS, ADMINISTRADORES E PESSOAS LIGADA",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.2.2.06",
+  "codigo_reduzido": 82,
+  "descricao": "DEPÓSITOS JUDICIAIS",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.2.3",
+  "codigo_reduzido": 88,
+  "descricao": "INVESTIMENTOS",
+  "niveis": 3,
+  "analitica": false,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.2.3.06",
+  "codigo_reduzido": 101,
+  "descricao": "OUTROS INVESTIMENTOS PERMANENTES",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.2.4",
+  "codigo_reduzido": 111,
+  "descricao": "IMOBILIZADO",
+  "niveis": 3,
+  "analitica": false,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.2.4.01",
+  "codigo_reduzido": 112,
+  "descricao": "IMÓVEIS",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.2.4.02",
+  "codigo_reduzido": 116,
+  "descricao": "MÓVEIS E UTENSÍLIOS",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.2.4.02.001",
+  "codigo_reduzido": 117,
+  "descricao": "MÓVEIS E UTENSÍLIOS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.2.4.03",
+  "codigo_reduzido": 118,
+  "descricao": "MÁQUINAS, EQUIPAMENTOS E FERRAMENTAS",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.2.4.03.001",
+  "codigo_reduzido": 119,
+  "descricao": "MÁQUINAS E EQUIPAMENTOS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.2.4.04",
+  "codigo_reduzido": 120,
+  "descricao": "VEÍCULOS",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.2.4.04.001",
+  "codigo_reduzido": 121,
+  "descricao": "VEÍCULOS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.2.4.06",
+  "codigo_reduzido": 124,
+  "descricao": "IMOBILIZADO EM ANDAMENTO",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.2.4.07",
+  "codigo_reduzido": 125,
+  "descricao": "(-) DEPRECIAÇÕES, AMORT. E EXAUS. ACUMUL",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.2.4.07.001",
+  "codigo_reduzido": 126,
+  "descricao": "(-) DEPRECIAÇÕES DE EDIFÍCIOS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.2.4.07.002",
+  "codigo_reduzido": 127,
+  "descricao": "(-) DEPRECIAÇÕES DE MÓVEIS E UTENSÍLIOS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.2.4.07.003",
+  "codigo_reduzido": 128,
+  "descricao": "(-) DEPRECIAÇÕES DE MÁQUINAS, EQUIP. FER",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.2.4.07.004",
+  "codigo_reduzido": 129,
+  "descricao": "(-) DEPRECIAÇÕES DE VEÍCULOS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "2",
+  "codigo_reduzido": 149,
+  "descricao": "PASSIVO",
+  "niveis": 1,
+  "analitica": false,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1",
+  "codigo_reduzido": 150,
+  "descricao": "PASSIVO CIRCULANTE",
+  "niveis": 2,
+  "analitica": false,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.1.01",
+  "codigo_reduzido": 151,
+  "descricao": "EMPRÉSTIMOS",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.3",
+  "codigo_reduzido": 164,
+  "descricao": "FORNECEDORES",
+  "niveis": 3,
+  "analitica": false,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.3.01",
+  "codigo_reduzido": 165,
+  "descricao": "FORNECEDORES",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.4",
+  "codigo_reduzido": 169,
+  "descricao": "OBRIGAÇÕES TRIBUTÁRIAS",
+  "niveis": 3,
+  "analitica": false,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.4.01",
+  "codigo_reduzido": 170,
+  "descricao": "IMPOSTOS E CONTRIBUIÇÕES A RECOLHER",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.4.01.002",
+  "codigo_reduzido": 172,
+  "descricao": "ICMS A RECOLHER",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.4.01.003",
+  "codigo_reduzido": 173,
+  "descricao": "ISS A RECOLHER",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.4.01.008",
+  "codigo_reduzido": 178,
+  "descricao": "IRRF A RECOLHER",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.4.01.009",
+  "codigo_reduzido": 179,
+  "descricao": "PIS A RECOLHER",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.4.01.010",
+  "codigo_reduzido": 180,
+  "descricao": "COFINS A RECOLHER",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.4.01.012",
+  "codigo_reduzido": 182,
+  "descricao": "CRF A RECOLHER",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.4.01.013",
+  "codigo_reduzido": 183,
+  "descricao": "ISS RETIDO A RECOLHER",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.5",
+  "codigo_reduzido": 185,
+  "descricao": "OBRIGAÇÕES TRABALHISTA E PREVIDENCIÁRIA",
+  "niveis": 3,
+  "analitica": false,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.5.01",
+  "codigo_reduzido": 186,
+  "descricao": "OBRIGAÇÕES COM O PESSOAL",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.5.01.001",
+  "codigo_reduzido": 187,
+  "descricao": "SALÁRIOS E ORDENADOS A PAGAR",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.5.01.002",
+  "codigo_reduzido": 188,
+  "descricao": "PRÓ-LABORE A PAGAR",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.5.02",
+  "codigo_reduzido": 190,
+  "descricao": "OBRIGAÇÕES SOCIAIS",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.5.02.001",
+  "codigo_reduzido": 191,
+  "descricao": "INSS A RECOLHER",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.5.02.002",
+  "codigo_reduzido": 192,
+  "descricao": "FGTS A RECOLHER",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.5.03",
+  "codigo_reduzido": 193,
+  "descricao": "PROVISÕES",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.5.03.001",
+  "codigo_reduzido": 194,
+  "descricao": "PROVISÕES PARA FÉRIAS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.5.03.002",
+  "codigo_reduzido": 195,
+  "descricao": "PROVISÕES PARA 13º SALÁRIO",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.5.03.003",
+  "codigo_reduzido": 196,
+  "descricao": "INSS SOBRE PROVISÕES PARA FÉRIAS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.5.03.004",
+  "codigo_reduzido": 197,
+  "descricao": "INSS SOBRE PROVISÕES PARA 13º SALÁRIO",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.5.03.005",
+  "codigo_reduzido": 198,
+  "descricao": "FGTS SOBRE PROVISÕES PARA FÉRIAS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.5.03.006",
+  "codigo_reduzido": 199,
+  "descricao": "FGTS SOBRE PROVISÕES PARA 13º SALÁRIO",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.6",
+  "codigo_reduzido": 200,
+  "descricao": "OUTRAS OBRIGAÇÕES",
+  "niveis": 3,
+  "analitica": false,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.6.04",
+  "codigo_reduzido": 204,
+  "descricao": "CONTAS CORRENTES",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.2.1",
+  "codigo_reduzido": 217,
+  "descricao": "PASSIVO EXIGÍVEL A LONGO PRAZO",
+  "niveis": 3,
+  "analitica": false,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.2.1.08",
+  "codigo_reduzido": 227,
+  "descricao": "FORNECEDORES",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.3",
+  "codigo_reduzido": 242,
+  "descricao": "PATRIMÔNIO LÍQUIDO",
+  "niveis": 2,
+  "analitica": false,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.3.1",
+  "codigo_reduzido": 243,
+  "descricao": "CAPITAL SOCIAL",
+  "niveis": 3,
+  "analitica": false,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.3.1.01",
+  "codigo_reduzido": 244,
+  "descricao": "CAPITAL SUBSCRITO",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.3.4",
+  "codigo_reduzido": 264,
+  "descricao": "LUCROS OU PREJUÍZOS ACUMULADOS",
+  "niveis": 3,
+  "analitica": false,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.3.4.01",
+  "codigo_reduzido": 265,
+  "descricao": "LUCROS OU PREJUÍZOS ACUMULADOS",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.3.4.01.0001",
+  "codigo_reduzido": 266,
+  "descricao": "LUCROS ACUMULADOS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.3.4.01.0002",
+  "codigo_reduzido": 267,
+  "descricao": "(-) PREJUÍZOS ACUMULADOS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "4",
+  "codigo_reduzido": 269,
+  "descricao": "CONTAS DE RESULTADOS - CUSTOS E DESPESAS",
+  "niveis": 1,
+  "analitica": false,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.2",
+  "codigo_reduzido": 295,
+  "descricao": "DESPESAS OPERACIONAIS",
+  "niveis": 2,
+  "analitica": false,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.2.1",
+  "codigo_reduzido": 296,
+  "descricao": "DESPESAS COM VENDAS",
+  "niveis": 3,
+  "analitica": false,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.2.2",
+  "codigo_reduzido": 329,
+  "descricao": "DESPESAS ADMINISTRATIVAS",
+  "niveis": 3,
+  "analitica": false,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.2.2.01",
+  "codigo_reduzido": 330,
+  "descricao": "DESPESAS COM PESSOAL",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.2.2.01.0001",
+  "codigo_reduzido": 331,
+  "descricao": "SALÁRIOS E ORDENADOS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.2.2.01.0002",
+  "codigo_reduzido": 332,
+  "descricao": "PRÓ-LABORE",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.2.2.01.0003",
+  "codigo_reduzido": 333,
+  "descricao": "PRÊMIOS E GRATIFICAÇÕES",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.2.2.01.0004",
+  "codigo_reduzido": 334,
+  "descricao": "13º SALÁRIO",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.2.2.01.0005",
+  "codigo_reduzido": 335,
+  "descricao": "FÉRIAS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.2.2.01.0006",
+  "codigo_reduzido": 336,
+  "descricao": "INSS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.2.2.01.0007",
+  "codigo_reduzido": 337,
+  "descricao": "FGTS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.2.2.01.0008",
+  "codigo_reduzido": 338,
+  "descricao": "INDENIZAÇÕES E AVISO PRÉVIO",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.2.2.01.0009",
+  "codigo_reduzido": 339,
+  "descricao": "ASSISTÊNCIA MÉDICA E SOCIAL",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.2.2.02",
+  "codigo_reduzido": 340,
+  "descricao": "ALUGUÉIS E ARRENDAMENTOS",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.2.2.02.0001",
+  "codigo_reduzido": 341,
+  "descricao": "ALUGUÉIS DE IMÓVEIS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.2.2.02.0002",
+  "codigo_reduzido": 342,
+  "descricao": "ALUGUÉIS GERAL",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.2.2.03",
+  "codigo_reduzido": 345,
+  "descricao": "IMPOSTOS, TAXAS E CONTRIBUIÇÕES",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.2.2.03.0003",
+  "codigo_reduzido": 348,
+  "descricao": "IPTU",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.2.2.03.0004",
+  "codigo_reduzido": 349,
+  "descricao": "IPVA",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.2.2.03.0005",
+  "codigo_reduzido": 350,
+  "descricao": "TAXAS DIVERSAS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.2.2.04",
+  "codigo_reduzido": 353,
+  "descricao": "DESPESAS GERAIS",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.2.2.04.0001",
+  "codigo_reduzido": 354,
+  "descricao": "ENERGIA ELÉTRICA",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.2.2.04.0002",
+  "codigo_reduzido": 355,
+  "descricao": "ÁGUA E ESGOTO",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.2.2.04.0003",
+  "codigo_reduzido": 356,
+  "descricao": "TELEFONE",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.2.2.04.0004",
+  "codigo_reduzido": 357,
+  "descricao": "DESPESAS POSTAIS E TELEGRÁFICAS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.2.2.04.0005",
+  "codigo_reduzido": 358,
+  "descricao": "SEGUROS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.2.2.04.0008",
+  "codigo_reduzido": 361,
+  "descricao": "ASSISTÊNCIA CONTÁBIL",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.2.2.04.0009",
+  "codigo_reduzido": 362,
+  "descricao": "SERVIÇOS PRESTADOS POR TERCEIROS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.2.2.04.0010",
+  "codigo_reduzido": 363,
+  "descricao": "DEPRECIAÇÕES E AMORTIZAÇÕES",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.2.2.04.0012",
+  "codigo_reduzido": 365,
+  "descricao": "ASSISTÊNCIA JURÍDICA",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.2.2.05",
+  "codigo_reduzido": 367,
+  "descricao": "DESPESAS FINANCEIRAS",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.2.2.05.0001",
+  "codigo_reduzido": 368,
+  "descricao": "JUROS PASSIVOS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.2.2.05.0005",
+  "codigo_reduzido": 372,
+  "descricao": "JUROS DE MORA",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.2.2.05.0007",
+  "codigo_reduzido": 374,
+  "descricao": "JUROS E COMISSÕES BANCÁRIAS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.2.2.05.0008",
+  "codigo_reduzido": 375,
+  "descricao": "JUROS SOBRE EMPRÉSTIMOS E FINANCIAMENTOS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.3",
+  "codigo_reduzido": 380,
+  "descricao": "PROVISÕES",
+  "niveis": 2,
+  "analitica": false,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.3.1",
+  "codigo_reduzido": 381,
+  "descricao": "PROVISÃO APURAÇÃO IMPOSTOS",
+  "niveis": 3,
+  "analitica": false,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "2.1.1",
+  "codigo_reduzido": 382,
+  "descricao": "EMPRÉSTIMOS E FINANCIAMENTOS",
+  "niveis": 3,
+  "analitica": false,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "4.3.1.06",
+  "codigo_reduzido": 400,
+  "descricao": "PERDAS",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "3",
+  "codigo_reduzido": 402,
+  "descricao": "CONTAS DE RESULTADO - RECEITAS",
+  "niveis": 1,
+  "analitica": false,
+  "grupo": "3"
+ },
+ {
+  "classificacao": "3.1",
+  "codigo_reduzido": 403,
+  "descricao": "RECEITAS OPERACIONAIS",
+  "niveis": 2,
+  "analitica": false,
+  "grupo": "3"
+ },
+ {
+  "classificacao": "3.1.1",
+  "codigo_reduzido": 404,
+  "descricao": "RECEITA BRUTA DE VENDAS E SERVIÇOS",
+  "niveis": 3,
+  "analitica": false,
+  "grupo": "3"
+ },
+ {
+  "classificacao": "3.1.1.02",
+  "codigo_reduzido": 410,
+  "descricao": "RECEITA DE PRESTAÇÃO DE SERVIÇOS",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "3"
+ },
+ {
+  "classificacao": "3.1.1.02.0001",
+  "codigo_reduzido": 411,
+  "descricao": "SERVIÇOS PRESTADOS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "3"
+ },
+ {
+  "classificacao": "3.1.2",
+  "codigo_reduzido": 413,
+  "descricao": "(-) DEDUÇÕES DA RECEITA BRUTA",
+  "niveis": 3,
+  "analitica": false,
+  "grupo": "3"
+ },
+ {
+  "classificacao": "3.1.2.03",
+  "codigo_reduzido": 424,
+  "descricao": "(-) IMPOSTOS SOBRE VENDAS E SERVIÇOS",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "3"
+ },
+ {
+  "classificacao": "3.1.2.03.0002",
+  "codigo_reduzido": 426,
+  "descricao": "(-) ICMS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "3"
+ },
+ {
+  "classificacao": "3.1.2.03.0003",
+  "codigo_reduzido": 427,
+  "descricao": "(-) ISS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "3"
+ },
+ {
+  "classificacao": "3.1.2.03.0004",
+  "codigo_reduzido": 428,
+  "descricao": "(-) COFINS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "3"
+ },
+ {
+  "classificacao": "3.1.2.03.0005",
+  "codigo_reduzido": 429,
+  "descricao": "(-) PIS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "3"
+ },
+ {
+  "classificacao": "3.1.3",
+  "codigo_reduzido": 430,
+  "descricao": "RECEITAS FINANCEIRAS",
+  "niveis": 3,
+  "analitica": false,
+  "grupo": "3"
+ },
+ {
+  "classificacao": "3.1.3.01",
+  "codigo_reduzido": 431,
+  "descricao": "JUROS E DESCONTOS",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "3"
+ },
+ {
+  "classificacao": "3.1.3.01.0001",
+  "codigo_reduzido": 432,
+  "descricao": "JUROS DE APLICAÇÕES",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "3"
+ },
+ {
+  "classificacao": "3.1.5",
+  "codigo_reduzido": 442,
+  "descricao": "OUTRAS RECEITAS OPERACIONAIS",
+  "niveis": 3,
+  "analitica": false,
+  "grupo": "3"
+ },
+ {
+  "classificacao": "3.1.5.01",
+  "codigo_reduzido": 443,
+  "descricao": "RECEITAS DIVERSAS",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "3"
+ },
+ {
+  "classificacao": "3.1.5.01.0002",
+  "codigo_reduzido": 445,
+  "descricao": "OUTRAS RECEITAS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "3"
+ },
+ {
+  "classificacao": "3.2",
+  "codigo_reduzido": 449,
+  "descricao": "RECEITAS NÃO OPERACIONAIS",
+  "niveis": 2,
+  "analitica": false,
+  "grupo": "3"
+ },
+ {
+  "classificacao": "3.2.1",
+  "codigo_reduzido": 450,
+  "descricao": "RESULTADOS NÃO OPERACIONAIS",
+  "niveis": 3,
+  "analitica": false,
+  "grupo": "3"
+ },
+ {
+  "classificacao": "3.2.1.02",
+  "codigo_reduzido": 453,
+  "descricao": "LUCROS NA ALIENAÇÃO DE IMOBILIZADO",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "3"
+ },
+ {
+  "classificacao": "3.2.1.02.0003",
+  "codigo_reduzido": 456,
+  "descricao": "LUCROS NA ALIEN. DE MÁQ. EQUIP. FERRAMEN",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "3"
+ },
+ {
+  "classificacao": "3.2.1.02.0004",
+  "codigo_reduzido": 457,
+  "descricao": "LUCROS NA ALIENAÇÃO DE VEÍCULOS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "3"
+ },
+ {
+  "classificacao": "5",
+  "codigo_reduzido": 460,
+  "descricao": "CONTAS DE APURAÇÃO",
+  "niveis": 1,
+  "analitica": false,
+  "grupo": "5"
+ },
+ {
+  "classificacao": "5.1",
+  "codigo_reduzido": 461,
+  "descricao": "CUSTOS DOS PRODUTOS E SERVIÇOS VENDIDOS",
+  "niveis": 2,
+  "analitica": false,
+  "grupo": "5"
+ },
+ {
+  "classificacao": "4.1.6",
+  "codigo_reduzido": 465,
+  "descricao": "CUSTOS DOS SERVIÇOS PRESTADOS",
+  "niveis": 3,
+  "analitica": false,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.1.6.01",
+  "codigo_reduzido": 466,
+  "descricao": "CUSTOS DOS SERVIÇOS PRESTADOS",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "5.1.4",
+  "codigo_reduzido": 471,
+  "descricao": "APURAÇÃO DO RESULTADO DO EXERCÍCIO",
+  "niveis": 3,
+  "analitica": false,
+  "grupo": "5"
+ },
+ {
+  "classificacao": "5.1.4.01",
+  "codigo_reduzido": 472,
+  "descricao": "APURAÇÃO DO RESULTADO DO EXERCÍCIO",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "5"
+ },
+ {
+  "classificacao": "5.1.4.01.001",
+  "codigo_reduzido": 473,
+  "descricao": "RESULTADO DO EXERCÍCIO",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "5"
+ },
+ {
+  "classificacao": "4.2.2.01.0010",
+  "codigo_reduzido": 492,
+  "descricao": "VALE TRANSPORTE",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.2.2.04.0014",
+  "codigo_reduzido": 493,
+  "descricao": "MULTA DE TRÂNSITO",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.1",
+  "codigo_reduzido": 500,
+  "descricao": "CUSTOS",
+  "niveis": 2,
+  "analitica": false,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "1.2",
+  "codigo_reduzido": 501,
+  "descricao": "ATIVO NÃO-CIRCULANTE",
+  "niveis": 2,
+  "analitica": false,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "2.2",
+  "codigo_reduzido": 503,
+  "descricao": "PASSIVO NÃO-CIRCULANTE",
+  "niveis": 2,
+  "analitica": false,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "1.1.2.01.001",
+  "codigo_reduzido": 504,
+  "descricao": "CLIENTES DIVERSOS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "2.1.3.01.001",
+  "codigo_reduzido": 506,
+  "descricao": "FORNECEDORES DIVERSOS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "4.3.1.06.0002",
+  "codigo_reduzido": 507,
+  "descricao": "PERDA DE CRÉDITO DE ICMS S/ IMOBILIZADO",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "3.1.2.03.0012",
+  "codigo_reduzido": 509,
+  "descricao": "(-) INSS RECEITA BRUTA",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "3"
+ },
+ {
+  "classificacao": "4.2.2.01.0012",
+  "codigo_reduzido": 521,
+  "descricao": "DESPESAS COM ALIMENTAÇÃO",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.2.1.08.0001",
+  "codigo_reduzido": 525,
+  "descricao": "BONIFICAÇÃO CONCEDIDA",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.2.1.08",
+  "codigo_reduzido": 526,
+  "descricao": "DESPESAS C/ BONIFICAÇÃO",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "1.1.1.01.003",
+  "codigo_reduzido": 529,
+  "descricao": "PENDENCIAS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "3.2.1.08",
+  "codigo_reduzido": 531,
+  "descricao": "RECEITAS C/ BONIFICAÇÃO",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "3"
+ },
+ {
+  "classificacao": "2.1.5.01.004",
+  "codigo_reduzido": 533,
+  "descricao": "RESCISÕES A PAGAR",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.3.3",
+  "codigo_reduzido": 535,
+  "descricao": "LUCRO OU PREJUÍZOS DO PERÍODO",
+  "niveis": 3,
+  "analitica": false,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.3.3.01",
+  "codigo_reduzido": 536,
+  "descricao": "LUCROS OU PREJUÍZOS DO PERÍODO",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.3.3.01.0001",
+  "codigo_reduzido": 537,
+  "descricao": "LUCRO DO PERÍODO",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.3.3.01.0002",
+  "codigo_reduzido": 538,
+  "descricao": "(-) PREJUÍZO DO PERÍODO",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "1.1.2.01.004",
+  "codigo_reduzido": 591,
+  "descricao": "(-) DUPLICATAS DESCONTADAS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "4.1.6.01.0002",
+  "codigo_reduzido": 661,
+  "descricao": "INSUMOS P/ TRANSPORTE",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.1.6.01.0003",
+  "codigo_reduzido": 662,
+  "descricao": "OUTROS CUSTOS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "1.1.1.02.003",
+  "codigo_reduzido": 755,
+  "descricao": "BANCO BRADESCO 8653-3",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.1.1.02.004",
+  "codigo_reduzido": 756,
+  "descricao": "BANCO ITAU 6798-0",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.1.1.02.005",
+  "codigo_reduzido": 757,
+  "descricao": "BANCO SANTANDER  130059301",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.1.3.07.002",
+  "codigo_reduzido": 759,
+  "descricao": "SAL SERVICOS DE APOIO",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.1.3.06.004",
+  "codigo_reduzido": 764,
+  "descricao": "ADIANTAMENTO A DIRETORES",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.2.2.04.001",
+  "codigo_reduzido": 766,
+  "descricao": "CLEIVON RIZZA",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.2.2.04.002",
+  "codigo_reduzido": 767,
+  "descricao": "PATRICIA MIRANDA RIZZA",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.2.2.06.001",
+  "codigo_reduzido": 768,
+  "descricao": "DEPOSITO JUDICIAL",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "4.2.2.04.0017",
+  "codigo_reduzido": 774,
+  "descricao": "COPA E COZINHA",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.2.2.04.0019",
+  "codigo_reduzido": 778,
+  "descricao": "BRINDES E DOACOES",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.2.2.03.0008",
+  "codigo_reduzido": 779,
+  "descricao": "MULTAS E INFRACOES",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.2.2.03.0009",
+  "codigo_reduzido": 780,
+  "descricao": "IOF",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.2.2.05.0009",
+  "codigo_reduzido": 781,
+  "descricao": "TARIFAS BANCARIAS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.2.2.01.0013",
+  "codigo_reduzido": 782,
+  "descricao": "SEGURO DE VIDA",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "1.1.3.08.017",
+  "codigo_reduzido": 790,
+  "descricao": "CONTRIBUIÇÃO SOCIAL",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.1.3.08.020",
+  "codigo_reduzido": 793,
+  "descricao": "IMPOSTO DE RENDA",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.1.3.08.022",
+  "codigo_reduzido": 795,
+  "descricao": "IMPOSTOS RETIDOS NA FONTE A RECUPERAR",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.1.3.08.023",
+  "codigo_reduzido": 796,
+  "descricao": "IRRF S/ SALARIO",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.1.3.10",
+  "codigo_reduzido": 799,
+  "descricao": "TRIBUTOS A RECUPERAR EX. ANTERIORES",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.1.3.10.001",
+  "codigo_reduzido": 800,
+  "descricao": "CSLL SALDO NEGATIVO 2020",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.1.3.10.002",
+  "codigo_reduzido": 801,
+  "descricao": "IRPJ SALDO NEGATIVO 2020",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.1.3.10.003",
+  "codigo_reduzido": 802,
+  "descricao": "IRPF SALDO NEGATIVO 2021",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.1.3.10.004",
+  "codigo_reduzido": 803,
+  "descricao": "ISF S/ APLICACOES FINANCEIRAS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.1.3.10.005",
+  "codigo_reduzido": 804,
+  "descricao": "ISF S/ APLICAÇÕES FINANCEIRAS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.2.4.08",
+  "codigo_reduzido": 805,
+  "descricao": "BENS EM OPERAÇÃO",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.2.4.08.001",
+  "codigo_reduzido": 806,
+  "descricao": "APARELHO DE AUDIO E VIDEO",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.2.4.01.003",
+  "codigo_reduzido": 807,
+  "descricao": "IMOVEIS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.2.4.09",
+  "codigo_reduzido": 808,
+  "descricao": "INSTALAÇÕES",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.2.4.09.001",
+  "codigo_reduzido": 809,
+  "descricao": "INSTALACOES E BENFEITORIAS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.2.4.07.007",
+  "codigo_reduzido": 810,
+  "descricao": "(-) DEPRECIACOES DE APARELHO DE AUDIO E VIDEO",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.2.4.07.008",
+  "codigo_reduzido": 811,
+  "descricao": "(-) DEPRECIAÇÕES DE INSTALAÇÕES E BENFEITORIAS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.2.4.06.002",
+  "codigo_reduzido": 812,
+  "descricao": "CONSORCIO BANCO DO BRASIL GRUPO 1386 COTA 6280",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.2.4.06.003",
+  "codigo_reduzido": 813,
+  "descricao": "CONSORCIO ITAU GRUPO 02469 COTA 124",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.2.4.06.004",
+  "codigo_reduzido": 814,
+  "descricao": "CONSORCIO MAGGI GRUPO 732 COTA",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.2.4.06.005",
+  "codigo_reduzido": 815,
+  "descricao": "RANDON ADMINISTRADORA DE CONSO",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.2.4.06.006",
+  "codigo_reduzido": 816,
+  "descricao": "SCANIA ADMINISTRADORA DE CONSORCIO GRUPO 3124 COTA 0045",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "2.1.5.02.005",
+  "codigo_reduzido": 819,
+  "descricao": "SINDICAL A RECOLHER",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.4.02",
+  "codigo_reduzido": 820,
+  "descricao": "SOBRE O RESULTADO DO EXERCICIO",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.4.02.001",
+  "codigo_reduzido": 821,
+  "descricao": "CONTRIBUICAO SOCIAL A PAGAR",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.4.02.002",
+  "codigo_reduzido": 822,
+  "descricao": "IMPOSTO DE RENDA A PAGAR",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.4.01.027",
+  "codigo_reduzido": 823,
+  "descricao": "CPP A PAGAR",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.4.01.031",
+  "codigo_reduzido": 827,
+  "descricao": "PARCELAMENTO PREVIDENCIARIO",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.4.01.032",
+  "codigo_reduzido": 828,
+  "descricao": "PARCELAMENTO SIMPLIFICADO INSS S/ RECEITA BRUTA 2020",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.4.01.033",
+  "codigo_reduzido": 829,
+  "descricao": "PARCELAMENTO SIMPLIFICADO INSS S/ RECEITA BRUTA 2022",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.1.01.002",
+  "codigo_reduzido": 830,
+  "descricao": "BANCO DO BRASIL Nº 259120389",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.1.01.005",
+  "codigo_reduzido": 833,
+  "descricao": "EMPRESTIMO BB 2021",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.1.01.006",
+  "codigo_reduzido": 834,
+  "descricao": "EMPRESTIMO BB 259.125.751",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.1.01.007",
+  "codigo_reduzido": 835,
+  "descricao": "LOTE 12 QUADRA 4 QUINTA ALTO U",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.1.01.008",
+  "codigo_reduzido": 836,
+  "descricao": "LOTE 13 QUADRA 4 QUINTA ALTO U",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.1.08",
+  "codigo_reduzido": 838,
+  "descricao": "CONTA GARANTIDA",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.1.08.001",
+  "codigo_reduzido": 839,
+  "descricao": "BANCO DO BRASIL S.A.",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.1.08.002",
+  "codigo_reduzido": 840,
+  "descricao": "BANCO ITAU S.A",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.1.09",
+  "codigo_reduzido": 842,
+  "descricao": "RESULTADO DE EXERCICIOS FUTUROS",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.1.09.001",
+  "codigo_reduzido": 844,
+  "descricao": "CLIENTES DIVERSOS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.1.10",
+  "codigo_reduzido": 845,
+  "descricao": "OUTRAS OBRIGAÇÕES",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.1.10.001",
+  "codigo_reduzido": 846,
+  "descricao": "PENSAO ALIMENTICIA",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.2.2",
+  "codigo_reduzido": 859,
+  "descricao": "CREDITOS DE PESSOAS LIGADAS",
+  "niveis": 3,
+  "analitica": false,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.2.2.01",
+  "codigo_reduzido": 860,
+  "descricao": "PESSOAS JURIDICAS",
+  "niveis": 4,
+  "analitica": false,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.2.2.01.001",
+  "codigo_reduzido": 861,
+  "descricao": "ANFER TRANSPORTES LTDA",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.3.4.01.0006",
+  "codigo_reduzido": 867,
+  "descricao": "AJUSTE DE EXERCICIO ANTERIOR",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "4.2.2.01.0015",
+  "codigo_reduzido": 870,
+  "descricao": "AUTONOMO",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.1.6.01.0006",
+  "codigo_reduzido": 871,
+  "descricao": "(-) CREDITO COFINS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.1.6.01.0007",
+  "codigo_reduzido": 872,
+  "descricao": "(-) CREDITO PIS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.1.6.01.0008",
+  "codigo_reduzido": 873,
+  "descricao": "(-) CREDITO ICMS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.2.2.04.0022",
+  "codigo_reduzido": 1236,
+  "descricao": "DESPESAS COM USO E CONSUMO",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "2.1.1.01.025",
+  "codigo_reduzido": 1359,
+  "descricao": "SANTANDER - 860000011660",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.1.01.026",
+  "codigo_reduzido": 1360,
+  "descricao": "BANCO DO BRASIL - Nº 259.124.357",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.1.10.013",
+  "codigo_reduzido": 1363,
+  "descricao": "CONSORCIO RANDON ADM 870 - 967 - 0",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.1.10.006",
+  "codigo_reduzido": 1365,
+  "descricao": "CONSORCIO RANDON ADM 885 - 1 - 1",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.1.10.012",
+  "codigo_reduzido": 1366,
+  "descricao": "CONSORCIO BB RAMPAGE 1226 - 7681 - 5524584",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.1.10.008",
+  "codigo_reduzido": 1367,
+  "descricao": "CONSORCIO BB AMAROK 1226 - 5688 - 5525366",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "1.1.1.02.006",
+  "codigo_reduzido": 1448,
+  "descricao": "BANCO SAFRA 584531-5",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.1.1.02.007",
+  "codigo_reduzido": 1449,
+  "descricao": "BANCO BANESTES",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "4.2.2.04.0024",
+  "codigo_reduzido": 1451,
+  "descricao": "DESPESAS COM VIAGENS E DIARIAS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "1.1.1.02.000",
+  "codigo_reduzido": 1453,
+  "descricao": "TRANSFERENCIA ENTRE CONTAS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.1.1.03.006",
+  "codigo_reduzido": 1455,
+  "descricao": "APLICAÇÃO SAFRA CDB FLUXO CAIXA",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "2.1.1.01.018",
+  "codigo_reduzido": 1456,
+  "descricao": "EMPRESTIMO SAFRA",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "1.1.1.03.003",
+  "codigo_reduzido": 1457,
+  "descricao": "CONTA VINCULADA SAFRA",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.1.3.06.005",
+  "codigo_reduzido": 1458,
+  "descricao": "ADIANTAMENTO DE FÉRIAS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "4.1.6.01.0011",
+  "codigo_reduzido": 1462,
+  "descricao": "LOCAÇÃO DE VEÍCULOS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.1.6.01.0013",
+  "codigo_reduzido": 1464,
+  "descricao": "FRETES TERCEIROS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "2.1.1.08.004",
+  "codigo_reduzido": 1487,
+  "descricao": "CONTA GARANTIDA - BANCOS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "1.1.1.03.004",
+  "codigo_reduzido": 1516,
+  "descricao": "CONTAMAX SANTANDER",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "2.1.3.01.407",
+  "codigo_reduzido": 1549,
+  "descricao": "EMAFERRAMENTAS LTDA - ME",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "1.1.1.02.012",
+  "codigo_reduzido": 1625,
+  "descricao": "BANCO ITAU  - AG 7734",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "2.2.1.08.004",
+  "codigo_reduzido": 1650,
+  "descricao": "FORNECEDOR B - 2",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.3.4.01.0008",
+  "codigo_reduzido": 1664,
+  "descricao": "(-) PREJUIZOS ACUMULADOS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "4.1.6.01.0016",
+  "codigo_reduzido": 1713,
+  "descricao": "SEGUROS - CUSTO",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.1.6.01.0017",
+  "codigo_reduzido": 1714,
+  "descricao": "PEDAGIO - CUSTO",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "1.2.4.01.004",
+  "codigo_reduzido": 1738,
+  "descricao": "TERRENO QUINTA L12 Q4",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.2.4.01.005",
+  "codigo_reduzido": 1739,
+  "descricao": "TERRENO QUINTA L13 Q4",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "4.1.6.01.0018",
+  "codigo_reduzido": 1740,
+  "descricao": "CARGA E DESCARGA",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.1.6.01.0019",
+  "codigo_reduzido": 1769,
+  "descricao": "PERDA DE MERCADORIA",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "4.2.2.04.0034",
+  "codigo_reduzido": 1770,
+  "descricao": "MANUTENÇÃO E REPARO",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "1.1.3.06.006",
+  "codigo_reduzido": 1772,
+  "descricao": "VALE PEDAGIO",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.1.3.07.006",
+  "codigo_reduzido": 1775,
+  "descricao": "EMPRÉSTIMOS A TERCEIROS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "2.1.1.01.030",
+  "codigo_reduzido": 1776,
+  "descricao": "CCB ITAU - FACCHINI S.A. 25565615",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.1.01.031",
+  "codigo_reduzido": 1777,
+  "descricao": "(-) JUROS A APROPRIAR S/ CCB ITAU - FACCHINI S.A. 25565615",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.4.01.043",
+  "codigo_reduzido": 1795,
+  "descricao": "PARCELAMENTO NÃO PREVIDENCIARIO - COFINS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.4.01.044",
+  "codigo_reduzido": 1808,
+  "descricao": "PARCELAMENTO SIMPLIFICADO PREVIDENCIARIO 2023",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.4.01.045",
+  "codigo_reduzido": 1809,
+  "descricao": "PARCELAMENTO SIMPLIFICADO DIVERSOS 2022",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.1.01.034",
+  "codigo_reduzido": 1810,
+  "descricao": "(-) JUROS A APROPRIAR S/ FINANCIAMENTO TIGUAN",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.1.01.035",
+  "codigo_reduzido": 1811,
+  "descricao": "FINANCIAMENTO TIGUAN",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.1.10.016",
+  "codigo_reduzido": 1812,
+  "descricao": "CONSORCIO BB FACCHINI GRUPO 1226 COTA 6145",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "1.2.4.06.007",
+  "codigo_reduzido": 1841,
+  "descricao": "CONSORCIO ITAU GRUPO 50035 COTA 350",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.2.4.06.008",
+  "codigo_reduzido": 1842,
+  "descricao": "CONSORCIO BANCO DO BRASIL GRUPO 1431 COTA 1163",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.1.2.01.117",
+  "codigo_reduzido": 1843,
+  "descricao": "(-) DD SOLAR",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.1.1.01.005",
+  "codigo_reduzido": 1844,
+  "descricao": "DESPESAS A RECLASSIFICAR",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "4.2.2.04.0035",
+  "codigo_reduzido": 1845,
+  "descricao": "DESPESAS JURÍDICAS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "4"
+ },
+ {
+  "classificacao": "3.2.1.08.0001",
+  "codigo_reduzido": 1882,
+  "descricao": "BONIFICAÇÃO RECEBIDA",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "3"
+ },
+ {
+  "classificacao": "2.1.1.01.036",
+  "codigo_reduzido": 1902,
+  "descricao": "FINANCIAMENTO STRADA FREEDOM",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.1.01.037",
+  "codigo_reduzido": 1903,
+  "descricao": "(-) JUROS A APROPRIAR S/ FINANCIAMENTO STRADA FREEDOM",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.1.08.005",
+  "codigo_reduzido": 1904,
+  "descricao": "CONTA BANCÁRIA SALDO NEGATIVO",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.3.1.01.002",
+  "codigo_reduzido": 1905,
+  "descricao": "CLEIVON RIZZA",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.3.1.01.003",
+  "codigo_reduzido": 1906,
+  "descricao": "PATRICIA MIRANDA RIZZA",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "1.2.4.07.013",
+  "codigo_reduzido": 1931,
+  "descricao": "(-) DEPRECIAÇÕES DE EQUIPAMENTOS DE INFORMATICA",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "2.1.1.01.038",
+  "codigo_reduzido": 1932,
+  "descricao": "(-) JUROS A APROPRIAR S/ FINANCIAMENTO CDC 1790139546",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.1.01.039",
+  "codigo_reduzido": 1933,
+  "descricao": "FINANCIAMENTO CDC 1790139546",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.1.01.040",
+  "codigo_reduzido": 1934,
+  "descricao": "(-) JUROS A APROPRIAR S/ FINANCIAMENTO CDC 1790139554",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.1.01.041",
+  "codigo_reduzido": 1935,
+  "descricao": "FINANCIAMENTO CDC 1790139554",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "1.1.1.02.015",
+  "codigo_reduzido": 1956,
+  "descricao": "BANCO DO BRASIL 60494 AP DE GOIANIA",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.1.1.02.016",
+  "codigo_reduzido": 1957,
+  "descricao": "BANCO SICOOB 4264 145026",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "2.1.1.01.042",
+  "codigo_reduzido": 1958,
+  "descricao": "FINANCIAMENTO SEAL - EV COM DE VEICULOS",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "1.2.3.06.003",
+  "codigo_reduzido": 1972,
+  "descricao": "COOPERADO SICOOB ARACOOP",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.2.4.06.009",
+  "codigo_reduzido": 1987,
+  "descricao": "CONSORCIO SICOOB IVECO GRUPO 1446 COTA 623",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "2.1.6.04.001",
+  "codigo_reduzido": 1992,
+  "descricao": "SALDO NEGATIVO BANCO ITAU",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.6.04.002",
+  "codigo_reduzido": 1993,
+  "descricao": "SALDO NEGATIVO BANCO SAFRA",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "1.1.2.01.120",
+  "codigo_reduzido": 2010,
+  "descricao": "CTES A FATURAR",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.2.4.06.010",
+  "codigo_reduzido": 2011,
+  "descricao": "CONSORCIO BANCO DO BRASIL GRUPO 1765 COTA 9606",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "1.1.3.07.007",
+  "codigo_reduzido": 2012,
+  "descricao": "SINGULAR SERVIÇOS (ANFER)",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "2.1.1.08.006",
+  "codigo_reduzido": 2013,
+  "descricao": "CONTA GARANTIDA SICOOB",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.1.01.044",
+  "codigo_reduzido": 2037,
+  "descricao": "CAPITAL DE GIRO - BANCO DO BRASIL",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "1.1.6.01.003",
+  "codigo_reduzido": 2039,
+  "descricao": "DESPESAS FINANCEIRAS PAGAS ANTECIPADAMENTE",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "2.1.1.01.046",
+  "codigo_reduzido": 2165,
+  "descricao": "FINANCIAMENTO - FACCHINI S.A 29902912",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.1.01.047",
+  "codigo_reduzido": 2166,
+  "descricao": "(-) JUROS A APROPRIAR S/ FINANCIAMENTO - FACCHINI S.A 29902912",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "1.1.1.03.007",
+  "codigo_reduzido": 2229,
+  "descricao": "APLICAÇÃO CDB SICOOB",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "1"
+ },
+ {
+  "classificacao": "2.1.1.08.007",
+  "codigo_reduzido": 2264,
+  "descricao": "BRADESCO",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ },
+ {
+  "classificacao": "2.1.1.08.008",
+  "codigo_reduzido": 2265,
+  "descricao": "SANTANDER",
+  "niveis": 5,
+  "analitica": true,
+  "grupo": "2"
+ }
+]

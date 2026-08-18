@@ -25,23 +25,42 @@ O `Código` é o código reduzido, e é ele que vai no arquivo de importação
 ═══════════════════════════════════════════════════════════════════════════════
 """
 
+import json
 import os
 import sys
 
-import pandas as pd
 import psycopg2
 from psycopg2.extras import execute_values
 from dotenv import load_dotenv
 
 load_dotenv()
 
+# `pandas` só é necessário para LER o Excel, e a imagem de produção não o tem
+# (custaria ~100 MB por causa de dois scripts de carga única). Por isso o
+# import é preguiçoso e existe o caminho do .json:
+#
+#   local      python seed_plano_contas.py "rizza para teste.xls" --exportar plano.json
+#   servidor   docker exec $CT python seed_plano_contas.py /app/plano.json
+#
+# O .json carrega com stdlib + psycopg2, que a imagem já tem.
+
 PADRAO = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                       '..', 'Rizza', 'rizza para teste.xls')
 MINIMO_CONTAS = 100   # piso de sanidade: o plano tinha 313 em 17/08/2026
 
 
+def ler_json(caminho):
+    """Carrega o que o --exportar gerou. Só stdlib — roda no container."""
+    with open(caminho, encoding='utf-8') as f:
+        linhas = json.load(f)
+    if len(linhas) < MINIMO_CONTAS:
+        raise ValueError(f'Só {len(linhas)} contas no JSON (mínimo {MINIMO_CONTAS}).')
+    return linhas
+
+
 def ler_plano(caminho):
-    """Lê o arquivo e devolve as contas normalizadas."""
+    """Lê o Excel e devolve as contas normalizadas. Precisa de pandas."""
+    import pandas as pd
     d = pd.read_excel(caminho, header=2)
     d.columns = [str(c).strip() for c in d.columns]
     d = d.rename(columns={d.columns[0]: 'codigo',
@@ -79,17 +98,36 @@ def ler_plano(caminho):
             print(f'      {r["classificacao"]:<16} cód {int(r["codigo"]):>5}  {r["descricao"]}')
         print()
     d = d.sort_values('codigo').drop_duplicates('classificacao', keep='last')
-    return d
+
+    import pandas as pd
+    return [{'classificacao': r['classificacao'],
+             'codigo_reduzido': None if pd.isna(r['codigo']) else int(r['codigo']),
+             'descricao': r['descricao'], 'niveis': int(r['niveis']),
+             'analitica': bool(r['analitica']), 'grupo': r['grupo']}
+            for _, r in d.iterrows()]
 
 
 def main():
-    caminho = sys.argv[1] if len(sys.argv) > 1 else PADRAO
+    args = [a for a in sys.argv[1:] if a != '--exportar']
+    exportar = sys.argv[sys.argv.index('--exportar') + 1] if '--exportar' in sys.argv else None
+    if exportar and exportar in args:
+        args.remove(exportar)
+    caminho = args[0] if args else PADRAO
+
     if not os.path.exists(caminho):
         print(f'❌ Arquivo não encontrado: {caminho}')
-        print('   Uso: python seed_plano_contas.py [caminho\\do\\arquivo.xls]')
+        print('   Uso: python seed_plano_contas.py [arquivo.xls|arquivo.json] '
+              '[--exportar saida.json]')
         sys.exit(1)
 
-    d = ler_plano(caminho)
+    linhas = ler_json(caminho) if caminho.lower().endswith('.json') else ler_plano(caminho)
+
+    if exportar:
+        with open(exportar, 'w', encoding='utf-8') as f:
+            json.dump(linhas, f, ensure_ascii=False, indent=1)
+        print(f'✅ {len(linhas)} contas exportadas para {exportar}.')
+        print('   Leve esse arquivo para o servidor — ele carrega sem pandas.')
+        return
 
     conn = psycopg2.connect(
         host=os.getenv('DB_HOST'), port=os.getenv('DB_PORT', 5432),
@@ -104,18 +142,18 @@ def main():
         INSERT INTO contabil_plano_contas
             (classificacao, codigo_reduzido, descricao, niveis, analitica, grupo)
         VALUES %s
-    """, [(r['classificacao'],
-           None if pd.isna(r['codigo']) else int(r['codigo']),
-           r['descricao'], int(r['niveis']), bool(r['analitica']), r['grupo'])
-          for _, r in d.iterrows()])
+    """, [(r['classificacao'], r['codigo_reduzido'], r['descricao'],
+           r['niveis'], r['analitica'], r['grupo']) for r in linhas])
     conn.commit()
 
-    g34 = d[(d['grupo'].isin(['3', '4'])) & (d['analitica'])]
-    print(f'✅ {len(d)} contas gravadas em contabil_plano_contas.')
-    print(f'   analíticas: {int(d["analitica"].sum())}  |  '
-          f'destino de despesa/receita (grupos 3 e 4): {len(g34)}')
-    print(f'   por grupo: ' + ', '.join(
-        f'{g}={int((d["grupo"] == g).sum())}' for g in sorted(d['grupo'].unique())))
+    ana = sum(1 for r in linhas if r['analitica'])
+    g34 = sum(1 for r in linhas if r['analitica'] and r['grupo'] in ('3', '4'))
+    grupos = {}
+    for r in linhas:
+        grupos[r['grupo']] = grupos.get(r['grupo'], 0) + 1
+    print(f'✅ {len(linhas)} contas gravadas em contabil_plano_contas.')
+    print(f'   analíticas: {ana}  |  destino de despesa/receita (grupos 3 e 4): {g34}')
+    print('   por grupo: ' + ', '.join(f'{g}={n}' for g, n in sorted(grupos.items())))
 
     cur.close()
     conn.close()
