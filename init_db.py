@@ -495,6 +495,32 @@ cur.execute("ALTER TABLE embarques_cargas ADD COLUMN IF NOT EXISTS descarga_cava
 
 print("✅ Desengate de carreta carregada (status Desengatada) pronto.\n")
 
+# ============================================================================
+# LANCAMENTO AUTOMATICO DE EMBARQUES (robo do manifesto SSW)
+# ============================================================================
+# O robo le `public manifestos` do SSW e abre a carga sozinho. Estas colunas
+# existem para tres coisas, nesta ordem de importancia:
+#
+# 1. `manifesto_origem` + indice UNICO = idempotencia. O job varre uma janela de
+#    dias (nao so ontem), porque 2,4% dos CTRBs saem em D+1 e a carga so fica
+#    completa na rodada seguinte. Sem o indice, cada varredura duplicaria.
+# 2. `criada_por_robo` separa as duas fontes. E o que permite ao robo nunca
+#    encostar em carga que o operacional lancou a mao -- e ao operacional saber
+#    o que veio do SSW sem ninguem ter digitado.
+# 3. `encerrada_motivo` impede que fechamento por REGRA se confunda com entrega
+#    provada por GPS. Fica 'Entregue' (e o status que as telas entendem) mas com
+#    entregue_auto=FALSE e o motivo gravado: manifesto_novo | baixa_ctrb | timeout.
+cur.execute("ALTER TABLE embarques_cargas ADD COLUMN IF NOT EXISTS manifesto_origem VARCHAR(30);")
+cur.execute("ALTER TABLE embarques_cargas ADD COLUMN IF NOT EXISTS ctrb_origem VARCHAR(20);")
+cur.execute("ALTER TABLE embarques_cargas ADD COLUMN IF NOT EXISTS criada_por_robo BOOLEAN DEFAULT FALSE;")
+cur.execute("ALTER TABLE embarques_cargas ADD COLUMN IF NOT EXISTS auto_incompleta BOOLEAN DEFAULT FALSE;")
+cur.execute("ALTER TABLE embarques_cargas ADD COLUMN IF NOT EXISTS encerrada_motivo VARCHAR(30);")
+# Indice PARCIAL: carga lancada a mao tem manifesto_origem NULL, e NULL nao colide.
+cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_cargas_manifesto_origem "
+            "ON embarques_cargas (manifesto_origem) WHERE manifesto_origem IS NOT NULL;")
+
+print("✅ Lancamento automatico de embarques (manifesto_origem, criada_por_robo) pronto.\n")
+
 # ── PGR — excesso de velocidade ──────────────────────────────────────
 #
 # O relatório PERSISTE o próprio resultado em vez de recalcular a partir das

@@ -235,6 +235,21 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 | `PGR_JANELA_DISPARO_MIN` | Tolerância p/ disparar após o horário (restart) | `30` |
 | `BACKFILL_ESPACO_SEG` | Segundos entre chamadas do backfill (~6/min) | `10` |
 
+### Lançamento automático de embarques (robô do manifesto SSW)
+| Variável | Descrição | Default |
+|---|---|---|
+| `EMBARQUES_AUTO` | **Liga o motor.** `false` para o operacional voltar a lançar à mão | `false` |
+| `EMBARQUES_AUTO_FECHAMENTO` | Deixa o robô ENCERRAR cargas (criar e fechar são chaves separadas) | `true` |
+| `EMBARQUES_AUTO_HORA_BRT` | Horário do job em Brasília (a carga do SSW chega ~05:10) | `07:00` |
+| `EMBARQUES_AUTO_JANELA_DISPARO_MIN` | Tolerância p/ disparar após o horário (restart) | `180` |
+| `EMBARQUES_AUTO_DEFASAGEM` | Dias para trás (1 = ontem) | `1` |
+| `EMBARQUES_AUTO_JANELA_DIAS` | Dias varridos por execução (cobre o CTRB que sai em D+1) | `5` |
+| `EMBARQUES_AUTO_TIPOS` | Tipos que o robô lança | `Frota,Agregado` |
+| `EMBARQUES_AUTO_MAX_DESTINOS` | Acima disso é distribuição → 1 destino + observação | `8` |
+| `EMBARQUES_AUTO_DESTINOS_CTRC` | Admite a cidade do CTRC como destino (batem em só 69%) | `false` |
+| `EMBARQUES_AUTO_TIMEOUT_DIAS` | Encerra carga aberta há mais de N dias | `10` |
+| `EMBARQUES_AUTO_FILIAIS` | JSON sigla→`Cidade/UF`, usado só quando não há CTRB | `{}` |
+
 ### PGR (relatório de excesso de velocidade)
 | Variável | Descrição | Default |
 |---|---|---|
@@ -515,6 +530,62 @@ Registra carregamentos de carga e centraliza o que antes era lançado manualment
 - **Desengate de carreta carregada** (`status='Desengatada'`): na fila de descarga, o cavalo+motorista são desengatados e seguem para outra viagem; a **carreta carregada permanece no destino**. O botão "🔌 Desengatar" (relatório) **libera cavalo+motorista** do conflito (podem entrar em carga nova) mantendo a **carreta ainda comprometida**, registra `desengatada_em`/responsável e o **substituto opcional** (cavalo/motorista que vai terminar a descarga) no histórico. A carga **finaliza automaticamente** quando a carreta sai do destino (worker), ou manualmente em "🏁 Finalizar descarga". Visibilidade: card de KPI "Carretas desengatadas", filtro/badge no relatório e filtro 🔌 no mapa geral.
 
 Detalhes da Fase 1 estão em [`PLANO-EMBARQUES.md`](PLANO-EMBARQUES.md).
+
+### Lançamento automático a partir do manifesto (`embarques_auto.py`)
+
+O time operacional não foi treinado para lançar, e a carga já existe no SSW —
+o robô abre a carga sozinho a partir do **manifesto**, 1×/dia, em D-1.
+
+**Por que o manifesto e não o CTRB:** o manifesto é emitido quando o motorista
+sai (ele viaja com o documento na mão); o CTRB é a OS de pagamento. Medido em
+jul-ago/26 sobre 565 manifestos de frota+agregado: grão limpo (1 manifesto =
+1 CTRB = 1 par cavalo/carreta), cobertura de 100% em cavalo/motorista/CPF e
+97,4% em carreta, e o CTRB sai **no mesmo dia em 97,3%** dos casos. Rodando
+D-1 às 07:00, o CTRB já existe em **96,1%**.
+
+**De onde vem cada campo:** manifesto → placas, motorista, CPF, data;
+CTRB (`ctrbs_oss`) → cidade de origem/destino e KM; CTRCs → tomador.
+
+Três armadilhas que o desenho evita, todas medidas:
+
+| Armadilha | Regra |
+|---|---|
+| `previsao_chegada` do CTRB parece previsão de entrega | É prazo de fechamento **semanal** (45 valores distintos em 980, todos quinta 18:00). A previsão sai da ETA de `KM_DIA_PADRAO` km/dia |
+| Destino do CTRC ≠ destino da viagem (batem em 69%) | O destino é o do **CTRB** (perna de transporte). A cidade do CTRC vai para a observação, e é **descartada quando é a própria origem** — `cidade_destinatario` costuma ser o CD, e viraria rota terminando no pátio de partida |
+| Carga de distribuição com 110 CTRCs pelo RJ | Acima de `MAX_DESTINOS`, 1 destino só + observação: 110 waypoints estouram o ORS e descrevem um roteiro de entrega, não uma viagem |
+
+**Fechamento em cascata** (o GPS não fecha tudo — agregado nem sempre tem
+rastreador Rizza). Roda **antes** de criar, para liberar cavalo/carreta presos:
+
+1. **GPS** — saída do destino (o worker, já existente)
+2. **Manifesto novo da mesma placa** encerra a anterior — cobre as 67 de 139
+   placas que rodaram 2+ vezes no mês (p50 de 3 dias entre viagens)
+3. **Baixa do CTRB** (`ctrbs_oss[chegada]`, 86% preenchido). Não é chegada
+   física — não correlaciona com distância — é a baixa administrativa da OS:
+   vale como sinal de fim, nunca como horário
+4. **Timeout** de `TIMEOUT_DIAS` (p90 do intervalo entre viagens = 6 dias)
+
+Encerramento por regra fica em `Entregue` (único status final que as telas
+entendem) com `entregue_auto=FALSE` e `encerrada_motivo` gravado — assim não se
+confunde com entrega provada por GPS.
+
+**Segurança do robô:**
+- `manifesto_origem` com índice único parcial → rodar duas vezes não duplica
+- **nunca encosta em carga lançada à mão** (mesmo cavalo, ±1 dia): sai de fininho
+- só toca em carga com `criada_por_robo = TRUE`
+- toda alteração vai para `embarques_cargas_log` como `Robô SSW (manifesto)`
+- a rota ORS não é traçada aqui — o worker faz no ciclo seguinte
+
+```bash
+python embarques_auto.py --dry-run                 # mostra o que faria, sem gravar
+python embarques_auto.py --dry-run --dia 2026-08-17
+python embarques_auto.py                           # exige EMBARQUES_AUTO=true
+```
+
+> **Pré-requisito:** `embarques_veiculos_rastreio` precisa estar sincronizada
+> (`POST /api/rastreamento/sync-veiculos`) — é a tabela que o worker consulta em
+> `_placa_tracking`. Sem ela nenhuma carga rastreia, por mais que a 3S enxergue a placa.
+
 
 ---
 

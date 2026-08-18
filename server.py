@@ -5430,6 +5430,7 @@ def api_embarques_embarcadores():
 
 import tres_s_client
 import rastreamento_worker
+import embarques_auto
 
 KM_DIA_PADRAO = int(os.getenv('KM_DIA_PADRAO', '600'))
 # Alerta de rastreio defasado: carga ativa cuja carreta está sem posição há +X dias.
@@ -6112,6 +6113,53 @@ if __name__ == '__main__':
                 time.sleep(12 * 3600)
 
         _th.Thread(target=_loop_cadastro_pgr, daemon=True, name='PgrCadastro').start()
+
+    # Lançamento automático de embarques a partir do manifesto do SSW.
+    # Fica aqui (e não no worker) pelo mesmo motivo do cache do PGR: é este lado
+    # que fala Power BI. Roda 1x/dia depois da carga full-refresh do SSW (~05:10).
+    # A chave EMBARQUES_AUTO desliga o motor sem deploy — se o operacional voltar
+    # a lançar à mão, basta virar a variável no Portainer e reiniciar.
+    if embarques_auto.ligado():
+        import threading as _th_ea
+
+        def _loop_embarques_auto():
+            # datetime é importado localmente em todo o arquivo (não há import global)
+            from datetime import datetime, timedelta
+            hora = os.getenv('EMBARQUES_AUTO_HORA_BRT', '07:00')
+            janela = int(os.getenv('EMBARQUES_AUTO_JANELA_DISPARO_MIN', '180'))
+            try:
+                _hh, _mm = [int(x) for x in hora.split(':')]
+            except Exception:
+                _hh, _mm = 7, 0
+            ultimo_dia = None
+            while True:
+                try:
+                    # BRT = UTC-3. Sem tz database: o container roda em UTC e a
+                    # única coisa que importa é disparar DEPOIS da carga do SSW.
+                    agora = datetime.utcnow() - timedelta(hours=3)
+                    minutos = agora.hour * 60 + agora.minute
+                    alvo_min = _hh * 60 + _mm
+                    na_janela = alvo_min <= minutos <= alvo_min + janela
+                    if na_janela and ultimo_dia != agora.date():
+                        r = embarques_auto.executar()
+                        ultimo_dia = agora.date()
+                        if r.get('ok'):
+                            print(f"✅ Embarques auto: {r['criadas']} criada(s), "
+                                  f"{sum(r['fechadas'].values())} encerrada(s), "
+                                  f"{r['reconciliadas']} reconciliada(s) "
+                                  f"[janela {r['janela'][0]}..{r['janela'][1]}]")
+                except Exception as e:
+                    # Falha aqui não pode derrubar o processo: o pior caso é o dia
+                    # ficar sem lançamento automático, e o índice único garante que
+                    # a rodada seguinte não duplica o que já entrou.
+                    print(f"⚠️  Embarques auto: falha na execução: {e}")
+                time.sleep(600)
+
+        _th_ea.Thread(target=_loop_embarques_auto, daemon=True, name='EmbarquesAuto').start()
+        print("✅ Lançamento automático de embarques LIGADO "
+              f"(diário às {os.getenv('EMBARQUES_AUTO_HORA_BRT', '07:00')} BRT)")
+    else:
+        print("ℹ️  Lançamento automático de embarques desligado (EMBARQUES_AUTO)")
 
     # Boot do worker de rastreamento
     if os.getenv('START_WORKER', '').lower() == 'true':
