@@ -366,30 +366,67 @@ async function carregarHistorico(ev) {
   }).join('');
 }
 
+// Aplica na memória o que o servidor ACEITOU, sem esperar a releitura.
+// Só é seguro porque o POST já validou: conta inexistente ou sintética teria
+// voltado 400 e nem chegaríamos aqui.
+function aplicarLocal(c) {
+  const e = dados.eventos.find(x => String(x.evento) === String(c.evento));
+  if (!e) return;
+  Object.assign(e, {
+    conta_debito: c.conta_debito || null, conta_credito: c.conta_credito || null,
+    tem_nota: c.tem_nota, contabiliza_despesa: c.contabiliza_despesa || null,
+    contabiliza_provisao: c.contabiliza_provisao || null,
+    aproveita_credito: c.aproveita_credito, importar_fiscal: c.importar_fiscal,
+    validar_simples: c.validar_simples,
+    grupo_importacao: c.grupo_importacao || null, observacao: c.observacao || null,
+    editado_por: 'você, agora',
+  });
+  // Mesma regra do servidor: precisa de conta quando gera despesa ou quando o
+  // pagamento debita a conta do evento em vez de fornecedores.
+  e.precisa_conta = ['SIM','PARCIAL'].includes(e.contabiliza_despesa) ||
+                    e.contabiliza_provisao === 'NAO';
+  const precisam = dados.eventos.filter(x => x.precisa_conta);
+  const prontos = precisam.filter(x => x.conta_debito);
+  Object.assign(dados.totais, {
+    precisam_conta: precisam.length,
+    valor_precisa: precisam.reduce((s,x)=>s+(x.valor||0),0),
+    preenchidos: prontos.length,
+    valor_preenchido: prontos.reduce((s,x)=>s+(x.valor||0),0),
+  });
+}
+
 async function salvar() {
   const v = id => document.getElementById(id).value;
   const b = id => { const x = v(id); return x===''? null : x==='1'; };
   const btn = document.getElementById('btnSalvar');
   btn.disabled = true;
   document.getElementById('dAviso').innerHTML = '';
+  const corpo = {
+    evento: atual.evento, descricao: atual.descricao,
+    conta_debito: v('fContaDeb'), conta_credito: v('fContaCre'),
+    tem_nota: b('fTemNota'),
+    contabiliza_despesa: v('fDespesa'), contabiliza_provisao: v('fProvisao'),
+    aproveita_credito: b('fCredito'), importar_fiscal: b('fFiscal'),
+    validar_simples: b('fSimples'),
+    grupo_importacao: v('fGrupo'), observacao: v('fObs'),
+  };
   try {
     const r = await fetch('/api/contabil/eventos', {
-      method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
-      body: JSON.stringify({
-        evento: atual.evento, descricao: atual.descricao,
-        conta_debito: v('fContaDeb'), conta_credito: v('fContaCre'),
-        tem_nota: b('fTemNota'),
-        contabiliza_despesa: v('fDespesa'), contabiliza_provisao: v('fProvisao'),
-        aproveita_credito: b('fCredito'), importar_fiscal: b('fFiscal'),
-        validar_simples: b('fSimples'),
-        grupo_importacao: v('fGrupo'), observacao: v('fObs'),
-      })
+      method:'POST', headers:{'Content-Type':'application/json'},
+      credentials:'same-origin', body: JSON.stringify(corpo)
     });
     const j = await r.json();
     if (!j.ok) throw new Error(j.error);
     document.getElementById('dAviso').innerHTML = '<span class="aviso-salvo">salvo ✓</span>';
-    await carregar();
-    setTimeout(fecharDrawer, 500);
+
+    // A releitura passa pelo Power BI e leva ~5 s. Esperar por ela deixaria a
+    // tabela parada depois do "salvo ✓" — tempo de sobra para ela achar que
+    // não funcionou e clicar de novo. Atualiza na hora e revalida em segundo
+    // plano; se o servidor discordar, a releitura corrige sozinha.
+    aplicarLocal(corpo);
+    renderPlacar(); render();
+    setTimeout(fecharDrawer, 400);
+    carregar();
   } catch (e) {
     document.getElementById('dAviso').innerHTML =
       `<span class="aviso-erro">${esc(e.message)}</span>`;
