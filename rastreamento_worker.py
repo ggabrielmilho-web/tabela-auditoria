@@ -24,6 +24,7 @@ from dotenv import load_dotenv
 
 import tres_s_client
 import geocoding
+import placas
 
 load_dotenv()
 
@@ -80,9 +81,22 @@ def _placa_tracking(cavalo_placa, carreta1_placa, carreta2_placa, cur, apenas_ca
         p = (placa or '').strip().upper()
         if not p:
             continue
-        cur.execute("SELECT 1 FROM embarques_veiculos_rastreio WHERE placa = %s", (p,))
-        if cur.fetchone():
-            return p
+        # Casa pelas DUAS grafias e devolve a que a 3S usa.
+        #
+        # O sync grava a placa CRUA da 3S (42 das 94 vêm na grafia antiga) e a
+        # carga pode estar em Mercosul — o robô normaliza. Com igualdade exata,
+        # `CZB4J27` (carga) não encontrava `CZB4927` (3S) e a carga ficava
+        # invisível para o rastreamento: 11 de 11 cargas "sem rastreio" eram na
+        # verdade rastreáveis.
+        #
+        # Devolver a grafia DA 3S (e não a da carga) é o que faz o resto do
+        # worker funcionar sem alteração: posições, KPIs e detecção buscam em
+        # embarques_posicoes_*, que também está na grafia da 3S.
+        cur.execute("SELECT placa FROM embarques_veiculos_rastreio WHERE placa = ANY(%s)",
+                    (placas.grafias(p),))
+        r = cur.fetchone()
+        if r:
+            return r[0]
     return None
 
 
@@ -93,11 +107,14 @@ def _pos_fresca(cur, placa):
     p = (placa or '').strip().upper()
     if not p:
         return None
+    # ANY(grafias): a posição está na grafia da 3S e `p` vem da carga, que pode
+    # estar em Mercosul (ver _placa_tracking).
     cur.execute("""
         SELECT latitude, longitude, cidade, uf, data_posicao, velocidade
         FROM embarques_posicoes_atuais
-        WHERE placa = %s AND data_posicao >= (NOW() AT TIME ZONE 'UTC') - %s::interval
-    """, (p, f'{FRESCOR_H} hours'))
+        WHERE placa = ANY(%s) AND data_posicao >= (NOW() AT TIME ZONE 'UTC') - %s::interval
+        ORDER BY data_posicao DESC LIMIT 1
+    """, (placas.grafias(p), f'{FRESCOR_H} hours'))
     return cur.fetchone()
 
 
@@ -116,9 +133,9 @@ def _esteve_no_destino(cur, placa, centroide_dest, raio_km, desde):
     m_lng = raio_km / 90.0   # folga p/ cos(lat) no Brasil (~0.9–0.96)
     cur.execute("""
         SELECT latitude, longitude FROM embarques_posicoes_historico
-        WHERE placa = %s AND data_posicao >= %s
+        WHERE placa = ANY(%s) AND data_posicao >= %s
           AND latitude BETWEEN %s AND %s AND longitude BETWEEN %s AND %s
-    """, (p, desde, dlat - m_lat, dlat + m_lat, dlng - m_lng, dlng + m_lng))
+    """, (placas.grafias(p), desde, dlat - m_lat, dlat + m_lat, dlng - m_lng, dlng + m_lng))
     for la, ln in cur.fetchall():
         if la is None or ln is None:
             continue
@@ -247,10 +264,10 @@ def _n_ciclos_fora_cidade(cur, placa, cidade_referencia, n):
     """True se as últimas N posições da placa estão FORA da cidade de referência."""
     cur.execute("""
         SELECT cidade FROM embarques_posicoes_historico
-        WHERE placa = %s
+        WHERE placa = ANY(%s)
         ORDER BY data_posicao DESC
         LIMIT %s
-    """, (placa, n))
+    """, (placas.grafias(placa), n))
     rows = cur.fetchall()
     if len(rows) < n:
         return False
@@ -263,8 +280,8 @@ def _n_ciclos_fora_raio(cur, placa, centroide, raio_km, n):
     Confirmação por DISTÂNCIA (não por nome, que o 3S erra)."""
     cur.execute("""
         SELECT latitude, longitude FROM embarques_posicoes_historico
-        WHERE placa = %s ORDER BY data_posicao DESC LIMIT %s
-    """, (placa, n))
+        WHERE placa = ANY(%s) ORDER BY data_posicao DESC LIMIT %s
+    """, (placas.grafias(placa), n))
     rows = cur.fetchall()
     if len(rows) < n:
         return False
@@ -287,7 +304,9 @@ def _saiu_da_cidade(cur, placa, pos_cidade, cidade_ref, uf_ref, centroide_ref, r
         if geocoding.normalizar_cidade(pos_cidade) == geocoding.normalizar_cidade(cidade_ref):
             return False
         return _n_ciclos_fora_cidade(cur, placa, cidade_ref, CICLOS_CONFIRMACAO)
-    cur.execute("SELECT latitude, longitude FROM embarques_posicoes_atuais WHERE placa=%s", (placa,))
+    cur.execute("SELECT latitude, longitude FROM embarques_posicoes_atuais "
+                "WHERE placa = ANY(%s) ORDER BY data_posicao DESC LIMIT 1",
+                (placas.grafias(placa),))
     r = cur.fetchone()
     if not r or r[0] is None:
         return False
@@ -404,9 +423,9 @@ def _consolidar_kpi(cur, carga_id, final=False):
         cur.execute("""
             SELECT latitude, longitude, velocidade, data_posicao
             FROM embarques_posicoes_historico
-            WHERE placa=%s AND data_posicao BETWEEN %s AND %s
+            WHERE placa = ANY(%s) AND data_posicao BETWEEN %s AND %s
             ORDER BY data_posicao
-        """, (p, inicio, fim))
+        """, (placas.grafias(p), inicio, fim))
         return cur.fetchall()
 
     rows = _pontos(placa)
@@ -504,12 +523,11 @@ def _processar_cargas(cur):
                c.distancia_planejada_km, c.inicio_viagem, c.data_carregamento
         FROM embarques_cargas c
         WHERE c.status IN ('Aberta', 'Em rota', 'No destino', 'Desengatada')
-          AND (
-            EXISTS (SELECT 1 FROM embarques_veiculos_rastreio v WHERE v.placa = c.carreta1_placa)
-            OR EXISTS (SELECT 1 FROM embarques_veiculos_rastreio v WHERE v.placa = c.cavalo_placa)
-            OR EXISTS (SELECT 1 FROM embarques_veiculos_rastreio v WHERE v.placa = c.carreta2_placa)
-          )
     """)
+    # O pré-filtro por EXISTS saiu de propósito: em SQL não dá para gerar a
+    # grafia alternativa da placa, e ele descartava carga rastreável cuja placa
+    # estava na outra grafia. Quem decide agora é _placa_tracking (devolve None
+    # e o laço segue). São dezenas de cargas ativas — o custo é irrelevante.
     cargas = cur.fetchall()
 
     for cg in cargas:
@@ -544,8 +562,9 @@ def _processar_cargas(cur):
 
         cur.execute("""
             SELECT latitude, longitude, cidade, uf, data_posicao, velocidade
-            FROM embarques_posicoes_atuais WHERE placa=%s
-        """, (placa,))
+            FROM embarques_posicoes_atuais WHERE placa = ANY(%s)
+            ORDER BY data_posicao DESC LIMIT 1
+        """, (placas.grafias(placa),))
         r = cur.fetchone()
         if not r:
             continue

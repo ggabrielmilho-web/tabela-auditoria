@@ -5582,6 +5582,20 @@ def _kpi_ao_vivo(traj):
     return base
 
 
+# Normalização de placa em SQL — 5º caractere dígito vira letra (0=A … 9=J), a
+# mesma regra de `placas.mercosul()`. Existe porque o JOIN do mapa geral compara
+# placa-da-carga com placa-da-3S dentro do SQL, e ali não dá para chamar Python:
+# o sync grava a grafia CRUA da 3S (42 das 94 vêm na grafia antiga) enquanto a
+# carga do robô está em Mercosul, então a igualdade exata perdia o vínculo e o
+# veículo aparecia como "sem carga" no mapa.
+def _pn(coluna):
+    """Expressão SQL que normaliza `coluna` para a grafia Mercosul."""
+    return ("CASE WHEN substring(upper(trim({c})) from 5 for 1) BETWEEN '0' AND '9' "
+            "THEN overlay(upper(trim({c})) placing "
+            "chr(65 + substring(upper(trim({c})) from 5 for 1)::int) from 5 for 1) "
+            "ELSE upper(trim({c})) END").format(c=coluna)
+
+
 @app.route('/api/rastreamento/posicoes')
 @login_required
 def api_rastreamento_posicoes():
@@ -5596,7 +5610,7 @@ def api_rastreamento_posicoes():
     eh_rizza = args.get('eh_rizza')
     q = (args.get('q') or '').strip()
 
-    base_join = """
+    base_join = f"""
         FROM embarques_posicoes_atuais p
         LEFT JOIN embarques_veiculos_rastreio v ON v.placa = p.placa
         LEFT JOIN LATERAL (
@@ -5604,7 +5618,9 @@ def api_rastreamento_posicoes():
                    no_local_desde, saida_auto, entregue_auto, data_carregamento, origem_cidade, origem_uf,
                    cavalo_placa, carreta1_placa, carreta2_placa
             FROM embarques_cargas c
-            WHERE (c.cavalo_placa = p.placa OR c.carreta1_placa = p.placa OR c.carreta2_placa = p.placa)
+            WHERE ({_pn('c.cavalo_placa')} = {_pn('p.placa')}
+                OR {_pn('c.carreta1_placa')} = {_pn('p.placa')}
+                OR {_pn('c.carreta2_placa')} = {_pn('p.placa')})
               AND c.status IN ('Aberta','Em rota','No destino','Desengatada')
             ORDER BY c.id DESC LIMIT 1
         ) ca ON true
@@ -5631,9 +5647,9 @@ def api_rastreamento_posicoes():
                ca.cavalo_proprietario, ca.cavalo_eh_rizza, ca.no_local_desde, ca.saida_auto,
                ca.origem_cidade, ca.origem_uf,
                CASE
-                 WHEN ca.cavalo_placa   = p.placa THEN 'Cavalo'
-                 WHEN ca.carreta1_placa = p.placa THEN 'Carreta 1'
-                 WHEN ca.carreta2_placa = p.placa THEN 'Carreta 2'
+                 WHEN {_pn('ca.cavalo_placa')} = {_pn('p.placa')} THEN 'Cavalo'
+                 WHEN {_pn('ca.carreta1_placa')} = {_pn('p.placa')} THEN 'Carreta 1'
+                 WHEN {_pn('ca.carreta2_placa')} = {_pn('p.placa')} THEN 'Carreta 2'
                  ELSE v.tipo
                END AS papel
         {base_join}
@@ -5724,12 +5740,15 @@ def api_rastreamento_trajeto(carga_id):
         def _buscar_trajeto(placa):
             if not placa:
                 return []
+            # ANY(grafias): a posição é gravada na grafia CRUA da 3S (42 das 94
+            # placas vêm na antiga) e a carga pode estar em Mercosul. Com
+            # igualdade exata o trajeto vinha vazio e o mapa mostrava 0 km.
             cur.execute("""
                 SELECT data_posicao, latitude, longitude, velocidade, ignicao, cidade, uf
                 FROM embarques_posicoes_historico
-                WHERE placa=%s AND data_posicao BETWEEN %s AND %s
+                WHERE placa = ANY(%s) AND data_posicao BETWEEN %s AND %s
                 ORDER BY data_posicao
-            """, (placa, inicio, fim))
+            """, (placas.grafias(placa), inicio, fim))
             return [{
                 'data': dp.isoformat() + 'Z',
                 'lat': float(la),
@@ -5762,13 +5781,17 @@ def api_rastreamento_trajeto(carga_id):
         # Placa de rastreio principal (carreta1 → cavalo → carreta2)
         placa_track = rastreamento_worker._placa_tracking(
             carga['cavalo_placa'], carga.get('carreta1_placa'), carga.get('carreta2_placa'), cur)
-        if placa_track and placa_track == (carga.get('carreta1_placa') or '').strip().upper():
+        # Comparação NORMALIZADA: `placa_track` vem na grafia da 3S (pode ser a
+        # antiga) e a placa da carga pode estar em Mercosul. Comparar cru fazia
+        # cair no `else` e exibir o trajeto do CAVALO no lugar do da carreta.
+        _pt = placas.mercosul(placa_track or '')
+        if placa_track and _pt == placas.mercosul(carga.get('carreta1_placa') or ''):
             rastreado_via = {'placa': placa_track, 'tipo': 'carreta1'}
             traj_principal = traj_c1
-        elif placa_track and placa_track == (carga.get('carreta2_placa') or '').strip().upper():
+        elif placa_track and _pt == placas.mercosul(carga.get('carreta2_placa') or ''):
             rastreado_via = {'placa': placa_track, 'tipo': 'carreta2'}
             traj_principal = traj_c2
-        elif placa_track and placa_track == (carga['cavalo_placa'] or '').strip().upper():
+        elif placa_track and _pt == placas.mercosul(carga['cavalo_placa'] or ''):
             rastreado_via = {'placa': placa_track, 'tipo': 'cavalo'}
             traj_principal = traj_cavalo
         else:

@@ -233,11 +233,15 @@ def detectar_inicio_viagem(placa, origem_cidade, origem_uf, data_carregamento, c
         return None
 
     cur = conn.cursor()
+    # ANY(grafias): a posição é gravada na grafia CRUA da 3S (parte da frota vem
+    # na grafia antiga) e `placa` pode chegar em Mercosul — sem isso a saída da
+    # origem nunca era detectada e a carga ficava presa em 'Aberta'.
+    import placas as _placas
     cur.execute(
         f"""SELECT data_posicao FROM embarques_posicoes_historico
-            WHERE placa = %s AND data_posicao BETWEEN %s AND %s AND ({' OR '.join(cond)})
+            WHERE placa = ANY(%s) AND data_posicao BETWEEN %s AND %s AND ({' OR '.join(cond)})
             ORDER BY data_posicao DESC LIMIT 1""",
-        [placa, bound, agora] + params
+        [_placas.grafias(placa), bound, agora] + params
     )
     r = cur.fetchone()
     cur.close()
