@@ -30,8 +30,11 @@ coisas diferentes — o CTRB é a perna de transporte (onde o caminhão vai), o 
 980 registros, todos caindo em quinta-feira 18:00 — é prazo de fechamento
 semanal, não previsão de entrega. A previsão sai da ETA de KM_DIA_PADRAO km/dia.
 
-A rota planejada (ORS) não é traçada aqui: o worker de rastreamento já faz isso
-para toda carga sem polyline, no ciclo seguinte.
+A rota planejada (ORS) é traçada AQUI, depois do commit — igual ao lançamento
+manual. Delegar ao worker não funciona: ele só processa carga cujo veículo está
+em `embarques_veiculos_rastreio`, então agregado sem rastreador Rizza nunca
+ganhava rota (6 de 18 no primeiro dia). Medido: 7 cargas manuais sem rastreio
+têm rota; 0 cargas do robô sem rastreio tinham.
 """
 
 import os
@@ -123,6 +126,13 @@ def _destinos_ctrc():
 # máximo observado = 13. 10 dias fica acima do p90 sem alcançar o máximo.
 def _timeout_dias():
     return _int('EMBARQUES_AUTO_TIMEOUT_DIAS', 10)
+
+
+def _max_rotas():
+    """Teto de chamadas ao ORS por execucao. O free tier e 2.000/dia e o volume
+    normal e ~12 cargas, mas um backlog (motor desligado por uma semana) nao pode
+    virar centenas de chamadas de uma vez."""
+    return _int('EMBARQUES_AUTO_MAX_ROTAS', 60)
 
 
 def _filiais():
@@ -707,6 +717,68 @@ def fechar_pendentes(cur, manifestos, ctrbs, hoje, cfg):
     return fechadas
 
 
+def tracar_rotas_pendentes(conn, limite=None):
+    """Traça a rota ORS das cargas do robô que ainda não têm polyline.
+
+    Por que existe: o lançamento manual traça a rota no próprio POST, e por isso
+    a carga digitada à mão SEMPRE tem rota — inclusive sem rastreamento (medido:
+    7 cargas manuais sem veículo na 3S, todas com rota). O robô delegava ao
+    worker, mas o worker só processa carga cujo veículo está em
+    `embarques_veiculos_rastreio`. Resultado: carga de agregado sem rastreador
+    Rizza nunca ganhava rota — 6 de 18 no primeiro dia.
+
+    Roda DEPOIS do commit, como no manual: falha de ORS não pode desfazer a
+    carga, que é o dado que importa. E como busca por `polyline IS NULL`, a
+    execução seguinte recupera sozinha o que falhou enquanto a API esteve fora.
+    """
+    import ors_client
+    cur = conn.cursor()
+    tracadas = falhas = 0
+    try:
+        cur.execute("""
+            SELECT id, origem_latitude, origem_longitude
+            FROM embarques_cargas
+            WHERE COALESCE(criada_por_robo, FALSE) = TRUE
+              AND rota_planejada_polyline IS NULL
+              AND status NOT IN ('Entregue', 'Cancelada')
+              AND origem_latitude IS NOT NULL
+            ORDER BY id DESC
+        """)
+        pendentes = cur.fetchall()
+        if limite:
+            pendentes = pendentes[:limite]
+
+        for carga_id, olat, olng in pendentes:
+            try:
+                pontos = [{'lat': float(olat), 'lng': float(olng)}]
+                # origem -> cidades de rota -> destinos, na ordem (igual ao manual)
+                for tabela in ('embarques_cargas_rota', 'embarques_cargas_destinos'):
+                    cur.execute(f"SELECT latitude, longitude FROM {tabela} "
+                                f"WHERE carga_id=%s ORDER BY ordem", (carga_id,))
+                    for la, ln in cur.fetchall():
+                        if la is not None and ln is not None:
+                            pontos.append({'lat': float(la), 'lng': float(ln)})
+                if len(pontos) < 2:
+                    continue
+                rota = ors_client.tracar_rota_multi(pontos)
+                cur.execute("""
+                    UPDATE embarques_cargas SET rota_planejada_polyline=%s,
+                        distancia_planejada_km=%s, duracao_estimada_min=%s,
+                        rota_recalculada_em=NOW()
+                    WHERE id=%s
+                """, (rota['polyline'], rota['distancia_km'], rota['duracao_min'], carga_id))
+                conn.commit()
+                tracadas += 1
+            except Exception as e:
+                # Uma rota que falha não derruba as outras: commit por carga.
+                conn.rollback()
+                falhas += 1
+                _logger.warning(f'[Carga {carga_id}] ORS falhou: {e}')
+    finally:
+        cur.close()
+    return tracadas, falhas
+
+
 def dedup_veiculo(cur, ctrbs):
     """Garante UMA carga ativa por cavalo e por carreta.
 
@@ -878,8 +950,18 @@ def executar(dia=None, dry_run=False, token=None, conn=None):
         raise
     finally:
         cur.close()
-        if fechou_conn:
-            conn.close()
+
+    # Rota planejada DEPOIS do commit (mesma ordem do lançamento manual): a carga
+    # ja esta salva, entao ORS fora do ar custa uma rota, nunca a carga.
+    if not dry_run:
+        try:
+            t, f = tracar_rotas_pendentes(conn, limite=_max_rotas())
+            resumo['rotas_tracadas'] = t
+            resumo['rotas_falhas'] = f
+        except Exception as e:
+            _logger.warning(f'Traçado de rotas falhou: {e}')
+    if fechou_conn:
+        conn.close()
     return resumo
 
 
@@ -903,6 +985,9 @@ def _imprimir(r):
             print(f"   {k:<34} {v}")
     if r['reconciliadas']:
         print(f"reconciliadas ........ {r['reconciliadas']}")
+    if r.get('rotas_tracadas') or r.get('rotas_falhas'):
+        print(f"rotas ORS ............ {r.get('rotas_tracadas', 0)} traçada(s), "
+              f"{r.get('rotas_falhas', 0)} falha(s)")
     if r['detalhe']:
         print(f"\ndetalhe ({len(r['detalhe'])}):")
         for d in r['detalhe'][:60]:
