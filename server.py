@@ -4443,10 +4443,16 @@ def _buscar_conflitos(cpf, placas, exclude_id=0):
         conflitos = []
 
         if cpf:
+            # Compara SÓ OS DÍGITOS: o lançamento manual grava '04455930671' e o
+            # robô grava '044.559.306-71' (é o formato que vem do manifesto do
+            # SSW). Medido: 12/12 das cargas manuais sem pontuação, 30/30 das do
+            # robô com — a igualdade exata nunca casava os dois mundos, e o mesmo
+            # motorista podia ficar em duas viagens ativas sem ninguém ser avisado.
             cur.execute("""
                 SELECT id, numero, status, data_carregamento, motorista_nome
                 FROM embarques_cargas
-                WHERE motorista_cpf = %s
+                WHERE regexp_replace(motorista_cpf, '[^0-9]', '', 'g') =
+                      regexp_replace(%s, '[^0-9]', '', 'g')
                   AND status IN ('Aberta', 'Em rota', 'No destino')
                   AND id <> %s
                 ORDER BY data_carregamento DESC

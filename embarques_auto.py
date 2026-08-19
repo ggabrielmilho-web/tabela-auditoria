@@ -183,6 +183,13 @@ def _placa(v):
     return _placas.mercosul(str(v or '').strip())
 
 
+def _cpf(v):
+    """Só os dígitos. O manifesto do SSW traz '044.559.306-71' e o lançamento
+    manual grava '04455930671'; gravar no mesmo formato do manual é o que faz a
+    trava de conflito de motorista enxergar as duas fontes como o mesmo CPF."""
+    return re.sub(r'[^0-9]', '', str(v or ''))
+
+
 def carregar_cadastro(token):
     """placa normalizada → {proprietario, tipo, modelo, eh_rizza}.
 
@@ -396,7 +403,7 @@ def montar_carga(man, ctrbs, ctrcs, cadastro, cfg):
         'origem': {'cidade': origem[0], 'uf': origem[1]},
         'destinos': destinos,
         'motorista': {'nome': str(man.get('nome_motorista') or '').strip(),
-                      'cpf': str(man.get('cpf_motorista') or '').strip()},
+                      'cpf': _cpf(man.get('cpf_motorista'))},
         'cavalo': cavalo,
         'carreta1': _veiculo(car_raw, cadastro),
         'carreta2': carreta2,
