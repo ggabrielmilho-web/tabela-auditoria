@@ -413,6 +413,93 @@ def montar(manifestos, ctrbs, ctrcs, cadastro, cfg):
 # PERSISTÊNCIA
 # ══════════════════════════════════════════════════════════════════════
 
+def resolver_cidade(cur, cidade, uf):
+    """Grafia do SSW -> grafia oficial do IBGE. 'GOIANIA'/GO -> 'Goiânia'.
+
+    O formulário monta o <select> de cidade com as opções do IBGE
+    (value="Goiânia") e depois faz select.value = <o que está gravado>. Com a
+    grafia do SSW em caixa alta e sem acento, a opção não existe e o campo abre
+    VAZIO — a carga do robô ficava impossível de editar pela tela (a validação
+    ainda rejeitava o salvamento por origem incompleta).
+
+    Degrada para o valor original se o município não estiver em municipios_ibge:
+    melhor a grafia crua do que perder a cidade."""
+    if not cidade or not uf:
+        return cidade
+    cur.execute("SELECT cidade FROM municipios_ibge "
+                "WHERE cidade_normalizada = %s AND uf = %s",
+                (geocoding.normalizar_cidade(cidade), str(uf).strip().upper()))
+    r = cur.fetchone()
+    return r[0] if r else cidade
+
+
+def _norm_cliente(nome):
+    """Chave de comparação de razão social: sem acento, sem pontuação, espaços
+    colapsados. É o que faz 'QUIMICA AMPARO LTDA' casar com 'Quimica Amparo
+    Ltda.' — a diferença entre os dois era só o ponto final."""
+    import unicodedata
+    s = unicodedata.normalize('NFKD', str(nome or ''))
+    s = ''.join(c for c in s if not unicodedata.combining(c))
+    s = re.sub(r'[^A-Za-z0-9 ]', '', s.upper())
+    return re.sub(r'\s+', ' ', s).strip()
+
+
+def resolver_cliente(cur, nome, permitir_cadastro=True):
+    """nome do tomador -> (cliente_id, acao).
+
+    O formulário seleciona o cliente por ID; sem `cliente_id` a carga não abre
+    para edição e nem salva (o backend exige o campo). Mas cadastrar por
+    conveniência polui uma base que outras telas usam, então a busca é
+    deliberadamente exaustiva ANTES de considerar cadastro:
+
+      1. match exato normalizado  — resolve pontuação e acento
+      2. match por prefixo de 30  — o SSW trunca a razão social em 30 caracteres,
+         então 'PERNOD RICARD BRASIL IND E COMERCIO LTDA' e
+         'PERNOD RICARD BRASIL IND E COM' são o MESMO cliente
+      3. só então cadastra
+
+    AMBIGUIDADE NÃO É RESOLVIDA POR PALPITE: se o prefixo casar com mais de um
+    cliente, devolve (None, 'ambiguo') e a carga fica marcada como incompleta.
+    Errar o cliente é pior que deixar em branco — e cadastrar um duplicado
+    porque a busca desistiu cedo é exatamente o que suja a base.
+    """
+    nome = (str(nome or '').strip())
+    if not nome:
+        return None, 'sem nome'
+    alvo = _norm_cliente(nome)
+    if not alvo:
+        return None, 'sem nome'
+
+    cur.execute("SELECT id, nome FROM clientes")
+    todos = [(i, n, _norm_cliente(n)) for i, n in cur.fetchall()]
+
+    exatos = [(i, n) for i, n, nn in todos if nn == alvo]
+    if len(exatos) == 1:
+        return exatos[0][0], 'existente'
+    if len(exatos) > 1:
+        return exatos[0][0], 'existente'      # duplicata já na base: usa a 1ª
+
+    # Truncamento do SSW (30 chars) — nos dois sentidos.
+    pref = alvo[:30]
+    cands = {i: n for i, n, nn in todos if nn[:30] == pref}
+    if len(cands) == 1:
+        return next(iter(cands)), 'existente'
+    if len(cands) > 1:
+        return None, 'ambiguo'
+
+    if not permitir_cadastro:
+        return None, 'nao encontrado'
+
+    # Cliente novo de verdade. O índice único case-insensitive de `clientes` é a
+    # última trava: se houver corrida, o ON CONFLICT devolve o id que já existe
+    # em vez de criar irmão gêmeo.
+    cur.execute("INSERT INTO clientes (nome) VALUES (%s) "
+                "ON CONFLICT (LOWER(TRIM(nome))) DO UPDATE SET nome = clientes.nome "
+                "RETURNING id", (nome,))
+    r = cur.fetchone()
+    return (r[0] if r else None), 'cadastrado'
+
+
 def garantir_colunas(cur):
     """DDL idempotente (mesmo padrão do init_db.py).
 
@@ -462,6 +549,20 @@ def inserir(cur, carga, conn=None):
     c2 = carga.get('carreta2') or {}
     ori = carga['origem']
 
+    # Cidade na grafia do IBGE e cliente resolvido para ID: sem isso a carga
+    # grava certo mas não abre para edição na tela (ver resolver_cidade/cliente).
+    ori = {'cidade': resolver_cidade(cur, ori['cidade'], ori['uf']), 'uf': ori['uf']}
+    destinos = [{'cidade': resolver_cidade(cur, d['cidade'], d['uf']), 'uf': d['uf']}
+                for d in carga['destinos']]
+    cliente_id, acao_cliente = resolver_cliente(cur, carga.get('cliente_nome'))
+    if acao_cliente == 'cadastrado':
+        _logger.info(f"cliente novo cadastrado: {carga.get('cliente_nome')!r}")
+    elif acao_cliente == 'ambiguo':
+        _logger.warning(f"cliente {carga.get('cliente_nome')!r} casa com mais de um "
+                        f"cadastro — carga fica sem cliente_id para revisão")
+    # Sem cliente resolvido a carga não é editável pela tela → marca incompleta.
+    incompleta = bool(carga.get('incompleta')) or cliente_id is None
+
     cur.execute("""
         INSERT INTO embarques_cargas (
             tipo_operacao, status, viagem_vazia,
@@ -476,7 +577,7 @@ def inserir(cur, carga, conn=None):
             criada_por_robo, auto_incompleta
         ) VALUES (
             %s, 'Aberta', FALSE,
-            NULL, %s,
+            %s, %s,
             %s, %s,
             %s, %s,
             %s, %s, %s, %s, %s,
@@ -488,7 +589,7 @@ def inserir(cur, carga, conn=None):
         ) RETURNING id, criado_em
     """, (
         carga['tipo_operacao'],
-        carga.get('cliente_nome'),
+        cliente_id, carga.get('cliente_nome'),
         ori['cidade'], ori['uf'],
         carga['motorista']['nome'], carga['motorista']['cpf'],
         cav['placa'], _tipo_cavalo(cav), cav.get('modelo'), cav.get('proprietario'), cav.get('eh_rizza'),
@@ -496,11 +597,11 @@ def inserir(cur, carga, conn=None):
         c2.get('placa'), c2.get('modelo'), c2.get('proprietario'), bool(c2.get('eh_rizza')),
         carga['data_carregamento'], carga.get('previsao_entrega'), carga.get('observacoes'),
         ROBO_NOME, carga['manifesto'], carga.get('ctrb'),
-        bool(carga.get('incompleta')),
+        incompleta,
     ))
     carga_id, criado_em = cur.fetchone()
 
-    for i, d in enumerate(carga['destinos'], start=1):
+    for i, d in enumerate(destinos, start=1):
         dlat, dlng = geocoding.geocoder_municipio(d['cidade'], d['uf'], conn=conn)
         cur.execute("INSERT INTO embarques_cargas_destinos "
                     "(carga_id, ordem, cidade, uf, latitude, longitude) "
@@ -731,14 +832,20 @@ def executar(dia=None, dry_run=False, token=None, conn=None):
               'fechadas': Counter(), 'reconciliadas': 0, 'dry_run': dry_run,
               'detalhe': []}
     try:
-        if not dry_run:
-            garantir_colunas(cur)
+        # Roda até no dry-run: a checagem de duplicata lê `manifesto_origem`, que
+        # precisa existir. DDL no Postgres é transacional, então o rollback do
+        # dry-run desfaz.
+        garantir_colunas(cur)
 
         resumo['fechadas'] = fechar_pendentes(cur, manifestos, ctrbs, hoje, cfg) \
             if not dry_run else Counter()
 
         for c in cargas:
-            motivo = _ja_lancada(cur, c) if not dry_run else None
+            # A checagem de duplicata roda TAMBÉM no dry-run: ela é só leitura, e
+            # sem ela o dry-run superestima grosseiramente — mostrava "60 criadas"
+            # numa janela em que 48 já estavam lançadas. Número de simulação que
+            # não bate com o da execução real não serve para conferir nada.
+            motivo = _ja_lancada(cur, c)
             if motivo:
                 resumo['puladas'][motivo.split(' (')[0]] += 1
                 continue
