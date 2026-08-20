@@ -3381,6 +3381,27 @@ def _quadro_bancos():
         f'"total_debitos", [total_debitos], "saldo_final", [saldo_final], '
         f'"movimentos", [movimentos])')
 
+    # A tabela de totais ACUMULA um jogo inteiro de contas por execução do robô:
+    # o DELETE da carga é por conta+período e o `periodo_fim` anda todo dia, então
+    # nada é substituído. O acúmulo é INTENCIONAL — é o histórico entre dias
+    # (HANDOFF-CONTABIL §7) — e por isso quem escolhe a execução é quem consome.
+    #
+    # Sem escolher, cada banco aparecia uma vez por dia de carga e o card de saldo
+    # consolidado somava todos os jogos. Medido em 20/08/2026: 39 linhas e
+    # R$ -8.685.893,62 no lugar das 13 contas e R$ -2.543.039,89.
+    #
+    # O corte é o mais recente POR CONTA, e não um MAX(periodo_fim) global: se uma
+    # execução subir parcial, o MAX global derruba a conta que faltou e o saldo
+    # dela some calado do consolidado. Numa conciliação, banco faltando é pior que
+    # banco repetido — repetido se vê, faltando não.
+    ultimo = {}
+    for r in tot:
+        k = r['conta_apelido']
+        if (k not in ultimo or
+                str(r.get('periodo_fim') or '') > str(ultimo[k].get('periodo_fim') or '')):
+            ultimo[k] = r
+    tot = sorted(ultimo.values(), key=lambda r: str(r.get('conta_apelido') or ''))
+
     # Conferência: a contagem carregada bate com a do rodapé?
     carregado = {r['conta_apelido']: r['n'] for r in contabil_dax(
         f'EVALUATE SUMMARIZECOLUMNS({_T456}[conta_apelido], "n", COUNTROWS({_T456}))')}
@@ -3521,11 +3542,17 @@ def api_contabil_quadro():
         m['saldo_realizado'] = m['saldo_consolidado'] - (m.get('programados_valor') or 0)
         m['sem_conta_contabil'] = sum(1 for b in bancos if not b['conta_contabil'])
 
+        # No caminho normal as 13 contas vêm da mesma execução do robô e a tela
+        # rotula o período por bancos[0]. Se uma carga subir parcial, cada conta
+        # fica no seu próprio período e esse rótulo passa a mentir — então o fato
+        # sai no JSON em vez de ficar calado.
+        periodos = {str(b.get('periodo_fim') or '') for b in bancos}
         return jsonify({'ok': True, 'bancos': bancos, 'regras': regras, 'totais': m,
                         'mes': mes, 'meses': meses,
                         'prova_corrente': all(prova.values()),
                         'contas_provadas': sum(1 for v in prova.values() if v),
-                        'contas_total': len(prova)})
+                        'contas_total': len(prova),
+                        'periodos_mistos': len(periodos) > 1})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
 
@@ -3762,9 +3789,10 @@ def api_contabil_depara():
 # 477 — priorização, de-para, arquivo de importação.
 #
 # Não é detalhe de filtro: muda a conclusão. No histórico completo a despesa é
-# R$ 332,4 mi e os maiores eventos são os fretes; em 2026 são R$ 70,8 mi e o
-# topo vira imobilizado, CDC e ICMS. Os três eventos aposentados (5213, 5216,
-# 5410) têm ZERO em 2026 — deixam de ser pendência.
+# R$ 333,6 mi e os maiores eventos são os fretes; no escopo (2026/01 até a
+# competência corrente) são R$ 46,5 mi e o topo vira imobilizado, CDC e ICMS.
+# Os três eventos aposentados (5213, 5216, 5410) têm ZERO no escopo — deixam de
+# ser pendência. Medido em 20/08/2026.
 REF_INICIAL_477 = '2026/01'
 
 
@@ -3773,8 +3801,12 @@ def ref_final_477():
 
     O 477 tem lançamento com competência FUTURA — parcela a vencer de
     financiamento e consórcio. São 117 competências além de 2026/12, somando
-    R$ 18,5 mi. Um filtro só com piso (`REF >= '2026/01'`) é comparação de
-    texto e varre tudo isso para dentro, inflando a despesa do exercício em 26%.
+    R$ 18,6 mi em 1.556 lançamentos.
+
+    Um filtro só com piso (`REF >= '2026/01'`) é comparação de texto e varre
+    tudo isso para dentro: a despesa do escopo sai de R$ 46,5 mi para R$ 72,0 mi
+    (+55%), dos quais R$ 25,5 mi são competência posterior à corrente.
+    Medido em 20/08/2026.
     """
     from datetime import date
     h = date.today()
@@ -3783,7 +3815,12 @@ def ref_final_477():
 
 def filtro_ref_477(tabela="'public consulta_despesas_477'"):
     """Escopo do projeto contábil, nas duas pontas e com formato validado.
-    `LEN = 7` derruba REF malformado (existe '20ES/6' na base)."""
+
+    ⚠ Quem barra o REF malformado é o TETO, não o `LEN = 7`. O valor que existe
+    na base é '20ES/6 ', com espaço à direita: tem exatamente 7 caracteres e
+    PASSA na trava de tamanho. O que o exclui é a comparação de texto, que joga
+    '20E…' acima de '2026/08'. O `LEN` segue valendo contra outras deformações,
+    mas não é ele que resolve este caso — medido em 20/08/2026."""
     return (f'{tabela}[REF] >= "{REF_INICIAL_477}" && '
             f'{tabela}[REF] <= "{ref_final_477()}" && '
             f'LEN({tabela}[REF]) = 7')

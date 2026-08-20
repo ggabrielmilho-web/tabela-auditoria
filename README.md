@@ -676,14 +676,26 @@ alimentado pelos robôs do projeto `Rizza/` (456 · 441 · 571 · 479) numa carg
 O ponto de entrada é **uma linha por banco**, com saldo inicial, créditos, débitos e saldo
 final — foi assim que ela pediu, no papel. O que o desenho não tinha e vale mais que o resto:
 
-- **Conta contábil por banco** (`CONTAS_CONTABEIS_456` em `server.py`), porque é o que vai no
-  arquivo de importação. Onze das treze mapeadas; as duas ausentes aparecem como `⚠ sem conta`.
+- **Conta contábil por banco** (tabela `contabil_conta_fixa`, editável em
+  `/contabil/contas-fixas`), porque é o que vai no arquivo de importação. Onze das treze
+  mapeadas; as duas ausentes aparecem como `⚠ sem conta`.
 - **✓ confere** — o saldo vem do rodapé impresso pelo próprio extrato do SSW, e a contagem
   carregada é comparada com ele. É o que faz contador confiar sem recalcular.
 
-Três contas fogem de `1.1.1.02` de propósito e o motivo está comentado no código: BB GARANTIDA
-é conta garantida (passivo), D.D SOLAR é duplicata descontada (redutora de clientes), e
-TRIBANCO / CAIXA PAMBANK ainda não existem no plano.
+⚠ **`extrato_bancario_456_totais` acumula um jogo inteiro de contas por execução do robô** — o
+`DELETE` da carga é por conta+período e o `periodo_fim` anda todo dia, então nada é substituído.
+O acúmulo é intencional (é o histórico entre dias, `HANDOFF-CONTABIL.md` §7): **quem escolhe a
+execução é quem consome**. Quem lê essa tabela sem cortar repete cada banco uma vez por dia de
+carga e multiplica o saldo consolidado — foi o que aconteceu em 20/08/2026, com 39 linhas e
+R$ −8.685.893,62 no lugar das 13 contas e R$ −2.543.039,89. O corte é o mais recente **por
+conta**, nunca um `MAX(periodo_fim)` global: numa carga parcial o global derruba a conta que
+faltou e o saldo dela some calado, e banco faltando é pior que banco repetido. Vale para
+`_quadro_bancos()`, para o gabarito e para a medida `saldo_final_rodape`.
+
+**Duas** contas fogem de `1.1.1.02` de propósito, e o motivo está comentado no código: BB
+GARANTIDA é conta garantida (passivo, `2.1.1.08.001`) e D.D SOLAR é duplicata descontada
+(redutora de clientes, `1.1.2.01.117`). Outras duas — TRIBANCO e CAIXA PAMBANK — ficam **em
+branco de propósito** porque ainda não existem no plano; é a pendência que a tela destaca.
 
 ### Três guardas que não são opcionais
 
@@ -691,15 +703,18 @@ Somar coluna crua do 456 mente. As telas aplicam a regra **e mostram o que escon
 
 | Guarda | Sem ela |
 |---|---|
-| `transferencia_interna` | crédito dá R$ 129,2 mi em vez de R$ 77,4 mi — R$ 51,8 mi de dinheiro próprio virando receita |
-| `realizado` (exclui `sit='P'`) | 188 lançamentos de previsão entram como extrato |
-| `valor_frete` do grão CTRC | é o valor **cheio**; um CTRC repartido aparece inteiro em cada fatura (45 faturas, R$ 172.850,39). Para valor, `vlr_ctrcs` do grão fatura |
+| `transferencia_interna` | crédito dá R$ 132,7 mi em vez de R$ 79,4 mi — R$ 53,3 mi de dinheiro próprio virando receita |
+| `realizado` (exclui `sit='P'`) | 117 lançamentos de previsão entram como extrato |
+| `valor_frete` do grão CTRC | é o valor **cheio**; um CTRC repartido aparece inteiro em cada fatura (11 CTRCs em 40 faturas). A diferença entre os grãos é **R$ 172.850,39**. Para valor, `vlr_ctrcs` do grão fatura |
+
+> Os números acima são **base viva** — remedidos em 20/08/2026. A ordem de grandeza é que
+> importa; se algum inverter de sinal ou mudar de casa, a guarda parou de funcionar.
 
 ### Classificação e de-para
 
 A coluna `regra` do extrato aplica a especificação da contadora (`PARA GABRIEL.xlsx`) e marca
-o que sobra como `SEM REGRA` — hoje 731 movimentos. `VIA RET BCO` é testado **sem amarrar à
-origem**: a regra dela ficou presa a `BCO` e o mesmo histórico aparece em `MAN`.
+o que sobra como `SEM REGRA` — 741 movimentos em 20/08/2026. `VIA RET BCO` é testado **sem
+amarrar à origem**: a regra dela ficou presa a `BCO` e o mesmo histórico aparece em `MAN`.
 
 ### Configuração — decisão da contadora vai para tabela, encanamento fica no código
 
@@ -733,9 +748,16 @@ Contas no formato `5.02.02.01.0025` são do plano **do SSW**, que é outro plano
 
 ### ⚠ Escopo: 01/2026 até a competência corrente
 
-`REF` é **texto**, e `REF >= "2026/01"` varre competência futura: a base tem 117 REFs além de
-2026/12 (parcela a vencer de financiamento e consórcio), somando R$ 25,5 mi. O filtro fecha nas
-duas pontas e valida o formato — existe `REF = '20ES/6'` na base. Ver `filtro_ref_477()`.
+`REF` é **texto**, e `REF >= "2026/01"` varre competência futura: a base tem 117 competências
+além de 2026/12 (parcela a vencer de financiamento e consórcio), somando **R$ 18,6 mi** em
+1.556 lançamentos. Quem segura o número é o **teto**, não o piso: sem ele a despesa do escopo
+salta de R$ 46,5 mi para R$ 72,0 mi — **R$ 25,5 mi a mais**, somando o que passou de 2026/12
+com as competências de 2026/09 a 2026/12, que também são futuras.
+
+⚠ A trava `LEN = 7` **não** derruba o `REF` malformado da base. O valor é `'20ES/6 '`, com
+espaço à direita — tem exatamente 7 caracteres e **passa**. Quem o barra é o teto, porque na
+comparação de texto `20E…` fica acima de `2026/08`. A trava de `LEN` continua valendo contra
+outras deformações, mas não é ela que resolve este caso. Ver `filtro_ref_477()`.
 
 ### ⚠ O executeQueries corta a resposta e devolve HTTP 200
 
