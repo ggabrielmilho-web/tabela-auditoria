@@ -222,6 +222,7 @@
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="/mapa-config.js"></script>
 <script>
   // ── Decodificador polyline (Google encoded) ──
   function decodePolyline(str, precision = 5) {
@@ -247,11 +248,13 @@
 
   // ── Mapa ──
   const mapa = L.map('mapa', { zoomControl: true }).setView([-15.78, -47.93], 5);
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', {
+  const cartoTiles = (estilo) => `https://{s}.basemaps.cartocdn.com/${estilo}/{z}/{x}/{y}{r}.png`
+    + (window.CARTO_KEY ? `?key=${window.CARTO_KEY}` : '');
+  L.tileLayer(cartoTiles('dark_nolabels'), {
     attribution: '© OpenStreetMap, © CARTO',
     subdomains: 'abcd', maxZoom: 19
   }).addTo(mapa);
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png', {
+  L.tileLayer(cartoTiles('dark_only_labels'), {
     subdomains: 'abcd', maxZoom: 19,
     className: 'leaflet-labels-bright',
   }).addTo(mapa);

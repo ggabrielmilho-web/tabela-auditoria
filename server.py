@@ -6,10 +6,13 @@ Acesse: http://localhost:5000
 
 import os
 import io
+import re
 import json
 import time
+import difflib
 import tempfile
 import functools
+import unicodedata
 import psycopg2
 import requests
 import pgr
@@ -200,6 +203,16 @@ def nav_perms_js():
 def report_filter_js():
     """Componente de AutoFilter (estilo Excel) dos relatórios densos."""
     return send_from_directory('.', 'report-filter.js', mimetype='application/javascript')
+
+
+@app.route('/mapa-config.js')
+@login_required
+def mapa_config_js():
+    """Config dos mapas para o front. A chave dos basemaps CARTO vem do ambiente
+    (CARTO_API_KEY) e nunca do repositório; sem ela os tiles voltam a vir com a
+    marca d'água 'API key required', mas o mapa continua funcionando."""
+    return Response(f'window.CARTO_KEY = {json.dumps(os.getenv("CARTO_API_KEY", ""))};\n',
+                    mimetype='application/javascript')
 
 
 @app.route('/sem-acesso')
@@ -2260,9 +2273,226 @@ def _pool_pneu_split(token, meses_set, cadastro):
     return pool_pneu, pool_cav, pool_pneu - pool_cav
 
 
+_NOME_STOP = {'DE', 'DA', 'DO', 'DAS', 'DOS', 'E'}
+_NOME_MATCH_MIN = 0.82  # corte validado em 05–07/2026: casa Halisson/Hallison e "de Souza"/"de S."
+
+
+def _nome_tokens(nome):
+    """Nome comparável. O dataset entrega os acentos corrompidos (João → 'Jo�o', e o
+    caractere se perde de vez), por isso o acento é descartado dos dois lados e a comparação
+    é por similaridade, nunca por igualdade."""
+    s = str(nome or '').replace('�', '')
+    s = unicodedata.normalize('NFKD', s).encode('ascii', 'ignore').decode()
+    s = re.sub(r'[^A-Za-z ]', ' ', s).upper()
+    return [t for t in s.split() if t and t not in _NOME_STOP]
+
+
+def _nome_parecido(a, b):
+    """Similaridade 0..1 entre dois nomes: exige primeiro e último nome próximos (tolera letra
+    faltando pelo acento perdido e abreviação tipo 'de S.') e pondera com o nome inteiro."""
+    ta, tb = _nome_tokens(a), _nome_tokens(b)
+    if not ta or not tb:
+        return 0.0
+    pri = difflib.SequenceMatcher(None, ta[0], tb[0]).ratio()
+    ult = difflib.SequenceMatcher(None, ta[-1], tb[-1]).ratio()
+    tudo = difflib.SequenceMatcher(None, ' '.join(ta), ' '.join(tb)).ratio()
+    return min(pri, ult) * 0.5 + tudo * 0.5
+
+
+def _pessoal_por_cavalo(token, meses_set, cadastro, fat_por_placa):
+    """Folha (`custo_pessoal`) descarregada no veículo em que o motorista realmente rodou.
+
+    Nível 1 — a folha de cada motorista vai para os cavalos/trucks RIZZA em que ele rodou no
+    período, proporcional ao **nº de viagens** em cada um.
+    Nível 2 — quem não rodou em veículo Rizza no período (afastado, férias, admissão no meio,
+    ou só rodou em agregado) forma o **resíduo**, dividido **por igual dentro da classe**: folha
+    de motorista de truck entre os trucks, as demais (inclusive a função genérica "Motorista")
+    entre os cavalos.
+
+    Carreta não recebe folha — é custo do cavalo. Truck fica na visão Cavalo, como já era.
+    Retorna (por_placa, diag)."""
+    AR = "'Auditoria Receita'"
+    CP = "'public custo_pessoal'"
+
+    # Só cavalos/trucks Rizza que aparecem no período (a mesma base de placas da tela),
+    # para que todo real distribuído caia numa linha existente e nada se perca no caminho.
+    rizza_cav = {p: v for p, v in cadastro.items()
+                 if v.get('proprietario') == 'RIZZA TRANSPORTES LTDA' and v.get('tipo') != 'CARRETA'}
+    elegiveis = {p for p in fat_por_placa if p in rizza_cav}
+    trucks = {p for p in elegiveis if str(rizza_cav[p].get('tipo') or '').upper() == 'TRUCK'}
+    cavalos = elegiveis - trucks
+
+    # Competência sem folha lançada usa a anterior mais recente que tenha, como PROVISÃO —
+    # quando o RH lançar o mês, o real entra no lugar sozinho (a fonte deixa de ser a anterior).
+    pedidos = re.findall(r'"([^"]+)"', meses_set)
+    disponiveis = sorted({str(r.get('competencia')) for r in _dax_rows(
+        token, f"EVALUATE SUMMARIZE({CP}, {CP}[competencia], \"v\", SUM({CP}[total_mes]))")
+        if float(r.get('v') or 0)})
+    origem, provisao = {}, []
+    for m in pedidos:
+        if m in disponiveis:
+            origem[m] = m
+        else:
+            anteriores = [c for c in disponiveis if c < m]
+            if anteriores:
+                origem[m] = anteriores[-1]
+                provisao.append(f'{m}<-{anteriores[-1]}')
+    fontes = sorted(set(origem.values()))
+
+    por_comp = {}
+    if fontes:
+        fset = '{' + ','.join(f'"{c}"' for c in fontes) + '}'
+        for r in _dax_rows(token, f"EVALUATE SUMMARIZE(FILTER({CP}, {CP}[competencia] IN {fset}), "
+                           f"{CP}[competencia], {CP}[nome], {CP}[funcao], \"v\", SUM({CP}[total_mes]))"):
+            chave = ' '.join(_nome_tokens(r.get('nome')))
+            if not chave:
+                continue
+            d = por_comp.setdefault(str(r.get('competencia')), {}).setdefault(
+                chave, {'nome': r.get('nome'), 'funcao': str(r.get('funcao') or ''), 'v': 0.0})
+            d['v'] += float(r.get('v') or 0)
+
+    folha, v_provisao = {}, 0.0
+    for m in pedidos:  # um mês provisionado repete o valor da fonte (é estimativa daquele mês)
+        for chave, d in por_comp.get(origem.get(m, ''), {}).items():
+            alvo = folha.setdefault(chave, {'nome': d['nome'], 'funcao': d['funcao'], 'v': 0.0})
+            alvo['v'] += d['v']
+            if origem.get(m) != m:
+                v_provisao += d['v']
+    folha_total = sum(d['v'] for d in folha.values())
+    base_diag = {'pessoal_total': round(folha_total, 2),
+                 'pessoal_provisionado': round(v_provisao, 2),
+                 'pessoal_meses_provisao': provisao}
+    if not folha_total or not elegiveis:
+        return {}, dict(base_diag, pessoal_residuo=round(folha_total, 2),
+                        pessoal_motoristas=len(folha), pessoal_sem_viagem=len(folha),
+                        pessoal_nome_aproximado=0)
+
+    # KM rodado por motorista × cavalo — mesma régua de KM da tela (rotas_km, com
+    # fallback no distancia_km cru), não o hodômetro do ValeCard, que é digitado e sujo.
+    km_rota = (f"SUMX({AR}, COALESCE(LOOKUPVALUE('public rotas_km'[km],"
+               f"'public rotas_km'[cidade_uf_origem],{AR}[cidade_uf_origem],"
+               f"'public rotas_km'[cidade_uf_destino],{AR}[cidade_uf_destino]),"
+               f"{AR}[distancia_km]))")
+    viagens = {}   # nome_chave -> {placa: {'km': km rodado, 'n': nº de viagens}}
+    for r in _dax_rows(token, f"EVALUATE SUMMARIZE(FILTER({AR}, "
+                       f"FORMAT({AR}[data_ref_ctrc],\"YYYY-MM\") IN {meses_set} && "
+                       f"NOT(ISBLANK({AR}[placa_cavalo])) && NOT(ISBLANK({AR}[motorista]))), "
+                       f"{AR}[motorista], {AR}[placa_cavalo], \"km\", {km_rota}, "
+                       f"\"n\", COUNTROWS({AR}))"):
+        p = _placa_mercosul(r.get('placa_cavalo'))
+        if p not in elegiveis:
+            continue
+        chave = ' '.join(_nome_tokens(r.get('motorista')))
+        if chave:
+            d = viagens.setdefault(chave, {}).setdefault(p, {'km': 0.0, 'n': 0})
+            d['km'] += float(r.get('km') or 0)
+            d['n'] += int(r.get('n') or 0)
+
+    # Nível 1 — quem rodou: folha proporcional ao KM rodado em cada veículo.
+    por_placa, sem_viagem, n_aprox = {}, [], 0
+    for chave, d in folha.items():
+        alvo = chave if chave in viagens else None
+        if alvo is None and viagens:  # nome corrompido/abreviado: cai para similaridade
+            cand = max(viagens, key=lambda a: _nome_parecido(chave, a))
+            if _nome_parecido(chave, cand) >= _NOME_MATCH_MIN:
+                alvo, n_aprox = cand, n_aprox + 1
+        if alvo is None:
+            sem_viagem.append(d)
+            continue
+        vs = viagens[alvo]
+        total_km = sum(x['km'] for x in vs.values())
+        total_n = sum(x['n'] for x in vs.values())
+        if total_km <= 0:  # nenhum km medido no mês → divide entre os veículos que dirigiu
+            peso = {p: 1.0 for p in vs}
+        else:
+            # Viagem sem km medido (rota fora do rotas_km e distancia_km vazio) pesaria ZERO e
+            # o veículo ficaria sem folha mesmo tendo rodado. Vale o km médio das viagens do
+            # próprio motorista no mês — proporcional a uma viagem típica, em vez de nada.
+            media = total_km / (total_n or 1)
+            peso = {p: (x['km'] if x['km'] > 0 else media * x['n']) for p, x in vs.items()}
+        total_peso = sum(peso.values()) or 1.0
+        for p, w in peso.items():
+            por_placa[p] = por_placa.get(p, 0.0) + d['v'] * w / total_peso
+
+    # Nível 2 — resíduo por igual dentro da classe (truck → trucks; demais → cavalos).
+    res_truck = sum(d['v'] for d in sem_viagem if 'TRUCK' in d['funcao'].upper())
+    res_cav = sum(d['v'] for d in sem_viagem) - res_truck
+    for base, valor in ((trucks or elegiveis, res_truck), (cavalos or elegiveis, res_cav)):
+        if valor and base:
+            for p in base:
+                por_placa[p] = por_placa.get(p, 0.0) + valor / len(base)
+    residuo = res_truck + res_cav
+    n_sem = len(sem_viagem)
+
+    diag = dict(base_diag, pessoal_residuo=round(residuo, 2), pessoal_motoristas=len(folha),
+                pessoal_sem_viagem=n_sem, pessoal_nome_aproximado=n_aprox)
+    return {p: round(v, 2) for p, v in por_placa.items()}, diag
+
+
+# ── Financiamento de frota (consórcio / CDC / FINAME / ativo imobilizado) ──
+# Eventos do 477 que carregam aquisição de veículo. O de-para contrato→placa não existe
+# no dado (o histórico traz modelo e contrato, nunca a placa), então é mantido aqui,
+# validado com o diretor. Consórcio ainda NÃO contemplado fica fora: não há veículo rodando.
+FIN_CAVALO = {          # numlancto -> placas que o contrato cobre (rateio igual entre elas)
+    '97178': ('TYX9F52', 'TYX9F55', 'TYX9F59'),   # 3 LS-36 Actros (BNDES TCF), ano 25
+    '82371': ('TDW4E79',),                        # Mercedes 2548 Actros CDC ...546, ano 24
+    '82373': ('TDW4G23',),                        # Mercedes 2548 Actros CDC ...554, ano 24
+    '97227': ('QOX7H94',),                        # placa no próprio histórico
+    '97230': ('EWJ6C10',),                        # placa no próprio histórico
+}
+FIN_CARRETA = ('94813', '93245', '70261', '100912', '68316', '45209')
+
+
+def _fin_parcelas(token, meses_set, lancamentos):
+    """Parcelas dos lançamentos de financiamento no período, por (lançamento, competência).
+
+    Regra do realizado × provisão: se a competência tem parcela LIQU, vale só a LIQU (o real);
+    se só tem PEND, entra a PEND como provisão — quando liquidar, o real toma o lugar sozinho."""
+    DZ = "'public consulta_despesas_477'"
+    if not lancamentos:
+        return {}, 0.0
+    lista = '{' + ','.join(f'"{n}"' for n in lancamentos) + '}'
+    anomes = f'("20" & RIGHT({DZ}[mes_competencia],2) & "-" & LEFT({DZ}[mes_competencia],2))'
+    slot = {}
+    for r in _dax_rows(token, f"EVALUATE SUMMARIZE(FILTER({DZ}, {DZ}[numlancto] IN {lista} "
+                       f"&& {anomes} IN {meses_set}), {DZ}[numlancto], {DZ}[mes_competencia], "
+                       f"{DZ}[sit_des], \"v\", SUM({DZ}[vlr_parcela]))"):
+        k = (str(r.get('numlancto')), str(r.get('mes_competencia')))
+        d = slot.setdefault(k, {'LIQU': 0.0, 'PEND': 0.0})
+        s = str(r.get('sit_des'))
+        if s in d:
+            d[s] += float(r.get('v') or 0)
+    por_lanc, provisao = {}, 0.0
+    for (ln, _mc), d in slot.items():
+        v = d['LIQU'] if d['LIQU'] else d['PEND']
+        if not d['LIQU']:
+            provisao += d['PEND']
+        por_lanc[ln] = por_lanc.get(ln, 0.0) + v
+    return por_lanc, provisao
+
+
+def _financiamento_cavalo(token, meses_set, fat_por_placa):
+    """Financiamento por cavalo: atribuição DIRETA pelo de-para contrato→placa (sem rateio).
+    Contrato de vários cavalos divide igual entre eles. Cavalo sem contrato fica zerado."""
+    por_lanc, provisao = _fin_parcelas(token, meses_set, list(FIN_CAVALO))
+    por_placa = {}
+    fora = 0.0
+    for ln, valor in por_lanc.items():
+        placas_ = [p for p in FIN_CAVALO[ln] if p in fat_por_placa]
+        if not placas_:      # o cavalo do contrato não rodou no período → não há linha p/ receber
+            fora += valor
+            continue
+        for p in placas_:
+            por_placa[p] = por_placa.get(p, 0.0) + valor / len(placas_)
+    total = sum(por_lanc.values())
+    return ({p: round(v, 2) for p, v in por_placa.items()},
+            {'financiamento': round(total, 2), 'financiamento_provisao': round(provisao, 2),
+             'financiamento_sem_placa': round(fora, 2)})
+
+
 # Componentes de custo da frota por cavalo (chaves do dict por placa)
 _COST_KEYS = ('pedagio', 'combustivel', 'litros', 'km_hodometro', 'arla', 'litros_arla',
-              'pessoal', 'manut_cavalo', 'seguro', 'rastreador', 'pneu')
+              'pessoal', 'manut_cavalo', 'seguro', 'rastreador', 'pneu', 'financiamento')
 
 
 def _custo_frota_por_cavalo(token, meses_set, cadastro, fat_por_placa=None):
@@ -2314,7 +2544,9 @@ def _custo_frota_por_cavalo(token, meses_set, cadastro, fat_por_placa=None):
         lst.sort()
         km_hod[p] = _km_hodometro([h for _, h in lst])
 
-    pessoal_total = _dax_val(token, f"EVALUATE ROW(\"v\", CALCULATE(SUM('public custo_pessoal'[total_mes]), 'public custo_pessoal'[competencia] IN {meses_set}))")
+    pessoal_por_placa, pessoal_diag = _pessoal_por_cavalo(token, meses_set, cadastro, fat_por_placa)
+    pessoal_total = pessoal_diag.get('pessoal_total', 0.0)
+    fin_por_placa, fin_diag = _financiamento_cavalo(token, meses_set, fat_por_placa)
     manut_cavalo_total = _dax_val(token, f"EVALUATE ROW(\"v\", SUMX(FILTER({DZ}, {DZ}[evento] IN {{\"5150\",\"5154\"}} && {anomes} IN {meses_set}), {DZ}[vlr_final]))")
     seguro_total = _dax_val(token, f"EVALUATE ROW(\"v\", SUMX(FILTER({DZ}, {DZ}[evento]=\"5402\" && SEARCH(\"BVIX\",{DZ}[nome_fornecedor],1,0)=0 && {anomes} IN {meses_set}), {DZ}[vlr_final]))")
     rastreador_total = _dax_val(token, f"EVALUATE ROW(\"v\", SUMX(FILTER({DZ}, SEARCH(\"AUTOTRAC\",{DZ}[nome_fornecedor],1,0)>0 && {anomes} IN {meses_set}), {DZ}[vlr_final]))")
@@ -2333,11 +2565,15 @@ def _custo_frota_por_cavalo(token, meses_set, cadastro, fat_por_placa=None):
             'km_hodometro': round(km_hod.get(p, 0.0), 0),
             'arla': round(c.get('arla', 0.0), 2),
             'litros_arla': round(c.get('litros_arla', 0.0), 1),
-            'pessoal': round(pessoal_total * share, 2),
+            'pessoal': pessoal_por_placa.get(p, 0.0),
             'manut_cavalo': round(manut_cavalo_total * share, 2),
             'seguro': round(seguro_total / n_cav, 2),
             'rastreador': round(rastreador_total / n_cav, 2),
             'pneu': round(pool_pneu_cav * share, 2),
+            # Financiamento fica FORA do custo_total: é investimento (aquisição), não custo
+            # operacional. Entra como coluna própria para não quebrar a comparação do
+            # Resultado Frota com os meses já analisados.
+            'financiamento': fin_por_placa.get(p, 0.0),
         }
         d['custo_total'] = round(d['pedagio'] + d['combustivel'] + d['arla'] + d['pessoal']
                                  + d['manut_cavalo'] + d['seguro'] + d['rastreador'] + d['pneu'], 2)
@@ -2345,6 +2581,8 @@ def _custo_frota_por_cavalo(token, meses_set, cadastro, fat_por_placa=None):
     totais = {'pessoal': round(pessoal_total, 2), 'manut_cavalo': round(manut_cavalo_total, 2),
               'seguro': round(seguro_total, 2), 'rastreador': round(rastreador_total, 2),
               'pneu': round(pool_pneu_cav, 2), 'pneu_total': round(pool_pneu, 2)}
+    totais.update(pessoal_diag)
+    totais.update(fin_diag)
     return custos, totais
 
 
@@ -2700,14 +2938,22 @@ def api_veiculos_analise():
         for r in univ:
             if _placa_mercosul(r.get('placa_carreta')) in rizza_carretas:
                 base_fat += float(r.get('f') or 0)
+        # Financiamento de carreta: mesmo padrão da manutenção — rateio proporcional ao
+        # faturamento sobre a base fixa de TODAS as carretas Rizza (frota+agregado).
+        fin_lanc, fin_prov = _fin_parcelas(token, meses_set, list(FIN_CARRETA))
+        fin_carreta_total = sum(fin_lanc.values())
         taxa = manut_carreta_total / (base_fat or 1.0)
         taxa_pneu = pool_pneu_car / (base_fat or 1.0)  # base fixa = todas carretas Rizza
+        taxa_fin = fin_carreta_total / (base_fat or 1.0)
         for a in saida:
             a['rizza'] = a['dim'] in rizza_carretas
             a['manut_carreta'] = round(taxa * a['faturamento'], 2) if a['rizza'] else 0.0
             a['pneu'] = round(taxa_pneu * a['faturamento'], 2) if a['rizza'] else 0.0
+            a['financiamento'] = round(taxa_fin * a['faturamento'], 2) if a['rizza'] else 0.0
         totais_custo = {'manut_carreta': round(manut_carreta_total, 2), 'base_fat_carretas': round(base_fat, 2),
-                        'pneu': round(pool_pneu_car, 2), 'pneu_total': round(pool_pneu, 2)}
+                        'pneu': round(pool_pneu_car, 2), 'pneu_total': round(pool_pneu, 2),
+                        'financiamento': round(fin_carreta_total, 2),
+                        'financiamento_provisao': round(fin_prov, 2)}
 
     # ── Proprietário do CAVALO no recorte cavalo (exceto a visão de custo da frota) ──
     # É o dono do próprio cavalo da linha (1:1 no cadastro); frota não traz.

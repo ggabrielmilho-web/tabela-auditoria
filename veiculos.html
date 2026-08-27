@@ -442,14 +442,14 @@ function setaOrd(c) { return ordem.campo === c ? (ordem.dir === 'desc' ? ' ▾' 
 
 function totais(arr) {
   const t = { faturamento: 0, pagamento: 0, km: 0, viagens: 0, vale_pedagio: 0, retencao: 0, pedagio: 0, combustivel: 0, litros: 0, arla: 0,
-              pessoal: 0, manut_cavalo: 0, seguro: 0, rastreador: 0, pneu: 0, manut_carreta: 0, km_hodometro: 0,
+              pessoal: 0, manut_cavalo: 0, seguro: 0, rastreador: 0, pneu: 0, manut_carreta: 0, km_hodometro: 0, financiamento: 0,
               custo_cavalo: 0, custo_carreta: 0, frete_terceiros: 0, rec_frota: 0, rec_agregado: 0, rec_carreteiro: 0 };
   arr.forEach(r => {
     t.faturamento += r.faturamento; t.pagamento += r.pagamento; t.km += r.km; t.viagens += r.viagens;
     t.vale_pedagio += r.vale_pedagio || 0; t.retencao += r.retencao || 0;
     t.pedagio += r.pedagio || 0; t.combustivel += r.combustivel || 0; t.litros += r.litros || 0; t.arla += r.arla || 0;
     t.pessoal += r.pessoal || 0; t.manut_cavalo += r.manut_cavalo || 0; t.seguro += r.seguro || 0; t.rastreador += r.rastreador || 0; t.pneu += r.pneu || 0; t.manut_carreta += r.manut_carreta || 0;
-    t.km_hodometro += r.km_hodometro || 0;
+    t.km_hodometro += r.km_hodometro || 0; t.financiamento += r.financiamento || 0;
     t.custo_cavalo += r.custo_cavalo || 0; t.custo_carreta += r.custo_carreta || 0; t.frete_terceiros += r.frete_terceiros || 0;
     t.rec_frota += r.rec_frota || 0; t.rec_agregado += r.rec_agregado || 0; t.rec_carreteiro += r.rec_carreteiro || 0;
   });
@@ -502,6 +502,7 @@ function render() {
     <div class="kpi"><div class="l">Combustível</div><div class="v">${fmtBRL(t.combustivel)}</div></div>
     <div class="kpi"><div class="l">ARLA</div><div class="v">${fmtBRL(t.arla)}</div></div>
     <div class="kpi"><div class="l">Pessoal</div><div class="v">${fmtBRL(t.pessoal)}</div></div>
+    <div class="kpi"><div class="l">Financiamento</div><div class="v">${fmtBRL(t.financiamento)}</div></div>
     <div class="kpi"><div class="l">Manut. Cavalo</div><div class="v">${fmtBRL(t.manut_cavalo)}</div></div>
     <div class="kpi"><div class="l">Seguro</div><div class="v">${fmtBRL(t.seguro)}</div></div>
     <div class="kpi"><div class="l">Rastreador</div><div class="v">${fmtBRL(t.rastreador)}</div></div>
@@ -521,6 +522,7 @@ function render() {
     <div class="kpi"><div class="l">Retenção</div><div class="v">${fmtBRL(t.retencao)}</div></div>
     <div class="kpi"><div class="l">Pedágio</div><div class="v">${fmtBRL(t.vale_pedagio)}</div></div>
     <div class="kpi"><div class="l">Manut. Carreta</div><div class="v">${fmtBRL(t.manut_carreta)}</div></div>
+    <div class="kpi"><div class="l">Financiamento</div><div class="v">${fmtBRL(t.financiamento)}</div></div>
     <div class="kpi"><div class="l">Pneu</div><div class="v">${fmtBRL(t.pneu)}</div></div>
     <div class="kpi"><div class="l">Result. Carreta</div><div class="v ${t.resultado_carreta >= 0 ? 'pos' : 'neg'}">${fmtBRL(t.resultado_carreta)}</div></div>
     <div class="kpi"><div class="l">Margem</div><div class="v">${fmtPct(t.margem_carreta)}</div></div>
@@ -838,11 +840,12 @@ function renderTabelaFrota(arr, t) {
     <th onclick="ordenar('combustivel')">Combustível${setaOrd('combustivel')}</th>
     <th onclick="ordenar('litros')">Litros${setaOrd('litros')}</th>
     <th onclick="ordenar('arla')">ARLA${setaOrd('arla')}</th>
-    <th onclick="ordenar('pessoal')">Pessoal${setaOrd('pessoal')}</th>
+    <th onclick="ordenar('pessoal')" title="Folha do motorista lançada no veículo em que ele rodou, proporcional ao nº de viagens em cada um. Quem não rodou no mês é rateado por igual dentro da classe (truck entre trucks, cavalo entre cavalos).">Pessoal${setaOrd('pessoal')}</th>
     <th onclick="ordenar('manut_cavalo')">Manut. Cavalo${setaOrd('manut_cavalo')}</th>
     <th onclick="ordenar('seguro')">Seguro${setaOrd('seguro')}</th>
     <th onclick="ordenar('rastreador')">Rastreador${setaOrd('rastreador')}</th>
     <th onclick="ordenar('pneu')">Pneu${setaOrd('pneu')}</th>
+    <th onclick="ordenar('financiamento')" title="Parcela do financiamento do veiculo (consorcio/CDC/FINAME) no mes, atribuida direto ao cavalo do contrato. Fora do Resultado Frota: e investimento, nao custo operacional.">Financ.${setaOrd('financiamento')}</th>
     <th onclick="ordenar('rsl')">R$/L${setaOrd('rsl')}</th>
     <th onclick="ordenar('kml')">Km/L${setaOrd('kml')}</th>
     <th onclick="ordenar('resultado_frota')">Result. Frota${setaOrd('resultado_frota')}</th>
@@ -874,6 +877,7 @@ function renderTabelaFrota(arr, t) {
       <td>${r.seguro ? fmtBRL(r.seguro) : '—'}</td>
       <td>${r.rastreador ? fmtBRL(r.rastreador) : '—'}</td>
       <td>${r.pneu ? fmtBRL(r.pneu) : '—'}</td>
+      <td>${r.financiamento ? fmtBRL(r.financiamento) : '—'}</td>
       <td>${r.rsl ? fmtBRL2(r.rsl) : '—'}</td>
       <td>${r.kml ? r.kml.toFixed(2).replace('.', ',') : '—'}</td>
       <td>${fmtBRL(r.resultado_frota)}</td>
@@ -888,6 +892,7 @@ function renderTabelaFrota(arr, t) {
     <td>${fmtBRL(t.pessoal)}</td><td>${fmtBRL(t.manut_cavalo)}</td>
     <td>${fmtBRL(t.seguro)}</td><td>${fmtBRL(t.rastreador)}</td>
     <td>${fmtBRL(t.pneu)}</td>
+    <td>${fmtBRL(t.financiamento)}</td>
     <td>${fmtBRL2(t.rsl)}</td><td>${t.kml.toFixed(2).replace('.', ',')}</td>
     <td>${fmtBRL(t.resultado_frota)}</td><td>${fmtPct(t.margem_frota)}</td>
   </tr>`;
@@ -907,6 +912,7 @@ function renderTabelaCarreta(arr, t) {
     <th onclick="ordenar('vale_pedagio')">Pedágio${setaOrd('vale_pedagio')}</th>
     <th onclick="ordenar('manut_carreta')">Manut. Carreta${setaOrd('manut_carreta')}</th>
     <th onclick="ordenar('pneu')">Pneu${setaOrd('pneu')}</th>
+    <th onclick="ordenar('financiamento')" title="Financiamento das carretas rateado proporcional ao faturamento entre as carretas Rizza (frota+agregado), mesma base da Manut. Carreta. Fora do Resultado.">Financ.${setaOrd('financiamento')}</th>
     <th onclick="ordenar('resultado_carreta')">Result. Carreta${setaOrd('resultado_carreta')}</th>
     <th>Margem</th>
   </tr>`;
@@ -932,6 +938,7 @@ function renderTabelaCarreta(arr, t) {
       <td>${r.vale_pedagio ? fmtBRL(r.vale_pedagio) : '—'}</td>
       <td>${r.manut_carreta ? fmtBRL(r.manut_carreta) : '—'}</td>
       <td>${r.pneu ? fmtBRL(r.pneu) : '—'}</td>
+      <td>${r.financiamento ? fmtBRL(r.financiamento) : '—'}</td>
       <td>${fmtBRL(r.resultado_carreta)}</td>
       <td style="color:${corMargem(r.margem_carreta)}">${fmtPct(r.margem_carreta)}</td>
     </tr>`;
@@ -941,6 +948,7 @@ function renderTabelaCarreta(arr, t) {
     <td>Total (${arr.length})</td><td></td><td>${fmtInt(t.viagens)}</td><td>${fmtInt(t.km)}</td>
     <td>${fmtBRL(t.faturamento)}</td><td>${fmtBRL(t.pagamento)}</td><td>${fmtBRL(t.retencao)}</td><td>${fmtBRL(t.vale_pedagio)}</td><td>${fmtBRL(t.manut_carreta)}</td>
     <td>${fmtBRL(t.pneu)}</td>
+    <td>${fmtBRL(t.financiamento)}</td>
     <td>${fmtBRL(t.resultado_carreta)}</td><td>${fmtPct(t.margem_carreta)}</td>
   </tr>`;
 }
@@ -1160,11 +1168,11 @@ function exportarCsv() {
   const num = v => Number(v || 0).toFixed(2).replace('.', ',');
   let cab, linhaFn;
   if (DADOS.custos_frota) {
-    cab = ['Cavalo', 'Viagens', 'KM Rota', 'KM Abast', 'Faturamento', 'Pedagio', 'Combustivel', 'Litros', 'Arla', 'Pessoal', 'Manut Cavalo', 'Seguro', 'Rastreador', 'Pneu', 'R$/L', 'Km/L', 'Resultado Frota', 'Margem%'];
-    linhaFn = r => [`"${r.dim}"`, r.viagens, num(r.km), num(r.km_hodometro), num(r.faturamento), num(r.pedagio), num(r.combustivel), num(r.litros), num(r.arla), num(r.pessoal), num(r.manut_cavalo), num(r.seguro), num(r.rastreador), num(r.pneu), num(r.rsl), num(r.kml), num(r.resultado_frota), num((r.margem_frota || 0) * 100)];
+    cab = ['Cavalo', 'Viagens', 'KM Rota', 'KM Abast', 'Faturamento', 'Pedagio', 'Combustivel', 'Litros', 'Arla', 'Pessoal', 'Manut Cavalo', 'Seguro', 'Rastreador', 'Pneu', 'Financiamento', 'R$/L', 'Km/L', 'Resultado Frota', 'Margem%'];
+    linhaFn = r => [`"${r.dim}"`, r.viagens, num(r.km), num(r.km_hodometro), num(r.faturamento), num(r.pedagio), num(r.combustivel), num(r.litros), num(r.arla), num(r.pessoal), num(r.manut_cavalo), num(r.seguro), num(r.rastreador), num(r.pneu), num(r.financiamento), num(r.rsl), num(r.kml), num(r.resultado_frota), num((r.margem_frota || 0) * 100)];
   } else if (DADOS.custos_carreta) {
-    cab = ['Carreta', 'Rizza', 'Tipo', 'Viagens', 'KM', 'Faturamento', 'Pagamento', 'Retencao', 'Pedagio', 'Manut Carreta', 'Pneu', 'Resultado Carreta', 'Margem%'];
-    linhaFn = r => [`"${r.dim}"`, r.rizza ? 'S' : 'N', r.tipo, r.viagens, num(r.km), num(r.faturamento), num(r.pagamento), num(r.retencao), num(r.vale_pedagio), num(r.manut_carreta), num(r.pneu), num(r.resultado_carreta), num((r.margem_carreta || 0) * 100)];
+    cab = ['Carreta', 'Rizza', 'Tipo', 'Viagens', 'KM', 'Faturamento', 'Pagamento', 'Retencao', 'Pedagio', 'Manut Carreta', 'Pneu', 'Financiamento', 'Resultado Carreta', 'Margem%'];
+    linhaFn = r => [`"${r.dim}"`, r.rizza ? 'S' : 'N', r.tipo, r.viagens, num(r.km), num(r.faturamento), num(r.pagamento), num(r.retencao), num(r.vale_pedagio), num(r.manut_carreta), num(r.pneu), num(r.financiamento), num(r.resultado_carreta), num((r.margem_carreta || 0) * 100)];
   } else if (DADOS.custos_cliente) {
     cab = ['Cliente', 'Raiz CNPJ', 'Viagens', 'Receita', 'Rec Frota', 'Rec Agregado', 'Rec Carreteiro', 'Frete Terceiros', 'Custo Cavalo', 'Custo Carreta', 'Custo Frota', 'Resultado', 'Margem%'];
     linhaFn = r => [`"${r.dim}"`, r.cnpj_raiz || '', r.viagens, num(r.faturamento), num(r.rec_frota), num(r.rec_agregado), num(r.rec_carreteiro), num(r.frete_terceiros), num(r.custo_cavalo), num(r.custo_carreta), num(r.custo_frota), num(r.resultado), num((r.margem || 0) * 100)];
