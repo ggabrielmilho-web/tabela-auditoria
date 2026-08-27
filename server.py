@@ -2570,13 +2570,11 @@ def _custo_frota_por_cavalo(token, meses_set, cadastro, fat_por_placa=None):
             'seguro': round(seguro_total / n_cav, 2),
             'rastreador': round(rastreador_total / n_cav, 2),
             'pneu': round(pool_pneu_cav * share, 2),
-            # Financiamento fica FORA do custo_total: é investimento (aquisição), não custo
-            # operacional. Entra como coluna própria para não quebrar a comparação do
-            # Resultado Frota com os meses já analisados.
             'financiamento': fin_por_placa.get(p, 0.0),
         }
         d['custo_total'] = round(d['pedagio'] + d['combustivel'] + d['arla'] + d['pessoal']
-                                 + d['manut_cavalo'] + d['seguro'] + d['rastreador'] + d['pneu'], 2)
+                                 + d['manut_cavalo'] + d['seguro'] + d['rastreador'] + d['pneu']
+                                 + d['financiamento'], 2)
         custos[p] = d
     totais = {'pessoal': round(pessoal_total, 2), 'manut_cavalo': round(manut_cavalo_total, 2),
               'seguro': round(seguro_total, 2), 'rastreador': round(rastreador_total, 2),
@@ -2635,15 +2633,16 @@ def _veiculos_margem_cliente(token, meses_comp, meses_set, tipos, tipos_dax):
     custos_cav, _t = _custo_frota_por_cavalo(token, meses_set, cadastro)
     total_custo_cavalo = sum(c.get('custo_total', 0.0) for c in custos_cav.values())
 
-    # Taxa de custo de carreta (manut+pneu) por R$ de receita de carreta Rizza
+    # Taxa de custo de carreta (manut+pneu+financiamento) por R$ de receita de carreta Rizza
     rizza_carretas = {p for p, v in cadastro.items()
                       if v.get('proprietario') == 'RIZZA TRANSPORTES LTDA' and v.get('tipo') == 'CARRETA'}
     manut_carreta_total = _dax_val(token, f"EVALUATE ROW(\"v\", SUMX(FILTER({DZ}, {DZ}[evento] IN {{\"5153\",\"5155\"}} && {anomes} IN {meses_set}), {DZ}[vlr_final]))")
     _, _, pool_pneu_car = _pool_pneu_split(token, meses_set, cadastro)
+    fin_car_total = sum(_fin_parcelas(token, meses_set, list(FIN_CARRETA))[0].values())
     univ = _dax_rows(token, f"EVALUATE SUMMARIZE(FILTER({AR}, FORMAT({AR}[data_ref_ctrc],\"YYYY-MM\") IN {meses_set} "
         f"&& {AR}[Tipo Operacao] IN {{\"FROTA\",\"AGREGADO\"}} && NOT(ISBLANK({AR}[placa_carreta]))), {AR}[placa_carreta], \"f\", SUM({AR}[receita_rateada]))")
     base_fat = sum(float(r.get('f') or 0) for r in univ if _placa_mercosul(r.get('placa_carreta')) in rizza_carretas)
-    taxa_car = (manut_carreta_total + pool_pneu_car) / (base_fat or 1.0)
+    taxa_car = (manut_carreta_total + pool_pneu_car + fin_car_total) / (base_fat or 1.0)
 
     # Viagens (1 linha por CTRB) da Auditoria no período/tipos
     viagens = _dax_rows(token, f"EVALUATE SELECTCOLUMNS(FILTER({AR}, "
@@ -2967,9 +2966,10 @@ def api_veiculos_analise():
                     'custos_cliente': False, 'totais_custo': totais_custo})
 
 
-_COST_MONEY = ('pedagio', 'combustivel', 'arla', 'pessoal', 'manut_cavalo', 'seguro', 'rastreador', 'pneu')
+_COST_MONEY = ('pedagio', 'combustivel', 'arla', 'pessoal', 'manut_cavalo', 'seguro', 'rastreador', 'pneu',
+               'financiamento')
 _COST_LABEL = {'pedagio': 'Pedágio', 'combustivel': 'Combustível', 'arla': 'ARLA', 'pessoal': 'Pessoal',
-               'manut_cavalo': 'Manut. Cavalo', 'seguro': 'Seguro', 'rastreador': 'Rastreador', 'pneu': 'Pneu (cavalo)'}
+               'manut_cavalo': 'Manut. Cavalo', 'seguro': 'Seguro', 'rastreador': 'Rastreador', 'pneu': 'Pneu (cavalo)', 'financiamento': 'Financiamento'}
 
 
 def _veiculos_detalhe_cliente(token, valor, meses_comp, meses_set, tipos, tipos_dax):
@@ -3044,7 +3044,7 @@ def _veiculos_detalhe_cliente(token, valor, meses_comp, meses_set, tipos, tipos_
         custo_cavalo = round(taxa_cav * rec_cli_frota, 2)
 
     # Custo da CARRETA (manut + pneu), taxa fixa × receita do cliente em carretas Rizza
-    manut_carreta_aloc = pneu_carreta_aloc = 0.0
+    manut_carreta_aloc = pneu_carreta_aloc = fin_carreta_aloc = 0.0
     rizza_carretas = set(); taxa_car = 0.0   # taxa única de custo de carreta por R$ de receita (manut+pneu)
     if 'FROTA' in tipos or 'AGREGADO' in tipos:
         rizza_carretas = {p for p, v in cadastro.items()
@@ -3055,10 +3055,12 @@ def _veiculos_detalhe_cliente(token, valor, meses_comp, meses_set, tipos, tipos_
             f"&& {AR}[Tipo Operacao] IN {{\"FROTA\",\"AGREGADO\"}} && NOT(ISBLANK({AR}[placa_carreta]))), {AR}[placa_carreta], \"f\", SUM({AR}[receita_rateada]))")
         base_fat = sum(float(r.get('f') or 0) for r in univ if _placa_mercosul(r.get('placa_carreta')) in rizza_carretas)
         rec_cli_carr = sum(float(c.get('receita') or 0) for c in cargas if _placa_mercosul(c.get('carreta')) in rizza_carretas)
+        fin_car_total = sum(_fin_parcelas(token, meses_set, list(FIN_CARRETA))[0].values())
         manut_carreta_aloc = round((manut_carreta_total / (base_fat or 1.0)) * rec_cli_carr, 2)
         pneu_carreta_aloc = round((pool_pneu_car / (base_fat or 1.0)) * rec_cli_carr, 2)
-        taxa_car = (manut_carreta_total + pool_pneu_car) / (base_fat or 1.0)
-    custo_carreta = round(manut_carreta_aloc + pneu_carreta_aloc, 2)
+        fin_carreta_aloc = round((fin_car_total / (base_fat or 1.0)) * rec_cli_carr, 2)
+        taxa_car = (manut_carreta_total + pool_pneu_car + fin_car_total) / (base_fat or 1.0)
+    custo_carreta = round(manut_carreta_aloc + pneu_carreta_aloc + fin_carreta_aloc, 2)
 
     resultado = round(receita - frete_terceiros - custo_cavalo - custo_carreta, 2)
 
@@ -3068,6 +3070,8 @@ def _veiculos_detalhe_cliente(token, valor, meses_comp, meses_set, tipos, tipos_
         componentes.append({'nome': 'Manut. Carreta', 'valor': manut_carreta_aloc})
     if pneu_carreta_aloc:
         componentes.append({'nome': 'Pneu (carreta)', 'valor': pneu_carreta_aloc})
+    if fin_carreta_aloc:
+        componentes.append({'nome': 'Financiamento (carreta)', 'valor': fin_carreta_aloc})
 
     # Quebra por tipo (mini-DRE): receita, frete, custo (cavalo+carreta), resultado, margem
     por_tipo = {}
