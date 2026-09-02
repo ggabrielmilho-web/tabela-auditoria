@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rizza Log</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%2338bdf8'/%3E%3Ctext x='50' y='72' font-family='Arial,sans-serif' font-size='68' font-weight='900' text-anchor='middle' fill='%230a0e17'%3ER%3C/text%3E%3C/svg%3E">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0e17; --surface: #111827; --surface2: #1a2235; --border: #1e293b;
+    --text: #e2e8f0; --text-dim: #94a3b8; --accent: #38bdf8; --accent2: #818cf8;
+    --green: #34d399; --red: #f87171; --orange: #fb923c; --yellow: #fbbf24;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .loading-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; gap: 20px; }
+  .spinner { width: 44px; height: 44px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; }
+  .loading-screen h2 { font-size: 1.1rem; font-weight: 600; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+
+  .dashboard { display: none; padding: 28px 24px 48px; max-width: 1500px; margin: 0 auto; }
+  .dashboard.active { display: block; animation: fadeUp 0.4s ease; }
+
+  .top-bar { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 26px; flex-wrap: wrap; gap: 16px; }
+  .top-bar h1 { font-size: 1.5rem; font-weight: 700; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .meta { font-size: 0.78rem; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; }
+  .btn-sm { padding: 8px 18px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); font-family: 'DM Sans', sans-serif; font-weight: 500; font-size: 0.82rem; border-radius: 8px; cursor: pointer; transition: all 0.15s; text-decoration: none; display: inline-block; }
+  .btn-sm:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-sm.active { border-color: var(--accent); color: var(--accent); }
+
+  .grupo { margin-bottom: 30px; }
+  .grupo h2 { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-dim);
+              font-weight: 700; margin-bottom: 12px; display: flex; align-items: center; gap: 10px; }
+  .grupo h2::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; }
+  .card { display: block; text-decoration: none; color: inherit; background: var(--surface);
+          border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; transition: all 0.15s; position: relative; }
+  .card:hover { border-color: var(--accent); transform: translateY(-2px); background: var(--surface2); }
+  .card .ico { font-size: 1.5rem; line-height: 1; }
+  .card .nome { font-size: 0.98rem; font-weight: 700; margin: 10px 0 6px; }
+  .card .desc { font-size: 0.79rem; color: var(--text-dim); line-height: 1.5; }
+  .card .tag { position: absolute; top: 14px; right: 14px; font-size: 0.62rem; text-transform: uppercase;
+               letter-spacing: 0.06em; font-weight: 700; padding: 3px 8px; border-radius: 20px;
+               background: rgba(251,191,36,0.1); border: 1px solid rgba(251,191,36,0.3); color: var(--yellow); }
+
+  .vazio { background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+           padding: 40px 24px; text-align: center; color: var(--text-dim); font-size: 0.88rem; line-height: 1.7; }
+</style>
+</head>
+<body>
+
+<div class="loading-screen" id="loadingScreen">
+  <div class="spinner"></div>
+  <h2>Carregando…</h2>
+</div>
+
+<div class="dashboard" id="dashboard">
+  <div class="top-bar">
+    <div>
+      <h1>Rizza Log</h1>
+      <span class="meta" id="userInfo" style="margin-top:4px;display:block;"></span>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <a href="/logout" class="btn-sm">Sair</a>
+    </div>
+  </div>
+
+  <div id="grupos"></div>
+</div>
+
+<script src="/nav-perms.js"></script>
+<script>
+// A tela de entrada NÃO tem lista de abas própria: consome window.NAV_ABAS e
+// window.navPodeVer do nav-perms.js, que é a fonte única de verdade das
+// permissões. Aba nova entra lá e aparece aqui e na barra ao mesmo tempo.
+// Aqui só ficam a apresentação: em que grupo cada aba cai e o texto do card.
+
+const GRUPOS = [
+  { nome: 'Operação',  abas: ['embarques', 'mapa', 'pgr', 'veiculos'] },
+  { nome: 'Comercial', abas: ['tarifas', 'faturamento', 'contratos'] },
+  { nome: 'Financeiro', abas: ['auditoria', 'dre', 'despesas', 'conhecimentos', 'contabil'] },
+  { nome: 'Sistema',   abas: ['reuniao', 'admin'] },
+];
+
+const INFO = {
+  auditoria:     { desc: 'Receita por viagem com KPIs, filtros e exportação. Abre no mês corrente.', tag: 'Relatório completo' },
+  embarques:     { desc: 'Lançamento de cargas, relatório filtrável e histórico de alterações.' },
+  mapa:          { desc: 'Posição dos veículos em tempo real e trajeto de cada carga.' },
+  pgr:           { desc: 'Excesso de velocidade: placas acima de 95 km/h, com situação de carga.' },
+  veiculos:      { desc: 'Receita e custo por cavalo, carreta, motorista ou proprietário.' },
+  tarifas:       { desc: 'Tabela de fretes em cascata e simulador, com comparativo de rotas.' },
+  faturamento:   { desc: 'Matriz tomador × mês, com filtro de rota e nº de cargas.' },
+  contratos:     { desc: 'Emissão de contrato TAC Agregado a partir dos documentos.' },
+  dre:           { desc: 'Demonstração do resultado com gráficos analíticos e chat financeiro.' },
+  despesas:      { desc: 'Auditoria de despesas com filtro por coluna e exportação.' },
+  conhecimentos: { desc: 'Auditoria dos CTe emitidos, com filtro por coluna e exportação.' },
+  contabil:      { desc: 'Base contábil do SSW: posição por banco, extrato, faturamento e ACNI.' },
+  reuniao:       { desc: 'Ata de reunião a partir de áudio, com identificação de falantes.' },
+  admin:         { desc: 'Usuários, papéis e permissão de acesso por aba.' },
+};
+
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+async function montar() {
+  let me = null;
+  try {
+    const r = await fetch('/api/me', { credentials: 'same-origin' });
+    const j = await r.json();
+    if (j && j.ok) me = j;
+  } catch {}
+  if (!me) { window.location.href = '/login'; return; }
+
+  document.getElementById('userInfo').textContent =
+    `👤 ${me.nome}${me.role === 'admin' ? ' · administrador' : ''}`;
+
+  const abas = window.NAV_ABAS || [];
+  const podeVer = window.navPodeVer || (() => false);
+  const porId = {};
+  abas.forEach(a => { porId[a.id] = a; });
+
+  // Nome sem o emoji, para ordenar e para o título do card.
+  const nomeDe = a => a.label.split(' ').slice(1).join(' ');
+
+  let html = '', total = 0;
+  GRUPOS.forEach(g => {
+    const visiveis = g.abas.map(id => porId[id]).filter(a => a && podeVer(a, me))
+      // Alfabética dentro do grupo; localeCompare pt-BR p/ acento não jogar
+      // "Contábil" para o fim da lista.
+      .sort((a, b) => nomeDe(a).localeCompare(nomeDe(b), 'pt-BR'));
+    if (!visiveis.length) return;
+    total += visiveis.length;
+    html += `<div class="grupo"><h2>${esc(g.nome)}</h2><div class="cards">`
+      + visiveis.map(a => {
+          const info = INFO[a.id] || {};
+          // O label do nav já vem com o emoji na frente — separa p/ virar ícone do card.
+          const ico = a.label.split(' ')[0];
+          return `<a class="card" href="${esc(a.href)}">
+            ${info.tag ? `<span class="tag">${esc(info.tag)}</span>` : ''}
+            <div class="ico">${esc(ico)}</div>
+            <div class="nome">${esc(nomeDe(a))}</div>
+            <div class="desc">${esc(info.desc || '')}</div>
+          </a>`;
+        }).join('')
+      + '</div></div>';
+  });
+
+  document.getElementById('grupos').innerHTML = total ? html
+    : `<div class="vazio">Nenhuma aba liberada para o seu usuário.<br>
+       Fale com o administrador para receber acesso.</div>`;
+
+  document.getElementById('loadingScreen').style.display = 'none';
+  document.getElementById('dashboard').classList.add('active');
+}
+
+// O nav-perms.js monta a barra sozinho no DOMContentLoaded; aqui só os cards.
+document.addEventListener('DOMContentLoaded', montar);
+</script>
+</body>
+</html>

@@ -80,7 +80,7 @@ def admin_required(f):
         if session.get('role') != 'admin':
             if request.path.startswith('/api/'):
                 return jsonify({'ok': False, 'error': 'Acesso negado'}), 403
-            return redirect('/')
+            return redirect('/inicio')   # não-admin voltava p/ a Auditoria, que ele pode nem ter
         return f(*args, **kwargs)
     return decorated
 
@@ -88,34 +88,19 @@ def admin_required(f):
 PAGINAS_VALIDAS = {'auditoria', 'tarifas', 'embarques', 'reuniao', 'dre',
                    'despesas', 'conhecimentos', 'faturamento', 'contratos', 'veiculos',
                    'pgr', 'contabil'}
-# Chave da aba → rota inicial (para redirect sem loop).
-_PAGINA_ROTA = {
-    'auditoria': '/', 'tarifas': '/tarifas', 'embarques': '/embarques',
-    'reuniao': '/reuniao', 'dre': '/dre', 'despesas': '/dre/despesas',
-    'conhecimentos': '/dre/conhecimentos', 'faturamento': '/faturamento',
-    'contratos': '/contratos', 'veiculos': '/veiculos', 'pgr': '/pgr',
-    'contabil': '/contabil',
-}
-# Ordem de preferência ao escolher a primeira aba permitida.
-# 'embarques' vem antes de 'tarifas': quem não tem Auditoria e tem Embarques
-# cai direto no Embarques (só depois em Tarifas).
-# 'pgr' fica junto da família de rastreamento (perto de Embarques): é segurança
-# operacional, não financeiro.
-_PAGINA_ORDEM = ['auditoria', 'embarques', 'pgr', 'tarifas', 'reuniao', 'dre',
-                 'despesas', 'conhecimentos', 'faturamento', 'contratos', 'veiculos',
-                 'contabil']
+# O de-para aba → rota e a ordem de preferência viviam aqui para escolher em qual
+# aba o usuário caía no login. Não existem mais: quem escolhe é ele, na /inicio.
+# As rotas de cada aba são declaradas uma vez só, no `ABAS` do nav-perms.js.
 
 
 def _primeira_pagina_permitida():
-    """Rota da 1ª aba concedida ao usuário (evita loop de redirect). Admin → '/'.
-    Sem nenhuma aba → página neutra de 'sem acesso'."""
-    if session.get('role') == 'admin':
-        return '/'
-    permitidas = session.get('paginas_permitidas') or []
-    for chave in _PAGINA_ORDEM:
-        if chave in permitidas:
-            return _PAGINA_ROTA[chave]
-    return '/sem-acesso'
+    """Para onde mandar o usuário: a tela de entrada, que lista só as abas dele.
+
+    Antes isto escolhia uma aba pelo `_PAGINA_ORDEM` e o admin caía sempre em '/'
+    (a Auditoria, que carrega o dataset inteiro). Agora quem escolhe é a pessoa.
+    `/inicio` é `login_required` e NÃO `page_required` — se fosse, quem não tem
+    aba nenhuma entraria em loop de redirect."""
+    return '/inicio'
 
 
 def page_required(page_key):
@@ -189,7 +174,7 @@ def clean_rows(rows):
 @app.route('/login', methods=['GET'])
 def login_page():
     if 'user_id' in session:
-        return redirect('/')
+        return redirect(_primeira_pagina_permitida())
     return send_from_directory('.', 'login.html')
 
 
@@ -358,6 +343,15 @@ def mercadolivre_callback():
 # ════════════════════════════════════════
 # ROTAS PRINCIPAIS
 # ════════════════════════════════════════
+
+@app.route('/inicio')
+@login_required
+def inicio_page():
+    """Tela de entrada: cards só das abas liberadas ao usuário. Sem `page_required`
+    de propósito — é a página para onde todo mundo é mandado, inclusive quem não
+    tem aba nenhuma (aí ela mostra o aviso de 'sem acesso')."""
+    return send_from_directory('.', 'inicio.html')
+
 
 @app.route('/')
 @page_required('auditoria')
@@ -6470,12 +6464,16 @@ if __name__ == '__main__':
         def _loop_embarques_auto():
             # datetime é importado localmente em todo o arquivo (não há import global)
             from datetime import datetime, timedelta
-            hora = os.getenv('EMBARQUES_AUTO_HORA_BRT', '07:00')
+            # 16:30 BRT. A carga do SSW chega ~05:10, então rodar à tarde só melhora
+            # a chance de o CTRB de D-1 já existir (era 96,1% às 07:00). A janela de
+            # disparo (+180 min) tem de caber no mesmo dia: horário tardio demais
+            # (>21:00) nunca dispara, porque a comparação não vira a meia-noite.
+            hora = os.getenv('EMBARQUES_AUTO_HORA_BRT', '16:30')
             janela = int(os.getenv('EMBARQUES_AUTO_JANELA_DISPARO_MIN', '180'))
             try:
                 _hh, _mm = [int(x) for x in hora.split(':')]
             except Exception:
-                _hh, _mm = 7, 0
+                _hh, _mm = 16, 30
             ultimo_dia = None
             while True:
                 try:
@@ -6502,7 +6500,7 @@ if __name__ == '__main__':
 
         _th_ea.Thread(target=_loop_embarques_auto, daemon=True, name='EmbarquesAuto').start()
         print("✅ Lançamento automático de embarques LIGADO "
-              f"(diário às {os.getenv('EMBARQUES_AUTO_HORA_BRT', '07:00')} BRT)")
+              f"(diário às {os.getenv('EMBARQUES_AUTO_HORA_BRT', '16:30')} BRT)")
     else:
         print("ℹ️  Lançamento automático de embarques desligado (EMBARQUES_AUTO)")
 

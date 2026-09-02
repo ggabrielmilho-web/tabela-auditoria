@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PGR · Excessos de velocidade</title>
+<title>PGR · Excessos de velocidade — Rizza Log</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -300,11 +300,11 @@ function render(d) {
   if (periodo) {
     const nomes = (d.meses || []).map(m => MES_CURTO[+m.split('-')[1] - 1] + '/' + m.split('-')[0]);
     $('subtitulo').textContent = `${nomes.join(' · ')} · horário de Brasília`;
-    document.title = `PGR · ${nomes.join(' ')}`;
+    document.title = `PGR · ${nomes.join(' ')} — Rizza Log`;
   } else {
     const dia = d.dias[0] ? d.dias[0].dia : '';
     $('subtitulo').textContent = `${brData(dia)} · horário de Brasília`;
-    document.title = `PGR · Excessos — ${brData(dia)}`;
+    document.title = `PGR · Excessos ${brData(dia)} — Rizza Log`;
   }
 
   const classificou = (t.frota || 0) + (t.agregado || 0) > 0;

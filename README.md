@@ -240,7 +240,7 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 |---|---|---|
 | `EMBARQUES_AUTO` | **Liga o motor.** `false` para o operacional voltar a lançar à mão | `false` |
 | `EMBARQUES_AUTO_FECHAMENTO` | Deixa o robô ENCERRAR cargas (criar e fechar são chaves separadas) | `true` |
-| `EMBARQUES_AUTO_HORA_BRT` | Horário do job em Brasília (a carga do SSW chega ~05:10) | `07:00` |
+| `EMBARQUES_AUTO_HORA_BRT` | Horário do job em Brasília (a carga do SSW chega ~05:10). Somado à janela de disparo tem de caber no mesmo dia — acima de ~21:00 nunca dispara | `16:30` |
 | `EMBARQUES_AUTO_JANELA_DISPARO_MIN` | Tolerância p/ disparar após o horário (restart) | `180` |
 | `EMBARQUES_AUTO_DEFASAGEM` | Dias para trás (1 = ontem) | `1` |
 | `EMBARQUES_AUTO_JANELA_DIAS` | Dias varridos por execução (cobre o CTRB que sai em D+1) | `5` |
