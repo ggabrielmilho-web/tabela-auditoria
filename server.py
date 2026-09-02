@@ -59,6 +59,31 @@ def get_db():
         password=os.getenv('DB_PASSWORD', ''),
     )
 
+# ── Log de acesso ──
+def _registra_acesso(aba):
+    """1 linha por tela aberta, em `auditoria_acessos`.
+
+    Só navegação de página: `/api/` fica de fora porque uma tela dispara várias
+    chamadas e a contagem por aba viraria contagem de requisição. Falhar aqui não
+    pode derrubar a tela — no pior caso o acesso não é contado."""
+    try:
+        if request.path.startswith('/api/') or 'user_id' not in session:
+            return
+        ip = (request.headers.get('X-Forwarded-For', '').split(',')[0].strip()
+              or request.remote_addr or '')      # atrás do Traefik o IP real vem no header
+        conn = get_db()
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO auditoria_acessos (user_id, nome, aba, caminho, ip) "
+                    "VALUES (%s, %s, %s, %s, %s)",
+                    (session.get('user_id'), session.get('nome'), aba,
+                     request.path[:255], ip[:64]))
+        conn.close()
+    except Exception:
+        pass
+
+
 # ── Decorators de autenticação ──
 def login_required(f):
     @functools.wraps(f)
@@ -67,6 +92,8 @@ def login_required(f):
             if request.path.startswith('/api/'):
                 return jsonify({'ok': False, 'error': 'Não autenticado'}), 401
             return redirect('/login')
+        # Sem chave de aba aqui: usa o caminho ('/inicio' → 'inicio').
+        _registra_acesso((request.path.strip('/').split('/')[0] or 'inicio')[:40])
         return f(*args, **kwargs)
     return decorated
 
@@ -113,11 +140,13 @@ def page_required(page_key):
                     return jsonify({'ok': False, 'error': 'Não autenticado'}), 401
                 return redirect('/login')
             if session.get('role') == 'admin':
+                _registra_acesso(page_key)
                 return f(*args, **kwargs)
             if page_key not in (session.get('paginas_permitidas') or []):
                 if request.path.startswith('/api/'):
                     return jsonify({'ok': False, 'error': 'Acesso negado'}), 403
                 return redirect(_primeira_pagina_permitida())
+            _registra_acesso(page_key)
             return f(*args, **kwargs)
         return inner
     return deco
@@ -363,6 +392,15 @@ def index():
 @admin_required
 def admin_page():
     return send_from_directory('.', 'admin.html')
+
+
+@app.route('/uso')
+@admin_required
+def uso_page():
+    """Relatório de uso da ferramenta. Rota NÃO divulgada: de propósito fora do
+    `ABAS` do nav-perms.js, então não aparece na barra nem na tela de entrada.
+    Continua protegida por `admin_required` — escondida não é o mesmo que aberta."""
+    return send_from_directory('.', 'acessos.html')
 
 
 @app.route('/tarifas')
@@ -996,6 +1034,84 @@ def admin_list_users():
             for r in rows
         ]
         return jsonify({'ok': True, 'users': users})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/acessos')
+@admin_required
+def admin_acessos():
+    """Uso da ferramenta: quem entrou, com que frequência e em que tela.
+
+    Fonte: `auditoria_acessos` (1 linha por tela aberta). Recortes:
+      · por usuário  — total, dias com acesso, média/dia ativo, telas distintas, 1º/último
+      · por aba      — total e quantos usuários distintos abriram
+      · matriz       — usuário × aba
+      · por dia      — série para ver frequência ao longo do período
+      · ociosos      — tem a aba concedida e NUNCA abriu (permissão sobrando)
+    """
+    try:
+        dias = max(1, min(int(request.args.get('dias', 30)), 365))
+    except Exception:
+        dias = 30
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        corte = "criado_em >= NOW() - INTERVAL '%d days'" % dias
+
+        cur.execute(f"""
+            SELECT COALESCE(user_id, -1), MAX(nome), COUNT(*),
+                   COUNT(DISTINCT criado_em::date), COUNT(DISTINCT aba),
+                   MIN(criado_em), MAX(criado_em)
+              FROM auditoria_acessos WHERE {corte}
+             GROUP BY COALESCE(user_id, -1) ORDER BY COUNT(*) DESC""")
+        usuarios = [{'user_id': r[0], 'nome': r[1] or '(sem nome)', 'acessos': r[2],
+                     'dias_ativos': r[3], 'telas': r[4],
+                     'media_dia': round(r[2] / r[3], 1) if r[3] else 0,
+                     'primeiro': r[5].strftime('%d/%m/%Y %H:%M') if r[5] else '',
+                     'ultimo': r[6].strftime('%d/%m/%Y %H:%M') if r[6] else ''}
+                    for r in cur.fetchall()]
+
+        cur.execute(f"""
+            SELECT aba, COUNT(*), COUNT(DISTINCT user_id), MAX(criado_em)
+              FROM auditoria_acessos WHERE {corte}
+             GROUP BY aba ORDER BY COUNT(*) DESC""")
+        abas = [{'aba': r[0], 'acessos': r[1], 'usuarios': r[2],
+                 'ultimo': r[3].strftime('%d/%m/%Y %H:%M') if r[3] else ''}
+                for r in cur.fetchall()]
+
+        cur.execute(f"""
+            SELECT COALESCE(user_id, -1), aba, COUNT(*), MAX(criado_em)
+              FROM auditoria_acessos WHERE {corte}
+             GROUP BY COALESCE(user_id, -1), aba""")
+        matriz = [{'user_id': r[0], 'aba': r[1], 'acessos': r[2],
+                   'ultimo': r[3].strftime('%d/%m/%Y') if r[3] else ''}
+                  for r in cur.fetchall()]
+
+        cur.execute(f"""
+            SELECT criado_em::date, COUNT(*), COUNT(DISTINCT user_id)
+              FROM auditoria_acessos WHERE {corte}
+             GROUP BY 1 ORDER BY 1""")
+        por_dia = [{'dia': r[0].strftime('%Y-%m-%d'), 'acessos': r[1], 'usuarios': r[2]}
+                   for r in cur.fetchall()]
+
+        # Permissão concedida que ninguém usou no período. É o corte que mostra
+        # aba sobrando — e o admin entra com todas por bypass, então fica de fora.
+        cur.execute("""
+            SELECT u.id, u.nome, u.role, u.paginas_permitidas
+              FROM auditoria_users u WHERE u.ativo = true""")
+        cadastro = [{'user_id': r[0], 'nome': r[1], 'role': r[2], 'abas': r[3] or []}
+                    for r in cur.fetchall()]
+        usados = {(m['user_id'], m['aba']) for m in matriz}
+        ociosos = [{'user_id': u['user_id'], 'nome': u['nome'], 'aba': a}
+                   for u in cadastro if u['role'] != 'admin'
+                   for a in u['abas'] if (u['user_id'], a) not in usados]
+
+        cur.close(); conn.close()
+        total = sum(u['acessos'] for u in usuarios)
+        return jsonify({'ok': True, 'dias': dias, 'total': total,
+                        'usuarios': usuarios, 'abas': abas, 'matriz': matriz,
+                        'por_dia': por_dia, 'cadastro': cadastro, 'ociosos': ociosos})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
 

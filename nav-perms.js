@@ -31,6 +31,8 @@
     // glifo, sai quadradinho vazio. Emoji desta lista: só de blocos antigos.
     { id: 'veiculos',      page: 'veiculos',      href: '/veiculos',          label: '🚛 Veículos' },
     { id: 'admin',         page: 'admin',         href: '/admin',             label: '⚙ Admin' }
+    // O relatório de uso (/uso) NÃO entra aqui de propósito: é tela escondida,
+    // acessada só por quem sabe a URL. Protegida por admin_required no servidor.
   ];
 
   function podeVer(aba, me) {

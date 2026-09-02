@@ -670,6 +670,28 @@ cur.execute("CREATE INDEX IF NOT EXISTS ix_pgr_manif_car ON pgr_manifestos (plac
 
 print("✅ Tabelas do PGR (pgr_eventos, pgr_cobertura) prontas.\n")
 
+# ── Log de acesso: 1 linha por abertura de tela ──────────────────────────────
+# Grava só navegação de página (nunca /api/): uma tela dispara várias chamadas de
+# API e isso afogaria a contagem. `nome` é snapshot para o relatório continuar
+# legível se o usuário for renomeado ou removido depois.
+cur.execute("""
+    CREATE TABLE IF NOT EXISTS auditoria_acessos (
+        id         BIGSERIAL PRIMARY KEY,
+        user_id    INTEGER,
+        nome       VARCHAR(255),
+        aba        VARCHAR(40),      -- chave da aba ('faturamento', 'inicio', 'login'…)
+        caminho    VARCHAR(255),
+        ip         VARCHAR(64),
+        criado_em  TIMESTAMP DEFAULT NOW()
+    );
+""")
+# O relatório sempre corta por período; os índices seguem esse uso.
+cur.execute("CREATE INDEX IF NOT EXISTS ix_acessos_data ON auditoria_acessos (criado_em DESC);")
+cur.execute("CREATE INDEX IF NOT EXISTS ix_acessos_user ON auditoria_acessos (user_id, criado_em DESC);")
+cur.execute("CREATE INDEX IF NOT EXISTS ix_acessos_aba ON auditoria_acessos (aba, criado_em DESC);")
+
+print("✅ Tabela de log de acesso (auditoria_acessos) pronta.\n")
+
 conn.commit()
 cur.close()
 conn.close()
