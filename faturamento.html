@@ -40,6 +40,15 @@
   .search { flex: 1; min-width: 220px; padding: 9px 14px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 0.86rem; }
   .search:focus { outline: none; border-color: var(--accent); }
 
+  .rota-bar { margin-top: -6px; gap: 8px; }
+  .rota-lbl { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); font-weight: 700; }
+  .rota-uf { flex: 0 0 92px; min-width: 92px; text-transform: uppercase; }
+  .rota-cid { flex: 0 1 210px; min-width: 150px; }
+  .rota-uf.ativo, .rota-cid.ativo { border-color: var(--accent); }
+  .rota-seta { color: var(--text-dim); font-weight: 700; margin: 0 6px; }
+  .rota-bar .meta { color: var(--accent); }
+  td.sem-carga { color: var(--text-dim); }
+
   .kpis { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
   .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 18px; }
   .kpi .l { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); font-weight: 600; }
@@ -94,6 +103,30 @@
     <span class="meta" id="contador"></span>
   </div>
 
+  <!-- Rota: estado e cidade em campos separados. Escolher o estado filtra a lista de cidades. -->
+  <div class="controls rota-bar">
+    <span class="rota-lbl">Origem</span>
+    <input type="text" class="search rota-uf" id="fOrigemUF" list="listaOrigemUF" autocomplete="off"
+           placeholder="Estado" oninput="render()">
+    <datalist id="listaOrigemUF"></datalist>
+    <input type="text" class="search rota-cid" id="fOrigemCidade" list="listaOrigemCidade" autocomplete="off"
+           placeholder="Cidade" oninput="render()">
+    <datalist id="listaOrigemCidade"></datalist>
+
+    <span class="rota-seta">→</span>
+
+    <span class="rota-lbl">Destino</span>
+    <input type="text" class="search rota-uf" id="fDestinoUF" list="listaDestinoUF" autocomplete="off"
+           placeholder="Estado" oninput="render()">
+    <datalist id="listaDestinoUF"></datalist>
+    <input type="text" class="search rota-cid" id="fDestinoCidade" list="listaDestinoCidade" autocomplete="off"
+           placeholder="Cidade" oninput="render()">
+    <datalist id="listaDestinoCidade"></datalist>
+
+    <button class="btn-sm" id="btnLimparRota" onclick="limparRota()">Limpar rota</button>
+    <span class="meta" id="infoRota"></span>
+  </div>
+
   <div class="table-wrapper">
     <div class="table-scroll">
       <table id="tabela">
@@ -108,7 +141,7 @@
 <script>
 const ANO = 2026;
 const MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
-let DADOS = null;          // resposta do endpoint
+let DADOS = null;          // resposta do endpoint (grão tomador × origem × destino × mês)
 let modo = 'fat';          // 'fat' | 'cargas'
 let ordem = { campo: 'total', dir: 'desc' };  // campo: 'nome' | 1..12 | 'total'
 
@@ -131,6 +164,7 @@ async function loadData() {
     const j = await r.json();
     if (!j.ok) throw new Error(j.error + (j.detail ? '\n' + JSON.stringify(j.detail) : ''));
     DADOS = j;
+    montaListasRota();
     document.getElementById('loadingScreen').style.display = 'none';
     document.getElementById('dashboard').classList.add('active');
     render();
@@ -156,27 +190,172 @@ function setModo(m) {
   render();
 }
 
-// Soma totais (por mês + geral) sobre um conjunto de tomadores (respeita o filtro)
+// ── Filtro de rota ────────────────────────────────────────────────────────────
+// Estado e cidade são campos separados, dos dois lados. O grupo guarda o local
+// como "CIDADE/UF"; aqui a gente quebra e compara cada parte por si.
+const norm = s => (s || '').trim().toUpperCase();
+const ufDe = local => { const p = local.split('/'); return p[p.length - 1]; };
+const cidadeDe = local => local.split('/')[0];
+
+function casaLocal(local, uf, cidade) {
+  if (uf && ufDe(local) !== uf) return false;
+  if (cidade && !cidadeDe(local).includes(cidade)) return false;  // includes: funciona enquanto digita
+  return true;
+}
+
+function filtroRota() {
+  const v = id => norm(document.getElementById(id).value);
+  return { ouf: v('fOrigemUF'), ocid: v('fOrigemCidade'),
+           duf: v('fDestinoUF'), dcid: v('fDestinoCidade') };
+}
+
+const temFiltroRota = f => !!(f.ouf || f.ocid || f.duf || f.dcid);
+
+// Índices para os datalists, montados 1× no load. Cidades ordenadas por volume —
+// são 171 origens e 330 destinos, lista alfabética seria inútil.
+let IDX_ROTA = null;
+
+function montaListasRota() {
+  const lado = (campo) => {
+    const porUf = new Map(), porCidade = new Map();
+    DADOS.grupos.forEach(g => {
+      const l = g[campo], u = ufDe(l), c = cidadeDe(l);
+      porUf.set(u, (porUf.get(u) || 0) + g.mf.length);
+      const k = u + '|' + c;
+      porCidade.set(k, (porCidade.get(k) || 0) + g.mf.length);
+    });
+    return {
+      ufs: [...porUf].sort((a, b) => b[1] - a[1]).map(x => x[0]),
+      cidades: [...porCidade].sort((a, b) => b[1] - a[1])
+        .map(([k]) => ({ uf: k.split('|')[0], cidade: k.split('|')[1] })),
+    };
+  };
+  IDX_ROTA = { o: lado('o'), d: lado('d') };
+  opcoes('listaOrigemUF', IDX_ROTA.o.ufs);
+  opcoes('listaDestinoUF', IDX_ROTA.d.ufs);
+  atualizaListasCidade();
+}
+
+function opcoes(id, vals) {
+  document.getElementById(id).innerHTML = vals.map(v => `<option value="${v}">`).join('');
+}
+
+// A lista de cidades acompanha o estado escolhido — com a UF preenchida sobram
+// poucas opções, sem ela vem tudo por volume.
+function atualizaListasCidade() {
+  if (!IDX_ROTA) return;
+  const f = filtroRota();
+  const filtra = (lista, uf) => {
+    const vistos = new Set();
+    return lista.filter(x => (!uf || x.uf === uf) && !vistos.has(x.cidade) && vistos.add(x.cidade))
+                .map(x => x.cidade);
+  };
+  opcoes('listaOrigemCidade', filtra(IDX_ROTA.o.cidades, f.ouf));
+  opcoes('listaDestinoCidade', filtra(IDX_ROTA.d.cidades, f.duf));
+}
+
+function limparRota() {
+  ['fOrigemUF', 'fOrigemCidade', 'fDestinoUF', 'fDestinoCidade']
+    .forEach(id => { document.getElementById(id).value = ''; });
+  render();
+}
+
+// ── Agregação ─────────────────────────────────────────────────────────────────
+// Monta a matriz tomador × mês sob o filtro de rota. `cargas` NUNCA é soma: cada
+// linha guarda o CONJUNTO de manifestos, e a contagem é o tamanho do conjunto.
+// É isso que faz o número fechar quando a mesma viagem pertence a duas filiais do
+// mesmo grupo, ou a vários tomadores numa carga de distribuição.
+// Com filtro de rota, faturamento e CTe contam SÓ o que tem manifesto (`fm`/`nm`).
+// Filtrar rota é pergunta de operação: quanto rendeu o que rodou aqui. Complemento de
+// frete e cobrança de descarga herdam a cidade de quem emitiu — em Araras→RJ, dois
+// complementos (R$ 8.718) eram de uma viagem de outra rota. Sem filtro, o número segue
+// sendo o faturamento cheio, que é o que fecha com o financeiro.
+function agrega() {
+  const f = filtroRota();
+  const soViagem = temFiltroRota(f);
+  const porTom = new Map();
+  DADOS.grupos.forEach(g => {
+    if (!casaLocal(g.o, f.ouf, f.ocid) || !casaLocal(g.d, f.duf, f.dcid)) return;
+    const vf = soViagem ? g.fm : g.f;
+    const nc = soViagem ? g.nm : g.n;
+    if (soViagem && !nc) return;              // grupo sem viagem nenhuma: fora do recorte
+    let t = porTom.get(g.t);
+    if (!t) {
+      t = { ...DADOS.tomadores[g.t], meses: {}, _mfMes: {}, _mf: new Set(),
+            total_faturamento: 0, total_ctes: 0 };
+      for (let m = 1; m <= 12; m++) { t.meses[m] = { faturamento: 0, cargas: 0, ctes: 0 }; t._mfMes[m] = new Set(); }
+      porTom.set(g.t, t);
+    }
+    t.meses[g.m].faturamento += vf;
+    t.meses[g.m].ctes += nc;
+    t.total_faturamento += vf;
+    t.total_ctes += nc;
+    g.mf.forEach(i => { t._mfMes[g.m].add(i); t._mf.add(i); });
+  });
+  const linhas = [...porTom.values()];
+  linhas.forEach(t => {
+    t.total_faturamento = Math.round(t.total_faturamento * 100) / 100;
+    for (let m = 1; m <= 12; m++) {
+      t.meses[m].faturamento = Math.round(t.meses[m].faturamento * 100) / 100;
+      t.meses[m].cargas = t._mfMes[m].size;
+    }
+    t.total_cargas = t._mf.size;
+  });
+  return linhas;
+}
+
+// Totais do conjunto EXIBIDO. Faturamento soma; carga é união de conjuntos —
+// somar as linhas contaria a mesma viagem uma vez por tomador.
 function somaTotais(arr) {
   const porMes = {};
-  for (let m = 1; m <= 12; m++) porMes[m] = { faturamento: 0, cargas: 0 };
-  let totFat = 0, totCargas = 0;
+  const mfMes = {}; const mfTot = new Set();
+  for (let m = 1; m <= 12; m++) { porMes[m] = { faturamento: 0, cargas: 0, ctes: 0 }; mfMes[m] = new Set(); }
+  let totFat = 0, totCtes = 0;
   arr.forEach(t => {
     for (let m = 1; m <= 12; m++) {
-      const c = t.meses[m];
-      if (c) { porMes[m].faturamento += c.faturamento; porMes[m].cargas += c.cargas; }
+      porMes[m].faturamento += t.meses[m].faturamento;
+      porMes[m].ctes += t.meses[m].ctes;
+      t._mfMes[m].forEach(i => mfMes[m].add(i));
     }
-    totFat += t.total_faturamento; totCargas += t.total_cargas;
+    totFat += t.total_faturamento; totCtes += t.total_ctes;
+    t._mf.forEach(i => mfTot.add(i));
   });
-  return { porMes, totFat: Math.round(totFat * 100) / 100, totCargas };
+  for (let m = 1; m <= 12; m++) {
+    porMes[m].faturamento = Math.round(porMes[m].faturamento * 100) / 100;
+    porMes[m].cargas = mfMes[m].size;
+  }
+  return { porMes, totFat: Math.round(totFat * 100) / 100, totCargas: mfTot.size, totCtes };
 }
 
 function atualizaKpis(arr, tot, filtrado) {
+  const soViagem = temFiltroRota(filtroRota());
   const lblTom = filtrado ? 'Tomadores (filtro)' : 'Tomadores';
+  const lblFat = soViagem ? `Faturamento ${ANO} · só viagens` : `Faturamento ${ANO}`;
+  const dicaFat = soViagem
+    ? 'title="Com filtro de rota, soma só CTe com manifesto — complemento de frete e cobrança de descarga ficam de fora."' : '';
   document.getElementById('kpis').innerHTML = `
     <div class="kpi"><div class="l">${lblTom}</div><div class="v">${fmtInt(arr.length)}</div></div>
-    <div class="kpi"><div class="l">Faturamento ${ANO}</div><div class="v">${fmtBRL(tot.totFat)}</div></div>
-    <div class="kpi"><div class="l">Cargas ${ANO}</div><div class="v">${fmtInt(tot.totCargas)}</div></div>`;
+    <div class="kpi" ${dicaFat}><div class="l">${lblFat}</div><div class="v">${fmtBRL(tot.totFat)}</div></div>
+    <div class="kpi" title="Manifestos distintos: a mesma viagem faturada em mais de um CNPJ conta uma vez."><div class="l">Cargas ${ANO}</div><div class="v">${fmtInt(tot.totCargas)}</div></div>
+    <div class="kpi"><div class="l">CTe${soViagem ? ' de viagem' : ''}</div><div class="v">${fmtInt(tot.totCtes)}</div></div>`;
+}
+
+function rotuloLocal(uf, cidade) {
+  if (cidade && uf) return `${cidade}/${uf}`;
+  return cidade || uf || '';
+}
+
+function linhaFiltroRota() {
+  const f = filtroRota();
+  const marca = (id, v) => document.getElementById(id).classList.toggle('ativo', !!v);
+  marca('fOrigemUF', f.ouf); marca('fOrigemCidade', f.ocid);
+  marca('fDestinoUF', f.duf); marca('fDestinoCidade', f.dcid);
+  atualizaListasCidade();
+  const o = rotuloLocal(f.ouf, f.ocid), d = rotuloLocal(f.duf, f.dcid);
+  document.getElementById('infoRota').innerHTML = temFiltroRota(f)
+    ? `rota: ${o || 'todas'} → ${d || 'todos'} · <span style="color:var(--text-dim)">R$ só de viagens (CTe com manifesto)</span>`
+    : '';
+  return temFiltroRota(f);
 }
 
 function ordenar(campo) {
@@ -187,7 +366,7 @@ function ordenar(campo) {
 
 function linhasFiltradasOrdenadas() {
   const q = (document.getElementById('busca').value || '').trim().toUpperCase();
-  let arr = DADOS.tomadores.filter(t => !q || t.nome.toUpperCase().includes(q) || (t.cnpj_raiz || '').includes(q));
+  let arr = agrega().filter(t => !q || t.nome.toUpperCase().includes(q) || (t.cnpj_raiz || '').includes(q));
   arr = arr.slice().sort((a, b) => {
     let va, vb;
     if (ordem.campo === 'nome') { va = a.nome; vb = b.nome; }
@@ -210,8 +389,9 @@ function render() {
     <th class="total-col" onclick="ordenar('total')">Total${setaOrd('total')}</th>
   </tr>`;
 
+  const comRota = linhaFiltroRota();
   const arr = linhasFiltradasOrdenadas();
-  const filtrado = (document.getElementById('busca').value || '').trim() !== '';
+  const filtrado = (document.getElementById('busca').value || '').trim() !== '' || comRota;
   const tot = somaTotais(arr);
   atualizaKpis(arr, tot, filtrado);
 
@@ -225,19 +405,21 @@ function render() {
 
   tb.innerHTML = arr.map(t => {
     const cnpjFmt = t.cnpj_raiz ? `Raiz CNPJ ${t.cnpj_raiz}` : 'sem CNPJ';
+    const semCarga = modo === 'cargas' && t.total_ctes && !t.total_cargas;
     const cells = [];
     for (let m = 1; m <= 12; m++) {
       const v = cellVal(t, m);
       cells.push(`<td class="${v ? '' : 'zero'}">${v ? fmtCell(v) : '—'}</td>`);
     }
     return `<tr>
-      <td title="${t.nome.replace(/"/g, '&quot;')} · ${cnpjFmt}">${t.nome}</td>
+      <td class="${semCarga ? 'sem-carga' : ''}" title="${t.nome.replace(/"/g, '&quot;')} · ${cnpjFmt} · ${fmtInt(t.total_ctes)} CTe · ${fmtInt(t.total_cargas)} cargas">${t.nome}${semCarga ? ' <span style="opacity:.6">(só CTe s/ manifesto)</span>' : ''}</td>
       ${cells.join('')}
       <td class="total-col">${fmtCell(totVal(t))}</td>
     </tr>`;
   }).join('');
 
-  // Rodapé: total por mês do conjunto exibido (respeita o filtro)
+  // Rodapé: total do conjunto exibido. Em Nº Cargas é contagem distinta (união dos
+  // manifestos), não a soma das linhas — a mesma viagem pode estar em vários tomadores.
   const footCells = [];
   for (let m = 1; m <= 12; m++) {
     const v = modo === 'fat' ? tot.porMes[m].faturamento : tot.porMes[m].cargas;
@@ -245,8 +427,11 @@ function render() {
   }
   const totGeral = modo === 'fat' ? tot.totFat : tot.totCargas;
   const lblTotal = filtrado ? `Subtotal (${arr.length})` : 'Total geral';
-  document.getElementById('tfoot').innerHTML = `<tr>
-    <td>${lblTotal}</td>${footCells.join('')}<td class="total-col">${fmtCell(totGeral)}</td>
+  const somaLinhas = arr.reduce((s, t) => s + t.total_cargas, 0);
+  const dica = modo === 'cargas' && somaLinhas !== tot.totCargas
+    ? ` title="Soma das linhas: ${fmtInt(somaLinhas)}. O total é menor porque ${fmtInt(somaLinhas - tot.totCargas)} viagem(ns) atendem mais de um tomador e contam uma vez só."` : '';
+  document.getElementById('tfoot').innerHTML = `<tr${dica}>
+    <td>${lblTotal}${dica ? ' *' : ''}</td>${footCells.join('')}<td class="total-col">${fmtCell(totGeral)}</td>
   </tr>`;
 
   document.getElementById('contador').textContent = `${arr.length} tomador${arr.length > 1 ? 'es' : ''}`;
@@ -255,20 +440,36 @@ function render() {
 function exportarCsv() {
   if (!DADOS) return;
   const arr = linhasFiltradasOrdenadas();
+  const tot = somaTotais(arr);
+  const f = filtroRota();
   const sep = ';';
-  const cab = ['Tomador', 'Raiz CNPJ', ...MESES, 'Total'];
-  const linhas = [cab.join(sep)];
+  const rotO = rotuloLocal(f.ouf, f.ocid), rotD = rotuloLocal(f.duf, f.dcid);
+  const linhas = [];
+  if (rotO || rotD) {
+    linhas.push(`Rota: ${rotO || 'todas'} -> ${rotD || 'todos'}`);
+    linhas.push('"Faturamento: so CTe com manifesto (viagens). Complemento de frete e cobranca de descarga ficam de fora."');
+  }
+  linhas.push(['Tomador', 'Raiz CNPJ', ...MESES, 'Total', 'CTe'].join(sep));
   const num = v => modo === 'fat' ? Number(v || 0).toFixed(2).replace('.', ',') : String(v || 0);
   arr.forEach(t => {
     const cols = [`"${t.nome}"`, t.cnpj_raiz || ''];
     for (let m = 1; m <= 12; m++) cols.push(num(cellVal(t, m)));
     cols.push(num(totVal(t)));
+    cols.push(String(t.total_ctes));
     linhas.push(cols.join(sep));
   });
+  // Total distinto, igual ao rodapé da tela (não é a soma da coluna acima).
+  const totCols = ['"TOTAL"', ''];
+  for (let m = 1; m <= 12; m++) totCols.push(num(modo === 'fat' ? tot.porMes[m].faturamento : tot.porMes[m].cargas));
+  totCols.push(num(modo === 'fat' ? tot.totFat : tot.totCargas));
+  totCols.push(String(tot.totCtes));
+  linhas.push(totCols.join(sep));
+  if (modo === 'cargas') linhas.push('"Cargas = manifestos distintos; o TOTAL nao e a soma das linhas (viagem com varios tomadores conta uma vez)."');
   const blob = new Blob(['﻿' + linhas.join('\n')], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `faturamento_tomadores_${ANO}_${modo}.csv`;
+  const slug = (rotO || rotD) ? `_${(rotO || 'todas').replace(/\//g, '-')}_${(rotD || 'todos').replace(/\//g, '-')}` : '';
+  a.download = `faturamento_tomadores_${ANO}_${modo}${slug}.csv`;
   a.click();
   URL.revokeObjectURL(a.href);
 }

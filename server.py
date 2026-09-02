@@ -2082,29 +2082,37 @@ def _raiz_cnpj(cnpj):
 @app.route('/api/faturamento/tomadores')
 @page_required('faturamento')
 def api_faturamento_tomadores():
-    """Matriz faturamento por tomador (cliente_pagador) × mês, consolidado por raiz de CNPJ.
-    Fonte: conhecimentos_emitidos (valor_frete + distinct primeiro_manifesto), filtrado por ano."""
+    """Faturamento por tomador × mês × rota, consolidado por raiz de CNPJ.
+    Fonte: conhecimentos_emitidos, filtrado por ano (data_autorizacao).
+
+    **Grão da resposta = (tomador, origem, destino, mês)** e cada grupo carrega a LISTA de
+    manifestos, não uma contagem. É o que permite à tela filtrar por rota e ainda contar carga
+    certo: `cargas` é sempre `DISTINCTCOUNT` recalculado sobre o conjunto filtrado.
+
+    Por que não devolver a contagem pronta: contagem de distintos NÃO soma. O mesmo manifesto
+    pode aparecer em vários grupos — duas filiais do mesmo grupo econômico faturando a mesma
+    viagem (Heinz: 119 dos 209 manifestos de 2026), ou uma carga de distribuição atendendo
+    vários tomadores/destinos. Somando as contagens, o total inflava ~17%. Com a lista, a tela
+    faz união de conjuntos e o número fecha em qualquer recorte.
+
+    Origem = cidade_origem_prestacao (de onde partiu ESTA prestação de serviço).
+    Destino = cidade_destinatario. CTe sem manifesto entra no faturamento e NÃO conta como
+    carga (é complemento de frete, subcontratação ou cobrança de descarga — não é viagem)."""
     try:
         ano = int(request.args.get('ano', 2026))
     except Exception:
         ano = 2026
 
-    # DAX agregado: 1 linha por (cnpj_pagador, cliente_pagador, mês). Mês derivado via ADDCOLUMNS.
+    CE = "'public conhecimentos_emitidos'"
+    cols = ['primeiro_manifesto', 'cnpj_pagador', 'cliente_pagador', 'cidade_origem_prestacao',
+            'uf_origem_prestacao', 'cidade_destinatario', 'uf_destinatario', 'valor_frete']
+    sel = ', '.join(f'"{c}",{CE}[{c}]' for c in cols)
     dax = (
-        "EVALUATE SUMMARIZE("
-        "ADDCOLUMNS("
-        f"FILTER('public conhecimentos_emitidos', "
-        f"'public conhecimentos_emitidos'[data_autorizacao] >= DATE({ano},1,1) && "
-        f"'public conhecimentos_emitidos'[data_autorizacao] <= DATE({ano},12,31)), "
-        "\"@mes\", FORMAT('public conhecimentos_emitidos'[data_autorizacao], \"MM\")), "
-        "'public conhecimentos_emitidos'[cnpj_pagador], "
-        "'public conhecimentos_emitidos'[cliente_pagador], "
-        "[@mes], "
-        "\"faturamento\", SUM('public conhecimentos_emitidos'[valor_frete]), "
-        # cargas = viagens reais: NÃO conta CTe sem manifesto (cobrança que não é viagem)
-        "\"cargas\", CALCULATE(DISTINCTCOUNT('public conhecimentos_emitidos'[primeiro_manifesto]), "
-        "NOT(ISBLANK('public conhecimentos_emitidos'[primeiro_manifesto])) && "
-        "'public conhecimentos_emitidos'[primeiro_manifesto] <> \"\"))"
+        f"EVALUATE SELECTCOLUMNS(ADDCOLUMNS(FILTER({CE}, "
+        f"{CE}[data_autorizacao] >= DATE({ano},1,1) && "
+        f"{CE}[data_autorizacao] <= DATE({ano},12,31)), "
+        f"\"@mes\", FORMAT({CE}[data_autorizacao], \"MM\")), "
+        f"{sel}, \"mes\", [@mes])"
     )
 
     try:
@@ -2120,51 +2128,72 @@ def api_faturamento_tomadores():
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
 
-    # Consolida por raiz de CNPJ (+ grupo econômico). Sem CNPJ → cai no nome (fallback).
-    tomadores = {}        # chave -> {cnpj_raiz, nome, _nomes:{nome:freq}, meses:{1..12:{fat,cargas}}, total_*}
-    totais_mes = {m: {'faturamento': 0.0, 'cargas': 0} for m in range(1, 13)}
+    def _cid(cidade, uf):
+        c = str(cidade or '').strip().upper()
+        u = str(uf or '').strip().upper()
+        return f"{c}/{u}" if c or u else "—/—"
+
+    tomadores = {}          # chave -> {cnpj_raiz, nome, _nomes}
+    grupos = {}             # (chave, origem, destino, mes) -> {f, n, mf:set}
+    manifestos = {}         # manifesto -> índice (o payload manda a lista 1×, os grupos referenciam)
 
     for r in linhas:
         nome = (str(r.get('cliente_pagador') or '').strip()) or '(sem nome)'
         raiz = _raiz_cnpj(r.get('cnpj_pagador'))   # já resolve o grupo econômico
         chave = raiz or f"nome::{nome.upper()}"
         try:
-            mes = int(r.get('@mes'))
+            mes = int(r.get('mes'))
         except Exception:
             continue
-        fat = float(r.get('faturamento') or 0)
-        carg = int(r.get('cargas') or 0)
+        if not 1 <= mes <= 12:
+            continue
 
         t = tomadores.get(chave)
         if not t:
-            t = {'cnpj_raiz': raiz, 'nome': nome, '_nomes': {},
-                 'meses': {m: {'faturamento': 0.0, 'cargas': 0} for m in range(1, 13)},
-                 'total_faturamento': 0.0, 'total_cargas': 0}
+            t = {'cnpj_raiz': raiz, 'nome': nome, '_nomes': {}}
             tomadores[chave] = t
         t['_nomes'][nome] = t['_nomes'].get(nome, 0) + 1
-        if 1 <= mes <= 12:
-            t['meses'][mes]['faturamento'] += fat
-            t['meses'][mes]['cargas'] += carg
-            t['total_faturamento'] += fat
-            t['total_cargas'] += carg
-            totais_mes[mes]['faturamento'] += fat
-            totais_mes[mes]['cargas'] += carg
 
-    saida = []
-    for t in tomadores.values():
-        # rótulo = nome mais frequente da raiz
-        t['nome'] = max(t['_nomes'].items(), key=lambda kv: kv[1])[0]
-        del t['_nomes']
-        t['total_faturamento'] = round(t['total_faturamento'], 2)
-        for m in range(1, 13):
-            t['meses'][m]['faturamento'] = round(t['meses'][m]['faturamento'], 2)
-        saida.append(t)
-    saida.sort(key=lambda x: x['total_faturamento'], reverse=True)
-    for m in range(1, 13):
-        totais_mes[m]['faturamento'] = round(totais_mes[m]['faturamento'], 2)
+        gk = (chave,
+              _cid(r.get('cidade_origem_prestacao'), r.get('uf_origem_prestacao')),
+              _cid(r.get('cidade_destinatario'), r.get('uf_destinatario')),
+              mes)
+        g = grupos.get(gk)
+        if g is None:
+            g = {'f': 0.0, 'n': 0, 'fm': 0.0, 'nm': 0, 'mf': set()}
+            grupos[gk] = g
+        vf = float(r.get('valor_frete') or 0)
+        g['f'] += vf
+        g['n'] += 1
+        man = str(r.get('primeiro_manifesto') or '').strip().upper()
+        if man:
+            # `fm`/`nm` = só o que tem manifesto, ou seja, só viagem. Com filtro de rota
+            # a tela usa esse valor: complemento de frete e cobrança de descarga herdam
+            # a cidade de quem emitiu e entrariam na rota sem terem rodado nela.
+            g['fm'] += vf
+            g['nm'] += 1
+            idx = manifestos.get(man)
+            if idx is None:
+                idx = len(manifestos)
+                manifestos[man] = idx
+            g['mf'].add(idx)
 
-    return jsonify({'ok': True, 'ano': ano, 'tomadores': saida, 'totais_mes': totais_mes,
-                    'count': len(saida)})
+    # índice do tomador na lista — os grupos referenciam por posição p/ encolher o payload
+    ordem_tom = list(tomadores.keys())
+    pos = {k: i for i, k in enumerate(ordem_tom)}
+    saida_tom = []
+    for k in ordem_tom:
+        t = tomadores[k]
+        saida_tom.append({'cnpj_raiz': t['cnpj_raiz'],
+                          'nome': max(t['_nomes'].items(), key=lambda kv: kv[1])[0]})
+
+    saida_grp = [{'t': pos[k[0]], 'o': k[1], 'd': k[2], 'm': k[3],
+                  'f': round(g['f'], 2), 'n': g['n'],
+                  'fm': round(g['fm'], 2), 'nm': g['nm'], 'mf': sorted(g['mf'])}
+                 for k, g in grupos.items()]
+
+    return jsonify({'ok': True, 'ano': ano, 'tomadores': saida_tom, 'grupos': saida_grp,
+                    'manifestos': len(manifestos), 'count': len(saida_tom)})
 
 
 # A implementação vive em placas.py para ser compartilhada com o PGR sem import

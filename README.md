@@ -23,7 +23,7 @@ URL de produção: **https://rizza.carvalhoia.com**
 - **DRE** (`/dre`) — Demonstração do Resultado do Exercício com 4 gráficos analíticos (Waterfall, Donut por Grupo, Pareto 80/20, Comparativo Mensal) e chat IA financeiro com streaming em tempo real
 - **Despesas** (`/dre/despesas`) — Auditoria detalhada de `consulta_despesas_477` com filtros, drilldown por grupo/evento, **AutoFilter estilo Excel por coluna** (funil no cabeçalho; via `report-filter.js`) e exportação CSV em streaming
 - **Conhecimentos** (`/dre/conhecimentos`) — Auditoria detalhada de `conhecimentos_emitidos` com filtros, **AutoFilter estilo Excel por coluna** e exportação CSV em streaming
-- **Faturamento por Tomador** (`/faturamento`) — Matriz **tomador × meses** (faturamento e nº de cargas) de `conhecimentos_emitidos`, agregada via DAX e **consolidada por raiz de CNPJ** (junta filiais do mesmo grupo). Toggle R$/Cargas, busca, ordenação e CSV; cards e subtotal acompanham o filtro
+- **Faturamento por Tomador** (`/faturamento`) — Matriz **tomador × meses** (faturamento e nº de cargas) de `conhecimentos_emitidos`, **consolidada por raiz de CNPJ** (junta filiais do mesmo grupo). Toggle R$/Cargas, busca, ordenação e CSV; cards e subtotal acompanham o filtro. **Filtro de rota** (origem → destino): cada lado aceita **estado ou cidade**, com autocomplete ordenado por volume. **Carga = manifesto distinto**, contado já no grão da raiz — a mesma viagem faturada em duas filiais conta **uma vez** (ver Módulo Faturamento por Tomador)
 - **Análise por Veículo** (`/veiculos`) — Análise de receita/custo por **Cavalo / Carreta / Motorista / Proprietário**, sobre `Auditoria Receita` (receita **rateada**, nunca duplica). Filtros de **mês/competência** e **tipo** (Frota/Agregado/Carreteiro) como **dropdown (caixinhas + Aplicar)**. Na visão **Cavalo + só Frota**: custos reais por cavalo — **Pedágio** (Sem Parar), **Combustível/ARLA** (ValeCard, com **consumo km/L** via hodômetro), **Pessoal** (folha), **Manut. Cavalo / Seguro / Rastreador** e **Pneu** (eventos 5411/5412, split cavalo×carreta por nº de pneus) rateados → **Resultado Frota**; mostra **KM Rota** (manifesto) e **KM Abast.** (hodômetro) lado a lado. Na visão **Carreta**: **Manut. Carreta** + **Pneu** rateados entre as carretas Rizza (frota+agregado). **Coluna Proprietário** (dono do cavalo no recorte cavalo; donos dos cavalos no drawer da carreta). **Donut "Composição do Faturamento"** quando só um tipo está marcado (custos diluídos na receita + Resultado). **Painel lateral (drawer)** com cargas, abastecimentos, pedágios, manutenção real, relacionamentos e quebra por veículo. **Placas normalizadas para Mercosul** (funde grafia antiga + nova; trata colisão preferindo a Mercosul real)
 - **PGR — Excesso de velocidade** (`/pgr`) — Relatório diário das placas que passaram de 95 km/h, enviado por WhatsApp toda manhã (imagem-resumo + link). Detecção sobre o histórico de GPS **backfillado** da 3S, com **situação de carga provada por posição** (carregado / parcial / vazio / não confirmado), rodovia do pico e rodapé de **cobertura por placa**. Traz o **cavalo do par** nas linhas de carreta. **Filtros por cavalo, carreta e motorista** (digitáveis) e **seleção de mês** com múltipla escolha, mostrando só os meses já apurados. Acesso por sessão (aba `pgr`) **ou** por token de leitura no link — o token abre **um dia só**, sem período nem filtro. Ver Módulo PGR
 - **Contábil** (`/contabil`) — Base contábil do SSW para o fechamento: **posição por banco** (uma linha por conta, com a conta contábil do plano da PERSETO e o ✓ de conferência contra o rodapé do próprio extrato), drawer de composição por origem/regra, e os relatórios de **extrato (456)**, **faturamento (441, grão fatura e CTRC)**, **adiantamentos (571)** com AutoFilter e CSV. Traz ainda a **configuração**: `/contabil/eventos` (conta contábil por evento, as flags da contadora, histórico de edição e prévia do impacto) e `/contabil/contas-fixas`. É a aba concedida à contadora externa — ver Módulo Contábil e `HANDOFF-CONTABIL.md`
@@ -327,7 +327,7 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 - `POST /api/chat-dre` — chat financeiro com streaming SSE
 
 ### Faturamento por Tomador (admin)
-- `GET /api/faturamento/tomadores?ano=2026` — matriz tomador × mês (faturamento + nº de cargas) de `conhecimentos_emitidos`, agregada via DAX (`SUM(valor_frete)` + `DISTINCTCOUNT(primeiro_manifesto)`) e consolidada por raiz de CNPJ no backend
+- `GET /api/faturamento/tomadores?ano=2026` — grão **(tomador, origem, destino, mês)** de `conhecimentos_emitidos`, consolidado por raiz de CNPJ. Cada grupo devolve a **lista de manifestos** (`mf`), não uma contagem: é o que permite à tela filtrar por rota e ainda contar carga certo, porque `cargas` é `DISTINCTCOUNT` recalculado sobre o conjunto filtrado. Origem = `cidade_origem_prestacao`, destino = `cidade_destinatario`. Payload ~0,3 MB/ano
 - `GET /report-filter.js` — componente JS do AutoFilter (servido como estático, igual ao `nav-perms.js`)
 
 ### Análise por Veículo (admin)
@@ -627,6 +627,37 @@ Emissão assistida por IA do **contrato TAC Agregado** (transportador autônomo 
 ### Princípios
 - O template `.docx` é a **única fonte** do texto do contrato; o preview HTML (mammoth) é derivado do mesmo `.docx` renderizado — não há duas versões do texto.
 - O template é derivado do contrato-origem por `_build_template.py` (rodar 1×, fora do fluxo de produção).
+
+---
+
+## Módulo Faturamento por Tomador
+
+Matriz tomador × mês com filtro de rota (`/faturamento`, `server.py:/api/faturamento/tomadores`). Fonte: `public conhecimentos_emitidos`, janela por `data_autorizacao`.
+
+### Contagem de distintos não soma
+
+Regra do negócio: **um manifesto = uma carga**, por tomador. Consequência técnica: `cargas` é `DISTINCTCOUNT` e **contagem de distintos não é somável**. O endpoint devolve a **lista de manifestos** por grupo e a tela faz união de conjuntos — nunca soma de contagens. Sem isso, dois erros aparecem:
+
+| Erro | Efeito medido (2026) |
+|---|---|
+| Contar no grão da **filial** e somar na consolidação por raiz | Heinz: 328 cargas onde saíram 209 (**+57%**); 190 cargas a mais no ano (19 clientes de 283) |
+| Somar as linhas para formar o **total** | Rodapé inflava **+17,5%** no ano (4.975 × 4.234), variando de +6,9% em jan a +26,7% em mai |
+
+O caso que define a regra: o Heinz fatura a mesma viagem em duas inscrições da **mesma planta de Nerópolis** (119 dos 209 manifestos). Provado pela tarifa — `NEROPOLIS/GO → UBERLANDIA/MG` custa R$ 3.900 líquido / R$ 4.431,82 bruto **por carreta**, e a soma dos dois CTe bate esse valor ao centavo em todas as viagens. A `Auditoria Receita` já tratava assim (`receita_rateada` = R$ 3.900/viagem); só a contagem duplicava.
+
+### Rota
+
+Origem = `cidade_origem_prestacao` (de onde partiu **esta prestação**, não onde a mercadoria nasceu — em redespacho os dois divergem). Destino = `cidade_destinatario`. Cada lado do filtro aceita **estado (`MG`) ou cidade (`UBERLANDIA/MG`)**; o autocomplete mistura os dois **ordenado por volume**, porque são 851 pares no ano e 45% deles têm uma carga só — lista alfabética seria inútil.
+
+Fatiar por rota também multiplica a mesma carga (uma viagem de distribuição atende vários destinos): a soma das linhas excede o total em até 46% no recorte Uberlândia. Cada linha está certa; o rodapé mostra o distinto e marca `*` quando os dois divergem.
+
+### CTe que não é viagem
+
+24% dos CTe não têm manifesto e **não contam como carga** — são `COMPLEMENTAR FRETE`, `SUBC REC FORM LISO` (subcontratação, cobrança de descarga) e `SUBSTITUTO`. Entram no R$, não no nº de cargas. A concentração é muito desigual (Heinz 54%, Sanchez Cano 48%, Martins 5%), então a tela avisa quando algum tomador aparece com faturamento e zero cargas — senão parece bug.
+
+### Performance
+
+Grão CTe do ano (11.785 linhas) é agregado **no servidor** para ~3.100 grupos → payload de **0,3 MB**, DAX ~2,3s uma vez. O filtro depois roda no cliente em **1–2 ms**. Trazer o grão CTe cru ao navegador custaria 6,3 MB.
 
 ---
 
