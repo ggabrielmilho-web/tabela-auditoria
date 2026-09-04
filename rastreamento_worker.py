@@ -9,7 +9,7 @@ Por ciclo:
      - CHEGADA NA CIDADE DO DESTINO (marca no_local_desde)
      - SAÍDA DO DESTINO (= entrega automática)
      - RECÁLCULO ORS (se passou 30min ou divergiu >10km da rota)
-  4. Job de retenção (1×/dia)
+  4. Consolidação diária placa+dia e job de retenção (1×/dia, NESTA ordem)
 """
 
 import os
@@ -49,6 +49,10 @@ FRESCOR_H = float(os.getenv('RASTREAMENTO_FRESCOR_H', '12'))
 # decididas por POSIÇÃO (distância ao centroide), não pelo nome que o 3S reporta (mente a
 # 100+ km). Mesmo env var lido no server.py (corte do mapa) p/ manter os dois coerentes.
 RAIO_CHEGADA_DESTINO_KM = float(os.getenv('RASTREAMENTO_RAIO_CHEGADA_DESTINO', '20'))
+# Teto de km num dia para a consolidação diária. Com dois motoristas revezando, um
+# cavalo faz ~1.200 km/dia; acima de 2.500 é troca de rastreador ou leitura suja, não
+# viagem. Serve de guarda, não de critério — o valor cru fica gravado do mesmo jeito.
+KM_DIA_IMPLAUSIVEL = float(os.getenv('RASTREAMENTO_KM_DIA_MAX', '2500'))
 
 _running = False
 _thread = None
@@ -723,6 +727,156 @@ def _processar_cargas(cur):
 
 # ── Retenção ─────────────────────────────────────────────────────────
 
+def _consolidar_dias(cur, desde=None, ate=None, refazer=False):
+    """Consolida o histórico de posições no grão PLACA + DIA (dia de Brasília).
+
+    RODA ANTES DA PURGA — a ordem não pode inverter. Purgado, o dado não volta: a 3S
+    serve ~35 dias de histórico (medido em 04/09/26: 31/07 respondia, 28/07 dava 404),
+    então não há segunda chance. É a mesma razão pela qual `pgr_eventos` persiste o
+    resultado em vez de recalcular.
+
+    Por que placa+dia e não carga: `embarques_cargas_rastreio_kpi` tem carga_id como PK,
+    então só existe linha enquanto o caminhão está dentro de um documento. O dia no
+    pátio e o deslocamento vazio — que é o que falta para medir produtividade — não têm
+    carga_id e sumiam inteiros.
+
+    Idempotente (PK placa+dia com upsert). Por padrão consolida o que ainda não tem
+    linha, mais os 2 últimos dias, que continuam recebendo posições.
+    """
+    hoje = datetime.utcnow().date()
+    d_ini = desde or (hoje - timedelta(days=RETENCAO_DIAS + 1))
+    d_fim = ate or hoje
+
+    # Dias candidatos: têm posição na janela e (ainda não foram consolidados OU são
+    # recentes o bastante para ainda estar mudando).
+    cond_refazer = '' if refazer else """
+          AND (d.consolidado_em IS NULL OR h.dia >= %(recentes)s)"""
+    cur.execute(f"""
+        SELECT h.placa, h.dia FROM (
+            SELECT placa, (data_posicao - INTERVAL '3 hours')::date AS dia
+              FROM embarques_posicoes_historico
+             WHERE data_posicao >= %(ini)s AND data_posicao < %(fim)s
+             GROUP BY 1, 2
+        ) h
+        LEFT JOIN embarques_rastreio_dia d ON d.placa = h.placa AND d.dia = h.dia
+        WHERE TRUE {cond_refazer}
+        ORDER BY h.placa, h.dia
+    """, {'ini': datetime.combine(d_ini, datetime.min.time()) + timedelta(hours=3),
+          'fim': datetime.combine(d_fim + timedelta(days=1), datetime.min.time()) + timedelta(hours=3),
+          'recentes': hoje - timedelta(days=2)})
+    candidatos = cur.fetchall()
+    if not candidatos:
+        return 0
+
+    # carga ativa por (placa, dia): resolvido em UMA consulta para a janela inteira.
+    # Dia sem carga é o dia vazio — é o próprio dado que se quer enxergar.
+    cur.execute("""
+        SELECT UPPER(REPLACE(REPLACE(p, ' ', ''), '-', '')) AS placa,
+               COALESCE(c.inicio_viagem, c.data_saida_real,
+                        c.data_carregamento::timestamp)::date AS de,
+               COALESCE(c.data_conclusao::date, CURRENT_DATE) AS ate,
+               c.id
+          FROM embarques_cargas c,
+               LATERAL unnest(ARRAY[c.cavalo_placa, c.carreta1_placa, c.carreta2_placa]) AS p
+         WHERE p IS NOT NULL AND p <> ''
+           AND COALESCE(c.data_conclusao::date, CURRENT_DATE) >= %s
+         ORDER BY c.id
+    """, (d_ini - timedelta(days=30),))
+    janelas = cur.fetchall()
+
+    def _carga_de(placa, dia):
+        # grafias: o histórico guarda a placa crua do GPS, a carga guarda a digitada
+        gr = {g.upper() for g in placas.grafias(placa)}
+        achou = None
+        for pl, de, ate_, cid in janelas:
+            if pl in gr and de and de <= dia <= ate_:
+                achou = cid          # a última vence (ordenado por id)
+        return achou
+
+    gravadas = 0
+    for placa, dia in candidatos:
+        ini_utc = datetime.combine(dia, datetime.min.time()) + timedelta(hours=3)
+        cur.execute("""
+            SELECT latitude, longitude, velocidade, data_posicao, odometer, cidade, uf
+              FROM embarques_posicoes_historico
+             WHERE placa = %s AND data_posicao >= %s AND data_posicao < %s
+             ORDER BY data_posicao
+        """, (placa, ini_utc, ini_utc + timedelta(days=1)))
+        pts = cur.fetchall()
+        if not pts:
+            continue
+
+        # Odômetro: cumulativo no aparelho, então atravessa buraco de sinal — é a régua
+        # boa. km_gps (haversine) perde o que acontece no buraco e subestima curva; fica
+        # como conferência e como plano B quando o aparelho não reporta odômetro.
+        # PRIMEIRA e ÚLTIMA leitura em ordem CRONOLÓGICA — não min/max: numa troca de
+        # rastreador o contador volta a zero, e min/max transformaria isso num delta de
+        # centenas de milhares de km. Delta negativo (reset/troca) ou implausível vira
+        # NULL: melhor não ter o número do que ter um errado, e a linha ainda guarda
+        # odo_ini/odo_fim crus para auditoria.
+        odos = [(p[3], int(p[4])) for p in pts if p[4] is not None and int(p[4]) > 0]
+        odo_ini = odos[0][1] if odos else None
+        odo_fim = odos[-1][1] if odos else None
+        km_odo = None
+        if odo_ini is not None:
+            d = odo_fim - odo_ini
+            if 0 <= d <= KM_DIA_IMPLAUSIVEL:
+                km_odo = d
+            else:
+                _logger.warning(f'{placa} {dia}: odômetro {odo_ini}→{odo_fim} '
+                                f'({d} km) — descartado (troca de aparelho ou leitura suja)')
+
+        km_gps = 0.0
+        tempo_mov = tempo_par = 0
+        vel_max = 0
+        for i in range(len(pts) - 1):
+            a, b = pts[i], pts[i + 1]
+            seg = geocoding.km_entre(float(a[0]), float(a[1]), float(b[0]), float(b[1]))
+            if seg is not None:
+                km_gps += seg
+            if a[2] is not None:
+                vel_max = max(vel_max, int(a[2]))
+            delta_s = (b[3] - a[3]).total_seconds()
+            if (a[2] or 0) > PARADO_KMH:      # mesmo corte do _consolidar_kpi
+                tempo_mov += delta_s
+            else:
+                tempo_par += delta_s
+        if pts and pts[-1][2] is not None:
+            vel_max = max(vel_max, int(pts[-1][2]))
+
+        # Cidade do dia = onde caiu o maior número de posições (pátio × estrada).
+        # O 3S erra o nome a 100+ km, então isto é rótulo, nunca critério.
+        contagem = {}
+        for p in pts:
+            if p[5]:
+                contagem[(p[5], p[6])] = contagem.get((p[5], p[6]), 0) + 1
+        cidade, uf = max(contagem, key=contagem.get) if contagem else (None, None)
+
+        cur.execute("""
+            INSERT INTO embarques_rastreio_dia (
+                placa, dia, odo_ini, odo_fim, km_odo, km_gps, n_posicoes,
+                primeira, ultima, tempo_movimento_seg, tempo_parado_seg,
+                velocidade_max, cidade, uf, carga_id, consolidado_em
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+            ON CONFLICT (placa, dia) DO UPDATE SET
+                odo_ini=EXCLUDED.odo_ini, odo_fim=EXCLUDED.odo_fim, km_odo=EXCLUDED.km_odo,
+                km_gps=EXCLUDED.km_gps, n_posicoes=EXCLUDED.n_posicoes,
+                primeira=EXCLUDED.primeira, ultima=EXCLUDED.ultima,
+                tempo_movimento_seg=EXCLUDED.tempo_movimento_seg,
+                tempo_parado_seg=EXCLUDED.tempo_parado_seg,
+                velocidade_max=EXCLUDED.velocidade_max,
+                cidade=EXCLUDED.cidade, uf=EXCLUDED.uf, carga_id=EXCLUDED.carga_id,
+                consolidado_em=NOW()
+        """, (placa, dia, odo_ini, odo_fim, km_odo, round(km_gps, 2), len(pts),
+              pts[0][3], pts[-1][3], int(tempo_mov), int(tempo_par), vel_max,
+              (cidade or None), (uf or None), _carga_de(placa, dia)))
+        gravadas += 1
+
+    if gravadas:
+        _logger.info(f'Consolidação diária: {gravadas} linhas placa/dia gravadas')
+    return gravadas
+
+
 def _purgar_posicoes_antigas(cur):
     """DELETE posições com mais de RETENCAO_DIAS, independente de carga.
 
@@ -1072,6 +1226,9 @@ def _ciclo():
                 _processar_cargas(cur)
 
                 if _deve_rodar_retencao():
+                    # A ORDEM NÃO PODE INVERTER: consolidar antes de purgar. O que a
+                    # purga leva não volta (a 3S serve ~35 dias de histórico).
+                    _consolidar_dias(cur)
                     _purgar_posicoes_antigas(cur)
                     _ultima_retencao = datetime.utcnow()
 

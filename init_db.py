@@ -509,7 +509,10 @@ print("✅ Desengate de carreta carregada (status Desengatada) pronto.\n")
 #    o que veio do SSW sem ninguem ter digitado.
 # 3. `encerrada_motivo` impede que fechamento por REGRA se confunda com entrega
 #    provada por GPS. Fica 'Entregue' (e o status que as telas entendem) mas com
-#    entregue_auto=FALSE e o motivo gravado: manifesto_novo | baixa_ctrb | timeout.
+#    entregue_auto=FALSE e o motivo gravado. Valores que o robo grava hoje:
+#    manifesto_novo | sequencia_viagem. Linhas antigas ainda carregam
+#    baixa_ctrb e timeout -- regras removidas em 03/09/26 porque fechavam
+#    carga que ainda estava rodando (ver fechar_pendentes em embarques_auto.py).
 cur.execute("ALTER TABLE embarques_cargas ADD COLUMN IF NOT EXISTS manifesto_origem VARCHAR(30);")
 cur.execute("ALTER TABLE embarques_cargas ADD COLUMN IF NOT EXISTS ctrb_origem VARCHAR(20);")
 cur.execute("ALTER TABLE embarques_cargas ADD COLUMN IF NOT EXISTS criada_por_robo BOOLEAN DEFAULT FALSE;")
@@ -691,6 +694,58 @@ cur.execute("CREATE INDEX IF NOT EXISTS ix_acessos_user ON auditoria_acessos (us
 cur.execute("CREATE INDEX IF NOT EXISTS ix_acessos_aba ON auditoria_acessos (aba, criado_em DESC);")
 
 print("✅ Tabela de log de acesso (auditoria_acessos) pronta.\n")
+
+
+# ── Consolidação diária de rastreamento ──────────────────────────────
+# POR QUE ESTA TABELA EXISTE
+#
+# `embarques_posicoes_historico` é purgada aos RASTREAMENTO_RETENCAO_DIAS (30) e a
+# própria 3S só serve ~35 dias de histórico — medido em 04/09/26: 31/07 respondia,
+# 28/07 devolvia 404. Ou seja, passou de ~35 dias o dado não existe em lugar nenhum.
+# Julho/2026 já se perdeu assim.
+#
+# Consolidar por CARGA (embarques_cargas_rastreio_kpi) não resolve: aquela tabela tem
+# carga_id como PK, então o caminhão só deixa rastro enquanto está dentro de um
+# documento. Viagem vazia, dia no pátio e deslocamento entre uma carga e outra não têm
+# carga_id — e são exatamente o que falta para medir produtividade real (o vazio deu
+# 17,4% do km de um cavalo em agosto/26).
+#
+# O grão certo é PLACA + DIA, e o dia é de BRASÍLIA: data_posicao é gravada em UTC, e
+# o abastecimento do ValeCard (dch_data) não tem hora nenhuma — o dia é a resolução em
+# que as fontes se encontram.
+#
+# Tamanho: ~93 placas × 365 dias ≈ 34 mil linhas/ano, contra 421 mil posições/mês.
+#
+# REGRA: só entra aqui o que MORRE. Manifesto, ValeCard, Sem Parar e receita vivem no
+# Power BI e não são purgados — junta-se na consulta, nunca se copia para cá.
+cur.execute("""
+    CREATE TABLE IF NOT EXISTS embarques_rastreio_dia (
+        placa               VARCHAR(10) NOT NULL,
+        dia                 DATE        NOT NULL,   -- dia de Brasília (UTC-3)
+        odo_ini             BIGINT,                 -- odômetro na 1ª posição do dia
+        odo_fim             BIGINT,                 -- odômetro na última
+        km_odo              INTEGER,                -- odo_fim - odo_ini (NULL se sem odômetro)
+        km_gps              NUMERIC(10,2),          -- haversine entre pontos (confere o odômetro)
+        n_posicoes          INTEGER NOT NULL DEFAULT 0,
+        primeira            TIMESTAMP,              -- em UTC, como o histórico
+        ultima              TIMESTAMP,
+        tempo_movimento_seg BIGINT,
+        tempo_parado_seg    BIGINT,
+        velocidade_max      INTEGER,
+        cidade              VARCHAR(120),           -- onde passou mais posições no dia
+        uf                  CHAR(2),
+        carga_id            INTEGER,                -- carga ativa no dia; NULL = dia sem documento
+        consolidado_em      TIMESTAMP DEFAULT NOW(),
+        PRIMARY KEY (placa, dia)
+    );
+""")
+# km_odo atravessa buraco de sinal (o contador é cumulativo no aparelho), km_gps não —
+# a diferença entre os dois é o próprio diagnóstico de cobertura do dia.
+cur.execute("CREATE INDEX IF NOT EXISTS ix_rastreio_dia_dia ON embarques_rastreio_dia (dia);")
+cur.execute("CREATE INDEX IF NOT EXISTS ix_rastreio_dia_carga ON embarques_rastreio_dia (carga_id) "
+            "WHERE carga_id IS NOT NULL;")
+
+print("✅ Consolidação diária de rastreamento (embarques_rastreio_dia) pronta.\n")
 
 conn.commit()
 cur.close()

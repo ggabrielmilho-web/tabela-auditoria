@@ -157,6 +157,7 @@ Tabela Auditoria/
 ├── pgr_envio.py                 # Envio via UazAPI (passo 3 do job diário)
 ├── pgr.html                     # Página /pgr (sessão ou token de leitura)
 ├── backfill_historico.py        # Reprocessamento manual do histórico da 3S
+├── consolidar_dias.py           # Consolidação placa+dia avulsa (salva o que a purga ainda não levou)
 ├── placas.py                    # Normalização antiga ↔ Mercosul (server + pgr)
 ├── fonts/                       # JetBrains Mono embutida na imagem (+ OFL)
 │
@@ -228,6 +229,7 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 | `RASTREAMENTO_DESVIO_KM` | Desvio (km) da rota que dispara recálculo | `10` |
 | `RASTREAMENTO_RECALCULO_MIN` | Intervalo mínimo (min) entre recálculos de rota | `30` |
 | `RASTREAMENTO_RETENCAO_DIAS` | Retenção do histórico de posições | `30` |
+| `RASTREAMENTO_KM_DIA_MAX` | Teto de km/dia na consolidação diária — acima disso é troca de rastreador, não viagem | `2500` |
 | `RASTREAMENTO_RECONSTRUCAO_DIAS` | Teto p/ trás na detecção da saída da origem (`inicio_viagem`) | `15` |
 | `KM_DIA_PADRAO` | Km/dia usado na ETA realista | `600` |
 | `BACKFILL_HISTORICO` | Liga o backfill diário do histórico da 3S | `true` |
@@ -247,7 +249,6 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 | `EMBARQUES_AUTO_TIPOS` | Tipos que o robô lança | `Frota,Agregado` |
 | `EMBARQUES_AUTO_MAX_DESTINOS` | Acima disso é distribuição → 1 destino + observação | `8` |
 | `EMBARQUES_AUTO_DESTINOS_CTRC` | Admite a cidade do CTRC como destino (batem em só 69%) | `false` |
-| `EMBARQUES_AUTO_TIMEOUT_DIAS` | Encerra carga aberta há mais de N dias | `10` |
 | `EMBARQUES_AUTO_FILIAIS` | JSON sigla→`Cidade/UF`, usado só quando não há CTRB | `{}` |
 
 ### PGR (relatório de excesso de velocidade)
@@ -483,7 +484,8 @@ CREATE TABLE auditoria_users (
 | `embarques_veiculos_rastreio` | Mapeamento placa → idVeiculo da 3S |
 | `embarques_posicoes_atuais` | Última posição por placa (UPSERT pelo worker) |
 | `embarques_posicoes_historico` | Timeline de posições (dedup `placa+data_posicao`) |
-| `embarques_cargas_rastreio_kpi` | KPIs consolidados por carga (distância, velocidade, tempo em movimento/parado) |
+| `embarques_cargas_rastreio_kpi` | KPIs consolidados por carga (distância, velocidade, tempo em movimento/parado). PK = `carga_id`, então **só existe linha enquanto o caminhão está dentro de um documento** |
+| `embarques_rastreio_dia` | **Consolidação diária placa+dia** (dia de Brasília) — `odo_ini`/`odo_fim`/`km_odo`, `km_gps`, nº de posições, tempo em movimento/parado, cidade e o `carga_id` ativo. **`carga_id` nulo = dia sem documento**, que é o km vazio. Gravada 1×/dia **antes** da purga; sobrevive à retenção (ver Consolidação diária) |
 | `municipios_ibge` | Centroides IBGE p/ geocoding de origem/destino |
 | `embarques_3s_log` | Log de chamadas a APIs externas (provider `3S` / `ORS` / `SIM`) |
 | `embarques_simulacao` | Fonte de posições quando `MODO_SIMULADO=true` |
@@ -554,16 +556,26 @@ Três armadilhas que o desenho evita, todas medidas:
 | Destino do CTRC ≠ destino da viagem (batem em 69%) | O destino é o do **CTRB** (perna de transporte). A cidade do CTRC vai para a observação, e é **descartada quando é a própria origem** — `cidade_destinatario` costuma ser o CD, e viraria rota terminando no pátio de partida |
 | Carga de distribuição com 110 CTRCs pelo RJ | Acima de `MAX_DESTINOS`, 1 destino só + observação: 110 waypoints estouram o ORS e descrevem um roteiro de entrega, não uma viagem |
 
-**Fechamento em cascata** (o GPS não fecha tudo — agregado nem sempre tem
-rastreador Rizza). Roda **antes** de criar, para liberar cavalo/carreta presos:
+**Fechamento — viagem nova, e só.** Roda **antes** de criar, para liberar
+cavalo/carreta presos:
 
 1. **GPS** — saída do destino (o worker, já existente)
 2. **Manifesto novo da mesma placa** encerra a anterior — cobre as 67 de 139
    placas que rodaram 2+ vezes no mês (p50 de 3 dias entre viagens)
-3. **Baixa do CTRB** (`ctrbs_oss[chegada]`, 86% preenchido). Não é chegada
-   física — não correlaciona com distância — é a baixa administrativa da OS:
-   vale como sinal de fim, nunca como horário
-4. **Timeout** de `TIMEOUT_DIAS` (p90 do intervalo entre viagens = 6 dias)
+3. **Sequência de viagem** (`dedup_veiculo`, roda *depois* de criar) — as duas
+   pernas do mesmo dia deixam o mesmo cavalo em duas cargas ativas; só a última
+   fica aberta. Desempate pela emissão do CTRB, que tem hora
+
+**Removidas em 03/09/26** — fechavam carga que ainda estava rodando. Medido em
+28/08..01/09: as regras fechavam 34 cargas contra 18 do GPS.
+
+| Regra | Por que saiu |
+|---|---|
+| `baixa_ctrb` | A `chegada` do CTRB é baixa **administrativa** da OS, não chegada física. Fechou 17 cargas (mediana de 2 dias após o carregamento) e em **6 delas o cavalo já tinha entrega provada por GPS** em outra viagem — atropelou rastreamento que funcionava |
+| `timeout` | Fechava por idade, sem viagem nova nenhuma |
+
+Viagem que não tem manifesto seguinte é fechada pelo GPS ou pela mão do
+operacional. O robô não arbitra.
 
 Encerramento por regra fica em `Entregue` (único status final que as telas
 entendem) com `entregue_auto=FALSE` e `encerrada_motivo` gravado — assim não se
@@ -609,9 +621,47 @@ Acompanhamento GPS dos veículos em rota, com mapa em tempo real e automação d
    - **Saída do destino** = **entrega automática** (`No destino`/`Em rota`/`Desengatada` → `Entregue`, marca `entregue_auto`, consolida o KPI final). Confirmada por distância (`RASTREAMENTO_RAIO_SAIDA_DESTINO`, default 60 km — raio maior p/ não bugar em grande centro). Em carga **`Desengatada`** o worker rastreia **só a carreta** (o cavalo foi liberado e pode estar em outra viagem), então é a saída da carreta carregada que finaliza a carga
    - **Cálculo da rota planejada** (ORS, multi-ponto): origem → **cidades de rota** → todos os destinos. Calculado 1× quando ainda não há rota; o "km faltando" é derivado da posição atual projetada sobre a rota completa (não recalcula truncando)
 3. Eventos exigem `RASTREAMENTO_CICLOS_CONFIRMACAO` ciclos consecutivos fora do `RASTREAMENTO_RAIO_KM` para serem confirmados (evita falso positivo).
-4. Job de retenção 1×/dia limpa histórico além de `RASTREAMENTO_RETENCAO_DIAS`.
+4. 1×/dia, **nesta ordem**: consolida o dia em `embarques_rastreio_dia` e **só então** purga o histórico além de `RASTREAMENTO_RETENCAO_DIAS`. Invertido, o dado não volta — a 3S serve ~35 dias de histórico (ver Consolidação diária).
 
 O worker só inicia se `START_WORKER=true`. O modo (SIMULADO/REAL) é impresso no boot.
+
+### Consolidação diária (`embarques_rastreio_dia`)
+
+O histórico de posições é purgado aos 30 dias, e **a 3S só serve ~35 dias** — medido em
+04/09/2026: pedir 31/07 respondia, 28/07 devolvia `404`, e pedir 01/07→01/08 numa
+chamada só voltava sem erro trazendo apenas 30 e 31/07. Passou disso, o dado não existe
+em lugar nenhum. Julho/2026 se perdeu exatamente assim.
+
+Consolidar por **carga** não cobre: `embarques_cargas_rastreio_kpi` tem `carga_id` como
+PK, então o caminhão só deixa rastro enquanto está dentro de um documento. Dia no pátio,
+deslocamento vazio e o intervalo entre duas cargas não têm `carga_id` — e são justamente
+o que falta para medir produtividade. Medido em ago/2026: **17,4% do km de um cavalo não
+tinha manifesto**, e o R$/km real fica 7,6% abaixo do R$/km calculado sobre o manifesto.
+
+O grão certo é **placa + dia**, e o dia é de **Brasília**: `data_posicao` é gravada em
+UTC, e o abastecimento do ValeCard (`dch_data`) **não tem hora nenhuma** — o dia é a
+resolução em que as fontes se encontram. Custo: ~93 placas × 365 dias ≈ **34 mil
+linhas/ano**, contra 421 mil posições por mês.
+
+**A regra que define o que entra:** só o que morre. Manifesto, ValeCard, Sem Parar e
+receita vivem no Power BI e não são purgados — junta-se na consulta, nunca se copia.
+
+Duas decisões de robustez:
+
+- **Odômetro pela primeira e última leitura cronológica, nunca `min`/`max`** — numa troca
+  de rastreador o contador zera, e `min`/`max` viraria um delta de centenas de milhares
+  de km. Delta negativo ou acima de `RASTREAMENTO_KM_DIA_MAX` vira `NULL` e sai no log;
+  `odo_ini`/`odo_fim` ficam crus para auditoria.
+- **`km_gps` (haversine) é conferência, não fonte.** O odômetro é cumulativo no aparelho
+  e **atravessa buraco de sinal** — houve dia com 22 posições em que ele marcou 563 km
+  contra 521 do haversine. Parado, o inverso: o GPS *infla* com jitter (580 contra 567 num
+  dia com 15,5 h de pátio). Divergência grande entre os dois é diagnóstico do dia.
+
+```bash
+python -X utf8 consolidar_dias.py --resumo          # o que existe, sem gravar
+python -X utf8 consolidar_dias.py                   # o que falta + os 2 últimos dias
+python -X utf8 consolidar_dias.py --desde 2026-08-04 --refazer
+```
 
 ---
 
@@ -1039,7 +1089,9 @@ Resultado Final   = Pós Investimento - Retiradas
 - [ ] **Regras de classificação do 456 → tabela** — hoje `_SWITCH_REGRA_456` no código, e já mudou uma vez (R$ 2,7 mi ficavam fora)
 - [ ] **Criar no plano de contas** o TRIBANCO e o CAIXA PAMBANK (hoje sem conta na aba Contábil)
 - [ ] **PGR fase 2**: ranking por motorista, evolução mês a mês e CSV
+- [x] **Consolidação diária placa+dia** (`embarques_rastreio_dia`) — odômetro real, km vazio e dias parados sobrevivendo à retenção
 - [ ] **km/L pelo GPS do rastreamento** (substituir o hodômetro do ValeCard, que é sujo, na Análise por Veículo)
+- [ ] **Corrigir o km/L da Análise por Veículo** — hoje soma todos os litros do mês contra um KM mutilado pela guarda de 3.000 km do `_km_hodometro`, e ~50% do litro vem da base CAIS **sem hodômetro nenhum**: o resultado sai fisicamente impossível (0,98 km/L medido num cavalo em ago/26)
 - [ ] **Conectar carga (embarques) ↔ documentos fiscais** (auditoria/conhecimentos) por placa+data ou manifesto — enriquecer auditoria com Nº da carga, "Rastreada" e Embarcador
 - [ ] **Dedupe do mapa geral** (carga de frota aparece 2× — cavalo + carreta)
 - [ ] Cache do token Power BI (atualmente requisitado a cada chamada)
