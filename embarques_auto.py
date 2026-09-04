@@ -122,10 +122,9 @@ def _destinos_ctrc():
     return _flag('EMBARQUES_AUTO_DESTINOS_CTRC', 'false')
 
 
-# Fechamento por tempo. p90 do intervalo entre viagens da mesma placa = 6 dias,
-# máximo observado = 13. 10 dias fica acima do p90 sem alcançar o máximo.
-def _timeout_dias():
-    return _int('EMBARQUES_AUTO_TIMEOUT_DIAS', 10)
+# _timeout_dias() e EMBARQUES_AUTO_TIMEOUT_DIAS removidos em 03/09/26 junto com
+# a regra de timeout: o robô só fecha viagem quando existe viagem nova da mesma
+# placa (ver fechar_pendentes).
 
 
 def _max_rotas():
@@ -658,19 +657,26 @@ def encerrar(cur, carga_id, motivo, quando=None):
     return True
 
 
-def fechar_pendentes(cur, manifestos, ctrbs, hoje, cfg):
-    """Cascata de fechamento das cargas que o GPS não fechou.
+def fechar_pendentes(cur, manifestos):
+    """Fecha a carga anterior de uma placa quando ela sai em viagem nova.
 
-    Ordem importa: roda ANTES de criar, para liberar cavalo/carreta que estão
-    presos numa carga antiga e bloqueariam a viagem nova.
+    Roda ANTES de criar, para liberar cavalo/carreta que estão presos numa carga
+    antiga e bloqueariam a viagem nova. Cobre as 67 de 139 placas que rodaram
+    2+ vezes no mês (p50 de 3 dias entre viagens).
 
-      1. manifesto novo da mesma placa  — cobre as 67 de 139 placas que rodaram
-         2+ vezes no mês (p50 de 3 dias entre viagens)
-      2. baixa do CTRB no SSW           — `chegada` preenchida; 86% dos CTRBs.
-         NÃO é chegada física (não correlaciona com distância), é a baixa
-         administrativa da OS: serve de sinal de fim, não de horário
-      3. timeout                        — para a metade das placas que não teve
-         viagem seguinte no período
+    REGRA ÚNICA, por decisão de 03/09/26: viagem só fecha quando existe viagem
+    nova. Antes havia mais duas etapas, ambas removidas porque fechavam carga
+    que ainda estava rodando:
+
+      - `baixa_ctrb` — a `chegada` do CTRB é baixa ADMINISTRATIVA da OS, não
+        chegada física. Medido em 28/08..01/09: fechou 17 cargas contra 18 do
+        GPS, com mediana de 2 dias após o carregamento, e em 6 delas o cavalo
+        já tinha entrega provada por GPS em outra viagem — ou seja, atropelou
+        rastreamento que funcionava.
+      - `timeout` — fechava por idade, sem viagem nova nenhuma.
+
+    O fim de viagem que não tem manifesto seguinte é do GPS (worker) ou da mão
+    do operacional. O robô não arbitra.
     """
     fechadas = Counter()
     if not fechamento_ligado():
@@ -695,31 +701,6 @@ def fechar_pendentes(cur, manifestos, ctrbs, hoje, cfg):
             for (cid,) in cur.fetchall():
                 if encerrar(cur, cid, 'manifesto_novo', datetime.combine(dt, datetime.min.time())):
                     fechadas['manifesto novo'] += 1
-
-    # ── 2. baixa do CTRB no SSW
-    cur.execute("""
-        SELECT id, ctrb_origem FROM embarques_cargas
-        WHERE status IN ('Aberta','Em rota','No destino','Desengatada')
-          AND COALESCE(criada_por_robo, FALSE) = TRUE
-          AND ctrb_origem IS NOT NULL
-    """)
-    for cid, ctrb_k in cur.fetchall():
-        reg = ctrbs.get(ctrb_k)
-        if reg and str(reg.get('cheg') or '').strip():
-            if encerrar(cur, cid, 'baixa_ctrb'):
-                fechadas['baixa do CTRB'] += 1
-
-    # ── 3. timeout
-    limite = hoje - timedelta(days=cfg['timeout_dias'])
-    cur.execute("""
-        SELECT id FROM embarques_cargas
-        WHERE status IN ('Aberta','Em rota','No destino','Desengatada')
-          AND COALESCE(criada_por_robo, FALSE) = TRUE
-          AND data_carregamento < %s
-    """, (limite,))
-    for (cid,) in cur.fetchall():
-        if encerrar(cur, cid, 'timeout'):
-            fechadas['timeout'] += 1
 
     return fechadas
 
@@ -874,7 +855,7 @@ def _config():
     except Exception:
         km_dia = float(os.getenv('KM_DIA_PADRAO', '600'))
     return {'tipos': _tipos_alvo(), 'vendidas': vendidas, 'filiais': _filiais(),
-            'max_destinos': _max_destinos(), 'timeout_dias': _timeout_dias(),
+            'max_destinos': _max_destinos(),
             'destinos_ctrc': _destinos_ctrc(), 'km_dia': km_dia}
 
 
@@ -916,7 +897,7 @@ def executar(dia=None, dry_run=False, token=None, conn=None):
         # dry-run desfaz.
         garantir_colunas(cur)
 
-        resumo['fechadas'] = fechar_pendentes(cur, manifestos, ctrbs, hoje, cfg) \
+        resumo['fechadas'] = fechar_pendentes(cur, manifestos) \
             if not dry_run else Counter()
 
         for c in cargas:
