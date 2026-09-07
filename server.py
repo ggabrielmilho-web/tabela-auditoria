@@ -5353,8 +5353,15 @@ def api_embarques_cargas_list():
                c.no_local_desde, c.saida_auto, c.entregue_auto, c.data_saida_real,
                c.distancia_planejada_km, c.duracao_estimada_min,
                c.desengatada_em, c.descarga_motorista_nome, c.descarga_cavalo_placa,
+               -- Compara pela grafia NORMALIZADA (`_pn`), não por igualdade exata: a
+               -- 3S grava a placa crua (42 das 94 vêm na grafia antiga) e a carga
+               -- guarda a dela. Com `=` puro, 13 das 25 cargas ativas rastreáveis
+               -- devolviam NULL aqui — e NULL nunca dispara o alerta, então mais da
+               -- metade das cargas ficava sem aviso mesmo com a carreta muda.
                (SELECT EXTRACT(EPOCH FROM ((NOW() AT TIME ZONE 'UTC') - pa.data_posicao)) / 3600.0
-                  FROM embarques_posicoes_atuais pa WHERE pa.placa = c.carreta1_placa) AS rastreio_carreta_idade_h,
+                  FROM embarques_posicoes_atuais pa
+                 WHERE {_pn('pa.placa')} = {_pn('c.carreta1_placa')}
+                 ORDER BY pa.data_posicao DESC LIMIT 1) AS rastreio_carreta_idade_h,
                (
                  SELECT string_agg(d.cidade || '/' || d.uf, '; ' ORDER BY d.ordem)
                  FROM embarques_cargas_destinos d WHERE d.carga_id = c.id
@@ -5410,10 +5417,15 @@ def api_embarques_cargas_list():
             # Rastreio defasado: carga ativa cuja carreta está sem posição há +X dias.
             idade_h = obj.get('rastreio_carreta_idade_h')
             obj['rastreio_carreta_idade_h'] = round(float(idade_h), 1) if idade_h is not None else None
+            # 'Aberta' TAMBÉM entra: a carga que nunca saiu, com o veículo mudo, é a
+            # mais urgente de todas — e era justamente a única sem aviso. A C-2026-000582
+            # ficou aberta desde 29/08 com a carreta sem transmitir desde 01/07.
+            # Sem posição NENHUMA (idade nula) numa carga aberta também alarma: não saber
+            # é diferente de estar tudo bem.
+            _st = obj.get('status')
             obj['rastreio_defasado'] = bool(
-                obj.get('status') in ('Em rota', 'No destino', 'Desengatada')
-                and idade_h is not None
-                and float(idade_h) > RASTREIO_ALERTA_SEM_GPS_DIAS * 24
+                _st in ('Aberta', 'Em rota', 'No destino', 'Desengatada')
+                and (idade_h is None or float(idade_h) > RASTREIO_ALERTA_SEM_GPS_DIAS * 24)
             )
             data.append(obj)
         cur.close(); conn.close()
@@ -5973,12 +5985,31 @@ def _indice_chegada_destino(traj, dest_lat, dest_lng):
     return min(dentro, key=lambda x: x[1])[0]
 
 
-def _kpi_ao_vivo(traj):
+def _kpi_ao_vivo(traj, traj_odo=None):
     """KPIs calculados ao vivo a partir dos pontos do trajeto da viagem (só da viagem,
-    pois traj já vem filtrado por data_saida_real). Espelha _consolidar_kpi do worker."""
-    base = {'distancia_km': 0.0, 'velocidade_max': 0, 'velocidade_media': None,
+    pois traj já vem filtrado por data_saida_real). Espelha _consolidar_kpi do worker.
+
+    `traj_odo` (opcional): o MESMO trajeto sem os recortes de desenho. Só o km do
+    rastreador o usa — os demais KPIs seguem o trajeto recortado, como sempre."""
+    base = {'distancia_km': 0.0, 'km_odometro': None, 'odometro_cobertura': 0,
+            'odometro_trechos': 0, 'odometro_trechos_gps': 0,
+            'velocidade_max': 0, 'velocidade_media': None,
             'tempo_movimento_seg': 0, 'tempo_parado_seg': 0, 'consolidado_final': False}
     if not traj:
+        # Sem trajeto para desenhar ainda pode haver odômetro (viagem cega no meio,
+        # ou recorte que zerou a linha). Devolve o que dá.
+        #
+        # `distancia_km` vira NULO, não zero: sem nenhuma posição o km não é zero, é
+        # desconhecido — mesmo princípio do §12.13 ("zero é uma afirmação; `—` é honesto")
+        # que já valia para o odômetro. A tela mostra `—`.
+        base['distancia_km'] = None
+        if traj_odo:
+            _o = [int(p['odometer']) for p in traj_odo
+                  if p.get('odometer') is not None and int(p['odometer']) > 0]
+            if len(_o) >= 2:
+                base['km_odometro'] = sum(d for d in (_o[i] - _o[i - 1] for i in range(1, len(_o)))
+                                          if 0 < d <= 2000)
+                base['odometro_cobertura'] = round(100 * len(_o) / len(traj_odo))
         return base
     import geocoding
     from datetime import datetime as _d
@@ -6004,8 +6035,70 @@ def _kpi_ao_vivo(traj):
     lv = traj[-1].get('velocidade')
     if lv is not None:
         vmax = max(vmax, int(lv))
+    # KM DO RASTREADOR — contador cumulativo do aparelho, primeira × última leitura
+    # CRONOLÓGICA (nunca min/max: troca de equipamento zera o contador e viraria um
+    # delta absurdo). Vale para viagem carregada E vazia, e é a régua boa: atravessa
+    # buraco de sinal, que o haversine perde. Medido contra o GPS em pares de até
+    # 10 min, a razão mediana é 1,046 — o haversine é que subestima, cortando curva.
+    # ── KM DO RASTREADOR — melhor evidência POR TRECHO ────────────────────────
+    #
+    # O odômetro do aparelho NÃO é o do veículo: ele acumula sozinho. Existem dois
+    # furos diferentes e só um deles ele atravessa:
+    #
+    #   transmissão rala (aparelho ligado, manda pouco) → o contador ANDOU  ✓
+    #   aparelho mudo/desligado                         → o contador PAROU  ✗
+    #
+    # Medido na carreta HKE0D21: ficou 13h muda entre Catuji e Manhuaçu, o caminhão
+    # rodou 327 km e o odômetro não saiu de 375513. Confiar só nele perde o trecho.
+    #
+    # Então, trecho a trecho, usa-se a melhor evidência disponível:
+    #   Δodo > 0 e plausível ........ o aparelho contou → usa o odômetro
+    #   Δodo = 0 e houve deslocamento → estava mudo    → usa o haversine
+    #   Δodo = 0 e sem deslocamento ... parado         → zero (é jitter)
+    #
+    # O teto é por VELOCIDADE, não por km fixo: 200 km fixos descartariam um salto
+    # legítimo através de um furo de 13h, e liberariam um salto absurdo em 2 minutos.
+    # Lista VAZIA (≠ None) significa "não atribuível" — não cair no trajeto
+    # recortado, que daria um número de outra viagem.
+    if traj_odo is not None and len(traj_odo) == 0:
+        fonte_odo = []
+    else:
+        fonte_odo = traj_odo if traj_odo else traj
+    import geocoding as _geo_odo
+    from datetime import datetime as _dodo
+
+    def _t_odo(v):
+        try:
+            return _dodo.fromisoformat(str(v).replace('Z', ''))
+        except Exception:
+            return None
+
+    km_odo = None
+    n_odo = n_gps = 0
+    pts_odo = [p for p in fonte_odo if p.get('odometer') is not None and int(p['odometer']) > 0]
+    if len(pts_odo) >= 2:
+        km_odo = 0.0
+        for i in range(1, len(pts_odo)):
+            a_, b_ = pts_odo[i - 1], pts_odo[i]
+            d_odo = int(b_['odometer']) - int(a_['odometer'])
+            ta, tb = _t_odo(a_.get('data')), _t_odo(b_.get('data'))
+            horas = ((tb - ta).total_seconds() / 3600) if (ta and tb) else 0
+            teto = max(5.0, 110.0 * horas)          # 110 km/h é o teto físico plausível
+            seg = _geo_odo.km_entre(a_['lat'], a_['lng'], b_['lat'], b_['lng']) or 0
+            if 0 < d_odo <= teto:
+                km_odo += d_odo; n_odo += 1
+            elif d_odo <= 0 and seg > 5:
+                km_odo += seg;   n_gps += 1         # aparelho mudo: o GPS é o que há
+        # Zero não é medição. Se nenhum trecho contribuiu (contador congelado o tempo
+        # todo, sem deslocamento aproveitável), o número não existe — e `—` é honesto
+        # onde "0 km" seria uma afirmação falsa.
+        km_odo = int(round(km_odo)) if (n_odo or n_gps) else None
     base.update({
         'distancia_km': round(total_m / 1000, 1),
+        'km_odometro': km_odo,
+        'odometro_cobertura': round(100 * len(pts_odo) / len(fonte_odo)) if fonte_odo else 0,
+        'odometro_trechos': n_odo,
+        'odometro_trechos_gps': n_gps,
         'velocidade_max': vmax,
         'velocidade_media': round(vsum / vn, 1) if vn else None,
         'tempo_movimento_seg': int(tmov),
@@ -6111,6 +6204,118 @@ def api_rastreamento_posicoes():
         return jsonify({'ok': False, 'error': str(e)}), 500
 
 
+def _kpi_sanidade(kpi, origem, destinos, concluida=True):
+    """Barra o km que a geometria prova ser falso.
+
+    A distância RODOVIÁRIA é sempre >= a linha reta entre origem e destino. Um km do
+    rastreador abaixo disso não é medição imprecisa — é medição que não aconteceu: o
+    aparelho ficou mudo em parte do trecho. Publicar 235 km numa viagem cuja reta é
+    2.059 (C-2026-000459) afirma algo falso; `—` com o motivo no tooltip não.
+
+    Mantém o valor cru em `km_odometro_bruto` para auditoria — esconder da tela não é
+    o mesmo que apagar.
+    """
+    try:
+        km = kpi.get('km_odometro')
+        if km is None:
+            return kpi
+        # A régua geométrica só vale para viagem TERMINADA: quem ainda está a caminho rodou
+        # menos que a reta por definição. Aplicá-la à carga em curso apagava medição boa —
+        # em 8 cargas o odômetro concordava com o GPS (C-2026-000634: 578 contra 587) e
+        # mesmo assim virava `—`. Na viagem aberta o comparador honesto é o GPS da MESMA
+        # janela: duas medidas independentes do mesmo trecho. Barra só quando discordam
+        # em mais da metade (a C-2026-000603, com 58 km de odômetro contra 787 do GPS).
+        if not concluida:
+            gps = kpi.get('distancia_km')
+            if gps and gps > 30 and km < gps * 0.5:
+                kpi = dict(kpi)
+                kpi['km_odometro_bruto'] = km
+                kpi['km_odometro'] = None
+                kpi['km_odometro_motivo'] = (
+                    'medido %d km contra %d km que o GPS viu na mesma janela — o aparelho '
+                    'não contou parte do trecho' % (km, round(gps)))
+            return kpi
+        if not origem or origem.get('latitude') is None or not destinos:
+            return kpi
+        d = destinos[-1]
+        if d.get('latitude') is None:
+            return kpi
+        import geocoding as _g
+        reta = _g.km_entre(float(origem['latitude']), float(origem['longitude']),
+                           float(d['latitude']), float(d['longitude']))
+        if reta and reta > 30 and km < reta * 0.85:
+            kpi = dict(kpi)
+            kpi['km_odometro_bruto'] = km
+            kpi['km_odometro'] = None
+            kpi['km_odometro_motivo'] = (
+                'medido %d km, abaixo do mínimo geométrico de %d km entre origem e '
+                'destino — o aparelho não contou parte do trecho' % (km, round(reta)))
+    except Exception:
+        pass
+    return kpi
+
+
+def _kpi_plausibilidade(kpi, inicio, fim, km_rota, chegou=True):
+    """Não atribui km quando a JANELA é grande demais para a viagem caber nela.
+
+    É a mesma trava que o gerador de viagens vazias já usa (§12.5 do handoff): janela
+    acima de 3x o tempo cabível (600 km/dia + 1 dia de folga) não é viagem, é lacuna com
+    conteúdo desconhecido dentro. Sem ela, uma carga fechada dias depois pelo documento
+    mostra o mês inteiro da placa: a C-2026-000376, rota de 600 km fechada 15 dias após o
+    carregamento, marcava 4.061 km — o trajeto da carreta em outras viagens.
+
+    Medido sobre agosto/setembro: barra 24 das 324 cargas, e nelas o km exibido era, na
+    mediana, 1,68x a rota planejada. Com 2x pegaria 34, incluindo desvio legítimo (1,26x);
+    3x é onde a distribuição separa desvio de lacuna.
+    """
+    try:
+        if not inicio or not fim:
+            return kpi
+        dias = (fim - inicio).total_seconds() / 86400.0
+        cabivel = (float(km_rota) / 600.0 + 1.0) if km_rota else 2.0
+        if dias <= cabivel * 3:
+            return kpi
+        kpi = dict(kpi)
+        for campo in ('distancia_km', 'km_odometro'):
+            if kpi.get(campo) is not None:
+                kpi[campo + '_bruto'] = kpi[campo]
+                kpi[campo] = None
+        kpi['km_janela_motivo'] = (
+            'janela de %.0f dias para uma viagem de ~%.0f dias — o período tem outra coisa '
+            'dentro, o km não é desta viagem' % (dias, cabivel))
+    except Exception:
+        pass
+    return kpi
+
+
+def _kpi_sem_chegada(kpi, km_rota, chegou):
+    """Sem prova de chegada, km muito acima da rota não é atribuível à viagem.
+
+    Com chegada registrada, rodar mais que a rota é desvio — acontece e é informação. Sem
+    ela não dá para separar desvio de "a placa fez outra coisa no meio": a C-2026-000584
+    (Uberlândia→Brasília, rota de 423 km) exibia 1.216 km porque a carreta está muda e o
+    cavalo rodou ida e volta na janela. Corte em 2x a rota, medido em agosto/setembro:
+    barra 1 carga e não toca em nenhuma das que têm chegada provada.
+    """
+    try:
+        km = kpi.get('distancia_km')
+        if chegou or km is None or not km_rota or km <= float(km_rota) * 2:
+            return kpi
+        kpi = dict(kpi)
+        # Os dois km saem juntos: são a MESMA janela medida por dois instrumentos. Publicar
+        # o odômetro depois de barrar o GPS afirmaria pelo contador o que a linha não sustenta.
+        for campo in ('distancia_km', 'km_odometro'):
+            if kpi.get(campo) is not None:
+                kpi[campo + '_bruto'] = kpi[campo]
+                kpi[campo] = None
+        kpi['km_janela_motivo'] = (
+            'medido %.0f km numa rota de %.0f km, sem nenhuma posição provando a chegada — '
+            'o trecho a mais não é atribuível a esta viagem' % (km, float(km_rota)))
+    except Exception:
+        pass
+    return kpi
+
+
 @app.route('/api/rastreamento/cargas/<int:carga_id>/trajeto')
 @login_required
 def api_rastreamento_trajeto(carga_id):
@@ -6127,7 +6332,8 @@ def api_rastreamento_trajeto(carga_id):
                    no_local_desde, saida_auto, entregue_auto,
                    rota_planejada_polyline, distancia_planejada_km, duracao_estimada_min,
                    rota_recalculada_em, inicio_viagem,
-                   desengatada_em, descarga_motorista_nome, descarga_cavalo_placa
+                   desengatada_em, descarga_motorista_nome, descarga_cavalo_placa,
+                   COALESCE(viagem_vazia, FALSE) AS viagem_vazia
             FROM embarques_cargas WHERE id=%s
         """, (carga_id,))
         r = cur.fetchone()
@@ -6164,10 +6370,12 @@ def api_rastreamento_trajeto(carga_id):
         # depois por DISTÂNCIA ao destino — NÃO por no_local_desde, que o 3S pode ter
         # cravado cedo (etiqueta uma posição a 100+ km com o nome da cidade-destino), o
         # que fazia o trajeto "voltar" ao finalizar. Em andamento segue ao vivo (agora).
-        if carga.get('status') == 'Entregue':
-            fim = carga.get('data_conclusao') or carga.get('no_local_desde') or _dt.utcnow()
-        else:
-            fim = _dt.utcnow()
+        # A janela fecha na CHEGADA mesmo com a carga ainda ABERTA. Sem isso o trajeto de
+        # uma carga que ficou sem fechar cresce para sempre e, quando a placa rastreada é o
+        # cavalo, ele traz as viagens SEGUINTES dele: a C-2026-000601 mostrava 1.659 km de
+        # odômetro numa rota planejada de 131 km, com 3.535 pontos de outras viagens.
+        # Sem chegada registrada segue ao vivo, como antes.
+        fim = carga.get('data_conclusao') or carga.get('no_local_desde') or _dt.utcnow()
 
         def _buscar_trajeto(placa):
             if not placa:
@@ -6176,7 +6384,8 @@ def api_rastreamento_trajeto(carga_id):
             # placas vêm na antiga) e a carga pode estar em Mercosul. Com
             # igualdade exata o trajeto vinha vazio e o mapa mostrava 0 km.
             cur.execute("""
-                SELECT data_posicao, latitude, longitude, velocidade, ignicao, cidade, uf
+                SELECT data_posicao, latitude, longitude, velocidade, ignicao, cidade, uf,
+                       odometer
                 FROM embarques_posicoes_historico
                 WHERE placa = ANY(%s) AND data_posicao BETWEEN %s AND %s
                 ORDER BY data_posicao
@@ -6189,11 +6398,34 @@ def api_rastreamento_trajeto(carga_id):
                 'ignicao': ig,
                 'cidade': cid,
                 'uf': uff,
-            } for (dp, la, ln, vel, ig, cid, uff) in cur.fetchall()]
+                'odometer': odo,
+            } for (dp, la, ln, vel, ig, cid, uff, odo) in cur.fetchall()]
 
         traj_cavalo = _buscar_trajeto(carga['cavalo_placa'])
         traj_c1 = _buscar_trajeto(carga.get('carreta1_placa')) if carga.get('carreta1_placa') else []
         traj_c2 = _buscar_trajeto(carga.get('carreta2_placa')) if carga.get('carreta2_placa') else []
+
+        # Trajeto ANTES de qualquer recorte — usado SÓ pelo km do rastreador, e SÓ em
+        # viagem vazia.
+        #
+        # Na carga carregada o recorte pré-origem está certo: não se conta o km que o
+        # caminhão rodou antes de sair para a viagem (sem ele a carga 443 saltou de
+        # 425 para 1.030 km contra 416 do GPS).
+        #
+        # Na viagem VAZIA não há saída de origem para detectar — a "origem" é o lugar
+        # onde o veículo já estava parado, e o recorte comia quase tudo: o km do
+        # rastreador caiu de 119 para 11 assim que a origem ganhou coordenada.
+        # Indexado pelas DUAS grafias: `_placa_tracking` devolve a grafia da 3S e a
+        # carga guarda a dela (o robô normaliza para Mercosul). Com uma chave só, a
+        # busca falhava calada e o KPI voltava a usar o trajeto recortado.
+        _bruto = {}
+        for _p, _t in ((carga['cavalo_placa'], traj_cavalo),
+                       (carga.get('carreta1_placa'), traj_c1),
+                       (carga.get('carreta2_placa'), traj_c2)):
+            if not _p:
+                continue
+            for _g in placas.grafias(str(_p).strip().upper()):
+                _bruto[_g] = _t
 
         # Recorta o trecho PRÉ-origem (caminhão já rodando antes do lançamento) — a linha e o
         # KPI passam a começar na saída da origem, não antes.
@@ -6209,6 +6441,32 @@ def api_rastreamento_trajeto(carga_id):
             traj_cavalo = _recorta_origem(traj_cavalo)
             traj_c1 = _recorta_origem(traj_c1)
             traj_c2 = _recorta_origem(traj_c2)
+
+        # ── Viagem VAZIA: a linha é a JANELA REAL DA PERNA, tirada do trajeto BRUTO.
+        # Duas razões para não usar o trajeto já recortado: (a) o bruto começa 12 h antes do
+        # carregamento, folga para achar a saída, e essas 12 h entravam inteiras no km — a
+        # V-2026-000020 marcava 1.556 km numa perna de 898; (b) o recorte pré-origem não faz
+        # sentido na vazia, onde a "origem" é só o lugar onde o veículo estava parado.
+        # É a mesma janela que o odômetro já usa desde 04/09 (`_traj_odo`) — agora o desenho
+        # e o km do GPS falam a mesma língua que ele.
+        if carga.get('viagem_vazia'):
+            _ip = carga.get('data_saida_real') or carga.get('inicio_viagem')
+            _fp = carga.get('data_conclusao')
+            if _ip and _fp:
+                def _perna(placa):
+                    base_p = _bruto.get(str(placa or '').strip().upper()) or []
+                    out = []
+                    for _p in base_p:
+                        try:
+                            _t = _dt.fromisoformat(str(_p['data']).replace('Z', ''))
+                        except Exception:
+                            continue
+                        if _ip <= _t <= _fp:
+                            out.append(_p)
+                    return out
+                traj_cavalo = _perna(carga['cavalo_placa'])
+                traj_c1 = _perna(carga.get('carreta1_placa'))
+                traj_c2 = _perna(carga.get('carreta2_placa'))
 
         # Placa de rastreio principal (carreta1 → cavalo → carreta2)
         placa_track = rastreamento_worker._placa_tracking(
@@ -6237,13 +6495,52 @@ def api_rastreamento_trajeto(carga_id):
         fallback_cavalo = False
         if rastreado_via and rastreado_via['tipo'] in ('carreta1', 'carreta2') \
                 and carga.get('status') != 'Desengatada':
+            # Idade medida contra o FIM DA JANELA da carga, não contra agora. Numa viagem
+            # que terminou há dias a carreta SEMPRE pareceria muda, e o mapa trocava para o
+            # cavalo mesmo quando ela rastreou a viagem inteira: a C-2026-000569 tem 491
+            # pontos da carreta chegando a 1 km do destino e desenhava o cavalo, que parou
+            # 656 km longe. Em carga viva `fim` é o próprio agora — o dia a dia não muda.
             def _idade_h(iso):
                 try:
-                    return (_dt.utcnow() - _dt.fromisoformat(str(iso).replace('Z', ''))).total_seconds() / 3600.0
+                    return (fim - _dt.fromisoformat(str(iso).replace('Z', ''))).total_seconds() / 3600.0
                 except Exception:
                     return None
             ult_carreta = _idade_h(traj_principal[-1]['data']) if traj_principal else None
-            carreta_muda = (not traj_principal) or (ult_carreta is not None and ult_carreta > rastreamento_worker.FRESCOR_H)
+            # A carreta registrada nem sempre é a que viajou. Na C-2026-000468 ela ficou
+            # PARADA em Uberlândia (o destino) os dois dias inteiros — 153 pontos no mesmo
+            # lugar, 293 km da origem — enquanto o cavalo rodava os 427 km de Nerópolis até
+            # lá. Placa rastreada que não saiu do lugar não conta a viagem; se o cavalo
+            # rodou, é ele que conta. Medido em agosto/setembro: 2 cargas (a outra é a
+            # C-2026-000632, com 2 pontos parados da carreta contra 668 km do cavalo).
+            def _rodou(traj):
+                import geocoding as _grd
+                return sum((_grd.km_entre(traj[i - 1]['lat'], traj[i - 1]['lng'],
+                                          traj[i]['lat'], traj[i]['lng']) or 0)
+                           for i in range(1, len(traj)))
+
+            carreta_parada = bool(traj_principal) and _rodou(traj_principal) < 5                 and _rodou(traj_cavalo) >= 50
+            carreta_muda = (not traj_principal) or carreta_parada                 or (ult_carreta is not None and ult_carreta > rastreamento_worker.FRESCOR_H)
+
+            # Na viagem VAZIA o cavalo só serve se ele DE FATO fez a perna. Quem faz o
+            # reposicionamento é a carreta; o cavalo pode estar em outra viagem, e aí o mapa
+            # desenhava trilha de outra coisa — a V-2026-000021 mostrava 14 km de manobra em
+            # Uberlândia numa perna de 551 km. Critério: o trajeto do cavalo tem de encostar
+            # nas DUAS pontas da perna. Medido nas 63 vazias de agosto: 59 têm carreta viva,
+            # e das 4 que caem no cavalo o teste aprova 1 (V-2026-000001, a 0,3 km da origem
+            # e 0,9 do destino) e reprova 3 (a mais distante começa a 1.631 km da origem).
+            if carreta_muda and traj_cavalo and carga.get('viagem_vazia'):
+                import geocoding as _gvz
+
+                def _encosta(lat, lng):
+                    if lat is None or lng is None:
+                        return True          # sem coordenada não dá para reprovar
+                    return any((_gvz.km_entre(p['lat'], p['lng'], float(lat), float(lng)) or 9e9) <= 30
+                               for p in traj_cavalo)
+
+                _dz = destinos[-1] if destinos else {}
+                if not (_encosta(_olat, _olng) and _encosta(_dz.get('latitude'), _dz.get('longitude'))):
+                    traj_cavalo = []         # não desenha perna que essa placa não fez
+
             if carreta_muda and traj_cavalo:
                 _nld = carga.get('no_local_desde')
                 if _nld is not None:
@@ -6274,7 +6571,51 @@ def api_rastreamento_trajeto(carga_id):
                 traj_c2 = _corta_chegada(traj_c2)
                 traj_principal = _corta_chegada(traj_principal)
 
+
         # KPIs já consolidados?
+        # ── Trajeto que alimenta o KM DO RASTREADOR (só ele; os outros KPIs seguem
+        # o trajeto recortado, que é o que a linha do mapa desenha).
+        #
+        # Duas correções que casos reais obrigaram:
+        #
+        # 1. Segue a placa do `rastreado_via`, não a `placa_track` nominal. Quando a
+        #    carreta está muda e o sistema cai no cavalo, a nominal continua sendo a
+        #    carreta — e o odômetro perdia a referência. Na V-2026-000021 (carreta
+        #    HNL0A70, morta há 52 dias) isso virava 16 km num percurso de ~570.
+        #
+        # 2. Na viagem VAZIA, corta pela janela REAL da perna. O trajeto bruto começa
+        #    12h antes da data de carregamento (folga para achar a saída), e como a
+        #    vazia é isenta do recorte pré-origem, essas 12h entravam inteiras: a
+        #    V-2026-000002 marcou 575 km numa perna de ~120.
+        def _traj_odo():
+            if not carga.get('viagem_vazia'):
+                return None                      # carga normal: o recorte já delimita
+            # SÓ a carreta mede a perna vazia. Quem faz o reposicionamento é o ativo
+            # que ficou sem carga; o cavalo pode estar em outra viagem. Quando a
+            # carreta está muda o sistema empresta o trajeto do cavalo para DESENHAR
+            # algo no mapa — mas medir com ele dá número de outra viagem: a
+            # V-2026-000021 (carreta HNL0A70, morta há 52 dias) marcava 142 km de uma
+            # perna de 551, e os 142 eram do cavalo fazendo outra coisa.
+            rv = rastreado_via or {}
+            if rv.get('tipo') not in ('carreta1', 'carreta2'):
+                return []                        # sem carreta viva → km não atribuível
+            bruto = _bruto.get(str(rv.get('placa') or '').strip().upper())
+            if not bruto:
+                return []
+            ini_p = carga.get('data_saida_real') or carga.get('inicio_viagem')
+            fim_p = carga.get('data_conclusao')
+            if not ini_p or not fim_p:
+                return bruto
+            from datetime import datetime as _dj
+
+            def _dt(v):
+                try:
+                    return _dj.fromisoformat(str(v).replace('Z', ''))
+                except Exception:
+                    return None
+            return [x for x in bruto
+                    if (_dt(x.get('data')) or ini_p) >= ini_p and (_dt(x.get('data')) or fim_p) <= fim_p]
+
         cur.execute("""
             SELECT distancia_metros, velocidade_max, velocidade_media,
                    tempo_movimento_seg, tempo_parado_seg, consolidado_final
@@ -6282,9 +6623,15 @@ def api_rastreamento_trajeto(carga_id):
         """, (carga_id,))
         rk = cur.fetchone()
         if rk and rk[5] and not fallback_cavalo:
-            # KPI final consolidado (carga entregue) — usa o valor persistido
+            # KPI final consolidado (carga entregue) — usa o valor persistido.
+            # O km do rastreador NÃO está na tabela de KPI (que é anterior ao campo),
+            # então vem do trajeto, que continua disponível enquanto a retenção não
+            # levar as posições. Fica nulo depois disso, e nulo é honesto.
+            vivo = _kpi_ao_vivo(traj_principal, _traj_odo())
             kpi = {
                 'distancia_km': round((rk[0] or 0) / 1000, 1),
+                'km_odometro': vivo.get('km_odometro'),
+                'odometro_cobertura': vivo.get('odometro_cobertura', 0),
                 'velocidade_max': rk[1],
                 'velocidade_media': float(rk[2]) if rk[2] is not None else None,
                 'tempo_movimento_seg': rk[3],
@@ -6293,12 +6640,31 @@ def api_rastreamento_trajeto(carga_id):
             }
         else:
             # Em viagem: calcula ao vivo a partir do trajeto da placa rastreada (só da viagem)
-            kpi = _kpi_ao_vivo(traj_principal)
+            kpi = _kpi_ao_vivo(traj_principal, _traj_odo())
+
+        # Card "Posição atual": em carga ainda ABERTA a janela do trajeto passou a fechar na
+        # chegada (senão o km cresce com as viagens seguintes da placa), mas o card promete o
+        # AGORA — então ele vem da última posição conhecida da placa, fora da janela. A linha
+        # conta a viagem; o card diz onde o veículo está.
+        pos_agora = None
+        if not carga.get('data_conclusao'):
+            _rvp = str((rastreado_via or {}).get('placa') or '').strip().upper()
+            if _rvp:
+                cur.execute("""
+                    SELECT data_posicao, latitude, longitude, velocidade, ignicao, cidade, uf
+                      FROM embarques_posicoes_atuais WHERE placa = ANY(%s)
+                     ORDER BY data_posicao DESC LIMIT 1
+                """, (placas.grafias(_rvp),))
+                _pa = cur.fetchone()
+                if _pa and _pa[1] is not None:
+                    pos_agora = {'data': _pa[0].isoformat() + 'Z', 'lat': float(_pa[1]),
+                                 'lng': float(_pa[2]), 'velocidade': _pa[3], 'ignicao': _pa[4],
+                                 'cidade': _pa[5], 'uf': _pa[6]}
 
         cur.close(); conn.close()
 
-        # Última posição = último ponto do trajeto da placa rastreada (carreta primeiro)
-        ultima = traj_principal[-1] if traj_principal else None
+        # Última posição = a de agora (carga aberta) ou o fim do trajeto da placa rastreada
+        ultima = pos_agora or (traj_principal[-1] if traj_principal else None)
 
         # Rota é sempre origem→destino (completa). O que falta é derivado da posição atual
         # projetada nessa rota — assim a linha do mapa fica completa e o "km faltando" certo.
@@ -6309,7 +6675,12 @@ def api_rastreamento_trajeto(carga_id):
         dur_total = carga.get('duracao_estimada_min')
         km_restante = _km_restante(carga.get('rota_planejada_polyline'), pos_la, pos_ln)
         if km_restante is None:
-            km_restante = km_total
+            # Sem polyline não dá para projetar a posição na rota. Mas se a carga JÁ
+            # CHEGOU, o que falta é zero — cair para a distância total faz a tela dizer
+            # "faltam 1.028 km" de um caminhão parado no próprio destino. Aconteceu na
+            # C-2026-000629, cuja rota nunca foi traçada (cota do ORS).
+            km_restante = 0.0 if (carga.get('no_local_desde') or carga.get('data_conclusao')) \
+                else km_total
         dur_restante = None
         if dur_total and km_total:
             dur_restante = max(0, round(dur_total * (km_restante / km_total)))
@@ -6365,7 +6736,14 @@ def api_rastreamento_trajeto(carga_id):
             },
             'ultima_posicao': ultima,
             'rastreado_via': rastreado_via,
-            'kpi': kpi,
+            'kpi': _kpi_sem_chegada(
+                _kpi_plausibilidade(
+                    _kpi_sanidade(kpi, origem, destinos,
+                                  concluida=carga.get('data_conclusao') is not None),
+                    carga.get('data_saida_real') or carga.get('inicio_viagem'), fim,
+                    carga.get('distancia_planejada_km')),
+                carga.get('distancia_planejada_km'),
+                carga.get('no_local_desde') is not None),
         }
         return jsonify(resp)
     except Exception as e:

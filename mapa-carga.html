@@ -172,7 +172,10 @@
     <div class="card">
       <div class="card-titulo">KPIs</div>
       <div class="kpi-grid">
-        <div class="kpi-mini"><div class="l">Km percorridos</div><div class="v" id="kKmPerc">—</div></div>
+        <div class="kpi-mini" title="Contador do próprio rastreador. É cumulativo, então atravessa buraco de sinal — o traçado do GPS perde o que acontece na lacuna, este número não. Vale para viagem carregada e vazia.">
+          <div class="l">Km rastreador</div><div class="v" id="kKmOdo">—</div></div>
+        <div class="kpi-mini" title="Soma das distâncias entre os pontos recebidos (haversine). Subestima: corta curva e perde o trecho sem sinal.">
+          <div class="l">Km percorridos</div><div class="v" id="kKmPerc">—</div></div>
         <div class="kpi-mini"><div class="l">Km faltando</div><div class="v" id="kKmFalta">—</div></div>
         <div class="kpi-mini"><div class="l">Vel. média</div><div class="v" id="kVelMed">—</div></div>
         <div class="kpi-mini"><div class="l">Vel. máx</div><div class="v" id="kVelMax">—</div></div>
@@ -182,7 +185,7 @@
     </div>
 
     <div class="card" id="cardRota">
-      <div class="card-titulo">Rota planejada (ORS)</div>
+      <div class="card-titulo" id="tituloRota">Rota planejada</div>
       <div class="info-row"><span class="k">Distância total</span><span class="v mono" id="rDist">—</span></div>
       <div class="info-row"><span class="k">Duração estimada</span><span class="v mono" id="rDur">—</span></div>
       <div class="info-row"><span class="k">Chegada prevista (roteirizador)</span><span class="v" id="rEta">—</span></div>
@@ -420,7 +423,29 @@
 
     // KPIs
     if (d.kpi) {
-      document.getElementById('kKmPerc').textContent = (d.kpi.distancia_km || 0).toFixed(1) + ' km';
+      // nulo = não sei (sem nenhuma posição). `|| 0` transformava isso num "0,0 km"
+      // que afirma que o caminhão não andou — o card do odômetro já fazia certo.
+      const kPerc = document.getElementById('kKmPerc');
+      kPerc.textContent = d.kpi.distancia_km != null ? d.kpi.distancia_km.toFixed(1) + ' km' : '—';
+      // Quando a janela da carga é grande demais para a viagem caber nela, o km não é
+      // desta viagem — o número sai e o motivo fica no tooltip, como no card do odômetro.
+      kPerc.parentElement.title = d.kpi.km_janela_motivo
+        ? ('Número barrado: ' + d.kpi.km_janela_motivo)
+        : 'Soma das distâncias entre os pontos recebidos (haversine). Subestima: corta curva e perde o trecho sem sinal.';
+      // Km do rastreador: nulo quando o aparelho não reporta odômetro ou houve troca
+      // de equipamento (delta negativo). Mostrar "—" é melhor que mostrar zero.
+      const kOdo = document.getElementById('kKmOdo');
+      if (d.kpi.km_odometro != null) {
+        kOdo.textContent = d.kpi.km_odometro.toLocaleString('pt-BR') + ' km';
+        const cob = d.kpi.odometro_cobertura;
+        kOdo.parentElement.title = 'Contador do próprio rastreador (cumulativo: atravessa '
+          + 'buraco de sinal). ' + (cob != null ? cob + '% das posições da viagem trazem odômetro.' : '');
+      } else {
+        kOdo.textContent = '—';
+        kOdo.parentElement.title = (d.kpi.km_odometro_motivo || d.kpi.km_janela_motivo)
+          ? ('Número barrado: ' + (d.kpi.km_odometro_motivo || d.kpi.km_janela_motivo))
+          : 'O rastreador desta placa não reporta odômetro no período.';
+      }
       document.getElementById('kVelMax').textContent = (d.kpi.velocidade_max || 0) + ' km/h';
       document.getElementById('kVelMed').textContent = (d.kpi.velocidade_media || 0).toFixed(1) + ' km/h';
       document.getElementById('kTmov').textContent = fmtTempoSeg(d.kpi.tempo_movimento_seg);
@@ -428,6 +453,19 @@
     }
 
     // Rota completa origem→destino; "km faltando" = restante a partir da posição atual
+    // O título declara a FONTE: sem polyline o número veio do CTRB (o robô grava a
+    // distância do manifesto), não do roteirizador. Dizer "ORS" ali seria falso — foi
+    // o que fez uma perna de 400 km exibir "Rota planejada (ORS): 87 km".
+    const tRota = document.getElementById('tituloRota');
+    if (tRota) {
+      tRota.textContent = d.rota_planejada.polyline
+        ? 'Rota planejada (ORS)'
+        : 'Distância do manifesto (rota não traçada)';
+      tRota.title = d.rota_planejada.polyline
+        ? 'Rota rodoviária calculada pelo OpenRouteService.'
+        : 'O roteirizador ainda não traçou esta rota. A distância vem do CTRB, e por isso '
+          + 'não há linha no mapa.';
+    }
     if (d.rota_planejada.distancia_km != null) {
       const rp = d.rota_planejada;
       const kmFalta = (rp.distancia_restante_km != null) ? rp.distancia_restante_km : rp.distancia_km;

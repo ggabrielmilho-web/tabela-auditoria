@@ -77,6 +77,29 @@ def ligado():
     return _flag('EMBARQUES_AUTO', 'false')
 
 
+def modelo_carreta_ligado():
+    """Chave do MODELO CARRETA-CÊNTRICO — as regras de fechamento reescritas em 07/09/26.
+
+    **DESLIGADA por padrão, de propósito.** O acesso à API da 3S foi cortado em 07/09/26
+    por desacordo comercial da Rizza com o fornecedor, e todas estas regras dependem de
+    prova por GPS. Sem feed elas não fecham nada — falham no lado seguro, mas param de
+    fazer o trabalho. Enquanto o rastreamento não voltar, o robô segue com as regras
+    antigas, que decidem por documento.
+
+    Com a chave DESLIGADA o comportamento é byte a byte o de produção. Ligar só quando:
+      1. o feed da 3S voltar (conferir idade da posição mais fresca da frota);
+      2. as simulações forem refeitas com dado novo (`_simular_regras_fechamento.py`);
+      3. os testes passarem (`_testar_regras_fechamento.py`).
+
+    O que ela liga (medido em ago+set: fechamentos errados de 25 para 9):
+      * `manifesto_novo` só da MESMA carreta (o cavalo com outra carreta é troca de recurso);
+      * a exceção do reforço de carga no meio da rota;
+      * `dedup_veiculo` exigindo prova de chegada por GPS;
+      * a reanálise de pendências (`reanalisar_pendentes`).
+    """
+    return _flag('EMBARQUES_MODELO_CARRETA', 'false')
+
+
 def fechamento_ligado():
     """Sub-chave: permite criar cargas sem deixar o robô ENCERRAR nenhuma.
     Útil no piloto — o risco de criar a mais é revisão, o de fechar errado é
@@ -657,7 +680,48 @@ def encerrar(cur, carga_id, motivo, quando=None):
     return True
 
 
-def fechar_pendentes(cur, manifestos):
+def _norm_cidade(nome):
+    """Chave de comparacao de cidade: sem acento, sem pontuacao, maiuscula.
+    'Embu das Artes' casa com 'EMBU DAS ARTES'."""
+    import unicodedata
+    t = unicodedata.normalize('NFKD', str(nome or ''))
+    t = ''.join(c for c in t if not unicodedata.combining(c))
+    return re.sub(r'[^A-Za-z0-9]', '', t).upper()
+
+
+def _reforco_no_meio_da_rota(cand, origem_aberta, destino_aberto):
+    """O manifesto novo e REFORCO DE CARGA no meio do caminho, nao viagem nova.
+
+    A regra geral ("manifesto novo da placa encerra a viagem anterior") vale porque uma
+    carreta carregada nao fica em dois lugares. Ela quebra num caso: o veiculo passa pelo
+    hub, pega mais carga PARA O MESMO DESTINO e segue. O documento e novo, a viagem e a
+    mesma.
+
+    O caso-tipo e a C-2026-000550 (Ananindeua/PA -> Embu das Artes/SP, 2.895 km), fechada
+    em 31/08 00:00 por um manifesto emitido em UBERLANDIA -- tambem para Embu das Artes.
+    O caminhao entrou em Embu 30 h depois, ja marcado como entregue.
+
+    Medido sobre agosto/setembro (`_simular_regra_manifesto.py`): a regra de hoje
+    dispararia em 179 cargas; esta excecao segura 7, e nas 7 o GPS mostra o caminhao
+    chegando ao destino DEPOIS do manifesto novo -- todas seriam fechamento prematuro.
+    Zero falso positivo na medicao.
+
+    Duas condicoes, as duas necessarias:
+      * MESMO destino -- destino diferente e viagem nova de verdade;
+      * emitido EM ROTA (origem do manifesto novo != origem da carga aberta) -- mesma
+        origem e recarga no proprio patio, e ai a viagem anterior acabou mesmo.
+    """
+    if not cand:
+        return False
+    dests = cand.get('destinos') or []
+    if not dests or not destino_aberto:
+        return False
+    mesmo_destino = _norm_cidade(dests[0].get('cidade')) == _norm_cidade(destino_aberto)
+    em_rota = _norm_cidade((cand.get('origem') or {}).get('cidade')) != _norm_cidade(origem_aberta)
+    return mesmo_destino and em_rota
+
+
+def fechar_pendentes(cur, manifestos, candidatas=None):
     """Fecha a carga anterior de uma placa quando ela sai em viagem nova.
 
     Roda ANTES de criar, para liberar cavalo/carreta que estão presos numa carga
@@ -682,23 +746,66 @@ def fechar_pendentes(cur, manifestos):
     if not fechamento_ligado():
         return fechadas
 
+    # As candidatas ja vem com origem/destino resolvidos pelo CTRB -- e delas que sai a
+    # informacao para a excecao do reforco no meio da rota. Sem elas (chamada antiga) a
+    # excecao fica inerte e o comportamento e exatamente o de antes.
+    por_manifesto = {_norm(c.get('manifesto')): c for c in (candidatas or [])}
+
     # ── 1. manifesto novo desengata a carga anterior da mesma placa
     for man in manifestos:
         dt = man.get('_data')
         if not dt:
             continue
-        for bruta in (man.get('placa_cavalo'), man.get('placa_carreta')):
-            p = _placa(bruta)
-            if not p:
-                continue
+        # ── O EIXO É A CARRETA (§4.1 do handoff).
+        #
+        # Antes, o laço percorria as DUAS placas do manifesto e casava contra QUALQUER papel
+        # da carga aberta (cavalo OU carreta1 OU carreta2). O efeito: quando o cavalo larga
+        # a carreta e sai com outra, o manifesto novo DELE fechava a carga da carreta que
+        # ficou — 12 casos em agosto, e numa delas a carreta seguiu 1.933 km depois de
+        # "entregue".
+        #
+        # Uma carreta carregada não fica em dois lugares; um cavalo fica. Então o manifesto
+        # novo da CARRETA encerra a viagem anterior DELA, e só. Manifesto sem carreta
+        # (truck/toco, que carregam sozinhos) cai no cavalo, que ali é o veículo inteiro.
+        #
+        # Medido em ago+set com `_simular_regras_fechamento.py`: os fechamentos errados do
+        # `manifesto_novo` caem de 15 para 9, sem perder fechamento certo.
+        if modelo_carreta_ligado():
+            carreta = _placa(man.get('placa_carreta'))
+            if carreta:
+                alvos = [('(c.carreta1_placa=%s OR c.carreta2_placa=%s)', (carreta, carreta))]
+            else:
+                cavalo = _placa(man.get('placa_cavalo'))
+                if not cavalo:
+                    continue
+                alvos = [('(c.cavalo_placa=%s)', (cavalo,))]
+        else:
+            # Comportamento de PRODUÇÃO (chave desligada): qualquer placa do manifesto
+            # contra qualquer papel da carga. É o que erra nos 12 casos de troca de cavalo,
+            # e é o que continua valendo enquanto o rastreamento estiver fora do ar.
+            alvos = []
+            for bruta in (man.get('placa_cavalo'), man.get('placa_carreta')):
+                p = _placa(bruta)
+                if p:
+                    alvos.append(('(c.cavalo_placa=%s OR c.carreta1_placa=%s OR c.carreta2_placa=%s)',
+                                  (p, p, p)))
+
+        for filtro, args in alvos:
             cur.execute("""
-                SELECT id FROM embarques_cargas
-                WHERE (cavalo_placa=%s OR carreta1_placa=%s OR carreta2_placa=%s)
-                  AND status IN ('Aberta','Em rota','No destino','Desengatada')
-                  AND data_carregamento < %s
-                  AND COALESCE(criada_por_robo, FALSE) = TRUE
-            """, (p, p, p, dt))
-            for (cid,) in cur.fetchall():
+                SELECT c.id, c.origem_cidade,
+                       (SELECT d.cidade FROM embarques_cargas_destinos d
+                         WHERE d.carga_id = c.id ORDER BY d.ordem LIMIT 1)
+                  FROM embarques_cargas c
+                 WHERE """ + filtro + """
+                   AND c.status IN ('Aberta','Em rota','No destino','Desengatada')
+                   AND c.data_carregamento < %s
+                   AND COALESCE(c.criada_por_robo, FALSE) = TRUE
+            """, args + (dt,))
+            cand = por_manifesto.get(_norm(man.get('CHAVE_MANIFESTO')))
+            for (cid, origem_aberta, destino_aberto) in cur.fetchall():
+                if modelo_carreta_ligado() and _reforco_no_meio_da_rota(cand, origem_aberta, destino_aberto):
+                    fechadas['mantida (reforco no meio da rota)'] += 1
+                    continue
                 if encerrar(cur, cid, 'manifesto_novo', datetime.combine(dt, datetime.min.time())):
                     fechadas['manifesto novo'] += 1
 
@@ -767,6 +874,86 @@ def tracar_rotas_pendentes(conn, limite=None):
     return tracadas, falhas
 
 
+RAIO_CHEGADA_KM = float(os.getenv('RASTREAMENTO_RAIO_CHEGADA_DESTINO', '20'))
+DWELL_ENTREGA_H = float(os.getenv('EMBARQUES_AUTO_DWELL_ENTREGA_H', '24'))
+JANELA_REANALISE_DIAS = _int('EMBARQUES_AUTO_JANELA_REANALISE_DIAS', 30)
+
+
+def _destino_e_placa(cur, carga_id):
+    """(placa que mede, lat, lng, desde) da carga — a carreta é o sensor, o cavalo é reserva."""
+    cur.execute("""
+        SELECT COALESCE(NULLIF(c.carreta1_placa, ''), c.cavalo_placa), c.data_carregamento,
+               d.latitude, d.longitude
+          FROM embarques_cargas c
+          LEFT JOIN embarques_cargas_destinos d ON d.carga_id = c.id
+               AND d.ordem = (SELECT MIN(ordem) FROM embarques_cargas_destinos x WHERE x.carga_id = c.id)
+         WHERE c.id = %s
+    """, (carga_id,))
+    r = cur.fetchone()
+    if not r:
+        return None, None, None, None
+    placa, dcarg, la, ln = r
+    if la is None or ln is None:
+        return placa, None, None, None
+    desde = datetime.combine(dcarg, datetime.min.time()) - timedelta(hours=12) \
+        if isinstance(dcarg, date) and not isinstance(dcarg, datetime) else (dcarg - timedelta(hours=12))
+    return placa, float(la), float(ln), desde
+
+
+def _posicoes_perto(cur, placa, dla, dln, desde, raio_km, ate_dias=45):
+    """Posições da placa em ordem, com marca de dentro/fora do raio do destino.
+
+    A janela tem teto (`ate_dias`) porque isto roda por carga aberta a cada ciclo: sem ele,
+    uma carga esquecida em aberto arrastaria o histórico inteiro da placa toda madrugada."""
+    if not placa:
+        return []
+    cur.execute("""
+        SELECT data_posicao, latitude, longitude FROM embarques_posicoes_historico
+         WHERE placa = ANY(%s) AND data_posicao >= %s AND data_posicao < %s
+         ORDER BY data_posicao
+    """, (_placas.grafias(str(placa).strip().upper()), desde, desde + timedelta(days=ate_dias)))
+    saida = []
+    for d, la, ln in cur.fetchall():
+        if la is None or ln is None:
+            continue
+        km = geocoding.km_entre(float(la), float(ln), dla, dln)
+        if km is None:
+            continue
+        saida.append((d, km <= raio_km))
+    return saida
+
+
+def _chegou_ao_destino(cur, carga_id):
+    """A carreta desta carga já esteve dentro do raio do destino?
+
+    Usa bounding-box no banco e refina com `km_entre` — mesmo desenho do
+    `_esteve_no_destino` do worker (não importa o worker para não criar ciclo). Aqui não
+    interessa a ORDEM, só a existência, então a bbox resolve sem varrer o histórico.
+
+    Sem destino com coordenada devolve True: não há como julgar, e degradar para o
+    comportamento antigo é melhor que travar o fechamento por falta de dado."""
+    placa, dla, dln, desde = _destino_e_placa(cur, carga_id)
+    if dla is None:
+        return True
+    if not placa:
+        return False
+    m_lat = RAIO_CHEGADA_KM / 111.0
+    m_lng = RAIO_CHEGADA_KM / 90.0          # folga para cos(lat) no Brasil (~0,9–0,96)
+    cur.execute("""
+        SELECT latitude, longitude FROM embarques_posicoes_historico
+         WHERE placa = ANY(%s) AND data_posicao >= %s
+           AND latitude BETWEEN %s AND %s AND longitude BETWEEN %s AND %s
+    """, (_placas.grafias(str(placa).strip().upper()), desde,
+          dla - m_lat, dla + m_lat, dln - m_lng, dln + m_lng))
+    for la, ln in cur.fetchall():
+        if la is None or ln is None:
+            continue
+        km = geocoding.km_entre(float(la), float(ln), dla, dln)
+        if km is not None and km <= RAIO_CHEGADA_KM:
+            return True
+    return False
+
+
 def dedup_veiculo(cur, ctrbs):
     """Garante UMA carga ativa por cavalo e por carreta.
 
@@ -778,7 +965,20 @@ def dedup_veiculo(cur, ctrbs):
     lançamento manual (HTTP 409).
 
     O desempate é a emissão do CTRB, que TEM hora. Sem CTRB, cai no id (ordem de
-    criação). Fecha todas menos a última."""
+    criação). Fecha todas menos a última.
+
+    ⚠ **A ordem não é evidência.** Medido em ago+set (`_simular_regras_fechamento.py`): dos
+    19 fechamentos que esta regra produzia, **os 19** eram a mais de 100 km do destino e 10
+    são prematuros provados — o veículo chegou depois. Trocar a dimensão (dedup só por
+    carreta) não muda nada: o defeito é fechar por ORDEM.
+
+    Por isso a carga anterior só é encerrada quando o GPS mostra que a carreta **esteve no
+    destino** dela. Sem essa prova ela fica aberta e vira pendência, que a reanálise
+    (`reanalisar_pendentes`) revisita quando a evidência chegar. Com a prova exigida: 10
+    fechamentos, **zero erro**.
+
+    Sem destino com coordenada não há como julgar — aí mantém o comportamento antigo, que é
+    degradar sem surpresa (o mesmo que `_esteve_no_destino` já faz)."""
     fechadas = Counter()
     for campo in ('cavalo_placa', 'carreta1_placa'):
         cur.execute(f"""
@@ -797,8 +997,66 @@ def dedup_veiculo(cur, ctrbs):
                 continue
             itens.sort()                      # (data, emissão do CTRB, id)
             for _, _, cid in itens[:-1]:      # só a última continua aberta
+                if modelo_carreta_ligado() and not _chegou_ao_destino(cur, cid):
+                    fechadas['mantida (sem prova de chegada)'] += 1
+                    continue
                 if encerrar(cur, cid, 'sequencia_viagem'):
                     fechadas['sequência de viagem'] += 1
+    return fechadas
+
+
+def reanalisar_pendentes(cur, janela_dias=None):
+    """Revisita pendência antiga e fecha a que o GPS já respondeu (§13.4 do handoff).
+
+    O robô decide no dia: o que não tem evidência naquele momento fica aberto para sempre.
+    Só que a evidência costuma chegar depois — o rastreador volta a falar, o backfill traz
+    a posição atrasada, a carreta sai do destino. Esta função é o lado "convergente" do
+    modelo: cada rodada reabre a pergunta em vez de congelar a resposta errada.
+
+    Não chama 3S nem ORS — só lê o que já está no banco. Só toca em carga do robô, e sempre
+    com log (o `encerrar` grava). É por isso que a janela pode ser larga: 30 dias, que é
+    onde a evidência de GPS acaba (a retenção).
+
+    As duas regras de fim de viagem da §4.3, nesta ordem:
+      * a carreta SAIU do destino  -> entregue no instante da saída;
+      * a carreta ficou DWELL_ENTREGA_H no destino -> entregue em chegada + essa janela.
+        Sem ela, carga cujo destino é a própria base só fecharia na viagem seguinte.
+
+    Medido em ago+set (`_simular_regras_fechamento.py`): das pendências que as regras novas
+    deixam abertas, ~61% ganham resposta em até 30 dias — p50 de 2,1 dias, p90 de 5.
+    """
+    fechadas = Counter()
+    if not fechamento_ligado() or not modelo_carreta_ligado():
+        return fechadas
+    dias = janela_dias if janela_dias is not None else JANELA_REANALISE_DIAS
+    limite = date.today() - timedelta(days=dias)
+    cur.execute("""
+        SELECT id FROM embarques_cargas
+         WHERE status IN ('Aberta','Em rota','No destino','Desengatada')
+           AND COALESCE(criada_por_robo, FALSE) = TRUE
+           AND COALESCE(viagem_vazia, FALSE) = FALSE
+           AND data_carregamento >= %s
+         ORDER BY data_carregamento
+    """, (limite,))
+    for (cid,) in cur.fetchall():
+        placa, dla, dln, desde = _destino_e_placa(cur, cid)
+        if dla is None:
+            continue                                  # sem destino não se julga nada
+        pontos = _posicoes_perto(cur, placa, dla, dln, desde, RAIO_CHEGADA_KM)
+        chegada = next((d for d, dentro in pontos if dentro), None)
+        if chegada is None:
+            continue                                  # segue pendente: silêncio não é evento
+        depois = [(d, dentro) for d, dentro in pontos if d > chegada]
+        saida = next((d for d, dentro in depois if not dentro), None)
+        if saida is not None:
+            quando, motivo = saida, 'gps_saiu_do_destino'
+        else:
+            ultima = depois[-1][0] if depois else chegada
+            if (ultima - chegada).total_seconds() / 3600.0 < DWELL_ENTREGA_H:
+                continue                              # ainda parada lá, e sem 24 h: espera
+            quando, motivo = chegada + timedelta(hours=DWELL_ENTREGA_H), 'gps_dwell_destino'
+        if encerrar(cur, cid, motivo, quando):
+            fechadas[motivo] += 1
     return fechadas
 
 
@@ -897,7 +1155,9 @@ def executar(dia=None, dry_run=False, token=None, conn=None):
         # dry-run desfaz.
         garantir_colunas(cur)
 
-        resumo['fechadas'] = fechar_pendentes(cur, manifestos) \
+        # `cargas` (as candidatas ja montadas) entra para o fechamento saber o destino do
+        # manifesto novo -- e o que sustenta a excecao do reforco no meio da rota.
+        resumo['fechadas'] = fechar_pendentes(cur, manifestos, cargas) \
             if not dry_run else Counter()
 
         for c in cargas:
@@ -929,6 +1189,12 @@ def executar(dia=None, dry_run=False, token=None, conn=None):
             if fechamento_ligado():
                 for k, v in dedup_veiculo(cur, ctrbs).items():
                     resumo['fechadas'][k] += v
+                # Reanálise: o robô deixa de ser decisor do dia e vira convergente — o que
+                # ficou sem resposta hoje é reaberto amanhã, quando a evidência chega.
+                # Só lê o banco (nem 3S nem ORS), então cabe em toda rodada.
+                if _flag('EMBARQUES_AUTO_REANALISE', 'true'):
+                    for k, v in reanalisar_pendentes(cur).items():
+                        resumo['fechadas'][k] += v
             resumo['reconciliadas'] = reconciliar(cur, ctrbs, ctrcs)
             conn.commit()
         else:
