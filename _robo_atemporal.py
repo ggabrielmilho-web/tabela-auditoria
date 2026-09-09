@@ -346,12 +346,30 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
     ref_saida = campos.get('data_saida_real', dsaida)
     ref_cheg = campos.get('no_local_desde', nolocal)
     ref_conc = campos.get('data_conclusao', dconc)
+    # `max`, nao `or` — e so grava se MUDAR. As duas coisas sao o mesmo conserto, feito em
+    # producao em 09/09/26 depois de o robo oscilar em 8 cargas (225 -> 8 -> 8, sempre as
+    # MESMAS oito, sempre em `data_conclusao`).
+    #
+    # O `or` escolhia `n_conc` mesmo quando ele era ANTERIOR a `ref_cheg`, entao a escrita
+    # nao resolvia a condicao e ela disparava de novo na passada seguinte, para sempre.
+    # Existe uma trava antes disso (`if n_conc and n_cheg and n_conc < n_cheg: n_conc =
+    # n_cheg`), mas ela compara com a chegada DERIVADA; quando o robo nao deriva chegada e o
+    # `ref_cheg` cai na GRAVADA, a trava nao pega. Foi o caso dessas 8.
+    #
+    # `max` garante que o valor escrito satisfaz a invariante (conclusao >= chegada >= saida),
+    # e o `!=` impede a escrita no-op que fazia a carga contar como alterada em toda rodada.
+    # Oscilacao e bug, nao convergencia (secao 20.6) — e esta foi a segunda vez no dia que o
+    # bug era um escritor meu que nao fechava o proprio ciclo.
     if ref_conc and ref_cheg and ref_conc < ref_cheg:
-        campos['data_conclusao'] = n_conc or ref_cheg
-        resumo['coerencia: conclusao anterior a chegada'] += 1
+        _novo = max(x for x in (n_conc, ref_cheg) if x is not None)
+        if _novo != ref_conc:
+            campos['data_conclusao'] = _novo
+            resumo['coerencia: conclusao anterior a chegada'] += 1
     elif ref_conc and ref_saida and ref_conc < ref_saida:
-        campos['data_conclusao'] = n_conc or ref_cheg or ref_saida
-        resumo['coerencia: conclusao anterior a saida'] += 1
+        _novo = max(x for x in (n_conc, ref_cheg, ref_saida) if x is not None)
+        if _novo != ref_conc:
+            campos['data_conclusao'] = _novo
+            resumo['coerencia: conclusao anterior a saida'] += 1
     # A saida GUARDADA tambem entra na guarda de velocidade. O robo so preenchia saida vazia,
     # entao um par impossivel vindo de producao sobrevivia: 12 cargas seguiam com T5 depois de
     # a guarda ja rodar. Se a guardada e impossivel e a apurada e possivel, a apurada manda.
