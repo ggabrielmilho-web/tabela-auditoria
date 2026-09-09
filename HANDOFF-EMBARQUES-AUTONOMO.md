@@ -1930,7 +1930,7 @@ continuamente mantém conclusão honesta.
 | erro do worker no modo 1 | idem — hoje está abaixo do piso do instrumento (**temporário por construção**) |
 | as 9 chegadas presumidas | cruzamento com o CTe — precisa de dump novo de `conhecimentos_emitidos` e `manifestos` (o local tem até 10/07 e 31/03) |
 | o universo do benchmark da §17.2 | identificar as **16 cargas** excluídas (ver 21.9) |
-| a imagem de produção (§20.10) | exige tocar produção |
+| ~~a imagem de produção (§20.10)~~ | ✅ **VERIFICADO em 09/09 — ver 21.14** |
 | **modo sombra** | o motor rodando contra produção por alguns dias, comparando o que gravaria com o que o worker grava — **a única pergunta que nenhuma rodada pôde responder daqui** |
 
 ### 21.9 O benchmark da §17.2 se perdeu — e foi resgatado pela prosa
@@ -2030,3 +2030,66 @@ aproximacao posterior     ele chegou mais perto depois, dentro da janela da carg
 > observação no `embarques_cargas_log`, as duas réguas nos dois arquivos desde 07/09, o
 > anel no histórico de posições desde agosto. Nenhuma precisou de dado novo. Todas
 > precisaram de uma **pergunta** nova.
+
+### 21.14 A imagem de produção — VERIFICADO em 09/09/2026
+
+A suspeita da §20.10 estava certa, e o mecanismo é pior do que "o Portainer reverteu a
+imagem": **foi um deploy que nunca aconteceu e ficou registrado como se tivesse
+acontecido.**
+
+```
+servico ..... rizza-auditoria_app        imagem  ghcr.io/.../rizza-auditoria:latest
+container ... criado 02/09/2026 17:01:52 -0300   ·   Up 6 dias, NUNCA reiniciado
+
+--- codigo NO AR, lido dentro do container ---
+709:            if encerrar(cur, cid, 'baixa_ctrb'):
+721:        if encerrar(cur, cid, 'timeout'):
+722:            fechadas['timeout'] += 1
+
+--- env NO AR ---
+EMBARQUES_AUTO=true          EMBARQUES_AUTO_JANELA_DIAS=1          START_WORKER=true
+```
+
+**As duas regras que a §7 descartou estão ativas em produção** — não só a `baixa_ctrb` que
+a §20.10 suspeitava, mas o `timeout` junto. E a `EMBARQUES_AUTO_JANELA_DIAS=1` que a §13.3
+mandava voltar para 5 também segue.
+
+O commit que removeu as duas diz, na própria mensagem:
+
+> `76f07a3` (04/09) — *"Já estava em produção; este commit alinha o repositório."*
+
+**Não estava.** O container é de 02/09, anterior ao commit, e nunca foi reiniciado. A
+§16.4 documentou a `baixa_ctrb` fechando C-607, C-609 e C-614 em **02/09 19:42:34** —
+dentro deste mesmo container, que subiu às 17:01 do mesmo dia. Mesmo container, mesmo
+código: a regra ativa está nessa imagem, e roda todo dia às 16:30 desde então.
+
+> **A lição, e é gêmea das outras desta seção:** a §16.4 escreveu *"Nada a consertar: a
+> regra já saiu."* Ela saiu **do repositório**, não do ar. Estado do código ≠ estado do
+> serviço, e a única prova é ler o código **dentro do container** — a tag da imagem não
+> serve (é sempre `:latest`), e a memória de quem fez o deploy serve menos ainda.
+
+**O que a verificação também provou, do lado bom:** `MODELO_CARRETA = 0`,
+`reanalisar_pendentes = 0` e `km_odometro = 0` no ar — **a isolação da §19.3 está
+funcionando**. Nada do pacote congelado vazou para produção. O que está velho é o modelo
+antigo, não o novo.
+
+**Decisão de 09/09 (Gabriel):** não mexer em produção agora. Dois motivos, os dois bons —
+o plano termina subindo código e dados corrigidos, então o que produção fizer até lá é
+sobrescrito pelo reprocessamento; e **editar env pela stack do Portainer é justamente o
+gesto que já fez o serviço voltar para imagem antiga em 21/08**. A validação é local até o
+fim.
+
+> ⚠ **Consequência para o passo 3 da §13.3:** a base de produção diverge um pouco mais a
+> cada dia que a torneira fica aberta (~7 execuções do robô desde 02/09, cada uma com uma
+> regra medida em 50% de erro na §3.1). O script de subida **precisa** das guardas de
+> comparação de estado — não é zelo, é requisito.
+
+**O marcador certo, para a próxima vez.** `grep -c "baixa_ctrb"` **não serve**: a `main`
+também tem uma ocorrência, na docstring que explica a remoção. O que decide é o **sítio de
+chamada**:
+
+```bash
+docker exec <container> grep -n "baixa_ctrb\|'timeout'" embarques_auto.py
+# so linha de comentario  -> imagem atual
+# if encerrar(cur, cid, ...) -> imagem velha
+```
