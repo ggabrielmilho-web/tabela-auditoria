@@ -419,6 +419,19 @@
       document.getElementById('pCidade').textContent = `${d.ultima_posicao.cidade || '—'}/${d.ultima_posicao.uf || '—'}`;
       document.getElementById('pVel').textContent = (d.ultima_posicao.velocidade || 0) + ' km/h';
       document.getElementById('pUltima').textContent = tempoDesde(d.ultima_posicao.data);
+      // A carga está fechada e mesmo assim o card mostra posição de AGORA: é o caso em que
+      // o fechamento não teve prova de chegada e a carreta ainda não saiu em outra viagem.
+      // Sem avisar, o operacional lê a linha (que termina na conclusão) e o card (que é de
+      // hoje) como se fossem a mesma afirmação.
+      const cTit = document.querySelector('#pCidade')?.closest('.card')?.querySelector('.card-titulo');
+      if (d.posicao_apos_fechamento) {
+        document.getElementById('pCidade').insertAdjacentHTML('afterend',
+          ' <span style="color:var(--orange,#fb923c);font-size:0.8em;cursor:help;" ' +
+          'title="A carga foi FECHADA sem prova de chegada, e a carreta não saiu em outra ' +
+          'viagem — então esta é a posição de AGORA, depois do fechamento. A linha do mapa ' +
+          'termina na conclusão; o veículo continuou.">⚠ depois do fechamento</span>');
+        if (cTit) cTit.textContent = 'Posição atual (após o fechamento)';
+      }
     }
 
     // KPIs

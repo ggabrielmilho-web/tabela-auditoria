@@ -6700,7 +6700,36 @@ def api_rastreamento_trajeto(carga_id):
         # AGORA — então ele vem da última posição conhecida da placa, fora da janela. A linha
         # conta a viagem; o card diz onde o veículo está.
         pos_agora = None
-        if not carga.get('data_conclusao'):
+        # ── QUANDO A POSICAO AO VIVO VALE
+        #
+        # Regra ate 09/09/26: so em carga ABERTA. Faz sentido para a carga realmente
+        # entregue — congelar na chegada evita mostrar onde o veiculo foi depois, noutra
+        # viagem. Mas ela tratava "fechada" como "chegou", e as duas coisas se separaram
+        # (secao 4.2): a C-2026-000677 foi fechada por producao em 06/09 00:00 porque o
+        # CAVALO saiu com OUTRA carreta, e a carreta que leva a carga seguiu mais 434 km —
+        # estava em Uberlandia, a 347 km do destino, enquanto a tela dizia "Pirassununga,
+        # ha 3d". Congelar ali esconde exatamente o que importa.
+        #
+        # Entao a posicao ao vivo tambem vale para carga FECHADA SEM PROVA DE CHEGADA — mas
+        # so enquanto a carreta nao comecou outra viagem. Sem esse teto documental o conserto
+        # seria PIOR que o defeito: das 51 cargas fechadas sem prova, 47 tem carreta que ja
+        # saiu de novo, e para essas a posicao ao vivo e de outra viagem. Sobram 4, que sao a
+        # classe mais urgente que existe — carga parada em algum lugar, carimbada de entregue.
+        _fechada_sem_prova = bool(carga.get('data_conclusao')) and not carga.get('no_local_desde')
+        if _fechada_sem_prova and carga.get('carreta1_placa'):
+            # `placas.grafias()` em vez de `_pn(%s)`: o helper repete a coluna QUATRO vezes,
+            # entao passar o placeholder por dentro dele gera quatro %s para um valor so.
+            # Aqui a normalizacao ja acontece do lado do Python, que e o padrao do arquivo.
+            cur.execute("""SELECT 1 FROM embarques_cargas x
+                            WHERE x.id <> %s AND NOT COALESCE(x.viagem_vazia, FALSE)
+                              AND x.status <> 'Cancelada'
+                              AND x.data_carregamento > %s
+                              AND x.carreta1_placa = ANY(%s) LIMIT 1""",
+                        (carga['id'], carga.get('data_carregamento'),
+                         placas.grafias(str(carga['carreta1_placa']).strip().upper())))
+            if cur.fetchone():
+                _fechada_sem_prova = False      # a carreta ja esta em outra viagem
+        if (not carga.get('data_conclusao')) or _fechada_sem_prova:
             _rvp = str((rastreado_via or {}).get('placa') or '').strip().upper()
             if _rvp:
                 cur.execute("""
@@ -6788,6 +6817,10 @@ def api_rastreamento_trajeto(carga_id):
                 'eta_realista_iso': eta_iso,
             },
             'ultima_posicao': ultima,
+            # A tela precisa saber que esta olhando a posicao de AGORA de uma carga ja
+            # fechada — senao o operacional le "Pirassununga" e "Uberlandia" como se fossem
+            # a mesma afirmacao. Numero sem rotulo tambem engana.
+            'posicao_apos_fechamento': bool(pos_agora and carga.get('data_conclusao')),
             'rastreado_via': rastreado_via,
             'kpi': _kpi_sem_chegada(
                 _kpi_plausibilidade(

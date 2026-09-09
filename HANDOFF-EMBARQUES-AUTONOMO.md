@@ -2480,3 +2480,100 @@ errada se conserta na rodada seguinte.
 aferidor:  181 cargas / 240 achados  ->  176 / 233      (F3  16 -> 9)
 15 de 15 testes · convergencia conjunta estavel · campo circulando ate a API
 ```
+
+### 21.20 A C-2026-000677 — o caso que o Gabriel achou na tela (09/09/2026)
+
+Vale inteiro porque **o sistema ja tinha diagnosticado sozinho**, e o que faltava era a tela
+nao contradizer o aferidor.
+
+**O que a tela mostrava:** carga `Entregue`, linha parando em Pirassununga com 101 km
+rodados, "Posicao atual: Pirassununga/SP, ha 3d", `KM FALTANDO 823,8 km`, chegada `—`.
+
+**Quem fechou:** producao, nao o robo. O log tem tres linhas e nenhuma e o fechamento — a
+carga chegou de producao ja `Entregue` com `data_conclusao = 06/09 00:00:00` (meia-noite, a
+assinatura documental da secao 15.2). O robo so acrescentou `inicio_viagem` e carimbou
+`sem_prova_revisar`.
+
+**Por que fechou** — a secao 3.2 com nome e sobrenome:
+
+```
+C-2026-000639  03/09  cav=FFA2I61  car=QXA9H76   Hidrolandia -> Ribeirao Pires
+C-2026-000677  05/09  cav=FFA2I61  car=QXA9H76   Amparo      -> Brasilia      <- esta
+C-2026-000684  06/09  cav=FFA2I61  car=TZB1D35   Uberlandia  -> Brasilia      <- carreta OUTRA
+```
+
+O cavalo trocou de carreta. A regra de producao casa **qualquer placa contra qualquer
+papel**, entao o manifesto novo do CAVALO fechou a carga da CARRETA que ficou.
+
+**Onde a carga esta:** a carreta `QXA9H76` saiu de Amparo em 05/09 22:01, rodou a noite
+inteira pelo interior de SP, dormiu em Aramina e chegou a **Uberlandia em 06/09 11:06** —
+onde esta parada ate 08/09 14:49, a **347 km de Brasilia** (421 km de rota). Rodou **434 km
+depois de ser marcada como entregue**, e nao tem manifesto novo: continua com esta carga.
+
+O cavalo `FFA2I61` nao tem rastreador (e um dos 73% sem GPS) — por isso nao aparece.
+
+#### A hipotese da reemissao, testada
+
+Gabriel levantou: *"nao pode ter sido emissao de manifesto errado, cancelaram e reemitiram?"*
+Boa hipotese, e o dado a **refuta**:
+
+| | C-2026-000677 | C-2026-000684 |
+|---|---|---|
+| cliente | **QUIMICA AMPARO LTDA CD01** | **PERNOD RICARD BRASIL** |
+| origem | Amparo | Uberlandia |
+| manifesto | UDI029121-8 | UDI029131-5 |
+
+Clientes diferentes, origens diferentes, manifestos diferentes: sao **duas cargas distintas**
+que por acaso vao as duas para Brasilia. Nao ha nenhuma outra carga da Quimica Amparo para
+Brasilia em setembro, e **zero cargas canceladas** no mes inteiro. O motorista e o mesmo nas
+tres (MARLEY CORDEIRO DA ROCHA), o que e coerente com "o motorista trocou de carreta", nao
+com "reemitiram o documento".
+
+> **Limite do que da para afirmar:** a tabela `manifestos` do SSW no dump local vai so ate
+> **31/03/2026**. Entao posso afirmar que a C-684 nao e reemissao da C-677; **nao** posso
+> verificar se o proprio manifesto UDI029121-8 foi cancelado e reemitido dentro do SSW. Isso
+> exige dump novo da tabela — a mesma dependencia da secao 15.3.
+
+#### O que o sistema ja acertava
+
+O aferidor achou sozinho, e com o diagnostico exato:
+
+```
+C-2026-000677 · F5 · ENTREGUE mas a carreta nunca chegou (346 km) e so o CAVALO
+pegou carga nova — e desengate, nao entrega; proxima do cavalo = C-2026-000684
+```
+
+E a regra do branch **nao fecharia**: `_chegou_ao_destino(C-677) = False`, e existe teste
+cobrindo exatamente este padrao (*"cavalo igual + carreta diferente NAO fecha"*). Ela esta
+atras de `EMBARQUES_MODELO_CARRETA=false` **e** producao roda a imagem de 02/09 (21.14).
+
+#### O conserto: posicao ao vivo em carga fechada SEM PROVA
+
+O card so buscava posicao ao vivo em carga **aberta** — tratava "fechada" como "chegou", e a
+secao 4.2 separa as duas coisas. Congelar faz sentido para entrega provada; para fechamento
+sem prova, esconde justamente o que importa.
+
+**Mas o conserto ingenuo seria pior que o defeito.** Medido antes de escrever:
+
+```
+51  cargas fechadas sem prova de chegada
+47  a CARRETA ja comecou outra viagem   <- posicao ao vivo seria de OUTRA viagem
+ 4  a carreta NAO comecou outra viagem  <- a posicao ao vivo E desta carga
+```
+
+Sem **teto documental** o conserto erraria em 47 de 51. Com ele, sobram 4 — e sao a classe
+mais urgente que existe: carga parada em algum lugar, carimbada de entregue. Efeito na C-677:
+
+```
+posicao   Pirassununga/SP 06/09  ->  Uberlandia/MG 08/09
+km falta          823,8 km       ->        421,2 km
+```
+
+Controles conferidos: carga aberta, entregue COM prova, e fechada cuja carreta ja saiu em
+outra viagem — as tres **inalteradas**. E o card leva rotulo (`⚠ depois do fechamento`),
+porque a linha do mapa termina na conclusao e o card e de hoje: sem aviso, o operacional le
+as duas como a mesma afirmacao.
+
+> Um bug meu no caminho: usei `_pn('%s')` para normalizar a placa dentro do SQL, e o helper
+> **repete a coluna quatro vezes** — quatro placeholders para um valor so ("tuple index out
+> of range"). Trocado por `placas.grafias()`, que e o padrao do arquivo.
