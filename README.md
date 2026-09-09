@@ -9,6 +9,52 @@ URL de produção: **https://rizza.carvalhoia.com**
 
 ---
 
+## ⛔ CONGELADO — rastreamento e robô de embarques (desde 07/09/2026)
+
+**Antes de commitar ou subir qualquer coisa deste repositório, leia esta seção.**
+
+O acesso à API da **3S Tecnologia** foi cortado em 07/09/2026 por **desacordo comercial**
+da Rizza com o fornecedor. Todos os endpoints respondem `404` com código de negócio da
+própria 3S (`3S.1001 - Veículos não encontrados`, `3S.1003 - Posição de Veículos não
+encontrados`), embora o login continue funcionando. Efeito medido no mesmo dia: **nenhum
+veículo da frota reportou posição nas 6 horas anteriores** — a posição mais fresca das 94
+tinha 9 h, a mediana 13,6 h.
+
+### O que está parado, e por quê
+
+Existe no **working tree** (nada commitado) uma reescrita das regras de fechamento do robô
+e das medições do mapa, feita em 04 e 07/09. Ela é boa e está medida — mas **depende de
+prova por GPS**, e sem feed ela simplesmente não fecha nada. Por isso está congelada.
+
+| arquivo | o que tem de novo | risco se subir |
+|---|---|---|
+| `embarques_auto.py` | modelo carreta-cêntrico: `manifesto_novo` só da mesma carreta, `dedup_veiculo` exigindo chegada provada, `reanalisar_pendentes` | **nenhum** — tudo atrás da chave `EMBARQUES_MODELO_CARRETA`, que nasce **desligada**. Desligada, o robô se comporta byte a byte como hoje (há teste provando) |
+| `server.py`, `mapa-carga.html` | KPIs do mapa: janela que fecha na chegada, sanidade geométrica só em viagem fechada, travas de plausibilidade, `—` no lugar de número sem lastro | muda o que a **tela** mostra. Não escreve nada no banco, mas não foi combinado com o operacional |
+
+### O que fazer antes de qualquer deploy
+
+```bash
+git status --short          # tem de estar limpo, ou você sabe exatamente o que está subindo
+git diff --stat             # 3 arquivos alterados = o pacote congelado está indo junto
+```
+
+Se `embarques_auto.py`, `server.py` ou `mapa-carga.html` aparecerem e **não for este o
+assunto do seu deploy**, não suba: são as mudanças congeladas. Para trabalhar em outra
+função com segurança, o caminho é commitar este pacote numa **branch separada** (não na
+`main`) e voltar a `main` limpa.
+
+### Como religar, quando a 3S voltar
+
+1. conferir que o feed voltou (idade da posição mais fresca da frota, em `/embarques/mapa`);
+2. refazer as medições com dado novo — `_simular_regras_fechamento.py`;
+3. rodar `_testar_regras_fechamento.py` (15 testes);
+4. só então `EMBARQUES_MODELO_CARRETA=true` no Portainer.
+
+O estudo inteiro, com as medições e o porquê de cada regra, está em
+**`HANDOFF-EMBARQUES-AUTONOMO.md`** (§§14 a 19).
+
+---
+
 ## Funcionalidades
 
 ### Para todos os usuários autenticados
@@ -250,6 +296,10 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 | `EMBARQUES_AUTO_MAX_DESTINOS` | Acima disso é distribuição → 1 destino + observação | `8` |
 | `EMBARQUES_AUTO_DESTINOS_CTRC` | Admite a cidade do CTRC como destino (batem em só 69%) | `false` |
 | `EMBARQUES_AUTO_FILIAIS` | JSON sigla→`Cidade/UF`, usado só quando não há CTRB | `{}` |
+| `EMBARQUES_MODELO_CARRETA` | **⛔ CONGELADA** — liga o modelo carreta-cêntrico no fechamento (manifesto novo só da mesma carreta, dedup com prova de chegada, reanálise de pendências). Depende do GPS, que está fora do ar desde 07/09/26. **Não ligar antes de ler a seção "CONGELADO" no topo** | `false` |
+| `EMBARQUES_AUTO_REANALISE` | Sub-chave da anterior: revisita pendência com evidência posterior | `true` |
+| `EMBARQUES_AUTO_JANELA_REANALISE_DIAS` | Até onde a reanálise olha para trás (a retenção de GPS é ~30 d) | `30` |
+| `EMBARQUES_AUTO_DWELL_ENTREGA_H` | Horas paradas no destino que valem como entrega, quando não há saída | `24` |
 
 ### PGR (relatório de excesso de velocidade)
 | Variável | Descrição | Default |

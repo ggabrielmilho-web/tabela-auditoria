@@ -146,6 +146,7 @@
       <div class="legenda-row"><span style="font-size:14px;">🟢</span> Origem</div>
       <div class="legenda-row"><span style="font-size:14px;">📍</span> Destinos</div>
       <div class="legenda-row"><span style="font-size:14px;">🚚</span> Posição atual</div>
+      <div class="legenda-row" id="legPosFech" style="display:none;"><span style="color:#fb923c;">┈┈</span> Depois do fechamento</div>
     </div>
   </div>
 
@@ -172,7 +173,10 @@
     <div class="card">
       <div class="card-titulo">KPIs</div>
       <div class="kpi-grid">
-        <div class="kpi-mini"><div class="l">Km percorridos</div><div class="v" id="kKmPerc">—</div></div>
+        <div class="kpi-mini" title="Contador do próprio rastreador. É cumulativo, então atravessa buraco de sinal — o traçado do GPS perde o que acontece na lacuna, este número não. Vale para viagem carregada e vazia.">
+          <div class="l">Km rastreador</div><div class="v" id="kKmOdo">—</div></div>
+        <div class="kpi-mini" title="Soma das distâncias entre os pontos recebidos (haversine). Subestima: corta curva e perde o trecho sem sinal.">
+          <div class="l">Km percorridos</div><div class="v" id="kKmPerc">—</div></div>
         <div class="kpi-mini"><div class="l">Km faltando</div><div class="v" id="kKmFalta">—</div></div>
         <div class="kpi-mini"><div class="l">Vel. média</div><div class="v" id="kVelMed">—</div></div>
         <div class="kpi-mini"><div class="l">Vel. máx</div><div class="v" id="kVelMax">—</div></div>
@@ -182,7 +186,7 @@
     </div>
 
     <div class="card" id="cardRota">
-      <div class="card-titulo">Rota planejada (ORS)</div>
+      <div class="card-titulo" id="tituloRota">Rota planejada</div>
       <div class="info-row"><span class="k">Distância total</span><span class="v mono" id="rDist">—</span></div>
       <div class="info-row"><span class="k">Duração estimada</span><span class="v mono" id="rDur">—</span></div>
       <div class="info-row"><span class="k">Chegada prevista (roteirizador)</span><span class="v" id="rEta">—</span></div>
@@ -396,6 +400,19 @@
       pts.forEach(p => bounds.push(p));
     }
 
+    // Trecho DEPOIS do fechamento — linha própria, laranja, para não se confundir com a
+    // viagem registrada. Só aparece na carga fechada SEM prova de chegada cuja carreta ainda
+    // não saiu em outra viagem: ali o veículo continuou andando depois que o sistema disse
+    // que a viagem acabou, e sem esta linha o ícone fica órfão no mapa (a rota planejada
+    // passa perto por coincidência e o olho lê "teleporte").
+    if (d.trajeto_pos_fechamento && d.trajeto_pos_fechamento.length > 1) {
+      const ptsPos = d.trajeto_pos_fechamento.map(p => [p.lat, p.lng]);
+      addLayer(L.polyline(ptsPos, { color: '#fb923c', weight: 3, opacity: 0.95, dashArray: '2,7' })
+        .bindPopup('<strong>Depois do fechamento</strong><br>' +
+                   d.trajeto_pos_fechamento.length + ' posições após a conclusão registrada'));
+      ptsPos.forEach(p => bounds.push(p));
+    }
+
     // Posição atual (último ponto do trajeto)
     if (d.ultima_posicao) {
       const ll = [d.ultima_posicao.lat, d.ultima_posicao.lng];
@@ -416,11 +433,48 @@
       document.getElementById('pCidade').textContent = `${d.ultima_posicao.cidade || '—'}/${d.ultima_posicao.uf || '—'}`;
       document.getElementById('pVel').textContent = (d.ultima_posicao.velocidade || 0) + ' km/h';
       document.getElementById('pUltima').textContent = tempoDesde(d.ultima_posicao.data);
+      // A carga está fechada e mesmo assim o card mostra posição de AGORA: é o caso em que
+      // o fechamento não teve prova de chegada e a carreta ainda não saiu em outra viagem.
+      // Sem avisar, o operacional lê a linha (que termina na conclusão) e o card (que é de
+      // hoje) como se fossem a mesma afirmação.
+      const cTit = document.querySelector('#pCidade')?.closest('.card')?.querySelector('.card-titulo');
+      const legPF = document.getElementById('legPosFech');
+      if (legPF && d.trajeto_pos_fechamento && d.trajeto_pos_fechamento.length > 1) legPF.style.display = '';
+      if (d.posicao_apos_fechamento) {
+        document.getElementById('pCidade').insertAdjacentHTML('afterend',
+          ' <span style="color:var(--orange,#fb923c);font-size:0.8em;cursor:help;" ' +
+          'title="A carga foi FECHADA sem prova de chegada, e a carreta não saiu em outra ' +
+          'viagem — então esta é a posição de AGORA, depois do fechamento. A linha do mapa ' +
+          'termina na conclusão; o veículo continuou.">⚠ depois do fechamento</span>');
+        if (cTit) cTit.textContent = 'Posição atual (após o fechamento)';
+      }
     }
 
     // KPIs
     if (d.kpi) {
-      document.getElementById('kKmPerc').textContent = (d.kpi.distancia_km || 0).toFixed(1) + ' km';
+      // nulo = não sei (sem nenhuma posição). `|| 0` transformava isso num "0,0 km"
+      // que afirma que o caminhão não andou — o card do odômetro já fazia certo.
+      const kPerc = document.getElementById('kKmPerc');
+      kPerc.textContent = d.kpi.distancia_km != null ? d.kpi.distancia_km.toFixed(1) + ' km' : '—';
+      // Quando a janela da carga é grande demais para a viagem caber nela, o km não é
+      // desta viagem — o número sai e o motivo fica no tooltip, como no card do odômetro.
+      kPerc.parentElement.title = d.kpi.km_janela_motivo
+        ? ('Número barrado: ' + d.kpi.km_janela_motivo)
+        : 'Soma das distâncias entre os pontos recebidos (haversine). Subestima: corta curva e perde o trecho sem sinal.';
+      // Km do rastreador: nulo quando o aparelho não reporta odômetro ou houve troca
+      // de equipamento (delta negativo). Mostrar "—" é melhor que mostrar zero.
+      const kOdo = document.getElementById('kKmOdo');
+      if (d.kpi.km_odometro != null) {
+        kOdo.textContent = d.kpi.km_odometro.toLocaleString('pt-BR') + ' km';
+        const cob = d.kpi.odometro_cobertura;
+        kOdo.parentElement.title = 'Contador do próprio rastreador (cumulativo: atravessa '
+          + 'buraco de sinal). ' + (cob != null ? cob + '% das posições da viagem trazem odômetro.' : '');
+      } else {
+        kOdo.textContent = '—';
+        kOdo.parentElement.title = (d.kpi.km_odometro_motivo || d.kpi.km_janela_motivo)
+          ? ('Número barrado: ' + (d.kpi.km_odometro_motivo || d.kpi.km_janela_motivo))
+          : 'O rastreador desta placa não reporta odômetro no período.';
+      }
       document.getElementById('kVelMax').textContent = (d.kpi.velocidade_max || 0) + ' km/h';
       document.getElementById('kVelMed').textContent = (d.kpi.velocidade_media || 0).toFixed(1) + ' km/h';
       document.getElementById('kTmov').textContent = fmtTempoSeg(d.kpi.tempo_movimento_seg);
@@ -428,6 +482,19 @@
     }
 
     // Rota completa origem→destino; "km faltando" = restante a partir da posição atual
+    // O título declara a FONTE: sem polyline o número veio do CTRB (o robô grava a
+    // distância do manifesto), não do roteirizador. Dizer "ORS" ali seria falso — foi
+    // o que fez uma perna de 400 km exibir "Rota planejada (ORS): 87 km".
+    const tRota = document.getElementById('tituloRota');
+    if (tRota) {
+      tRota.textContent = d.rota_planejada.polyline
+        ? 'Rota planejada (ORS)'
+        : 'Distância do manifesto (rota não traçada)';
+      tRota.title = d.rota_planejada.polyline
+        ? 'Rota rodoviária calculada pelo OpenRouteService.'
+        : 'O roteirizador ainda não traçou esta rota. A distância vem do CTRB, e por isso '
+          + 'não há linha no mapa.';
+    }
     if (d.rota_planejada.distancia_km != null) {
       const rp = d.rota_planejada;
       const kmFalta = (rp.distancia_restante_km != null) ? rp.distancia_restante_km : rp.distancia_km;

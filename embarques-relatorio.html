@@ -411,6 +411,15 @@
         html += ` <span style="color:var(--text-dim);font-size:0.82em;cursor:help;" title="Parada na cidade da descarga; agendamento só em ${folgaDias} dia(s) — possível ociosidade do veículo">💤 ${folgaDias}d</span>`;
       }
     }
+    // Subrótulo de 'Aberta': separa "ainda não saiu" de "a placa nunca esteve na origem".
+    // A seção 16.5 do handoff mediu que os dois moram no mesmo balde e pedem ações opostas —
+    // um não precisa de nada, o outro é carreta errada no documento. O STATUS não muda.
+    if (c.aberta_situacao === 'placa_longe') {
+      const km = c.km_placa_ate_origem != null ? ` (${Math.round(c.km_placa_ate_origem)} km)` : '';
+      html += ` <span style="color:var(--orange,#fb923c);font-size:0.82em;cursor:help;" title="A carga está Aberta, mas a placa rastreada está longe da origem${km} — provável carreta errada no documento, ou a viagem começou sem a placa passar pela origem">📍 placa longe</span>`;
+    } else if (c.aberta_situacao === 'na_origem') {
+      html += ` <span style="color:var(--muted,#94a3b8);font-size:0.82em;cursor:help;" title="A carga está Aberta e a carreta está na origem: ainda não saiu. Normal — não precisa de ação.">⏳ na origem</span>`;
+    }
     // Rastreio defasado: carreta sem posição há +X dias numa carga ativa (não fecha sozinha)
     if (c.rastreio_defasado) {
       const dias = c.rastreio_carreta_idade_h != null ? Math.floor(c.rastreio_carreta_idade_h / 24) : null;

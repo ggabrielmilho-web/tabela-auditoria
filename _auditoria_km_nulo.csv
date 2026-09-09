@@ -1,0 +1,96 @@
+﻿numero;id;status;concluida;carreta;causa;bruto;gps;reta;cobertura;motivo
+C-2026-000075;75;Entregue;S;GSV8C03;A_sem_odometro;;0.0;805.4;0;
+C-2026-000080;80;Entregue;S;HMV3D59;B_barrado_aparelho_mudo;556;1985.3;1475.9;100;medido 556 km, abaixo do mínimo geométrico de 1476 km entre origem e d
+C-2026-000083;83;Entregue;S;HOA0E67;A_sem_odometro;;0.0;804.6;0;
+C-2026-000372;372;Entregue;S;HKE0420;A_sem_odometro;;0.1;454.7;0;
+C-2026-000373;373;Entregue;S;TZD5A42;A_sem_odometro;;1105.4;781.2;0;
+C-2026-000374;374;Entregue;S;TZC0I41;A_sem_odometro;;325.1;749.1;0;
+C-2026-000375;375;Entregue;S;TZB0J17;A_sem_odometro;;83.4;694.0;0;
+C-2026-000376;376;Entregue;S;TZC9G24;A_sem_odometro;;0.0;542.9;0;
+C-2026-000377;377;Entregue;S;TDI2H14;A_sem_odometro;;366.9;346.5;0;
+C-2026-000378;378;Entregue;S;TZB1H87;A_sem_odometro;;909.8;834.2;0;
+C-2026-000379;379;Entregue;S;QXH6946;A_sem_odometro;;792.1;741.8;0;
+C-2026-000380;380;Entregue;S;QXA2997;A_sem_odometro;;0.0;255.2;0;
+C-2026-000381;381;Entregue;S;TCE7I47;A_sem_odometro;;363.8;346.5;0;
+C-2026-000382;382;Entregue;S;HMV3G86;A_sem_odometro;;866.9;804.6;0;
+C-2026-000383;383;Entregue;S;HMV3714;A_sem_odometro;;1253.5;941.9;0;
+C-2026-000384;384;Entregue;S;TYO9J49;A_sem_odometro;;1067.4;804.6;0;
+C-2026-000385;385;Entregue;S;TZC9F36;A_sem_odometro;;627.3;471.7;0;
+C-2026-000386;386;Entregue;S;HKE0480;A_sem_odometro;;985.4;785.1;0;
+C-2026-000387;387;Entregue;S;TCX3D25;A_sem_odometro;;1140.6;790.5;0;
+C-2026-000388;388;Entregue;S;TZB0J17;A_sem_odometro;;470.2;431.0;0;
+C-2026-000389;389;Entregue;S;TZB1D11;A_sem_odometro;;1417.0;1139.7;0;
+C-2026-000390;390;Entregue;S;GZQ3A40;A_sem_odometro;;320.6;249.7;0;
+C-2026-000391;391;Entregue;S;HIG4A80;A_sem_odometro;;154.6;123.2;0;
+C-2026-000393;393;Entregue;S;CZB4927;A_sem_odometro;;112.1;86.4;0;
+C-2026-000394;394;Entregue;S;QXA2997;A_sem_odometro;;1003.9;936.8;5;
+C-2026-000396;396;Entregue;S;HIG4A80;A_sem_odometro;;170.5;123.2;0;
+C-2026-000397;397;Entregue;S;TCF1H59;A_sem_odometro;;933.2;756.9;0;
+C-2026-000398;398;Entregue;S;HOA0467;A_sem_odometro;;0.0;733.3;0;
+C-2026-000399;399;Entregue;S;TCX3D71;A_sem_odometro;;540.5;500.7;0;
+C-2026-000400;400;Entregue;S;QXG2647;A_sem_odometro;;1246.3;1025.7;0;
+C-2026-000427;427;Entregue;S;MWP0H69;B_barrado_aparelho_mudo;46;44.3;540.9;100;medido 46 km, abaixo do mínimo geométrico de 541 km entre origem e des
+C-2026-000443;443;Entregue;S;QXA9H76;B_barrado_aparelho_mudo;425;416.2;733.3;100;medido 425 km, abaixo do mínimo geométrico de 733 km entre origem e de
+C-2026-000447;447;Entregue;S;HKE0E20;A_sem_odometro;;0.0;694.0;0;
+C-2026-000456;456;Entregue;S;GSV8C03;A_sem_odometro;;0.0;731.0;0;
+C-2026-000459;459;Entregue;S;HNL0A70;B_barrado_aparelho_mudo;235;231.5;2059.3;100;medido 235 km, abaixo do mínimo geométrico de 2059 km entre origem e d
+C-2026-000461;461;Entregue;S;QXF1I45;B_barrado_aparelho_mudo;595;851.2;824.1;100;medido 595 km, abaixo do mínimo geométrico de 824 km entre origem e de
+C-2026-000463;463;Entregue;S;HFB9H06;A_sem_odometro;;0.0;13.5;100;
+C-2026-000485;485;Entregue;S;HKE0E20;A_sem_odometro;;0.0;792.2;0;
+C-2026-000493;493;Entregue;S;HOA0E67;A_sem_odometro;;0.0;848.7;0;
+C-2026-000495;495;Entregue;S;TZC0I41;A_sem_odometro;;0.0;805.4;0;
+C-2026-000497;497;Entregue;S;QXF1I45;B_barrado_aparelho_mudo;384;530.0;454.7;100;medido 384 km, abaixo do mínimo geométrico de 455 km entre origem e de
+C-2026-000505;505;Entregue;S;HKE0E20;A_sem_odometro;;0.0;291.7;0;
+C-2026-000507;507;Entregue;S;QXG2G51;B_barrado_aparelho_mudo;433;454.5;571.8;100;medido 433 km, abaixo do mínimo geométrico de 572 km entre origem e de
+C-2026-000517;517;Entregue;S;QWZ9B18;B_barrado_aparelho_mudo;309;749.6;746.5;100;medido 309 km, abaixo do mínimo geométrico de 747 km entre origem e de
+C-2026-000530;530;Entregue;S;HKE0E20;A_sem_odometro;;0.0;249.7;0;
+C-2026-000533;533;Entregue;S;HMV3D59;B_barrado_aparelho_mudo;287;426.6;410.1;100;medido 287 km, abaixo do mínimo geométrico de 410 km entre origem e de
+C-2026-000548;548;Entregue;S;TYO9J56;B_barrado_aparelho_mudo;418;412.8;745.4;100;medido 418 km, abaixo do mínimo geométrico de 745 km entre origem e de
+C-2026-000549;549;Entregue;S;QXE0I32;A_sem_odometro;;0.0;;100;
+C-2026-000552;552;Em rota;N;QXG2G51;A_sem_odometro;;0.5;564.7;100;
+C-2026-000559;559;Entregue;S;GZQ3A80;A_sem_odometro;;0.0;18.6;100;
+C-2026-000571;571;Entregue;S;HMV3H14;B_barrado_aparelho_mudo;21;19.6;733.3;100;medido 21 km, abaixo do mínimo geométrico de 733 km entre origem e des
+C-2026-000573;573;Entregue;S;MWP0H69;A_sem_odometro;;0.0;540.9;0;
+C-2026-000582;582;Aberta;N;HKE0E20;A_sem_odometro;;0.0;1257.9;0;
+C-2026-000586;586;Em rota;N;HFB9H03;C_barrado_mas_EM_TRANSITO;556;700.0;733.4;100;medido 556 km, abaixo do mínimo geométrico de 733 km entre origem e de
+C-2026-000587;587;Em rota;N;HFB9H03;C_barrado_mas_EM_TRANSITO;556;700.0;733.4;100;medido 556 km, abaixo do mínimo geométrico de 733 km entre origem e de
+C-2026-000593;593;Em rota;N;QXA9H75;C_barrado_mas_EM_TRANSITO;609;806.7;792.5;100;medido 609 km, abaixo do mínimo geométrico de 792 km entre origem e de
+C-2026-000595;595;Em rota;N;GZQ3A80;C_barrado_mas_EM_TRANSITO;630;637.1;792.5;100;medido 630 km, abaixo do mínimo geométrico de 792 km entre origem e de
+C-2026-000597;597;Entregue;S;MWP0H69;A_sem_odometro;;0.0;487.8;0;
+C-2026-000602;602;Entregue;S;HOA0E66;B_barrado_aparelho_mudo;576;715.8;694.0;100;medido 576 km, abaixo do mínimo geométrico de 694 km entre origem e de
+C-2026-000603;603;Aberta;N;QXE8E60;C_barrado_mas_EM_TRANSITO;58;787.3;1139.7;100;medido 58 km, abaixo do mínimo geométrico de 1140 km entre origem e de
+C-2026-000607;607;Entregue;S;CZB4J27;B_barrado_aparelho_mudo;541;520.6;848.7;100;medido 541 km, abaixo do mínimo geométrico de 849 km entre origem e de
+C-2026-000609;609;Entregue;S;HMV3H14;B_barrado_aparelho_mudo;592;628.4;792.5;100;medido 592 km, abaixo do mínimo geométrico de 792 km entre origem e de
+C-2026-000614;614;Entregue;S;TDJ3H18;B_barrado_aparelho_mudo;666;658.3;790.5;100;medido 666 km, abaixo do mínimo geométrico de 791 km entre origem e de
+C-2026-000615;615;Aberta;N;MWP0H69;A_sem_odometro;;0.0;346.5;100;
+C-2026-000623;623;Em rota;N;TZD5A42;C_barrado_mas_EM_TRANSITO;524;491.1;848.7;100;medido 524 km, abaixo do mínimo geométrico de 849 km entre origem e de
+C-2026-000628;628;Aberta;N;HOA0E66;C_barrado_mas_EM_TRANSITO;480;587.4;642.2;100;medido 480 km, abaixo do mínimo geométrico de 642 km entre origem e de
+C-2026-000634;634;Em rota;N;TCE7I47;C_barrado_mas_EM_TRANSITO;578;586.7;1053.1;100;medido 578 km, abaixo do mínimo geométrico de 1053 km entre origem e d
+V-2026-000001;639;Entregue;S;GSV8C03;A_sem_odometro;;73.1;51.4;0;
+V-2026-000004;642;Entregue;S;HFB9H06;A_sem_odometro;;802.5;428.6;0;
+V-2026-000005;643;Entregue;S;HIG4A80;A_sem_odometro;;2040.2;967.7;0;
+V-2026-000012;650;Entregue;S;HKE0D75;A_sem_odometro;;174.7;123.7;0;
+V-2026-000014;652;Entregue;S;HMV3H14;A_sem_odometro;;36.6;832.2;0;
+V-2026-000015;653;Entregue;S;HMV3D38;A_sem_odometro;;225.7;113.9;0;
+V-2026-000019;657;Entregue;S;HNL0A70;A_sem_odometro;;533.7;1644.5;0;
+V-2026-000020;658;Entregue;S;HNL0A70;A_sem_odometro;;1555.9;744.5;0;
+V-2026-000021;659;Entregue;S;HNL0A70;A_sem_odometro;;14.2;550.7;0;
+V-2026-000022;660;Entregue;S;MWP0H69;A_sem_odometro;;0.0;70.2;100;
+V-2026-000025;663;Entregue;S;QWZ9B18;B_barrado_aparelho_mudo;24;311.5;123.7;100;medido 24 km, abaixo do mínimo geométrico de 124 km entre origem e des
+V-2026-000026;664;Entregue;S;QXA2997;A_sem_odometro;;209.3;224.1;0;
+V-2026-000028;666;Entregue;S;QXA9H76;B_barrado_aparelho_mudo;39;129.5;126.8;100;medido 39 km, abaixo do mínimo geométrico de 127 km entre origem e des
+V-2026-000029;667;Entregue;S;QXA9H76;B_barrado_aparelho_mudo;230;320.0;308.9;100;medido 230 km, abaixo do mínimo geométrico de 309 km entre origem e de
+V-2026-000033;671;Entregue;S;QXG2G47;B_barrado_aparelho_mudo;14;86.9;70.2;100;medido 14 km, abaixo do mínimo geométrico de 70 km entre origem e dest
+V-2026-000034;672;Entregue;S;QXH6946;A_sem_odometro;;98.1;97.0;0;
+V-2026-000035;673;Entregue;S;QXH6946;B_barrado_aparelho_mudo;87;2.3;346.5;100;medido 87 km, abaixo do mínimo geométrico de 346 km entre origem e des
+V-2026-000036;674;Entregue;S;QXH6I52;A_sem_odometro;;230.2;113.9;0;
+V-2026-000037;675;Entregue;S;QXH6I52;A_sem_odometro;;454.0;379.5;0;
+V-2026-000039;677;Entregue;S;TCE7I47;A_sem_odometro;;719.8;436.2;0;
+V-2026-000040;678;Entregue;S;TCE7I47;A_sem_odometro;;347.3;226.7;0;
+V-2026-000045;683;Entregue;S;TCX3D25;A_sem_odometro;;1429.5;798.7;0;
+V-2026-000049;687;Entregue;S;TDJ3H18;A_sem_odometro;;1805.7;1885.8;0;
+V-2026-000050;688;Entregue;S;TYN8I98;A_sem_odometro;;474.2;319.3;0;
+V-2026-000051;689;Entregue;S;TYO9J49;A_sem_odometro;;609.4;212.4;0;
+V-2026-000053;691;Entregue;S;TZB0J17;A_sem_odometro;;0.0;129.1;0;
+V-2026-000060;698;Entregue;S;TZC0I44;A_sem_odometro;;672.6;555.5;0;
+V-2026-000061;699;Entregue;S;TZC9G24;A_sem_odometro;;230.2;2116.5;0;

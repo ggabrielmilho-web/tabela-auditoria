@@ -41,32 +41,106 @@ def km_entre(lat1, lng1, lat2, lng2):
     return 2 * R * asin(sqrt(a))
 
 
-def indice_saida_origem(coords, origem_lat, origem_lng, raio_km=30):
-    """Índice da PRIMEIRA saída da origem — recorta só o trecho PRÉ-origem (caminhão
-    rodando/chegando antes do lançamento). A viagem passa a começar no ponto mais perto
-    do pátio do BLOCO INICIAL perto da origem.
+def _blocos_na_origem(coords, origem_lat, origem_lng, raio_km):
+    """Blocos contíguos de índices dentro do raio da origem. Cada bloco é (ini, fim)."""
+    blocos, atual = [], None
+    for i, (la, ln) in enumerate(coords):
+        d = None if (la is None or ln is None) else km_entre(origem_lat, origem_lng, la, ln)
+        dentro = d is not None and d <= raio_km
+        if dentro:
+            atual = (atual[0], i) if atual else (i, i)
+        elif atual:
+            blocos.append(atual)
+            atual = None
+    if atual:
+        blocos.append(atual)
+    return blocos
 
-    Pega o ponto mais próximo da origem APENAS dentro do primeiro bloco contíguo dentro
-    do raio (a "estadia inicial" na origem). Assim, uma viagem que VOLTA pra base
-    (origem→destino→origem) não tem o recorte puxado pro ponto da volta — o que zerava o
-    trajeto/KPI.
+
+def _bloco_de_carregamento(coords, origem_lat, origem_lng, raio_km,
+                           velocidades, instantes, ate, parado_kmh, parada_min):
+    """Índice do bloco onde o veículo CARREGOU, ou None se não der para dizer.
+
+    Regra: o ÚLTIMO bloco com PARADA SUSTENTADA que começa até `ate` (a saída registrada).
+    Cada palavra dessa frase custou uma medição — ver a docstring de `indice_saida_origem`.
+    """
+    if not velocidades or not instantes or len(velocidades) != len(coords):
+        return None
+    bons = []
+    for ini, fim in _blocos_na_origem(coords, origem_lat, origem_lng, raio_km):
+        if ate is not None and instantes[ini] is not None and instantes[ini] > ate:
+            continue                      # bloco começa depois da saída: não é carregamento
+        # maior parada contígua dentro do bloco
+        maior, desde = 0.0, None
+        for i in range(ini, fim + 1):
+            v, t = velocidades[i], instantes[i]
+            if t is None:
+                continue
+            if v is None or float(v) <= parado_kmh:
+                if desde is None:
+                    desde = t
+                maior = max(maior, (t - desde).total_seconds() / 60.0)
+            else:
+                desde = None
+        if maior >= parada_min:
+            bons.append((ini, fim))
+    return bons[-1] if bons else None
+
+
+def indice_saida_origem(coords, origem_lat, origem_lng, raio_km=30,
+                        velocidades=None, instantes=None, ate=None,
+                        parado_kmh=3, parada_min=60):
+    """Índice da saída da origem — recorta o trecho PRÉ-origem (caminhão rodando/chegando
+    antes do lançamento), para a linha e o KPI começarem no pátio.
+
+    ── Com `velocidades` e `instantes` (o caminho bom, desde 09/09/26) ────────────────────
+    A âncora é o **ÚLTIMO bloco com PARADA SUSTENTADA que começa até `ate`** (a saída
+    registrada). Cada palavra foi medida sobre agosto/setembro:
+
+    * **parada sustentada**, não "algum ponto parado": o bloco errado da C-2026-000630 tem
+      UM ping a ≤3 km/h — um pedágio. Blocos errados têm 0 a 5 min de parada; blocos de
+      carregamento têm 167 a 4.471 min. O vão é de duas ordens de grandeza, então o limiar
+      de 60 min não é delicado.
+    * **até `ate`**: sem esse teto a regra quebra a C-2026-000376, cujo bloco com parada
+      longa começa DOIS DIAS depois da saída (é o caminhão voltando e estacionando 48 h).
+      Ancorar ali cortaria a viagem inteira.
+    * **último**, não primeiro, porque há dois formatos e os dois resolvem certo: quando o
+      veículo só manobrou pela região (C-539, C-502, C-464 afastaram-se 32 a 47 km entre os
+      blocos) o último bloco é onde ele de fato partiu; quando ele SAIU e VOLTOU (a C-630
+      foi a 125 km e retornou), o último bloco é o carregamento desta viagem e o primeiro
+      era a partida da viagem ANTERIOR.
+
+    Medido: conserta 12 cargas, muda 0 das demais, e 4 caem no comportamento antigo — que
+    são exatamente aquelas onde o teto protege.
+
+    ── Sem velocidade/instante (compatibilidade) ─────────────────────────────────────────
+    Cai na regra original: o ponto mais próximo do pátio dentro do PRIMEIRO bloco. Ela
+    existia para que a viagem que VOLTA pra base (origem→destino→origem) não tivesse o
+    recorte puxado pro ponto da volta, o que zerava o trajeto/KPI. Continua valendo como
+    piso quando não há dado para decidir melhor.
 
     `coords`: lista de (lat, lng) na ordem cronológica.
     Sem origem (None) ou nenhum ponto dentro do raio → 0 (não recorta; degrada sem surpresa).
     """
     if origem_lat is None or origem_lng is None or not coords:
         return 0
-    # 1) Primeira entrada na origem (1º ponto dentro do raio)
-    start = None
-    for i, (la, ln) in enumerate(coords):
-        if la is None or ln is None:
-            continue
-        d = km_entre(origem_lat, origem_lng, la, ln)
-        if d is not None and d <= raio_km:
-            start = i
-            break
-    if start is None:
-        return 0  # nunca passou perto da origem → não recorta (degrada como hoje)
+
+    bloco = _bloco_de_carregamento(coords, origem_lat, origem_lng, raio_km,
+                                   velocidades, instantes, ate, parado_kmh, parada_min)
+    if bloco is not None:
+        start, _fim_bloco = bloco
+    else:
+        # 1) Primeira entrada na origem (1º ponto dentro do raio)
+        start = None
+        for i, (la, ln) in enumerate(coords):
+            if la is None or ln is None:
+                continue
+            d = km_entre(origem_lat, origem_lng, la, ln)
+            if d is not None and d <= raio_km:
+                start = i
+                break
+        if start is None:
+            return 0  # nunca passou perto da origem → não recorta (degrada como hoje)
     # 2) Bloco contíguo dentro do raio a partir de `start`; escolhe o ponto mais perto
     #    do pátio NESSE bloco inicial (encerra ao sair do raio; tolera ponto inválido).
     melhor_i, melhor_d = start, None
