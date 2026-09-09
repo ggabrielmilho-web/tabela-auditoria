@@ -42,12 +42,11 @@ import psycopg2
 from dotenv import load_dotenv
 load_dotenv('.env')
 import geocoding, placas as pl
+from embarques_regua import (perto_com_parada, RAIO_CHEGADA, RAIO_METRO,
+                             RAIO_ORIGEM, RAIO_SAIDA_DESTINO, PARADA_MIN_H, PARADO_KMH,
+                             parado)
 
-RAIO_CHEGADA = 20.0
-RAIO_METRO = 60.0
-PARADA_MIN_H = 2.0
-RAIO_ORIGEM = 30.0
-RAIO_SAIDA_DESTINO = 30.0
+# Raios, limiares e a decisao de chegada vivem em embarques_regua.py — fonte unica.
 DWELL_H = 24.0
 JANELA_FUTURO_D = 20      # ate onde procurar evidencia depois do carregamento
 VEL_MAX_CRIVEL = 100.0    # km/h medios: acima disso o par saida/chegada nao e a mesma viagem
@@ -101,22 +100,6 @@ def serie(placa, ini, fim):
     return [(d, float(la), float(ln), v) for d, la, ln, v in cur.fetchall() if la is not None]
 
 
-def perto_com_parada(dd, raio_estrito, raio_largo):
-    """(instante, como) da 1a presenca — raio estrito, ou raio largo com parada longa.
-
-    A parada e o que separa CHEGOU de PASSOU POR PERTO: medido em agosto, quem chegou num CD
-    fora do centroide ficou de 20 a 214 h por perto; quem so passou fica minutos."""
-    p = next((d for d, k in dd if k <= raio_estrito), None)
-    if p:
-        return p, 'raio'
-    largo = [(d, k) for d, k in dd if k <= raio_largo]
-    if len(largo) > 1:
-        h = (largo[-1][0] - largo[0][0]).total_seconds() / 3600
-        if h >= PARADA_MIN_H:
-            return largo[0][0], f'metropole({min(k for _, k in largo):.0f}km/{h:.0f}h)'
-    return None, None
-
-
 mudancas, resumo, detalhe = [], Counter(), []
 
 for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal, dconc,
@@ -137,12 +120,14 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
         resumo['cega — sem posicao, nada a decidir'] += 1
         continue
 
-    d_org = ([(d, geocoding.km_entre(la, ln, float(ola), float(oln))) for d, la, ln, v in pts]
+    # As listas carregam a VELOCIDADE junto desde 09/09/26: sem ela o raio estrito nao
+    # consegue separar "chegou e parou" de "cruzou a borda do anel a 80 km/h".
+    d_org = ([(d, geocoding.km_entre(la, ln, float(ola), float(oln)), v) for d, la, ln, v in pts]
              if ola is not None else [])
-    d_org = [(d, k) for d, k in d_org if k is not None]
-    d_dst = ([(d, geocoding.km_entre(la, ln, float(dla), float(dln))) for d, la, ln, v in pts]
+    d_org = [(d, k, v) for d, k, v in d_org if k is not None]
+    d_dst = ([(d, geocoding.km_entre(la, ln, float(dla), float(dln)), v) for d, la, ln, v in pts]
              if dla is not None else [])
-    d_dst = [(d, k) for d, k in d_dst if k is not None]
+    d_dst = [(d, k, v) for d, k, v in d_dst if k is not None]
 
     # ── SAIDA: precisa ter estado na origem e depois se afastado
     # A saida e o ULTIMO ponto visto DENTRO do raio da origem, nao o primeiro visto fora.
@@ -153,9 +138,9 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
     if d_org:
         t_org, _como = perto_com_parada(d_org, RAIO_ORIGEM, RAIO_METRO)
         if t_org:
-            _saiu = next((d for d, k in d_org if k > RAIO_ORIGEM and d > t_org), None)
+            _saiu = next((d for d, k, v in d_org if k > RAIO_ORIGEM and d > t_org), None)
             if _saiu:
-                _dentro = [d for d, k in d_org if k <= RAIO_ORIGEM and t_org <= d < _saiu]
+                _dentro = [d for d, k, v in d_org if k <= RAIO_ORIGEM and t_org <= d < _saiu]
                 n_saida = max(_dentro) if _dentro else _saiu
 
     # ── CHEGADA: SO DEPOIS DE TER SAIDO.
@@ -177,26 +162,39 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
         _seg = [dt for dt, nm, i in prox.get(pl.mercosul(c1), []) if dt > dcarg and i != cid]
         if _seg:
             teto = datetime.combine(_seg[0], _time()) + timedelta(days=1)
-    d_dst_validos = [(d, k) for d, k in d_dst
+    d_dst_validos = [(d, k, v) for d, k, v in d_dst
                      if (piso is None or d >= piso) and (teto is None or d <= teto)]
-    n_cheg, como_cheg = (perto_com_parada(d_dst_validos, RAIO_CHEGADA, RAIO_METRO)
+    n_cheg, como_cheg = (perto_com_parada(d_dst_validos, RAIO_CHEGADA, RAIO_METRO,
+                                          exigir_parada=True)
                          if d_dst_validos else (None, None))
 
     # GUARDA DE VELOCIDADE: o par saida/chegada tem de ser fisicamente possivel. Se implicar
     # mais de VEL_MAX_CRIVEL km/h medios, esses dois instantes nao descrevem a mesma viagem —
     # tenta a proxima chegada candidata e, se nenhuma servir, nao afirma chegada nenhuma.
     # Silencio continua sendo melhor que um numero bonito e errado.
+    # A guarda VALIDA a chegada apurada; so procura substituta quando ela e implausivel.
+    # Antes ela montava a lista de candidatas pelo raio estrito e trocava sempre que a
+    # primeira candidata diferisse de `n_cheg` — o que descartava, POR CONSTRUCAO, toda
+    # chegada derivada por outra regua: a de metropole (que vive fora do raio estrito) e a
+    # 'presumida_silencio' (cujo ponto nao esta parado). Com a exigencia de parada de
+    # 09/09/26 isso passou a morder muito mais. A C-2026-000684 e o caso: atravessou
+    # Brasilia rodando, estacionou a 24,8 km, ganhou chegada de metropole — e a guarda a
+    # matava sem que a velocidade tivesse nada de impossivel.
     if n_cheg and n_saida and dist_plan:
-        _cands = [d for d, k in d_dst_validos if k <= RAIO_CHEGADA]
-        _ok = None
-        for _c in _cands:
-            _h = (_c - n_saida).total_seconds() / 3600.0
-            if _h > 0 and float(dist_plan) / _h <= VEL_MAX_CRIVEL:
-                _ok = _c
-                break
-        if _ok != n_cheg:
+        _h = (n_cheg - n_saida).total_seconds() / 3600.0
+        if not (_h > 0 and float(dist_plan) / _h <= VEL_MAX_CRIVEL):
+            # Implausivel de verdade. So a chegada ESTRITA tem uma lista natural de
+            # candidatas seguintes; nas outras, nao ha o que tentar — nao afirma nada.
+            _ok = None
+            if como_cheg == 'estrita':
+                for _c in [d for d, k, v in d_dst_validos
+                           if k <= RAIO_CHEGADA and parado(v)]:
+                    _hh = (_c - n_saida).total_seconds() / 3600.0
+                    if _hh > 0 and float(dist_plan) / _hh <= VEL_MAX_CRIVEL:
+                        _ok = _c
+                        break
             if _ok:
-                n_cheg, como_cheg = _ok, (como_cheg or 'raio') + '+velocidade'
+                n_cheg, como_cheg = _ok, como_cheg + '+velocidade'
                 resumo['guarda de velocidade: chegada recalculada'] += 1
             else:
                 n_cheg, como_cheg = None, None
@@ -205,7 +203,7 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
     # ── ENTREGA: saiu do destino, ou ficou DWELL_H nele
     n_conc, n_motivo = None, None
     if n_cheg:
-        depois = [(d, k) for d, k in d_dst_validos if d > n_cheg]
+        depois = [(d, k) for d, k, v in d_dst_validos if d > n_cheg]
         saiu_dst = next((d for d, k in depois if k > RAIO_SAIDA_DESTINO), None)
         if saiu_dst:
             n_conc, n_motivo = saiu_dst, 'gps_saiu_do_destino'
@@ -267,6 +265,12 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
         # segue comparando com um valor que o proprio robo ja rejeitou, e oscila.
         campos['no_local_desde'] = None
         resumo['chegada guardada fora da janela da viagem (apagada)'] += 1
+    elif nolocal and como_cheg == 'passou_sem_parar':
+        # PROVA POSITIVA de nao-chegada: esteve no raio, nunca parou, e seguiu viagem. Isso
+        # nao e silencio — e evidencia contraria, e a fonte unica manda apagar. Se a carga
+        # estiver 'Entregue', o bloco acima ja a marcou 'sem_prova_revisar' para o humano.
+        campos['no_local_desde'] = None
+        resumo['passou por perto sem parar — chegada apagada'] += 1
     if n_conc and not dconc:
         campos['data_conclusao'] = n_conc
         campos['entregue_auto'] = True

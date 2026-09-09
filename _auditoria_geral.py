@@ -32,10 +32,10 @@ from dotenv import load_dotenv
 load_dotenv('.env')
 import geocoding, placas as pl
 
-RAIO_CHEGADA = 20.0      # raio do centroide que conta como "no destino"
-RAIO_METRO = 60.0        # tolerancia de metropole, so vale com parada
-PARADA_MIN_H = 2.0       # parada que prova chegada (passagem dura minutos)
-RAIO_ORIGEM = 30.0       # saiu da origem
+# A REGUA E IMPORTADA, nao copiada: aferidor e motor tem de decidir chegada do MESMO jeito.
+# Enquanto cada um tinha a sua, o placar F1 oscilou 13 -> 32 -> 17 -> 38 (secao 20.6).
+from embarques_regua import (chegada, perto_com_parada, parado, RAIO_CHEGADA, RAIO_METRO,
+                             PARADA_MIN_H, RAIO_ORIGEM, PARADO_KMH)
 TOL_H = 12.0             # manifesto nao tem hora: 00:00 vira tolerancia
 DWELL_H = 24.0           # regra de entrega por permanencia
 GAP_ALERTA_H = 24.0      # buraco de sinal que compromete o julgamento
@@ -100,24 +100,15 @@ def pontos(placa, ini, fim):
     return v
 
 def dists(pts, lat, lng):
+    """(instante, km ate o alvo, velocidade). A VELOCIDADE viaja junto desde 09/09/26:
+    sem ela nao da para separar "chegou e parou" de "cruzou a borda do anel a 80 km/h"."""
     out = []
     for d, la, ln, vel in pts:
         k = geocoding.km_entre(la, ln, lat, lng)
         if k is not None:
-            out.append((d, k))
+            out.append((d, k, vel))
     return out
 
-def chegada(dd):
-    """(instante, como) da chegada — raio normal, ou metropole com parada longa."""
-    c = next((d for d, k in dd if k <= RAIO_CHEGADA), None)
-    if c:
-        return c, 'raio'
-    perto = [(d, k) for d, k in dd if k <= RAIO_METRO]
-    if len(perto) > 1:
-        h = (perto[-1][0] - perto[0][0]).total_seconds() / 3600
-        if h >= PARADA_MIN_H:
-            return perto[0][0], f'metropole {min(k for _, k in perto):.0f}km/{h:.0f}h'
-    return None, None
 
 achados = []
 def add(num, cod, grav, msg, extra=''):
@@ -195,10 +186,10 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
     if ola is not None:
         d0 = dists(principal, float(ola), float(oln))
         if d0:
-            mino = min(k for _, k in d0)
+            mino = min(k for _, k, v in d0)
             # Tolerancia de metropole tambem na ORIGEM: o patio/CD fica fora do centroide,
             # entao parada longa por perto vale como presenca (mesmo criterio do destino).
-            perto_o = [(d, k) for d, k in d0 if k <= RAIO_METRO]
+            perto_o = [(d, k) for d, k, v in d0 if k <= RAIO_METRO]
             horas_o = ((perto_o[-1][0] - perto_o[0][0]).total_seconds()/3600
                        if len(perto_o) > 1 else 0.0)
             esteve = mino <= RAIO_ORIGEM or (mino <= RAIO_METRO and horas_o >= PARADA_MIN_H)
@@ -206,7 +197,7 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
                 # o cavalo esteve la? entao a carreta do documento e que esta errada
                 dc = dists(pc, float(ola), float(oln)) if pc else []
                 quem = ('so o CAVALO esteve na origem — carreta errada no documento'
-                        if dc and min(k for _, k in dc) <= RAIO_ORIGEM
+                        if dc and min(k for _, k, v in dc) <= RAIO_ORIGEM
                         else 'nem carreta nem cavalo estiveram na origem')
                 add(num, 'V1', 'alta',
                     f'a placa rastreada NUNCA esteve na origem ({mino:.0f} km no minimo) — {quem}',
@@ -216,9 +207,9 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
                 # volta para a base (A->B->A) o ponto mais proximo da origem e a VOLTA, e
                 # ancorar ali joga a chegada em B para antes do piso, descartando-a.
                 # (Mesma armadilha que o `indice_saida_origem` do geocoding ja documenta.)
-                t_org = next((d for d, k in d0 if k <= RAIO_ORIGEM), None) or \
-                        next(d for d, k in d0 if k == mino)
-                saiu = next((d for d, k in d0 if k > RAIO_ORIGEM and d > t_org), None)
+                t_org = next((d for d, k, v in d0 if k <= RAIO_ORIGEM), None) or \
+                        next(d for d, k, v in d0 if k == mino)
+                saiu = next((d for d, k, v in d0 if k > RAIO_ORIGEM and d > t_org), None)
                 piso = saiu or t_org
                 # ── CICLO: saida
                 if saiu and not dsaida:
@@ -251,15 +242,42 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
         _seg = [dt for dt, nm in prox_carreta.get(pl.mercosul(c1), []) if dt > dcarg]
         if _seg:
             teto = datetime.combine(min(_seg), _time()) + timedelta(days=1)
-    dd_validos = [(d, k) for d, k in dd
+    dd_validos = [(d, k, v) for d, k, v in dd
                   if (piso is None or d >= piso) and (teto is None or d <= teto)]
     cheg, como = chegada(dd_validos) if dd_validos else (None, None)
-    mind = min(k for _, k in dd)
+    mind = min(k for _, k, v in dd)
 
     # ── CICLO: chegada
     if cheg and not nolocal:
         add(num, 'C3', 'media', f'chegou ao destino em {str(cheg)[:16]} e a chegada NAO foi gravada',
             f'{como} · destino={dcid}')
+
+    # ── C6: a chegada GRAVADA tem o veiculo PARADO?
+    #
+    # Esta invariante custa uma linha e teria acendido 240 de 292 luzes na primeira rodada
+    # do aferidor, em 08/09 — o defeito do anel (secao 21.1) passou por duas auditorias
+    # completas sem ser visto porque ninguem perguntou a velocidade no instante marcado.
+    # A secao 4.3 sempre disse "carreta entra no destino E PARA"; o codigo tinha perdido o
+    # "e para", e o instante gravado era a borda do raio, com o caminhao a 60 km/h.
+    #
+    # Tolerancia de amostragem: procura o ponto mais proximo do instante gravado dentro de
+    # 10 min. Sem isso, chegada gravada entre dois pings viraria falso positivo.
+    if nolocal and dd:
+        _perto = min(dd, key=lambda x: abs((x[0] - nolocal).total_seconds()))
+        if abs((_perto[0] - nolocal).total_seconds()) <= 600:
+            _d, _k, _v = _perto
+            # So acusa se havia ALTERNATIVA. Quando o aparelho entra no raio rodando e cala
+            # antes de reportar repouso (a carreta dorme ao encostar — secao 20.4), o unico
+            # instante disponivel E um ponto em movimento, e a regua chama isso de
+            # 'presumida_silencio' de proposito. Acusar ai seria cobrar do motor uma prova
+            # que o aparelho nao deu.
+            _havia_parado = any(parado(v) for d, k, v in dd_validos if k <= RAIO_CHEGADA)
+            if not parado(_v) and _havia_parado:
+                add(num, 'C6', 'media',
+                    f'chegada gravada com o veiculo EM MOVIMENTO ({_v:.0f} km/h) a '
+                    f'{_k:.1f} km do destino, havendo ponto PARADO disponivel — '
+                    f'instante de borda de raio, nao de chegada',
+                    f'gravada={str(nolocal)[:16]} · ponto={str(_d)[:16]}')
 
     # ── FECHAMENTO
     if status in ('Entregue', 'Cancelada') and dconc:
@@ -290,7 +308,7 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
                 # chegada + DWELL_H. Nao ha teto fixo — um caminhao pode ficar tres dias na
                 # fila de descarga e sair no terceiro, e fechar ali esta certo. (A 1a versao
                 # desta regra usava teto de 36 h e acusava 69 cargas corretas.)
-                depois = [(d, k) for d, k in dd if d > cheg]
+                depois = [(d, k) for d, k, v in dd if d > cheg]
                 saiu_dst = next((d for d, k in depois if k > RAIO_ORIGEM), None)
                 esperados = [x for x in (saiu_dst, cheg + timedelta(hours=DWELL_H)) if x]
                 erro = min(abs((conc - e).total_seconds()/3600) for e in esperados)
@@ -301,10 +319,19 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
                         f'RECORTE ERRADO: fechou {str(conc)[:16]}, {erro:.0f} h longe do '
                         f'instante com lastro ({ref})', f'chegada={str(cheg)[:16]}')
     elif ativo and cheg:
-        h = (HOJE - cheg).total_seconds() / 3600
+        # A permanencia se mede contra a ULTIMA OBSERVACAO, nao contra o relogio de parede.
+        # O motor so fecha por DWELL_H quando existem DWELL_H de serie depois da chegada —
+        # ele nao pode afirmar permanencia que ninguem viu. Medindo contra HOJE, o aferidor
+        # acusava 7 cargas de 06-08/09 que o motor deixou abertas com toda a razao: a base
+        # local termina em 08/09 18:32 e o resto do "tempo decorrido" nao tem dado nenhum.
+        # E a mesma armadilha da secao 16.1 (frescor medido contra utcnow) e a mesma regra
+        # da secao 21.10: regua do aferidor tem de ser a regua do motor.
+        # "Aberta ha tempo demais" e outra pergunta, e ja tem codigo proprio: F6.
+        h = (dd[-1][0] - cheg).total_seconds() / 3600
         if h > DWELL_H:
             add(num, 'F4', 'media',
-                f'NAO FECHOU: chegou {str(cheg)[:16]} ha {h/24:.1f} dias e segue "{status}"', como)
+                f'NAO FECHOU: chegou {str(cheg)[:16]}, ja observadas {h/24:.1f} dias de '
+                f'permanencia e segue "{status}"', como)
     if ativo and idade_d > HORIZONTE_D:
         add(num, 'F6', 'media', f'aberta ha {idade_d} dias — passou do horizonte de {HORIZONTE_D}')
 
@@ -323,7 +350,8 @@ NOMES = {
     'F5': 'entrega que era DESENGATE', 'F6': 'aberta alem do horizonte',
     'T5': 'velocidade implicita impossivel', 'T1': 'chegada anterior a saida', 'T2': 'conclusao anterior a chegada',
     'T3': 'conclusao anterior a saida (zera o km na tela)', 'T4': 'conclusao anterior ao carregamento',
-    'C5': 'saida digitada a mao, sem lastro', 'D1': 'sem rota planejada', 'D2': 'sem manifesto_origem', 'D3': 'destino sem coordenada',
+    'C5': 'saida digitada a mao, sem lastro',
+    'C6': 'chegada gravada com o veiculo EM MOVIMENTO (borda de raio)', 'D1': 'sem rota planejada', 'D2': 'sem manifesto_origem', 'D3': 'destino sem coordenada',
 }
 print(f'AUDITORIA GERAL — {len(CARGAS)} cargas entre {A.desde} e {A.ate}')
 print(f'{cargas_com} cargas com pelo menos um achado ({cargas_com/max(1,len(CARGAS))*100:.0f}%) · '
