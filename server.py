@@ -5362,6 +5362,20 @@ def api_embarques_cargas_list():
                   FROM embarques_posicoes_atuais pa
                  WHERE {_pn('pa.placa')} = {_pn('c.carreta1_placa')}
                  ORDER BY pa.data_posicao DESC LIMIT 1) AS rastreio_carreta_idade_h,
+               -- Posicao ATUAL da placa que mede (carreta, com o cavalo de reserva). Serve
+               -- para separar dois casos que hoje moram no mesmo balde 'Aberta' e pedem
+               -- acoes opostas (secao 16.5 do handoff): a carga que ainda NAO SAIU, com a
+               -- carreta parada na origem, que e normal e nao precisa de nada; e a carga
+               -- cuja PLACA NUNCA ESTEVE NA ORIGEM, que e documento errado — o aferidor
+               -- conta 22 dessas (V1). Le `embarques_posicoes_atuais`, uma linha por placa:
+               -- nao varre historico, entao nao pesa na tela do operacional.
+               (SELECT pa.latitude FROM embarques_posicoes_atuais pa
+                 WHERE {_pn('pa.placa')} = {_pn("COALESCE(NULLIF(c.carreta1_placa,''), c.cavalo_placa)")}
+                 ORDER BY pa.data_posicao DESC LIMIT 1) AS _pos_lat,
+               (SELECT pa.longitude FROM embarques_posicoes_atuais pa
+                 WHERE {_pn('pa.placa')} = {_pn("COALESCE(NULLIF(c.carreta1_placa,''), c.cavalo_placa)")}
+                 ORDER BY pa.data_posicao DESC LIMIT 1) AS _pos_lng,
+               c.origem_latitude AS _org_lat, c.origem_longitude AS _org_lng,
                (
                  SELECT string_agg(d.cidade || '/' || d.uf, '; ' ORDER BY d.ordem)
                  FROM embarques_cargas_destinos d WHERE d.carga_id = c.id
@@ -5427,6 +5441,39 @@ def api_embarques_cargas_list():
                 _st in ('Aberta', 'Em rota', 'No destino', 'Desengatada')
                 and (idade_h is None or float(idade_h) > RASTREIO_ALERTA_SEM_GPS_DIAS * 24)
             )
+            # ── SUBROTULO DE 'Aberta' — rotulo, NUNCA status novo.
+            #
+            # A secao 16.5 mediu o problema e ja tinha dado o veredito: *"o que esta errado
+            # nas duas nao e o status, e o ROTULO"*. `Aberta` continua sendo `Aberta` (a
+            # secao 0 garante que nenhum status muda de significado); o que se acrescenta e
+            # uma pista para o operacional saber qual das duas coisas ele esta vendo:
+            #
+            #   na_origem      a placa esta na origem. Ainda nao saiu, e nao ha o que fazer.
+            #   placa_longe    a placa transmite, mas de outro lugar — provavel carreta
+            #                  errada no documento (o aferidor chama isso de V1)
+            #   sem_posicao    ninguem sabe (ja coberto pelo alerta de rastreio)
+            obj['aberta_situacao'] = None
+            if _st == 'Aberta':
+                import geocoding      # importado localmente, como nas demais funções do arquivo
+                _pl, _pg = obj.pop('_pos_lat', None), obj.pop('_pos_lng', None)
+                _ol, _og = obj.pop('_org_lat', None), obj.pop('_org_lng', None)
+                if _pl is None or _ol is None:
+                    obj['aberta_situacao'] = 'sem_posicao' if _pl is None else None
+                elif obj['rastreio_defasado']:
+                    # POSICAO VELHA NAO E FATO SOBRE HOJE. A C-2026-000582 tem posicao
+                    # "atual" a 720 km da origem — de julho, porque a carreta nao transmite
+                    # desde entao. Rotular de "placa longe" convidaria o operacional a
+                    # concluir que o veiculo esta em outro lugar, quando o que se sabe e que
+                    # ninguem sabe. Aqui o alerta de rastreio ja diz a coisa certa.
+                    obj['aberta_situacao'] = 'sem_posicao'
+                else:
+                    _km = geocoding.km_entre(float(_pl), float(_pg), float(_ol), float(_og))
+                    if _km is not None:
+                        obj['km_placa_ate_origem'] = round(_km, 1)
+                        obj['aberta_situacao'] = ('na_origem' if _km <= RASTREIO_RAIO_ORIGEM_KM
+                                                  else 'placa_longe')
+            for _k in ('_pos_lat', '_pos_lng', '_org_lat', '_org_lng'):
+                obj.pop(_k, None)
             data.append(obj)
         cur.close(); conn.close()
         return jsonify({'ok': True, 'data': data, 'count': len(data)})
@@ -5879,6 +5926,12 @@ import embarques_auto
 KM_DIA_PADRAO = int(os.getenv('KM_DIA_PADRAO', '600'))
 # Alerta de rastreio defasado: carga ativa cuja carreta está sem posição há +X dias.
 RASTREIO_ALERTA_SEM_GPS_DIAS = float(os.getenv('RASTREAMENTO_ALERTA_SEM_GPS_DIAS', '2'))
+# Vem da REGUA UNICA (`embarques_regua`), nao de um numero novo: o raio que define "esta na
+# origem" tem de ser o mesmo que o motor e o aferidor usam, senao a tela discorda deles.
+try:
+    from embarques_regua import RAIO_ORIGEM as RASTREIO_RAIO_ORIGEM_KM
+except Exception:                       # pragma: no cover - a tela nao pode cair por isso
+    RASTREIO_RAIO_ORIGEM_KM = 30.0
 
 
 def eta_realista(distancia_km, partida_dt, duracao_ors_min=None, km_dia=KM_DIA_PADRAO):

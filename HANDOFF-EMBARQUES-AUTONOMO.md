@@ -2378,3 +2378,50 @@ aferidor:  179 cargas / 235 achados  ->  181 / 240
            F1  39 -> 1   ·   F1d  0 -> 43   (o +5 sao as cargas recem-fechadas por documento)
 15 de 15 testes · convergencia conjunta estavel em 3 rodadas
 ```
+
+### 21.18 Subrótulo de `Aberta` — rótulo, nunca status (09/09/2026)
+
+Item 3.6. A [§16.5](#165) tinha medido o problema e ja dado o veredito: *"o que esta errado
+nas duas nao e o status, e o ROTULO"* — `Aberta` e o mesmo balde de "nem saiu" e "sumiu no
+meio", e os dois pedem acoes opostas. A 21.7 registrou por que a versao "dividir o status"
+estava errada: a secao 0 garante que nenhum status muda de significado, e toda tela que
+filtra `Aberta` quebraria.
+
+Entao o status fica, e o que se acrescenta e uma pista. Tres valores, todos derivados:
+
+```
+na_origem      a placa esta na origem. Ainda nao saiu — normal, nao precisa de nada.
+placa_longe    a placa transmite, mas de outro lugar: provavel carreta errada no
+               documento. E o que o aferidor chama de V1, e ha 22 delas na base.
+sem_posicao    ninguem sabe (o alerta de rastreio ja cobre).
+```
+
+**Custo zero de varredura:** le `embarques_posicoes_atuais`, uma linha por placa, em vez de
+percorrer historico na tela principal do operacional. O raio de "esta na origem" vem da
+**regua unica** (`embarques_regua.RAIO_ORIGEM`), nao de um numero novo — senao a tela
+discordaria do motor.
+
+#### A guarda que a medicao obrigou
+
+Na primeira versao a `C-2026-000582` saiu rotulada **"placa longe, 720 km"** — e a carreta
+dela nao transmite desde **julho**. A posicao "atual" era de dois meses atras. Publicar essa
+distancia convidaria o operacional a concluir que o veiculo esta em outro lugar, quando o que
+se sabe e que **ninguem sabe**.
+
+**Posicao velha nao e fato sobre hoje.** Com a guarda de frescor, as 6 cargas de rastreio
+defasado caem em `sem_posicao` — onde o alerta que ja existe diz a coisa certa — e sobram
+duas `placa_longe` de verdade, com posicao fresca: a `C-2026-000674` a 411 km da origem e a
+`C-2026-000676` a 332 km.
+
+```
+sem_posicao   6      placa_longe  2      na_origem  2
+```
+
+#### A garantia da §0 conferida, nao presumida
+
+```
+diff: 62 insercoes, 0 remocoes
+_validar_carga_payload · _buscar_conflitos · POST /api/embarques/cargas · edicao ... intocados
+nenhum status novo: o unico literal que o diff acrescenta e a LEITURA de 'Aberta'
+os demais status devolvem aberta_situacao = None, e nenhum campo interno vaza no JSON
+```
