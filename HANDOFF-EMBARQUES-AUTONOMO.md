@@ -1,22 +1,34 @@
 # Handoff — Painel de Embarques autônomo
 
-**Estado em 08/09/2026 — ✅ A 3S VOLTOU (§20). Agosto e setembro foram reprocessados
-inteiramente pelo robô na base local: defeitos caíram de 272 para 181 cargas, e as
-incoerências temporais foram a zero. O modelo carreta-cêntrico segue **FORA DA `main`**, na
-branch `modelo-carreta-3s-congelado` (commit `49d1b44`); a `main` está no estado de produção.
-Comece pela §20 — ela tem a causa raiz (o worker amostra ao vivo e nunca relê o histórico), o
-aferidor `_auditoria_geral.py` e o motor `_robo_atemporal.py`. A §19 fica como registro do
-corte.**
+**Estado em 09/09/2026 — ⚠ COMECE PELA §21.** Nove rodadas de adjudicação (sem tocar em
+arquivo nenhum) acharam que **o instante de chegada da base inteira está enviesado por
+construção**: o código marca chegada no primeiro ping dentro do raio, sem exigir parada, e
+**240 de 292 chegadas foram carimbadas com o caminhão rodando** — a §4.3 sempre mandou
+"entra no destino **e para**". Isso reordena a fila: consertar muda a régua, e mudar a
+régua exige **reconvergir a base** antes que qualquer medição posterior valha. A §21 traz
+os quatro defeitos novos, as dez conclusões derrubadas com o número que derrubou cada uma,
+e o checklist de pré-deploy de dez itens.
+
+**Antes disso:** a §20 (a 3S voltou; agosto e setembro reprocessados pelo robô na base
+local, defeitos de 272 para 181 cargas, incoerências temporais a zero) e a §19 (o corte da
+3S). O modelo carreta-cêntrico segue **FORA DA `main`**, na branch
+`modelo-carreta-3s-congelado`; a `main` está no estado de produção.
 
 > ⚠ **Suspeita aberta (§20.10):** produção pode estar rodando uma imagem antiga — há carga
 > fechada por `baixa_ctrb`, regra removida do código em 03/09. Não verificado.
+
+> 🔒 **O `.env` tem `START_WORKER=true`.** Subir o servidor local com `python server.py`
+> direto **liga o worker e ele reprocessa a base convergida**, desfazendo o que a §20
+> construiu. Sempre sobrepor no comando:
+> `START_WORKER=false EMBARQUES_AUTO=false PGR_SYNC_CADASTRO=false python -X utf8 server.py`
 
 | | estado |
 |---|---|
 | **o robô (`embarques_auto.py`)** | na `main`, **igual ao de produção**. O fechamento reescrito (§18) vive na branch `modelo-carreta-3s-congelado`, e lá ainda atrás de `EMBARQUES_MODELO_CARRETA=false`. A abertura não foi tocada em lugar nenhum |
 | **KPI, alertas e correções de mapa** | também na branch — saíram da `main` em 07/09 |
 | **rastreamento (3S)** | **DE VOLTA em 08/09/26** — 93 veículos, 38 placas com posição < 1 h. Ficou o rastro: 5 carretas novas mudas desde 01–03/09 (§20.1) |
-| **motor + aferidor novos** | `_robo_atemporal.py` e `_auditoria_geral.py` — **não versionados**, vivem na pasta. Convergem a zero em 3 passadas (§20.6) |
+| **motor + aferidor novos** | `_robo_atemporal.py` e `_auditoria_geral.py` — **VERSIONADOS em 09/09** na branch (`66451b4`, tag `estudo-embarques-2026-09-08`), junto deste handoff, dos simuladores e dos CSVs. Convergem a zero em 3 passadas (§20.6), e a passada de 09/09 confirmou: **0 alterações em 12,5 s** |
+| **a adjudicação (§21)** | 9 rodadas, **nenhum arquivo alterado**. Achou o defeito do anel (240 de 292 chegadas marcadas em movimento), as duas réguas (11 cargas), a divergência dupla da §4.3 e a bimodalidade do worker (cauda de 53, p50 9,2 h) |
 | agosto + setembro reprocessados 100% pelo robô (370 cargas) | **só no banco LOCAL** — §20.7 |
 | `manifesto_origem` | **276/276 cargas reais com chave** (§20.2); as 63 vazias sem chave estão corretas |
 | rota planejada (ORS) | **370/370** em agosto e setembro |
@@ -468,14 +480,45 @@ faltando.
 
 ## 11. Arquivos
 
+> Tabela original de 04/09, mantida. Tudo que ela chamava de "não versionado" foi
+> **commitado em 09/09** na branch (`66451b4`) — ver a lista completa abaixo.
+
 | arquivo | papel |
 |---|---|
-| `embarques_auto.py` | o robô atual — **não foi alterado por este estudo** |
+| `embarques_auto.py` | o robô — na `main` é o de produção; na branch tem o fechamento reescrito (§18) |
 | `rastreamento_worker.py` | worker + `_consolidar_dias()` (commit `7de4860`) |
 | `consolidar_dias.py` | consolidação avulsa placa+dia |
-| `_reabrir_fechamento_indevido.py` | desfaz fechamento por `baixa_ctrb`/`timeout` |
 | `PLANO-EMBARQUES.md` | o plano da Fase 1, do modelo manual |
 | este arquivo | o estudo do modelo autônomo |
+
+**Versionados em 09/09 na branch `modelo-carreta-3s-congelado`** (`66451b4`, tag
+`estudo-embarques-2026-09-08`) — ficam fora da `main` de propósito: o `Dockerfile` faz
+`COPY . .` e não há `.dockerignore` para `_*.py`, então na `main` entrariam na imagem de
+produção.
+
+| arquivo | papel |
+|---|---|
+| `_robo_atemporal.py` | **o motor convergente** — lê a série inteira e deriva saída→chegada→entrega (§20.6) |
+| `_auditoria_geral.py` | **o aferidor** — bateria de invariantes T/S/V/C/F/D (§20.5) |
+| `_corrigir_manifesto_origem.py` | reconstrução da chave anti-duplicata (§20.2) |
+| `_simular_regras_fechamento.py` | as réguas de fechamento medidas dia a dia (§18.1) |
+| `_simular_regra_manifesto.py` | a exceção do reforço no meio da rota (§17.3 nº 8) |
+| `_testar_regras_fechamento.py` | 15 testes contra o banco real, em transação com rollback |
+| `_auditar_mapas.py` | auditoria em larga escala pelo endpoint do mapa (§14) |
+| `_auditar_fechamentos.py` | auditoria de chegada e fechamento (§15) |
+| `_auditar_reprocessamento.py` | a régua do reprocessamento de 04/09 (§15.4) |
+| `_regerar_vazias_agosto.py` | gerador de perna vazia por evento real (§12.5) |
+| `_tracar_rotas_agosto.py` | backfill ORS com backoff e ritmo (§12.12) |
+| `_reabrir_fechamento_indevido.py` | desfaz fechamento por `baixa_ctrb`/`timeout` |
+| `_auditoria_ANTES.csv` · `_auditoria_DEPOIS.csv` | **os snapshots do placar da §20.7** — 272 cargas com achado × 181. Não se reproduzem: a base mudou depois deles |
+| `_auditoria_mapas*.csv` · `_auditoria_fechamentos.csv` · `_auditoria_km_nulo.csv` · `_auditoria_reprocessamento.csv` | as rodadas de 04 e 07/09 |
+
+> ⚠ **O `_testar_regras_fechamento.py` só roda na branch.** As funções que ele testa
+> (`_chegou_ao_destino`, `reanalisar_pendentes`) não existem na `main` — com a `main` em
+> checkout ele quebra na primeira chamada.
+
+> ⚠ **O benchmark das 202 cargas da §17.2 NÃO existe em arquivo** — a medição vive só na
+> prosa desta documentação. Ver §21.9 para o estado do resgate.
 
 ---
 
@@ -1627,3 +1670,363 @@ tocar produção.
 > e desfazem a correção. Importar `server` e chamar `app.run` noutra porta faz isso: o bloco
 > `if __name__ == '__main__'`, que sobe as três threads (worker, robô e sync do PGR), não roda
 > no import.
+
+---
+
+## 21. Nove rodadas de adjudicação (09/09/2026)
+
+> **A linha que abre esta seção, porque é a lição que ela custou três vezes:
+> confundir o que o INSTRUMENTO fez com o que o MUNDO fez.**
+
+O que está aqui não é sessão de implementação: é uma **adjudicação**. Nove rodadas de
+crítica e contra-crítica sobre o modelo autônomo, cada desacordo levado ao banco em vez de
+ao argumento. **Nenhum arquivo foi alterado** — só leitura de código, `git show` na branch
+congelada e consulta à base local convergida.
+
+Ela achou **quatro defeitos que nenhuma auditoria anterior tinha visto**, derrubou **dez
+conclusões** que já circulavam como assentadas (várias nascidas dentro da própria
+adjudicação), e fechou com uma descoberta que reordena a fila: o instante de chegada da
+base inteira está enviesado por construção.
+
+O critério de parada foi o mesmo do robô: **convergência**. Os deltas por rodada caíram
+monotonicamente — a rodada 6 derrubou duas conclusões maiores, a 7 produziu uma retração,
+a 8 lapidou uma frase e achou um custo, a 9 fechou uma pendência. Queda monotônica, não
+oscilação, que é a distinção da §20.6.
+
+### 21.1 O defeito do anel — a descoberta que reordena a fila
+
+A §4.3 especifica o evento de chegada assim:
+
+> | carreta entra no destino **e para** | GPS **≤ 25 km** | `No destino` |
+
+O código faz outra coisa:
+
+```python
+def perto_com_parada(dd, raio_estrito, raio_largo):
+    p = next((d for d, k in dd if k <= raio_estrito), None)
+    if p:
+        return p, 'raio'          # primeiro ponto no raio. SEM exigir parada.
+```
+
+`RAIO_CHEGADA = 20.0`, e a exigência de parada existe **só no raio largo**. São **duas**
+divergências de uma decisão escrita, nenhuma guardada por teste — o mesmo gênero do 60 km
+reintroduzido sem reauditoria.
+
+O efeito, medido sobre as 292 cargas de agosto com destino geocodificado:
+
+```
+DISTANCIA ao destino no instante marcado como chegada   (raio estrito = 20 km)
+12,5-15,0 km    21 cargas  -  21 EM MOVIMENTO
+15,0-17,5 km    79 cargas  -  78 EM MOVIMENTO
+17,5-20,0 km   140 cargas  - 133 EM MOVIMENTO
+ 5,0- 7,5 km    11 cargas  -   0 em movimento   <- abaixo de 12,5 km o padrao inverte
+```
+
+**240 de 292 chegadas foram marcadas com o veículo rodando**, no ponto em que ele cruza a
+circunferência de 20 km. `no_local_desde` não significa "chegou ao cliente" — significa
+"entrou no anel".
+
+O viés disso é medível diretamente (do 1º ping no anel até a 1ª parada sustentada dentro
+dele, 230 cargas):
+
+```
+p50 = 0,42 h   p75 = 0,50 h   p90 = 0,65 h   p99 = 1,00 h   ·   99% abaixo de 1 hora
+```
+
+Pequeno, mas **sistemático e herdado**: a conclusão pela regra das 24 h herda; o início de
+cada perna vazia (= conclusão da carga A) herda; e o placar da §20.7 fica com asterisco —
+as 144 chegadas foram gravadas, a maioria no instante errado por construção.
+
+> **Consequência de ordem:** consertar isto muda a régua, e mudar a régua exige
+> **reconvergir a base inteira** antes que qualquer medição posterior valha. É o primeiro
+> item da fila técnica, e ele paga três vezes: conserta o anel, define a cauda do
+> experimento natural e desvenda o modo 1 (abaixo).
+
+### 21.2 O relógio de observação — o worker é bimodal, não impreciso
+
+O worker escreve três instantes e **não os escreve do mesmo jeito**:
+
+```
+data_saida_real   <- derivado da serie historica
+no_local_desde    <- NOW()      ...o instante em que o worker OLHOU
+data_conclusao    <- NOW()      ...idem
+```
+
+É um experimento natural dentro do mesmo código: mesmo worker, mesmos dados, um campo
+derivado e outro carimbado com relógio de parede. As correções do robô atemporal **sobre
+valor já existente**, separadas por proveniência (o log grava autor; o worker não loga,
+então valor sem escrita logada = worker):
+
+| valor anterior escrito por | n | p50 | p90 | máx | antecipou |
+|---|---|---|---|---|---|
+| **worker** | **167** | 0,6 h | 13,3 h | 228,8 h | **159 (95%)** |
+| o próprio robô (passadas anteriores) | 19 | 0,3 h | 203,3 h | 222,6 h | 3 (16%) |
+| *(controle)* `data_saida_real`, derivado | **11** | 0,6 h | 7,3 h | 13,6 h | 11/11 |
+
+O campo derivado precisou de **11** consertos; o carimbado, de **167** — e em 95% deles a
+chegada verdadeira era anterior, que é a assinatura de um relógio de parede: ele só pode
+chegar atrasado. O p90 de 13,3 h encosta em `FRESCOR_H = 12`, que a §20.3 já tinha medido
+como o buraco mediano da carreta.
+
+**Mas o número agregado não é erro do worker** — é a soma do atraso dele com o
+adiantamento do anel. Particionando pelo teto de viés do robô (1 h, p99):
+
+| faixa | n | leitura |
+|---|---|---|
+| ≤ 1 h | **100 (60%)** | cabe inteiro no viés do anel — **não atribuível ao worker** |
+| 1–2 h | 14 (8%) | zona cinzenta |
+| > 2 h | **53 (32%)** | além de qualquer viés do robô — **worker**, p50 **9,2 h**, p90 **25,3 h** |
+
+**O experimento encolhe de 167 casos para 53 e endurece de p50 0,6 h para 9,2 h.** Menos
+numeroso, mais grave, e sobrevive onde importa: na cauda, que é a que destrói janela de
+trajeto, km e início de perna vazia.
+
+E a distribuição é **bimodal**, com vale nítido:
+
+```
+0,25-0,50 h   39  #######################################   <- modo 1
+0,75-1,00 h   10  ##########
+1,50-2,00 h    5  #####                                     <- vale
+2,00-3,00 h    3  ###                                       <- vale
+6,00-12,0 h   17  #################                         <- modo 2
+12,0-24,0 h   15  ###############
+```
+
+Não é decaimento suave: cai a 5 e 3 e **volta a subir**. **O worker é bimodal** — ou
+dispara em tempo, ou falha por horas (a cascata da §20.4, o `FRESCOR_H`, o aparelho
+dormindo).
+
+> ⚠ **Caveat com prazo de validade.** No modo 1 o erro verdadeiro do worker é
+> **inobservável**: o piso de viés do anel (0,42 h) fica exatamente ali. O histograma prova
+> que as correções se separam em dois regimes; **não** prova que o worker acerta a 0,4 h —
+> prova que ali seu erro está abaixo do piso do instrumento. O conserto do anel derruba o
+> piso, e a reconvergência revela o modo 1 pela primeira vez.
+
+**A consequência de arquitetura** — e é a melhor coisa que a adjudicação produziu: não é
+"substituir o escritor ao vivo porque ele erra". É **dono do registro × autor de escrita**.
+O worker grava provisório (`fonte=ao_vivo`) e serve a tela no segundo em que acontece; o
+robô convergente confirma ou corrige (`fonte=derivada`) e a versão dele é a que vale para
+janela, km e perna. A latência deixa de ser dilema — o ao-vivo alimenta a operação, o
+convergido alimenta o registro — e o bug das duas verdades da §20.6 não reabre, porque a
+precedência passa a ser **declarada** em vez de disputada.
+
+### 21.3 As duas réguas de chegada — bloqueador de deploy
+
+| | régua de chegada |
+|---|---|
+| branch (`embarques_auto.reanalisar_pendentes`) | `RAIO_CHEGADA_KM = 20`, estrito |
+| `_robo_atemporal.py` | 20 km **ou** 60 km com parada ≥ 2 h |
+
+**11 das 302 chegadas gravadas (3,6%) existem só pela regra larga** — C-371 a 54,6 km,
+C-392 a 59,0, C-434 a 59,8, C-470 a 58,7, C-500 a 57,6, C-507 a 22,1, C-511 a 25,5,
+C-566 a 58,7, C-637 a 44,7, C-639 a 58,8, C-653 a 56,7.
+
+Subir o branch sobre a base convergida faz os dois motores discordarem em 11 cargas **no
+primeiro ciclo**. E a §17.2 **mediu e reprovou** subir o raio (ganha 3, estraga 3); o motor
+reintroduziu 60 km por outro mecanismo — a parada como discriminador, que é melhor
+raciocínio — mas **esse mecanismo nunca passou pelo teste da §17.2**.
+
+**Adjudicação das 11**, pela aproximação posterior:
+
+```
+C-371  Japeri            marcou 54,6 km -> chegou depois a  6,7 km   PERIFERIA (errada)
+C-500  Duque de Caxias   marcou 57,6 km -> chegou depois a  2,2 km   PERIFERIA (errada)
+outras 9 (Rio x4, Brasilia x2, R. Pires x3)   nunca chegaram mais perto
+```
+
+> **O placar honesto é assimétrico: 2 comprovadamente erradas, 9 indeterminadas.** "Nunca
+> chegou mais perto" não é vitória — é não-falsificação, e é compatível com nunca ter
+> entregado, que é classe real e medida (§15.3: 10 cargas sem chegada nem 7 dias depois).
+> Somado ao p99 de 72 km do rótulo de cidade da 3S, distância-de-centroide é régua suja nos
+> dois sentidos.
+
+Consertos que saem daqui: **guarda de aproximação posterior** (com teto na fronteira
+documental, senão a viagem seguinte migra a chegada da anterior) e **precisão declarada por
+força da afirmação** — `derivada_estrita`, `derivada_larga`, `migrada`. A regra larga fica
+publicada como **presumida** até corroboração. Assim ela pode errar sem mentir.
+
+### 21.4 Âncoras por destino são ADITIVAS, nunca substituição
+
+Destinos recorrentes têm ponto de entrega fixo deslocado do centroide. Medido sobre cargas
+distintas com o mesmo destino (≥3 cargas):
+
+| destino | n | centroide → agrupamento | dispersão p50 |
+|---|---|---|---|
+| Guarulhos/SP | 3 | 18,7 km | 0,9 km |
+| Fortaleza/CE | 3 | 18,5 km | 1,5 km |
+| Duque de Caxias/RJ | 13 | 17,5 km | 1,3 km |
+| Cariacica/ES | 3 | 18,2 km | 2,5 km |
+| Serra/ES | 18 | 16,7 km | 2,9 km |
+| Brasília/DF | 19 | 20,4 km | 4,1 km |
+
+**Duque de Caxias tem quatro âncoras, não uma:** o agrupamento de 10 cargas a 14–20 km, a
+C-383 a 12,3 km, a C-532 a **2,2 km** e a C-500 a 57,6 km. Substituir o centroide pelo
+agrupamento **quebraria a C-532** — o defeito antigo com sinal trocado. A forma certa é
+chegada = raio estrito em torno de **qualquer âncora** do destino, cada uma com seu
+histórico de suporte.
+
+> ⚠ **E o agrupamento medido assim é artefato.** Os seis valores acima estão todos entre
+> 16,7 e 20,4 km — colados na circunferência de 20 km. Não são docas: são o ponto em que a
+> rodovia de acesso cruza o anel (21.1), e caminhões da mesma origem cruzam no mesmo lugar,
+> por isso a dispersão dá 0,9 km. Aprender coordenada a partir desses pontos seria
+> **circular**. A versão salvável aprende sobre **paradas longas**, não sobre instantes
+> marcados.
+
+### 21.5 O fechamento documental é pré-condição do escritor único
+
+Um desacordo que só o código resolveu:
+
+- no branch, `fechar_pendentes` encerra pelo **manifesto novo da mesma carreta sem
+  consultar GPS nenhum** (só o `dedup_veiculo` exige `_chegou_ao_destino`);
+- no `_robo_atemporal.py`, a mesma regra está atrás de `if n_cheg and not n_conc and c1:` —
+  **exige chegada provada por GPS**.
+
+Promover o motor a escritor único, como está, **apaga o caminho documental que o branch
+tem**. Sob apagão da 3S ele fecha zero — e apagão já aconteceu (§19). A §19.2 é literal:
+*"o robô tem de seguir com as regras antigas, que decidem por documento"*.
+
+Manifesto novo **não é silêncio** — é evento documental positivo — então portar
+`fechar_pendentes` para o motor não fere a regra de ouro em nada. **É pré-condição, não
+refinamento.**
+
+### 21.6 O que ficou assentado
+
+| | número |
+|---|---|
+| vazias **entram** no circuito do robô por default | 63/63 `criada_por_robo=TRUE`, 63/63 com log; o que não converge são os **limites** da perna |
+| janelas de perna descoladas das âncoras atuais | **13 de 63** |
+| custo de uma passada do motor | **12,5 s** para 370 cargas; idempotente sobre base parada |
+| `JANELA_FUTURO_D=20` × `JANELA_REANALISE_DIAS=30` | eixos distintos, não divergência; trunca **1** carga aqui, e o defeito é **invisível no laboratório** (base de 5 semanas, 0 pendentes com +20 d) |
+| defeito do anel | **240 de 292** marcadas em movimento; viés p99 = 1 h |
+| divergência dupla da §4.3 | parada perdida **e** 25 → 20 km |
+| duas réguas de chegada | **11 cargas** (3,6%) |
+| âncoras por destino | **4** em Duque de Caxias; aditivas, nunca substituição |
+| cauda do worker | **53 casos**, p50 **9,2 h**, p90 25,3 h, máx 228,8 h |
+| fechamento documental ausente no motor | pré-condição do escritor único |
+
+### 21.7 O que foi derrubado — e o número que derrubou
+
+Registrado porque **"assentado" nesta base tem meia-vida**, e só invariante rodando
+continuamente mantém conclusão honesta.
+
+| conclusão derrubada | o que a derrubou |
+|---|---|
+| "as vazias ficaram fora do circuito de convergência" | 63/63 entram por default; o defeito são os **limites**, o que é pior — passou pelo robô e *parece* auditado |
+| "os agrupamentos por destino são docas reais" | seis medições independentes entre 16,7 e 20,4 km = a borda do anel |
+| "Ribeirão Pires tem CD fixo fora do centroide" | 8 cargas, dispersão p50 **15,1 km** — é espalhamento, não doca |
+| "a regra larga ganha 9 e perde 2" | assimetria: 2 **provadas**, 9 **indeterminadas** |
+| "o worker erra p90 de 13,3 h" | **60%** cabe no viés do próprio robô; o erro dele é 53 casos a p50 9,2 h |
+| "o placar 'depois' da §20.7 não está em arquivo nenhum" | `_auditoria_DEPOIS.csv` — 181 cargas, `C3` e `C1` zerados |
+| "a C-147 tem chegada a 676 km do destino" | artefato de consulta: as placas dela têm **zero posições antes de 03/08** (carga de 29/06, GPS purgado) |
+| "medir a partição antes do conserto mediria o viés duas vezes" | o delta anel→parada é medido sobre **posições**, independente do worker e do conserto |
+| "escritor único agrava o risco 3S" *(conclusão certa, raciocínio vago)* | o mecanismo real é o gate `n_cheg` do motor, não a dependência de GPS em abstrato |
+| "as 19 auto-correções são oscilação pós-convergência" | 15 delas no lote 17:23; o motor foi editado às **17:24** — é resposta mudando porque o motor mudou |
+
+### 21.8 O que continua aberto, com o teste que fecha
+
+| aberto | o teste |
+|---|---|
+| cauda definitiva do experimento natural | reconvergência **depois** do conserto do anel |
+| erro do worker no modo 1 | idem — hoje está abaixo do piso do instrumento (**temporário por construção**) |
+| as 9 chegadas presumidas | cruzamento com o CTe — precisa de dump novo de `conhecimentos_emitidos` e `manifestos` (o local tem até 10/07 e 31/03) |
+| o universo do benchmark da §17.2 | identificar as **16 cargas** excluídas (ver 21.9) |
+| a imagem de produção (§20.10) | exige tocar produção |
+| **modo sombra** | o motor rodando contra produção por alguns dias, comparando o que gravaria com o que o worker grava — **a única pergunta que nenhuma rodada pôde responder daqui** |
+
+### 21.9 O benchmark da §17.2 se perdeu — e foi resgatado pela prosa
+
+O script que produziu *"202 cargas com parada de entrega identificável, ganha 3 e estraga
+3"* **não está na pasta**. A medição existe só como texto nesta documentação. É a terceira
+vítima de o instrumental viver fora do git (as outras duas: a forense por `mtime` da
+rodada 5, e as edições do motor anteriores às 17:24, irrecuperáveis).
+
+Mas a §17.2 publicou os **números**, e isso salvou o instrumento. Reconstrução da cobertura
+por raio sobre agosto:
+
+```
+                 reconstruido   §17.2 publicou   denominador que reproduziria
+<= 20 km    256      87,7%           93,1%                  275
+<= 30 km    262      89,7%           95,0%                  276
+<= 40 km    264      90,4%           95,5%                  276
+```
+
+**Três razões independentes convergem no mesmo denominador.** Se os numeradores estivessem
+errados, elas não se alinhariam num único número — são três equações e uma incógnita com
+solução consistente. Conferindo: 256/275 = 93,09% · 262/276 = 94,93% · 264/276 = 95,65%.
+
+Os numeradores estão certos; **o universo original era ~276 cargas, não as 292** do recorte
+ingênuo — 16 a menos, das quais 10 já identificadas (cegas, sem posição utilizável na
+janela). Resta identificar ~6.
+
+> **A lição:** prosa com número é backup **degradado** de código — salva o veredito, não a
+> calibração. Publicar placares completos, que pareceu redundância por nove rodadas, virou
+> o mecanismo de resgate do instrumento que se perdeu. Prosa **sem** número seria perda
+> total.
+
+### 21.10 Regras de método
+
+1. **Confundir o que o instrumento fez com o que o mundo fez** é o erro-mãe. Ocorreu três
+   vezes em três rodadas — a métrica de dispersão que media a mediana contra a média, o CD
+   inferido de marcas que o instrumento fabricou, e a consulta que atravessou a fronteira
+   de retenção.
+2. **Quando N medições independentes dão o mesmo número, a primeira hipótese é que se está
+   medindo o instrumento.** Seis "docas" entre 16,7 e 20,4 km eram o anel.
+3. **As duas réguas têm de ser a mesma** (já era da §20.6) — e a fronteira entre **motores
+   diferentes** é onde ninguém olha.
+4. **Convergência é o teste**, e vale para o debate: delta por rodada caindo
+   monotonicamente é convergência; oscilando é bug.
+5. **Primitiva compartilhada e instrumento versionado são a mesma exigência vista de dois
+   ângulos.** As armadilhas conhecidas estão blindadas dentro do motor e do aferidor, e
+   desprotegidas em toda consulta escrita à mão.
+
+### 21.11 Checklist de pré-deploy — dez itens
+
+Cada linha carrega o número que a justifica.
+
+| # | item | por quê |
+|---|---|---|
+| 1 | **parada exigida no raio estrito** | 240 de 292 marcadas em movimento · §4.3 já mandava |
+| 2 | **raio re-derivado** do benchmark (não "restaurado por fidelidade") | pré-condição: identificar as 16 cargas do universo original (21.9) |
+| 3 | **régua de chegada única** entre motor e branch | 11 cargas descasam no primeiro ciclo |
+| 4 | **guarda de aproximação posterior**, com teto na fronteira documental | pega C-371 e C-500; sem teto, a viagem seguinte migra a chegada da anterior |
+| 5 | **âncoras aditivas**, nunca substituição | 4 âncoras em Caxias; substituir quebraria a C-532 |
+| 6 | **`fechar_pendentes` documental portado para o motor** | pré-condição do escritor único; sem ele, apagão da 3S fecha zero |
+| 7 | **janelas alinhadas** (`JANELA_FUTURO_D` × `JANELA_REANALISE_DIAS`) | invisível no laboratório, real em produção |
+| 8 | **invariante de velocidade-na-chegada** no aferidor | teria acendido 240 luzes na primeira rodada |
+| 9 | **reconvergência com remedição** | muda a régua ⇒ a base inteira precisa reconvergir antes de qualquer número valer |
+| 10 | **biblioteca de primitivas compartilhadas** — janela de evidência, grafias, âncoras, proveniência de instante | grafia mordeu 2× (§12.6, §14.5), retenção mordeu a C-147, anel mordeu os agrupamentos |
+
+E o **religar** da §19.4 continua valendo como portão da chave
+`EMBARQUES_MODELO_CARRETA=true`: conferir o feed, re-simular com setembro **completo** (os
+números da §18 são de amostra parcial), rodar os 15 testes, e só então virar a variável.
+
+### 21.12 As decisões de negócio da §8, com o artefato que destrava cada uma
+
+Para que não voltem a ficar paradas por falta de dado que já existe:
+
+| decisão da §8 | o que a destrava |
+|---|---|
+| Carreteiro entra no robô? | o **balde de período não documentado** do ladrilhamento — hoje 36% do km de carreta não tem dono e ninguém sabe quanto disso é Carreteiro |
+| Transbordo vira status próprio? | dump novo de CTe (critério já validado na §20.9: **mesma carreta sai com carga nova**, mais a negativa de chegada) |
+| A carga carrega todos os destinos do manifesto? | **sem bloqueio técnico** — é decisão pura |
+| Reabrir as fechadas indevidamente em agosto? | absorvida pela reconvergência (item 9) |
+
+### 21.13 As consultas que decidiram, e por que viram invariante
+
+Estas quatro decidiram o que nove rodadas de argumento não decidiram. Enquanto viverem como
+consulta ad-hoc, a próxima "pergunta que ninguém fez" custa outra adjudicação; como
+invariante do `_auditoria_geral.py`, custa uma rodada de aferidor.
+
+```
+proveniencia por autor    quem escreveu o valor anterior de cada correcao
+                          (o worker nao loga; valor sem log anterior = worker)
+drift de ancora           o inicio da perna vazia ainda casa com a conclusao
+                          atual da carga anterior da mesma carreta?
+velocidade na chegada     o veiculo estava parado no instante marcado?
+aproximacao posterior     ele chegou mais perto depois, dentro da janela da carga?
+```
+
+> **Todas as descobertas destas nove rodadas estavam no banco desde sempre** — o relógio de
+> observação no `embarques_cargas_log`, as duas réguas nos dois arquivos desde 07/09, o
+> anel no histórico de posições desde agosto. Nenhuma precisou de dado novo. Todas
+> precisaram de uma **pergunta** nova.
