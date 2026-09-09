@@ -1,0 +1,434 @@
+﻿carga;codigo;gravidade;achado;prova
+C-2026-000371;S2;baixa;buraco de sinal de 28 h no rastreio (carreta1);
+C-2026-000371;S3;baixa;cavalo tem 20035 pontos contra 1391 da carreta — sensor mais pobre em uso;carreta1=TYN8I98
+C-2026-000372;S2;baixa;buraco de sinal de 28 h no rastreio (cavalo);
+C-2026-000372;F3;media;RECORTE ERRADO: chegou 2026-08-03 14:17, fechou 370 h depois (a regra preve 24 h);
+C-2026-000373;S2;baixa;buraco de sinal de 31 h no rastreio (carreta1);
+C-2026-000374;S2;baixa;buraco de sinal de 29 h no rastreio (carreta1);
+C-2026-000374;V1;alta;a placa rastreada NUNCA esteve na origem (499 km no minimo) — nem carreta nem cavalo estiveram na origem;origem=Jundiaí
+C-2026-000375;S2;baixa;buraco de sinal de 29 h no rastreio (carreta1);
+C-2026-000375;V1;alta;a placa rastreada NUNCA esteve na origem (161 km no minimo) — nem carreta nem cavalo estiveram na origem;origem=Uberlândia
+C-2026-000375;F1;alta;FECHADA SEM PROVA: aproximacao maxima do destino 133 km;motivo=transbordo_udi · destino=Rio de Janeiro
+C-2026-000376;S2;baixa;buraco de sinal de 31 h no rastreio (carreta1);
+C-2026-000376;S3;baixa;cavalo tem 13197 pontos contra 1396 da carreta — sensor mais pobre em uso;carreta1=TZC9G24
+C-2026-000376;F1;alta;FECHADA SEM PROVA: aproximacao maxima do destino 42 km;motivo=transbordo_udi · destino=Arujá
+C-2026-000377;S2;baixa;buraco de sinal de 37 h no rastreio (carreta1);
+C-2026-000378;S2;baixa;buraco de sinal de 30 h no rastreio (carreta1);
+C-2026-000379;S2;baixa;buraco de sinal de 28 h no rastreio (carreta1);
+C-2026-000379;S3;baixa;cavalo tem 1379 pontos contra 276 da carreta — sensor mais pobre em uso;carreta1=QXH6946
+C-2026-000380;S2;baixa;buraco de sinal de 46 h no rastreio (carreta1);
+C-2026-000380;F1;alta;FECHADA SEM PROVA: aproximacao maxima do destino 26 km;motivo=transbordo_udi · destino=Senador Canedo
+C-2026-000381;S2;baixa;buraco de sinal de 32 h no rastreio (carreta1);
+C-2026-000382;S2;baixa;buraco de sinal de 28 h no rastreio (carreta1);
+C-2026-000383;S2;baixa;buraco de sinal de 28 h no rastreio (carreta1);
+C-2026-000383;S3;baixa;cavalo tem 3102 pontos contra 319 da carreta — sensor mais pobre em uso;carreta1=HMV3714
+C-2026-000384;S2;baixa;buraco de sinal de 28 h no rastreio (carreta1);
+C-2026-000384;V1;alta;a placa rastreada NUNCA esteve na origem (226 km no minimo) — nem carreta nem cavalo estiveram na origem;origem=Extrema
+C-2026-000384;C3;media;chegou ao destino em 2026-08-05 09:17 e a chegada NAO foi gravada;raio · destino=Brasília
+C-2026-000385;S2;baixa;buraco de sinal de 29 h no rastreio (carreta1);
+C-2026-000385;V1;alta;a placa rastreada NUNCA esteve na origem (139 km no minimo) — nem carreta nem cavalo estiveram na origem;origem=Manhuaçu
+C-2026-000385;C3;media;chegou ao destino em 2026-08-05 03:44 e a chegada NAO foi gravada;raio · destino=Tremembé
+C-2026-000386;S2;baixa;buraco de sinal de 28 h no rastreio (carreta1);
+C-2026-000387;S2;baixa;buraco de sinal de 28 h no rastreio (carreta1);
+C-2026-000387;V1;alta;a placa rastreada NUNCA esteve na origem (202 km no minimo) — nem carreta nem cavalo estiveram na origem;origem=São José dos Campos
+C-2026-000390;S2;baixa;buraco de sinal de 25 h no rastreio (carreta1);
+C-2026-000390;C5;baixa;saida digitada a mao, sem lastro no GPS (nao e defeito do motor);
+C-2026-000391;S3;baixa;cavalo tem 3143 pontos contra 332 da carreta — sensor mais pobre em uso;carreta1=HIG4A80
+C-2026-000392;S3;baixa;cavalo tem 13428 pontos contra 1490 da carreta — sensor mais pobre em uso;carreta1=QXH6946
+C-2026-000392;C3;media;chegou ao destino em 2026-08-07 07:51 e a chegada NAO foi gravada;metropole 30km/7h · destino=Brasília
+C-2026-000392;F3;media;RECORTE ERRADO: chegou 2026-08-07 07:51, fechou 448 h depois (a regra preve 24 h);
+C-2026-000393;C5;baixa;saida digitada a mao, sem lastro no GPS (nao e defeito do motor);
+C-2026-000394;S2;baixa;buraco de sinal de 68 h no rastreio (carreta1);
+C-2026-000395;S3;baixa;cavalo tem 4077 pontos contra 269 da carreta — sensor mais pobre em uso;carreta1=OGK1H32
+C-2026-000395;C5;baixa;saida digitada a mao, sem lastro no GPS (nao e defeito do motor);
+C-2026-000396;S3;baixa;cavalo tem 1979 pontos contra 332 da carreta — sensor mais pobre em uso;carreta1=HIG4A80
+C-2026-000398;S1;alta;CEGA: nenhuma placa da carga transmitiu no periodo;cavalo=HKE0G75 carreta=HOA0467
+V-2026-000026;C3;media;chegou ao destino em 2026-08-05 15:28 e a chegada NAO foi gravada;raio · destino=Canápolis
+V-2026-000034;S3;baixa;cavalo tem 1746 pontos contra 367 da carreta — sensor mais pobre em uso;carreta1=QXH6946
+V-2026-000034;C3;media;chegou ao destino em 2026-08-05 05:04 e a chegada NAO foi gravada;raio · destino=Jundiaí
+V-2026-000039;S3;baixa;cavalo tem 13985 pontos contra 1500 da carreta — sensor mais pobre em uso;carreta1=TCE7I47
+V-2026-000039;C3;media;chegou ao destino em 2026-08-19 09:59 e a chegada NAO foi gravada;raio · destino=Ibiá
+V-2026-000046;C3;media;chegou ao destino em 2026-08-16 12:25 e a chegada NAO foi gravada;raio · destino=Resende
+V-2026-000046;F3;media;RECORTE ERRADO: chegou 2026-08-16 12:25, fechou 51 h depois (a regra preve 24 h);
+V-2026-000051;S2;baixa;buraco de sinal de 302 h no rastreio (carreta1);
+V-2026-000051;C3;media;chegou ao destino em 2026-08-21 12:21 e a chegada NAO foi gravada;raio · destino=Rubiataba
+V-2026-000053;V1;alta;a placa rastreada NUNCA esteve na origem (133 km no minimo) — nem carreta nem cavalo estiveram na origem;origem=Rio de Janeiro
+V-2026-000053;C3;media;chegou ao destino em 2026-08-04 21:44 e a chegada NAO foi gravada;raio · destino=Juiz de Fora
+C-2026-000401;S3;baixa;cavalo tem 1759 pontos contra 362 da carreta — sensor mais pobre em uso;carreta1=TDJ3H18
+V-2026-000013;S2;baixa;buraco de sinal de 53 h no rastreio (carreta1);
+V-2026-000013;C3;media;chegou ao destino em 2026-08-18 02:32 e a chegada NAO foi gravada;raio · destino=Hidrolândia
+V-2026-000013;F3;media;RECORTE ERRADO: chegou 2026-08-18 02:32, fechou 68 h depois (a regra preve 24 h);
+V-2026-000017;C3;media;chegou ao destino em 2026-08-07 13:15 e a chegada NAO foi gravada;raio · destino=Uberlândia
+V-2026-000017;F3;media;RECORTE ERRADO: chegou 2026-08-07 13:15, fechou 541 h depois (a regra preve 24 h);
+V-2026-000043;C3;media;chegou ao destino em 2026-08-07 19:02 e a chegada NAO foi gravada;raio · destino=Uberlândia
+V-2026-000043;F3;media;RECORTE ERRADO: chegou 2026-08-07 19:02, fechou 269 h depois (a regra preve 24 h);
+V-2026-000054;C3;media;chegou ao destino em 2026-08-07 22:48 e a chegada NAO foi gravada;raio · destino=UBERLANDIA
+V-2026-000054;F3;media;RECORTE ERRADO: chegou 2026-08-07 22:48, fechou 237 h depois (a regra preve 24 h);
+V-2026-000005;S3;baixa;cavalo tem 9374 pontos contra 1541 da carreta — sensor mais pobre em uso;carreta1=HIG4A80
+V-2026-000005;C3;media;chegou ao destino em 2026-08-17 18:40 e a chegada NAO foi gravada;raio · destino=Serra
+V-2026-000041;C3;media;chegou ao destino em 2026-08-09 20:59 e a chegada NAO foi gravada;raio · destino=Uberlândia
+V-2026-000041;F3;media;RECORTE ERRADO: chegou 2026-08-09 20:59, fechou 305 h depois (a regra preve 24 h);
+V-2026-000056;C3;media;chegou ao destino em 2026-08-16 18:01 e a chegada NAO foi gravada;raio · destino=Seropédica
+V-2026-000056;F3;media;RECORTE ERRADO: chegou 2026-08-16 18:01, fechou 76 h depois (a regra preve 24 h);
+V-2026-000008;C3;media;chegou ao destino em 2026-08-18 08:19 e a chegada NAO foi gravada;raio · destino=Serra
+V-2026-000062;C3;media;chegou ao destino em 2026-08-14 22:33 e a chegada NAO foi gravada;raio · destino=Uberlândia
+V-2026-000062;F3;media;RECORTE ERRADO: chegou 2026-08-14 22:33, fechou 209 h depois (a regra preve 24 h);
+V-2026-000049;C3;media;chegou ao destino em 2026-08-16 21:40 e a chegada NAO foi gravada;raio · destino=Imperatriz
+V-2026-000049;F3;media;RECORTE ERRADO: chegou 2026-08-16 21:40, fechou 65 h depois (a regra preve 24 h);
+V-2026-000027;C3;media;chegou ao destino em 2026-08-14 00:59 e a chegada NAO foi gravada;raio · destino=Uberlândia
+V-2026-000027;F3;media;RECORTE ERRADO: chegou 2026-08-14 00:59, fechou 158 h depois (a regra preve 24 h);
+C-2026-000072;C1;media;saiu da origem em 2026-08-18 10:14 e a saida NAO foi gravada;
+C-2026-000072;C3;media;chegou ao destino em 2026-08-19 11:19 e a chegada NAO foi gravada;raio · destino=SERRA
+C-2026-000073;C1;media;saiu da origem em 2026-08-17 20:39 e a saida NAO foi gravada;
+C-2026-000073;C3;media;chegou ao destino em 2026-08-19 01:12 e a chegada NAO foi gravada;raio · destino=UBERLANDIA
+C-2026-000074;C1;media;saiu da origem em 2026-08-17 20:53 e a saida NAO foi gravada;
+C-2026-000074;C3;media;chegou ao destino em 2026-08-19 01:10 e a chegada NAO foi gravada;raio · destino=UBERLANDIA
+C-2026-000075;S1;alta;CEGA: nenhuma placa da carga transmitiu no periodo;cavalo=HOA0B56 carreta=GSV8C03
+C-2026-000076;C1;media;saiu da origem em 2026-08-18 01:47 e a saida NAO foi gravada;
+C-2026-000076;C3;media;chegou ao destino em 2026-08-21 11:05 e a chegada NAO foi gravada;raio · destino=JUNDIAI
+C-2026-000078;C1;media;saiu da origem em 2026-08-17 17:44 e a saida NAO foi gravada;
+C-2026-000078;C3;media;chegou ao destino em 2026-08-17 21:51 e a chegada NAO foi gravada;raio · destino=EXTREMA
+C-2026-000080;S2;baixa;buraco de sinal de 25 h no rastreio (carreta1);
+C-2026-000080;V1;alta;a placa rastreada NUNCA esteve na origem (177 km no minimo) — nem carreta nem cavalo estiveram na origem;origem=JUNDIAI
+C-2026-000080;C3;media;chegou ao destino em 2026-08-20 21:15 e a chegada NAO foi gravada;raio · destino=CAMACARI
+C-2026-000082;C3;media;chegou ao destino em 2026-08-19 08:02 e a chegada NAO foi gravada;raio · destino=BRASILIA
+C-2026-000083;S1;alta;CEGA: nenhuma placa da carga transmitiu no periodo;cavalo=HKE0G75 carreta=HOA0E67
+C-2026-000084;V1;alta;a placa rastreada NUNCA esteve na origem (69 km no minimo) — so o CAVALO esteve na origem — carreta errada no documento;origem=EXTREMA
+C-2026-000084;F1;alta;FECHADA SEM PROVA: aproximacao maxima do destino 291 km;motivo=transbordo_udi · destino=ANAPOLIS
+C-2026-000085;S2;baixa;buraco de sinal de 28 h no rastreio (carreta1);
+C-2026-000085;C1;media;saiu da origem em 2026-08-18 01:03 e a saida NAO foi gravada;
+C-2026-000085;C3;media;chegou ao destino em 2026-08-16 21:52 e a chegada NAO foi gravada;raio · destino=UBERLANDIA
+C-2026-000085;F3;media;RECORTE ERRADO: chegou 2026-08-16 21:52, fechou 63 h depois (a regra preve 24 h);
+C-2026-000086;C1;media;saiu da origem em 2026-08-18 01:26 e a saida NAO foi gravada;
+C-2026-000086;C3;media;chegou ao destino em 2026-08-16 17:19 e a chegada NAO foi gravada;raio · destino=UBERLANDIA
+C-2026-000086;F3;media;RECORTE ERRADO: chegou 2026-08-16 17:19, fechou 61 h depois (a regra preve 24 h);
+C-2026-000087;C3;media;chegou ao destino em 2026-08-19 03:18 e a chegada NAO foi gravada;raio · destino=ANAPOLIS
+C-2026-000088;C3;media;chegou ao destino em 2026-08-18 09:19 e a chegada NAO foi gravada;raio · destino=RIBEIRAO PRETO
+C-2026-000089;S3;baixa;cavalo tem 3147 pontos contra 437 da carreta — sensor mais pobre em uso;carreta1=HKE0D75
+C-2026-000427;S2;baixa;buraco de sinal de 46 h no rastreio (carreta1);
+C-2026-000427;V1;alta;a placa rastreada NUNCA esteve na origem (70 km no minimo) — nem carreta nem cavalo estiveram na origem;origem=Uberlândia
+C-2026-000427;F1;alta;FECHADA SEM PROVA: aproximacao maxima do destino 72 km;motivo=transbordo_udi · destino=Guarulhos
+C-2026-000429;S3;baixa;cavalo tem 3728 pontos contra 776 da carreta — sensor mais pobre em uso;carreta1=HIG4A80
+C-2026-000434;C3;media;chegou ao destino em 2026-08-19 18:24 e a chegada NAO foi gravada;metropole 41km/26h · destino=Rio de Janeiro
+C-2026-000435;S2;baixa;buraco de sinal de 36 h no rastreio (carreta1);
+C-2026-000435;S3;baixa;cavalo tem 3444 pontos contra 37 da carreta — sensor mais pobre em uso;carreta1=HMV3D38
+C-2026-000435;C1;media;saiu da origem em 2026-08-19 10:38 e a saida NAO foi gravada;
+C-2026-000436;S3;baixa;cavalo tem 1557 pontos contra 341 da carreta — sensor mais pobre em uso;carreta1=QXH6I52
+C-2026-000438;C3;media;chegou ao destino em 2026-08-21 20:17 e a chegada NAO foi gravada;raio · destino=Serra
+C-2026-000439;C3;media;chegou ao destino em 2026-08-21 12:30 e a chegada NAO foi gravada;raio · destino=Hidrolândia
+C-2026-000440;S2;baixa;buraco de sinal de 24 h no rastreio (carreta1);
+C-2026-000441;S3;baixa;cavalo tem 2746 pontos contra 767 da carreta — sensor mais pobre em uso;carreta1=TZC9G24
+C-2026-000441;C3;media;chegou ao destino em 2026-08-22 21:14 e a chegada NAO foi gravada;raio · destino=Hidrolândia
+C-2026-000443;C1;media;saiu da origem em 2026-08-19 12:24 e a saida NAO foi gravada;
+C-2026-000443;C3;media;chegou ao destino em 2026-08-20 14:14 e a chegada NAO foi gravada;raio · destino=Pouso Alegre
+C-2026-000444;S3;baixa;cavalo tem 1481 pontos contra 290 da carreta — sensor mais pobre em uso;carreta1=QXH6I52
+C-2026-000445;S2;baixa;buraco de sinal de 36 h no rastreio (carreta1);
+C-2026-000445;S3;baixa;cavalo tem 3659 pontos contra 23 da carreta — sensor mais pobre em uso;carreta1=HMV3D38
+C-2026-000446;C5;baixa;saida digitada a mao, sem lastro no GPS (nao e defeito do motor);
+C-2026-000447;S1;alta;CEGA: nenhuma placa da carga transmitiu no periodo;cavalo=QJP0A68 carreta=HKE0E20
+C-2026-000448;S2;baixa;buraco de sinal de 49 h no rastreio (carreta1);
+C-2026-000450;C5;baixa;saida digitada a mao, sem lastro no GPS (nao e defeito do motor);
+C-2026-000451;S3;baixa;cavalo tem 3778 pontos contra 434 da carreta — sensor mais pobre em uso;carreta1=QXH6J44
+C-2026-000452;S3;baixa;cavalo tem 4561 pontos contra 921 da carreta — sensor mais pobre em uso;carreta1=TCE7I47
+V-2026-000012;S3;baixa;cavalo tem 2606 pontos contra 323 da carreta — sensor mais pobre em uso;carreta1=HKE0D75
+V-2026-000012;C3;media;chegou ao destino em 2026-08-18 13:13 e a chegada NAO foi gravada;raio · destino=Cordeirópolis
+V-2026-000012;F3;media;RECORTE ERRADO: chegou 2026-08-18 13:13, fechou 48 h depois (a regra preve 24 h);
+V-2026-000023;C3;media;chegou ao destino em 2026-08-20 11:17 e a chegada NAO foi gravada;raio · destino=Nerópolis
+V-2026-000023;F3;media;RECORTE ERRADO: chegou 2026-08-20 11:17, fechou 51 h depois (a regra preve 24 h);
+V-2026-000055;C3;media;chegou ao destino em 2026-08-26 01:30 e a chegada NAO foi gravada;raio · destino=São Bernardo do Campo
+V-2026-000055;F3;media;RECORTE ERRADO: chegou 2026-08-26 01:30, fechou 37 h depois (a regra preve 24 h);
+V-2026-000061;V1;alta;a placa rastreada NUNCA esteve na origem (1258 km no minimo) — nem carreta nem cavalo estiveram na origem;origem=Arujá
+V-2026-000061;C3;media;chegou ao destino em 2026-08-19 08:38 e a chegada NAO foi gravada;raio · destino=Campina Grande
+C-2026-000453;S3;baixa;cavalo tem 2295 pontos contra 747 da carreta — sensor mais pobre em uso;carreta1=TCX3D71
+C-2026-000454;C3;media;chegou ao destino em 2026-08-24 00:50 e a chegada NAO foi gravada;raio · destino=Serra
+C-2026-000456;S1;alta;CEGA: nenhuma placa da carga transmitiu no periodo;cavalo=HOA0B56 carreta=GSV8C03
+C-2026-000457;S2;baixa;buraco de sinal de 29 h no rastreio (carreta1);
+C-2026-000457;C1;media;saiu da origem em 2026-08-21 14:47 e a saida NAO foi gravada;
+C-2026-000457;F1;alta;FECHADA SEM PROVA: aproximacao maxima do destino 118 km;motivo=transbordo_udi · destino=Extrema
+C-2026-000458;S3;baixa;cavalo tem 3176 pontos contra 241 da carreta — sensor mais pobre em uso;carreta1=HKE0D75
+C-2026-000459;F1;alta;FECHADA SEM PROVA: aproximacao maxima do destino 1093 km;motivo=manifesto_novo · destino=Teresina
+C-2026-000460;S3;baixa;cavalo tem 6714 pontos contra 1383 da carreta — sensor mais pobre em uso;carreta1=HIG4A80
+V-2026-000044;C3;media;chegou ao destino em 2026-08-20 13:57 e a chegada NAO foi gravada;raio · destino=Extrema
+V-2026-000047;C3;media;chegou ao destino em 2026-08-20 18:39 e a chegada NAO foi gravada;raio · destino=Jundiaí
+V-2026-000057;C3;media;chegou ao destino em 2026-08-20 15:29 e a chegada NAO foi gravada;raio · destino=Hidrolândia
+C-2026-000464;S2;baixa;buraco de sinal de 24 h no rastreio (carreta1);
+C-2026-000464;C3;media;chegou ao destino em 2026-08-24 13:52 e a chegada NAO foi gravada;raio · destino=Hidrolândia
+C-2026-000466;C3;media;chegou ao destino em 2026-08-23 13:34 e a chegada NAO foi gravada;raio · destino=Duque de Caxias
+C-2026-000467;S3;baixa;cavalo tem 5915 pontos contra 933 da carreta — sensor mais pobre em uso;carreta1=TZC0I44
+C-2026-000467;V1;alta;a placa rastreada NUNCA esteve na origem (638 km no minimo) — nem carreta nem cavalo estiveram na origem;origem=Japeri
+C-2026-000467;C3;media;chegou ao destino em 2026-08-25 09:22 e a chegada NAO foi gravada;raio · destino=Fortaleza
+C-2026-000468;S3;baixa;cavalo tem 508 pontos contra 169 da carreta — sensor mais pobre em uso;carreta1=HOA0E66
+C-2026-000468;V1;alta;a placa rastreada NUNCA esteve na origem (293 km no minimo) — so o CAVALO esteve na origem — carreta errada no documento;origem=Nerópolis
+C-2026-000468;C3;media;chegou ao destino em 2026-08-20 13:35 e a chegada NAO foi gravada;raio · destino=Uberlândia
+C-2026-000468;F3;media;RECORTE ERRADO: chegou 2026-08-20 13:35, fechou 37 h depois (a regra preve 24 h);
+C-2026-000470;S2;baixa;buraco de sinal de 35 h no rastreio (carreta1);
+C-2026-000470;C3;media;chegou ao destino em 2026-09-01 08:42 e a chegada NAO foi gravada;raio · destino=Brasília
+C-2026-000473;S2;baixa;buraco de sinal de 89 h no rastreio (carreta1);
+C-2026-000473;F1;alta;FECHADA SEM PROVA: aproximacao maxima do destino 87 km;motivo=transbordo_udi · destino=Uberaba
+C-2026-000475;S3;baixa;cavalo tem 5590 pontos contra 925 da carreta — sensor mais pobre em uso;carreta1=TCE7I47
+C-2026-000476;F3;media;RECORTE ERRADO: chegou 2026-08-24 02:48, fechou 69 h depois (a regra preve 24 h);
+V-2026-000003;C3;media;chegou ao destino em 2026-08-21 03:39 e a chegada NAO foi gravada;raio · destino=Extrema
+V-2026-000004;C3;media;chegou ao destino em 2026-08-22 00:42 e a chegada NAO foi gravada;raio · destino=Amparo
+V-2026-000009;C3;media;chegou ao destino em 2026-08-20 20:22 e a chegada NAO foi gravada;raio · destino=Monte Mor
+V-2026-000016;S2;baixa;buraco de sinal de 41 h no rastreio (carreta1);
+V-2026-000016;C3;media;chegou ao destino em 2026-08-26 08:56 e a chegada NAO foi gravada;raio · destino=Cordeirópolis
+V-2026-000018;C3;media;chegou ao destino em 2026-08-21 09:39 e a chegada NAO foi gravada;raio · destino=Jarinu
+V-2026-000018;F3;media;RECORTE ERRADO: chegou 2026-08-21 09:39, fechou 41 h depois (a regra preve 24 h);
+V-2026-000019;C5;baixa;saida digitada a mao, sem lastro no GPS (nao e defeito do motor);
+V-2026-000019;C3;media;chegou ao destino em 2026-08-21 04:29 e a chegada NAO foi gravada;raio · destino=Uberlândia
+V-2026-000022;V1;alta;a placa rastreada NUNCA esteve na origem (72 km no minimo) — nem carreta nem cavalo estiveram na origem;origem=Guarulhos
+V-2026-000022;C3;media;chegou ao destino em 2026-08-21 04:05 e a chegada NAO foi gravada;raio · destino=Extrema
+V-2026-000028;C3;media;chegou ao destino em 2026-08-21 12:06 e a chegada NAO foi gravada;raio · destino=Jarinu
+V-2026-000036;S3;baixa;cavalo tem 2421 pontos contra 592 da carreta — sensor mais pobre em uso;carreta1=QXH6I52
+V-2026-000036;C3;media;chegou ao destino em 2026-08-20 12:01 e a chegada NAO foi gravada;raio · destino=Cordeirópolis
+V-2026-000036;F3;media;RECORTE ERRADO: chegou 2026-08-20 12:01, fechou 120 h depois (a regra preve 24 h);
+C-2026-000478;S3;baixa;cavalo tem 1523 pontos contra 471 da carreta — sensor mais pobre em uso;carreta1=TCX3D71
+C-2026-000481;S3;baixa;cavalo tem 6261 pontos contra 904 da carreta — sensor mais pobre em uso;carreta1=TYN8I98
+C-2026-000485;S1;alta;CEGA: nenhuma placa da carga transmitiu no periodo;cavalo=QJP0A68 carreta=HKE0E20
+C-2026-000486;S2;baixa;buraco de sinal de 29 h no rastreio (carreta1);
+C-2026-000486;C5;baixa;saida digitada a mao, sem lastro no GPS (nao e defeito do motor);
+C-2026-000487;C3;media;chegou ao destino em 2026-08-25 12:45 e a chegada NAO foi gravada;raio · destino=Três Rios
+C-2026-000489;C1;media;saiu da origem em 2026-08-23 18:51 e a saida NAO foi gravada;
+C-2026-000489;C3;media;chegou ao destino em 2026-08-24 08:19 e a chegada NAO foi gravada;raio · destino=Rio de Janeiro
+V-2026-000015;S2;baixa;buraco de sinal de 105 h no rastreio (carreta1);
+V-2026-000015;S3;baixa;cavalo tem 4786 pontos contra 32 da carreta — sensor mais pobre em uso;carreta1=HMV3D38
+V-2026-000015;C5;baixa;saida digitada a mao, sem lastro no GPS (nao e defeito do motor);
+V-2026-000015;C3;media;chegou ao destino em 2026-08-21 12:23 e a chegada NAO foi gravada;raio · destino=Cordeirópolis
+V-2026-000015;F3;media;RECORTE ERRADO: chegou 2026-08-21 12:23, fechou 150 h depois (a regra preve 24 h);
+V-2026-000025;S2;baixa;buraco de sinal de 29 h no rastreio (carreta1);
+V-2026-000025;V1;alta;a placa rastreada NUNCA esteve na origem (118 km no minimo) — nem carreta nem cavalo estiveram na origem;origem=Extrema
+V-2026-000025;C3;media;chegou ao destino em 2026-08-21 14:47 e a chegada NAO foi gravada;raio · destino=Cordeirópolis
+V-2026-000025;F3;media;RECORTE ERRADO: chegou 2026-08-21 14:47, fechou 45 h depois (a regra preve 24 h);
+V-2026-000030;C3;media;chegou ao destino em 2026-08-21 20:04 e a chegada NAO foi gravada;raio · destino=Amparo
+V-2026-000032;C3;media;chegou ao destino em 2026-08-23 20:15 e a chegada NAO foi gravada;raio · destino=Amparo
+V-2026-000045;C3;media;chegou ao destino em 2026-08-28 08:23 e a chegada NAO foi gravada;raio · destino=Serra
+C-2026-000491;C5;baixa;saida digitada a mao, sem lastro no GPS (nao e defeito do motor);
+C-2026-000493;S1;alta;CEGA: nenhuma placa da carga transmitiu no periodo;cavalo=HDI9E22 carreta=HOA0E67
+C-2026-000494;C3;media;chegou ao destino em 2026-08-26 11:02 e a chegada NAO foi gravada;raio · destino=Serra
+C-2026-000494;F3;media;RECORTE ERRADO: chegou 2026-08-26 11:02, fechou 37 h depois (a regra preve 24 h);
+C-2026-000495;C1;media;saiu da origem em 2026-09-02 21:23 e a saida NAO foi gravada;
+C-2026-000495;F1;alta;FECHADA SEM PROVA: aproximacao maxima do destino 58 km;motivo=transbordo_udi · destino=Ribeirão Pires
+C-2026-000500;C3;media;chegou ao destino em 2026-08-27 11:46 e a chegada NAO foi gravada;raio · destino=Duque de Caxias
+C-2026-000505;S1;alta;CEGA: nenhuma placa da carga transmitiu no periodo;cavalo=HJZ0B89 carreta=HKE0E20
+V-2026-000031;C3;media;chegou ao destino em 2026-08-25 06:45 e a chegada NAO foi gravada;raio · destino=João Pessoa
+V-2026-000031;F3;media;RECORTE ERRADO: chegou 2026-08-25 06:45, fechou 41 h depois (a regra preve 24 h);
+V-2026-000058;C3;media;chegou ao destino em 2026-08-24 06:06 e a chegada NAO foi gravada;raio · destino=Resende
+C-2026-000507;V1;alta;a placa rastreada NUNCA esteve na origem (146 km no minimo) — nem carreta nem cavalo estiveram na origem;origem=Uberlândia
+C-2026-000507;C3;media;chegou ao destino em 2026-08-28 00:27 e a chegada NAO foi gravada;metropole 22km/60h · destino=Ribeirão Pires
+C-2026-000509;C1;media;saiu da origem em 2026-08-25 11:58 e a saida NAO foi gravada;
+C-2026-000509;C3;media;chegou ao destino em 2026-08-25 17:58 e a chegada NAO foi gravada;raio · destino=Uberlândia
+C-2026-000511;C3;media;chegou ao destino em 2026-08-27 19:36 e a chegada NAO foi gravada;metropole 26km/23h · destino=Rio de Janeiro
+C-2026-000511;F3;media;RECORTE ERRADO: chegou 2026-08-27 19:36, fechou 52 h depois (a regra preve 24 h);
+C-2026-000512;C1;media;saiu da origem em 2026-08-26 10:50 e a saida NAO foi gravada;
+C-2026-000512;C3;media;chegou ao destino em 2026-08-26 15:05 e a chegada NAO foi gravada;raio · destino=Extrema
+C-2026-000513;S3;baixa;cavalo tem 1999 pontos contra 641 da carreta — sensor mais pobre em uso;carreta1=QXH6I52
+C-2026-000514;S3;baixa;cavalo tem 3571 pontos contra 674 da carreta — sensor mais pobre em uso;carreta1=TYN8I98
+C-2026-000515;C3;media;chegou ao destino em 2026-08-28 11:54 e a chegada NAO foi gravada;raio · destino=Novo Cruzeiro
+C-2026-000517;S2;baixa;buraco de sinal de 25 h no rastreio (carreta1);
+C-2026-000520;S3;baixa;cavalo tem 4585 pontos contra 667 da carreta — sensor mais pobre em uso;carreta1=TCE7I47
+C-2026-000521;C1;media;saiu da origem em 2026-08-25 17:02 e a saida NAO foi gravada;
+C-2026-000521;C3;media;chegou ao destino em 2026-08-31 07:37 e a chegada NAO foi gravada;raio · destino=Anápolis
+C-2026-000522;S3;baixa;cavalo tem 4386 pontos contra 964 da carreta — sensor mais pobre em uso;carreta1=HIG4A80
+V-2026-000048;C3;media;chegou ao destino em 2026-08-26 07:29 e a chegada NAO foi gravada;raio · destino=Goiânia
+V-2026-000063;C3;media;chegou ao destino em 2026-08-25 17:16 e a chegada NAO foi gravada;raio · destino=Extrema
+C-2026-000525;S3;baixa;cavalo tem 3553 pontos contra 828 da carreta — sensor mais pobre em uso;carreta1=GZV1A50
+C-2026-000525;C5;baixa;saida digitada a mao, sem lastro no GPS (nao e defeito do motor);
+C-2026-000525;C3;media;chegou ao destino em 2026-08-31 11:42 e a chegada NAO foi gravada;raio · destino=Serra
+C-2026-000527;C3;media;chegou ao destino em 2026-08-30 19:09 e a chegada NAO foi gravada;raio · destino=Uberlândia
+C-2026-000530;S1;alta;CEGA: nenhuma placa da carga transmitiu no periodo;cavalo=HJZ0B89 carreta=HKE0E20
+C-2026-000533;S2;baixa;buraco de sinal de 41 h no rastreio (carreta1);
+C-2026-000534;S3;baixa;cavalo tem 2803 pontos contra 873 da carreta — sensor mais pobre em uso;carreta1=QXH6I52
+C-2026-000537;C1;media;saiu da origem em 2026-08-26 20:34 e a saida NAO foi gravada;
+C-2026-000537;C3;media;chegou ao destino em 2026-08-27 02:04 e a chegada NAO foi gravada;raio · destino=Brasília
+V-2026-000007;C3;media;chegou ao destino em 2026-08-27 23:48 e a chegada NAO foi gravada;raio · destino=Campinas
+V-2026-000024;C3;media;chegou ao destino em 2026-08-25 21:06 e a chegada NAO foi gravada;raio · destino=Resende
+V-2026-000024;F3;media;RECORTE ERRADO: chegou 2026-08-25 21:06, fechou 40 h depois (a regra preve 24 h);
+V-2026-000035;V1;alta;a placa rastreada NUNCA esteve na origem (346 km no minimo) — nem carreta nem cavalo estiveram na origem;origem=Brasília
+V-2026-000035;C3;media;chegou ao destino em 2026-08-25 12:33 e a chegada NAO foi gravada;raio · destino=Uberlândia
+V-2026-000035;F3;media;RECORTE ERRADO: chegou 2026-08-25 12:33, fechou 105 h depois (a regra preve 24 h);
+V-2026-000037;C3;media;chegou ao destino em 2026-08-26 23:43 e a chegada NAO foi gravada;raio · destino=Jundiaí
+V-2026-000050;S3;baixa;cavalo tem 3287 pontos contra 604 da carreta — sensor mais pobre em uso;carreta1=TYN8I98
+V-2026-000050;C3;media;chegou ao destino em 2026-08-27 04:10 e a chegada NAO foi gravada;raio · destino=Amparo
+V-2026-000060;S3;baixa;cavalo tem 3666 pontos contra 697 da carreta — sensor mais pobre em uso;carreta1=TZC0I44
+V-2026-000060;C3;media;chegou ao destino em 2026-08-27 08:12 e a chegada NAO foi gravada;raio · destino=João Pessoa
+C-2026-000541;S3;baixa;cavalo tem 5895 pontos contra 757 da carreta — sensor mais pobre em uso;carreta1=HOA0E09
+C-2026-000541;C3;media;chegou ao destino em 2026-08-31 09:35 e a chegada NAO foi gravada;raio · destino=Serra
+C-2026-000543;C1;media;saiu da origem em 2026-08-28 05:53 e a saida NAO foi gravada;
+C-2026-000543;C3;media;chegou ao destino em 2026-08-28 16:22 e a chegada NAO foi gravada;raio · destino=Uberlândia
+C-2026-000545;S2;baixa;buraco de sinal de 97 h no rastreio (carreta1);
+C-2026-000545;S3;baixa;cavalo tem 4158 pontos contra 42 da carreta — sensor mais pobre em uso;carreta1=HMV3D38
+C-2026-000545;C5;baixa;saida digitada a mao, sem lastro no GPS (nao e defeito do motor);
+C-2026-000545;F1;alta;FECHADA SEM PROVA: aproximacao maxima do destino 96 km;motivo=manifesto_novo · destino=Brasília
+C-2026-000547;S3;baixa;cavalo tem 7011 pontos contra 590 da carreta — sensor mais pobre em uso;carreta1=TYN8I98
+C-2026-000548;S3;baixa;cavalo tem 6474 pontos contra 312 da carreta — sensor mais pobre em uso;carreta1=TYO9J56
+C-2026-000548;V1;alta;a placa rastreada NUNCA esteve na origem (130 km no minimo) — nem carreta nem cavalo estiveram na origem;origem=Amparo
+C-2026-000548;C3;media;chegou ao destino em 2026-08-31 08:13 e a chegada NAO foi gravada;raio · destino=Anápolis
+C-2026-000549;F3;media;RECORTE ERRADO: chegou 2026-08-26 12:57, fechou 173 h depois (a regra preve 24 h);
+C-2026-000550;F2;alta;FECHADA CEDO: fechou 2026-08-31 00:00 e so chegou 2026-09-01 06:06 (1.3 dias depois);
+C-2026-000551;S2;baixa;buraco de sinal de 24 h no rastreio (cavalo);
+V-2026-000006;C3;media;chegou ao destino em 2026-08-27 22:38 e a chegada NAO foi gravada;raio · destino=Hidrolândia
+V-2026-000014;S2;baixa;buraco de sinal de 41 h no rastreio (carreta1);
+V-2026-000014;S3;baixa;cavalo tem 651 pontos contra 61 da carreta — sensor mais pobre em uso;carreta1=HMV3H14
+V-2026-000014;C5;baixa;saida digitada a mao, sem lastro no GPS (nao e defeito do motor);
+V-2026-000014;F1;alta;FECHADA SEM PROVA: aproximacao maxima do destino 818 km;motivo=reposicionamento · destino=Nerópolis
+V-2026-000020;V1;alta;a placa rastreada NUNCA esteve na origem (281 km no minimo) — nem carreta nem cavalo estiveram na origem;origem=Teresina
+V-2026-000020;C3;media;chegou ao destino em 2026-08-27 15:14 e a chegada NAO foi gravada;raio · destino=Ananindeua
+V-2026-000029;C3;media;chegou ao destino em 2026-08-28 06:52 e a chegada NAO foi gravada;raio · destino=Extrema
+V-2026-000038;C3;media;chegou ao destino em 2026-08-27 20:16 e a chegada NAO foi gravada;raio · destino=Extrema
+V-2026-000040;S3;baixa;cavalo tem 3942 pontos contra 450 da carreta — sensor mais pobre em uso;carreta1=TCE7I47
+V-2026-000040;C3;media;chegou ao destino em 2026-08-28 00:52 e a chegada NAO foi gravada;raio · destino=Manhuaçu
+V-2026-000042;C3;media;chegou ao destino em 2026-08-27 21:44 e a chegada NAO foi gravada;raio · destino=Extrema
+V-2026-000052;C3;media;chegou ao destino em 2026-08-26 22:02 e a chegada NAO foi gravada;raio · destino=Jarinu
+V-2026-000052;F3;media;RECORTE ERRADO: chegou 2026-08-26 22:02, fechou 48 h depois (a regra preve 24 h);
+V-2026-000059;C3;media;chegou ao destino em 2026-08-29 14:05 e a chegada NAO foi gravada;raio · destino=Hidrolândia
+V-2026-000059;F3;media;RECORTE ERRADO: chegou 2026-08-29 14:05, fechou 55 h depois (a regra preve 24 h);
+C-2026-000552;C4;media;carga ativa ha 11 dias e a placa nunca saiu da origem;
+C-2026-000553;S3;baixa;cavalo tem 4794 pontos contra 733 da carreta — sensor mais pobre em uso;carreta1=TZC0I44
+C-2026-000553;C3;media;chegou ao destino em 2026-08-30 23:29 e a chegada NAO foi gravada;raio · destino=Hidrolândia
+C-2026-000554;F4;media;"NAO FECHOU: chegou 2026-08-30 00:10 ha 9.7 dias e segue ""Em rota""";raio
+C-2026-000559;C1;media;saiu da origem em 2026-08-29 16:38 e a saida NAO foi gravada;
+C-2026-000559;C3;media;chegou ao destino em 2026-08-28 14:35 e a chegada NAO foi gravada;raio · destino=Goiânia
+C-2026-000563;C3;media;chegou ao destino em 2026-08-31 12:58 e a chegada NAO foi gravada;raio · destino=São Gonçalo
+C-2026-000565;S2;baixa;buraco de sinal de 35 h no rastreio (carreta1);
+C-2026-000566;C3;media;chegou ao destino em 2026-08-30 13:02 e a chegada NAO foi gravada;metropole 39km/61h · destino=Rio de Janeiro
+C-2026-000568;F4;media;"NAO FECHOU: chegou 2026-09-04 01:05 ha 4.6 dias e segue ""No destino""";raio
+C-2026-000569;S3;baixa;cavalo tem 5585 pontos contra 637 da carreta — sensor mais pobre em uso;carreta1=TCE7I47
+V-2026-000001;C3;media;chegou ao destino em 2026-08-28 16:08 e a chegada NAO foi gravada;raio · destino=Ananindeua
+V-2026-000010;C3;media;chegou ao destino em 2026-08-29 00:25 e a chegada NAO foi gravada;raio · destino=Jundiaí
+C-2026-000570;C5;baixa;saida digitada a mao, sem lastro no GPS (nao e defeito do motor);
+C-2026-000571;V1;alta;a placa rastreada NUNCA esteve na origem (291 km no minimo) — nem carreta nem cavalo estiveram na origem;origem=Nerópolis
+C-2026-000571;F1;alta;FECHADA SEM PROVA: aproximacao maxima do destino 143 km;motivo=manifesto_novo · destino=Pouso Alegre
+C-2026-000573;S1;alta;CEGA: nenhuma placa da carga transmitiu no periodo;cavalo=HBG6D56 carreta=MWP0H69
+C-2026-000575;C3;media;chegou ao destino em 2026-08-30 23:25 e a chegada NAO foi gravada;raio · destino=Guarulhos
+C-2026-000579;C1;media;saiu da origem em 2026-08-29 14:01 e a saida NAO foi gravada;
+C-2026-000579;C3;media;chegou ao destino em 2026-09-01 10:20 e a chegada NAO foi gravada;raio · destino=Anápolis
+C-2026-000582;S1;alta;CEGA: nenhuma placa da carga transmitiu no periodo;cavalo=HJZ0B89 carreta=HKE0E20
+C-2026-000584;S2;baixa;buraco de sinal de 24 h no rastreio (cavalo);
+C-2026-000584;C3;media;chegou ao destino em 2026-09-02 10:13 e a chegada NAO foi gravada;raio · destino=Brasília
+V-2026-000011;S2;baixa;buraco de sinal de 43 h no rastreio (carreta1);
+V-2026-000011;C3;media;chegou ao destino em 2026-08-30 00:04 e a chegada NAO foi gravada;raio · destino=Manhuaçu
+V-2026-000011;F3;media;RECORTE ERRADO: chegou 2026-08-30 00:04, fechou 59 h depois (a regra preve 24 h);
+C-2026-000586;C1;media;saiu da origem em 2026-08-31 00:28 e a saida NAO foi gravada;
+C-2026-000588;F4;media;"NAO FECHOU: chegou 2026-08-31 04:34 ha 8.5 dias e segue ""Em rota""";raio
+C-2026-000589;S3;baixa;cavalo tem 2179 pontos contra 314 da carreta — sensor mais pobre em uso;carreta1=TCE7I47
+C-2026-000590;S3;baixa;cavalo tem 3492 pontos contra 1011 da carreta — sensor mais pobre em uso;carreta1=HFB9H06
+C-2026-000591;C3;media;chegou ao destino em 2026-09-02 11:51 e a chegada NAO foi gravada;raio · destino=Serra
+C-2026-000592;S3;baixa;cavalo tem 2471 pontos contra 626 da carreta — sensor mais pobre em uso;carreta1=HNH1D02
+C-2026-000597;V1;alta;a placa rastreada NUNCA esteve na origem (748 km no minimo) — nem carreta nem cavalo estiveram na origem;origem=Extrema
+C-2026-000597;F1;alta;FECHADA SEM PROVA: aproximacao maxima do destino 292 km;motivo=manifesto_novo · destino=Uberlândia
+C-2026-000598;S2;baixa;buraco de sinal de 27 h no rastreio (carreta1);
+C-2026-000598;C3;media;chegou ao destino em 2026-08-30 13:36 e a chegada NAO foi gravada;raio · destino=Uberlândia
+C-2026-000598;F3;media;RECORTE ERRADO: chegou 2026-08-30 13:36, fechou 63 h depois (a regra preve 24 h);
+C-2026-000600;S3;baixa;cavalo tem 3628 pontos contra 505 da carreta — sensor mais pobre em uso;carreta1=HOA0E09
+C-2026-000601;F4;media;"NAO FECHOU: chegou 2026-09-01 08:39 ha 7.3 dias e segue ""Em rota""";raio
+C-2026-000602;F1;alta;FECHADA SEM PROVA: aproximacao maxima do destino 148 km;motivo=manifesto_novo · destino=Rio de Janeiro
+C-2026-000603;S2;baixa;buraco de sinal de 71 h no rastreio (carreta1);
+C-2026-000603;C1;media;saiu da origem em 2026-08-30 20:39 e a saida NAO foi gravada;
+C-2026-000606;S3;baixa;cavalo tem 4237 pontos contra 33 da carreta — sensor mais pobre em uso;carreta1=HMV3D38
+C-2026-000606;V1;alta;a placa rastreada NUNCA esteve na origem (96 km no minimo) — so o CAVALO esteve na origem — carreta errada no documento;origem=Brasília
+V-2026-000002;C3;media;chegou ao destino em 2026-08-31 18:16 e a chegada NAO foi gravada;raio · destino=Suzano
+V-2026-000021;C3;media;chegou ao destino em 2026-08-30 12:00 e a chegada NAO foi gravada;raio · destino=Uberlândia
+V-2026-000033;S2;baixa;buraco de sinal de 27 h no rastreio (carreta1);
+V-2026-000033;C3;media;chegou ao destino em 2026-08-31 04:48 e a chegada NAO foi gravada;raio · destino=Extrema
+C-2026-000607;C3;media;chegou ao destino em 2026-09-03 06:05 e a chegada NAO foi gravada;raio · destino=Serra
+C-2026-000608;C1;media;saiu da origem em 2026-09-01 14:34 e a saida NAO foi gravada;
+C-2026-000608;C3;media;chegou ao destino em 2026-09-02 13:41 e a chegada NAO foi gravada;raio · destino=Uberlândia
+C-2026-000609;F5;alta;ENTREGUE mas a carreta nunca chegou (234 km) e so o CAVALO pegou carga nova — e desengate, nao entrega;proxima do cavalo=C-2026-000646
+C-2026-000610;F4;media;"NAO FECHOU: chegou 2026-09-03 02:06 ha 5.6 dias e segue ""No destino""";raio
+C-2026-000611;F4;media;"NAO FECHOU: chegou 2026-09-04 04:31 ha 4.5 dias e segue ""No destino""";raio
+C-2026-000612;C3;media;chegou ao destino em 2026-09-01 22:56 e a chegada NAO foi gravada;raio · destino=Extrema
+C-2026-000614;C3;media;chegou ao destino em 2026-09-03 01:30 e a chegada NAO foi gravada;raio · destino=Aparecida de Goiânia
+C-2026-000615;V1;alta;a placa rastreada NUNCA esteve na origem (292 km no minimo) — nem carreta nem cavalo estiveram na origem;origem=Uberlândia
+C-2026-000618;S2;baixa;buraco de sinal de 27 h no rastreio (carreta1);
+C-2026-000618;C5;baixa;saida digitada a mao, sem lastro no GPS (nao e defeito do motor);
+C-2026-000619;C3;media;chegou ao destino em 2026-09-04 13:39 e a chegada NAO foi gravada;raio · destino=Rio de Janeiro
+C-2026-000619;F4;media;"NAO FECHOU: chegou 2026-09-04 13:39 ha 4.1 dias e segue ""Em rota""";raio
+C-2026-000620;S3;baixa;cavalo tem 3670 pontos contra 198 da carreta — sensor mais pobre em uso;carreta1=TYN8I98
+C-2026-000621;S3;baixa;cavalo tem 3356 pontos contra 997 da carreta — sensor mais pobre em uso;carreta1=QXH6I52
+C-2026-000621;F4;media;"NAO FECHOU: chegou 2026-09-03 13:35 ha 5.1 dias e segue ""No destino""";raio
+C-2026-000623;C3;media;chegou ao destino em 2026-09-05 03:53 e a chegada NAO foi gravada;raio · destino=Serra
+C-2026-000623;F4;media;"NAO FECHOU: chegou 2026-09-05 03:53 ha 3.5 dias e segue ""Em rota""";raio
+C-2026-000624;F4;media;"NAO FECHOU: chegou 2026-09-03 17:37 ha 5.0 dias e segue ""No destino""";raio
+C-2026-000625;C5;baixa;saida digitada a mao, sem lastro no GPS (nao e defeito do motor);
+C-2026-000627;F4;media;"NAO FECHOU: chegou 2026-09-03 16:48 ha 5.0 dias e segue ""No destino""";raio
+C-2026-000628;V1;alta;a placa rastreada NUNCA esteve na origem (93 km no minimo) — nem carreta nem cavalo estiveram na origem;origem=Seropédica
+C-2026-000629;F4;media;"NAO FECHOU: chegou 2026-09-03 18:10 ha 4.9 dias e segue ""No destino""";raio
+C-2026-000630;C3;media;chegou ao destino em 2026-09-03 01:52 e a chegada NAO foi gravada;raio · destino=Extrema
+C-2026-000630;F4;media;"NAO FECHOU: chegou 2026-09-03 01:52 ha 5.6 dias e segue ""Em rota""";raio
+C-2026-000631;F4;media;"NAO FECHOU: chegou 2026-09-03 23:20 ha 4.7 dias e segue ""No destino""";raio
+C-2026-000632;S3;baixa;cavalo tem 5264 pontos contra 2 da carreta — sensor mais pobre em uso;carreta1=HMV3D38
+C-2026-000632;C5;baixa;saida digitada a mao, sem lastro no GPS (nao e defeito do motor);
+C-2026-000632;C4;media;carga ativa ha 6 dias e a placa nunca saiu da origem;
+C-2026-000633;F4;media;"NAO FECHOU: chegou 2026-09-04 09:03 ha 4.3 dias e segue ""No destino""";raio
+C-2026-000634;S3;baixa;cavalo tem 4196 pontos contra 959 da carreta — sensor mais pobre em uso;carreta1=TCE7I47
+C-2026-000634;C3;media;chegou ao destino em 2026-09-04 15:30 e a chegada NAO foi gravada;raio · destino=Japeri
+C-2026-000634;F4;media;"NAO FECHOU: chegou 2026-09-04 15:30 ha 4.0 dias e segue ""Em rota""";raio
+C-2026-000635;F4;media;"NAO FECHOU: chegou 2026-09-04 05:56 ha 4.4 dias e segue ""No destino""";raio
+C-2026-000636;C3;media;chegou ao destino em 2026-09-04 14:15 e a chegada NAO foi gravada;raio · destino=Cariacica
+C-2026-000636;F4;media;"NAO FECHOU: chegou 2026-09-04 14:15 ha 4.1 dias e segue ""Em rota""";raio
+C-2026-000637;C5;baixa;saida digitada a mao, sem lastro no GPS (nao e defeito do motor);
+C-2026-000637;C4;media;carga ativa ha 6 dias e a placa nunca saiu da origem;
+C-2026-000637;C3;media;chegou ao destino em 2026-09-04 20:02 e a chegada NAO foi gravada;metropole 45km/4h · destino=Rio de Janeiro
+C-2026-000637;F4;media;"NAO FECHOU: chegou 2026-09-04 20:02 ha 3.9 dias e segue ""Em rota""";metropole 45km/4h
+C-2026-000638;S3;baixa;cavalo tem 1228 pontos contra 259 da carreta — sensor mais pobre em uso;carreta1=NWA3B56
+C-2026-000638;F4;media;"NAO FECHOU: chegou 2026-09-03 12:59 ha 5.1 dias e segue ""No destino""";raio
+C-2026-000652;C3;media;chegou ao destino em 2026-09-04 08:18 e a chegada NAO foi gravada;raio · destino=Belo Horizonte
+C-2026-000651;S3;baixa;cavalo tem 3563 pontos contra 768 da carreta — sensor mais pobre em uso;carreta1=TCE7I47
+C-2026-000650;S3;baixa;cavalo tem 3032 pontos contra 328 da carreta — sensor mais pobre em uso;carreta1=TCX3D71
+C-2026-000649;C1;media;saiu da origem em 2026-09-08 04:29 e a saida NAO foi gravada;
+C-2026-000649;C3;media;chegou ao destino em 2026-09-08 08:19 e a chegada NAO foi gravada;raio · destino=Aparecida de Goiânia
+C-2026-000648;C1;media;saiu da origem em 2026-09-05 02:25 e a saida NAO foi gravada;
+C-2026-000648;F1;alta;FECHADA SEM PROVA: aproximacao maxima do destino 492 km;motivo=(perdido no import) · destino=Juiz de Fora
+C-2026-000647;S3;baixa;cavalo tem 1444 pontos contra 410 da carreta — sensor mais pobre em uso;carreta1=HNH1D02
+C-2026-000647;C3;media;chegou ao destino em 2026-09-08 01:39 e a chegada NAO foi gravada;raio · destino=Aparecida de Goiânia
+C-2026-000646;S1;alta;CEGA: nenhuma placa da carga transmitiu no periodo;cavalo=NJZ9B97 carreta=MWP0H69
+C-2026-000645;C3;media;chegou ao destino em 2026-09-08 10:10 e a chegada NAO foi gravada;raio · destino=Cariacica
+C-2026-000644;F5;alta;ENTREGUE mas a carreta nunca chegou (256 km) e so o CAVALO pegou carga nova — e desengate, nao entrega;proxima do cavalo=C-2026-000653
+C-2026-000643;C3;media;chegou ao destino em 2026-09-08 14:33 e a chegada NAO foi gravada;raio · destino=Serra
+C-2026-000642;S3;baixa;cavalo tem 1018 pontos contra 270 da carreta — sensor mais pobre em uso;carreta1=HNH1D02
+C-2026-000642;C1;media;saiu da origem em 2026-09-03 13:41 e a saida NAO foi gravada;
+C-2026-000642;C3;media;chegou ao destino em 2026-09-03 14:01 e a chegada NAO foi gravada;raio · destino=Extrema
+C-2026-000641;F1;alta;FECHADA SEM PROVA: aproximacao maxima do destino 252 km;motivo=(perdido no import) · destino=Uberlândia
+C-2026-000640;C3;media;chegou ao destino em 2026-09-06 15:53 e a chegada NAO foi gravada;raio · destino=Serra
+C-2026-000640;F2;alta;FECHADA CEDO: fechou 2026-09-05 19:32 e so chegou 2026-09-06 15:53 (0.8 dias depois);
+C-2026-000639;C3;media;chegou ao destino em 2026-09-04 17:32 e a chegada NAO foi gravada;metropole 28km/10h · destino=Ribeirão Pires
+C-2026-000663;S2;baixa;buraco de sinal de 68 h no rastreio (cavalo);
+C-2026-000663;F3;media;RECORTE ERRADO: chegou 2026-09-03 12:01, fechou 80 h depois (a regra preve 24 h);
+C-2026-000662;S3;baixa;cavalo tem 1709 pontos contra 263 da carreta — sensor mais pobre em uso;carreta1=HMV3G86
+C-2026-000662;V1;alta;a placa rastreada NUNCA esteve na origem (1865 km no minimo) — so o CAVALO esteve na origem — carreta errada no documento;origem=Fortaleza
+C-2026-000662;F1;alta;FECHADA SEM PROVA: aproximacao maxima do destino 1726 km;motivo=(perdido no import) · destino=Santa Izabel do Pará
+C-2026-000661;S3;baixa;cavalo tem 4501 pontos contra 186 da carreta — sensor mais pobre em uso;carreta1=TCX3D25
+C-2026-000661;C1;media;saiu da origem em 2026-09-08 09:32 e a saida NAO foi gravada;
+C-2026-000661;C3;media;chegou ao destino em 2026-09-08 10:37 e a chegada NAO foi gravada;raio · destino=Ituiutaba
+C-2026-000660;F4;media;"NAO FECHOU: chegou 2026-09-05 15:03 ha 3.1 dias e segue ""No destino""";raio
+C-2026-000659;F1;alta;FECHADA SEM PROVA: aproximacao maxima do destino 249 km;motivo=(perdido no import) · destino=Aparecida de Goiânia
+C-2026-000658;C1;media;saiu da origem em 2026-09-08 12:46 e a saida NAO foi gravada;
+C-2026-000656;C1;media;saiu da origem em 2026-09-04 23:38 e a saida NAO foi gravada;
+C-2026-000656;C3;media;chegou ao destino em 2026-09-06 13:21 e a chegada NAO foi gravada;raio · destino=Duque de Caxias
+C-2026-000655;C3;media;chegou ao destino em 2026-09-07 18:20 e a chegada NAO foi gravada;raio · destino=Hidrolândia
+C-2026-000655;F2;alta;FECHADA CEDO: fechou 2026-09-06 19:33 e so chegou 2026-09-07 18:20 (0.9 dias depois);
+C-2026-000654;C3;media;chegou ao destino em 2026-09-07 21:57 e a chegada NAO foi gravada;raio · destino=Hidrolândia
+C-2026-000654;F2;alta;FECHADA CEDO: fechou 2026-09-06 19:33 e so chegou 2026-09-07 21:57 (1.1 dias depois);
+C-2026-000653;C3;media;chegou ao destino em 2026-09-04 23:12 e a chegada NAO foi gravada;metropole 28km/13h · destino=Ribeirão Pires
+C-2026-000682;S3;baixa;cavalo tem 2944 pontos contra 479 da carreta — sensor mais pobre em uso;carreta1=TCE7I47
+C-2026-000682;C3;media;chegou ao destino em 2026-09-08 08:21 e a chegada NAO foi gravada;raio · destino=Brasília
+C-2026-000681;S3;baixa;cavalo tem 1993 pontos contra 63 da carreta — sensor mais pobre em uso;carreta1=JSX7G63
+C-2026-000680;C1;media;saiu da origem em 2026-09-08 09:42 e a saida NAO foi gravada;
+C-2026-000680;C3;media;chegou ao destino em 2026-09-04 12:02 e a chegada NAO foi gravada;raio · destino=Uberaba
+C-2026-000680;F4;media;"NAO FECHOU: chegou 2026-09-04 12:02 ha 4.2 dias e segue ""Aberta""";raio
+C-2026-000678;C3;media;chegou ao destino em 2026-09-08 09:57 e a chegada NAO foi gravada;raio · destino=Araguari
+C-2026-000677;F5;alta;ENTREGUE mas a carreta nunca chegou (346 km) e so o CAVALO pegou carga nova — e desengate, nao entrega;proxima do cavalo=C-2026-000684
+C-2026-000676;V1;alta;a placa rastreada NUNCA esteve na origem (332 km no minimo) — nem carreta nem cavalo estiveram na origem;origem=Uberlândia
+C-2026-000675;C3;media;chegou ao destino em 2026-09-08 12:27 e a chegada NAO foi gravada;raio · destino=Nova Friburgo
+C-2026-000674;V1;alta;a placa rastreada NUNCA esteve na origem (411 km no minimo) — nem carreta nem cavalo estiveram na origem;origem=Feira de Santana
+C-2026-000673;F4;media;"NAO FECHOU: chegou 2026-09-05 18:12 ha 2.9 dias e segue ""No destino""";raio
+C-2026-000672;C3;media;chegou ao destino em 2026-09-07 17:14 e a chegada NAO foi gravada;raio · destino=Teófilo Otoni
+C-2026-000671;C3;media;chegou ao destino em 2026-09-08 06:59 e a chegada NAO foi gravada;raio · destino=Brasília
+C-2026-000670;C3;media;chegou ao destino em 2026-09-08 06:59 e a chegada NAO foi gravada;raio · destino=Brasília
+C-2026-000668;F4;media;"NAO FECHOU: chegou 2026-09-06 15:18 ha 2.1 dias e segue ""No destino""";raio
+C-2026-000667;F4;media;"NAO FECHOU: chegou 2026-09-06 13:53 ha 2.1 dias e segue ""No destino""";raio
+C-2026-000666;C3;media;chegou ao destino em 2026-09-07 22:30 e a chegada NAO foi gravada;raio · destino=Serra
+C-2026-000665;F4;media;"NAO FECHOU: chegou 2026-09-06 19:31 ha 1.9 dias e segue ""No destino""";raio
+C-2026-000684;C1;media;saiu da origem em 2026-09-07 11:20 e a saida NAO foi gravada;
+C-2026-000684;C3;media;chegou ao destino em 2026-09-07 19:21 e a chegada NAO foi gravada;raio · destino=Brasília
+C-2026-000683;C1;media;saiu da origem em 2026-09-06 15:26 e a saida NAO foi gravada;

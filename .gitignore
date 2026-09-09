@@ -17,3 +17,8 @@ Posi*.xlsx
 teste_rota.*
 check_placas_3s.py
 cruza_placas.py
+
+# Dumps do servidor p/ analise local (grandes, dado de cliente)
+posicoes_*.csv
+posicoes_*.csv.gz
+odo_diario.csv
