@@ -2577,3 +2577,36 @@ as duas como a mesma afirmacao.
 > Um bug meu no caminho: usei `_pn('%s')` para normalizar a placa dentro do SQL, e o helper
 > **repete a coluna quatro vezes** — quatro placeholders para um valor so ("tuple index out
 > of range"). Trocado por `placas.grafias()`, que e o padrao do arquivo.
+
+#### O conserto criou um segundo problema, e o Gabriel viu na tela
+
+Mostrar so a POSICAO de agora deixou o desenho **pior num aspecto**: o icone aparecia em
+Uberlandia **sem rastro nenhum ate la**, porque a linha do trajeto morre na `data_conclusao`.
+A rota planejada (azul) passa por Uberlandia por coincidencia, e o olho lia "teleporte" — foi
+literalmente por isso que ele perguntou se eu tinha reconstruido por documentacao.
+
+Nao tinha: os **119 pontos de GPS existiam no banco desde sempre**, ninguem os pedia.
+
+```
+posicoes da carreta QXA9H76 desde 05/09 22:00
+   antes da conclusao (o que o mapa desenhava) ....  24
+   depois dela (existiam, fora da linha) .......... 119
+```
+
+Entao o trecho posterior passa a vir junto, como **segunda linha**, laranja pontilhada, com
+legenda propria. Nao se mistura com a primeira de proposito: uma e *"a viagem como foi
+registrada"*, a outra e *"o que aconteceu depois que disseram que ela acabou"*. Mesma condicao
+estreita: fechada sem prova E carreta ainda nesta carga.
+
+```
+C-2026-000677    linha 60 pontos   +   pos-fechamento 119   -> Uberlandia 08/09
+C-2026-000609                          pos-fechamento  12
+C-2026-000644                          pos-fechamento 127
+C-2026-000662                          pos-fechamento 151
+controles (aberta · entregue com prova · carreta ja saiu)  ->  0, inalterados
+```
+
+> **A licao que sobra e sobre a tela, nao sobre o motor:** a linha do mapa e a evidencia
+> MENOS confiavel quando o fechamento esta errado, porque ela herda o erro em silencio —
+> 119 de 143 pontos ficaram invisiveis sem nenhum aviso. Os KPIs e o card denunciam; a linha
+> esconde. Numero errado se discute; desenho errado convence.

@@ -146,6 +146,7 @@
       <div class="legenda-row"><span style="font-size:14px;">🟢</span> Origem</div>
       <div class="legenda-row"><span style="font-size:14px;">📍</span> Destinos</div>
       <div class="legenda-row"><span style="font-size:14px;">🚚</span> Posição atual</div>
+      <div class="legenda-row" id="legPosFech" style="display:none;"><span style="color:#fb923c;">┈┈</span> Depois do fechamento</div>
     </div>
   </div>
 
@@ -399,6 +400,19 @@
       pts.forEach(p => bounds.push(p));
     }
 
+    // Trecho DEPOIS do fechamento — linha própria, laranja, para não se confundir com a
+    // viagem registrada. Só aparece na carga fechada SEM prova de chegada cuja carreta ainda
+    // não saiu em outra viagem: ali o veículo continuou andando depois que o sistema disse
+    // que a viagem acabou, e sem esta linha o ícone fica órfão no mapa (a rota planejada
+    // passa perto por coincidência e o olho lê "teleporte").
+    if (d.trajeto_pos_fechamento && d.trajeto_pos_fechamento.length > 1) {
+      const ptsPos = d.trajeto_pos_fechamento.map(p => [p.lat, p.lng]);
+      addLayer(L.polyline(ptsPos, { color: '#fb923c', weight: 3, opacity: 0.95, dashArray: '2,7' })
+        .bindPopup('<strong>Depois do fechamento</strong><br>' +
+                   d.trajeto_pos_fechamento.length + ' posições após a conclusão registrada'));
+      ptsPos.forEach(p => bounds.push(p));
+    }
+
     // Posição atual (último ponto do trajeto)
     if (d.ultima_posicao) {
       const ll = [d.ultima_posicao.lat, d.ultima_posicao.lng];
@@ -424,6 +438,8 @@
       // Sem avisar, o operacional lê a linha (que termina na conclusão) e o card (que é de
       // hoje) como se fossem a mesma afirmação.
       const cTit = document.querySelector('#pCidade')?.closest('.card')?.querySelector('.card-titulo');
+      const legPF = document.getElementById('legPosFech');
+      if (legPF && d.trajeto_pos_fechamento && d.trajeto_pos_fechamento.length > 1) legPF.style.display = '';
       if (d.posicao_apos_fechamento) {
         document.getElementById('pCidade').insertAdjacentHTML('afterend',
           ' <span style="color:var(--orange,#fb923c);font-size:0.8em;cursor:help;" ' +

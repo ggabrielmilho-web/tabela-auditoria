@@ -6729,6 +6729,33 @@ def api_rastreamento_trajeto(carga_id):
                          placas.grafias(str(carga['carreta1_placa']).strip().upper())))
             if cur.fetchone():
                 _fechada_sem_prova = False      # a carreta ja esta em outra viagem
+        # ── O TRECHO DEPOIS DO FECHAMENTO
+        #
+        # So mostrar a POSICAO de agora deixou o desenho pior num aspecto: o icone aparecia
+        # em Uberlandia sem rastro nenhum ate la, porque a linha do trajeto morre na
+        # `data_conclusao`. A rota planejada (azul) passa por Uberlandia por coincidencia, e
+        # o olho lia "teleporte" — foi por isso que o Gabriel desconfiou de reconstrucao
+        # documental, olhando a tela em 09/09/26. Os 119 pontos existiam no banco desde
+        # sempre; ninguem os pedia.
+        #
+        # Entao o trecho posterior vem junto, como uma SEGUNDA linha, em estilo proprio. Nao
+        # se mistura com a primeira de proposito: uma e "a viagem como foi registrada" e a
+        # outra e "o que aconteceu depois que disseram que ela acabou". Mesma condicao
+        # estreita da posicao ao vivo — fechada sem prova E carreta ainda nesta carga.
+        traj_pos_fechamento = []
+        if _fechada_sem_prova:
+            _rvp0 = str((rastreado_via or {}).get('placa') or '').strip().upper()
+            if _rvp0:
+                cur.execute("""SELECT data_posicao, latitude, longitude, velocidade, cidade, uf
+                                 FROM embarques_posicoes_historico
+                                WHERE placa = ANY(%s) AND data_posicao > %s
+                                ORDER BY data_posicao""",
+                            (placas.grafias(_rvp0), carga['data_conclusao']))
+                traj_pos_fechamento = [
+                    {'data': dp.isoformat() + 'Z', 'lat': float(la), 'lng': float(ln),
+                     'velocidade': vel, 'cidade': cid, 'uf': uff}
+                    for (dp, la, ln, vel, cid, uff) in cur.fetchall() if la is not None]
+
         if (not carga.get('data_conclusao')) or _fechada_sem_prova:
             _rvp = str((rastreado_via or {}).get('placa') or '').strip().upper()
             if _rvp:
@@ -6821,6 +6848,7 @@ def api_rastreamento_trajeto(carga_id):
             # fechada — senao o operacional le "Pirassununga" e "Uberlandia" como se fossem
             # a mesma afirmacao. Numero sem rotulo tambem engana.
             'posicao_apos_fechamento': bool(pos_agora and carga.get('data_conclusao')),
+            'trajeto_pos_fechamento': traj_pos_fechamento,
             'rastreado_via': rastreado_via,
             'kpi': _kpi_sem_chegada(
                 _kpi_plausibilidade(
