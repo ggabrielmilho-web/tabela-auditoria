@@ -7076,6 +7076,73 @@ def api_rastreamento_log():
         return jsonify({'ok': False, 'error': str(e)}), 500
 
 
+def rodar_pos_diario(hoje):
+    """Relê o histórico DEPOIS que o robô diário abriu e revisitou as cargas do dia.
+
+    POR QUE ISTO EXISTE (medido em 10/09/2026, com dado de produção)
+    ----------------------------------------------------------------
+    O robô diário abre a carga às 16:30 a partir do manifesto do SSW, e o manifesto é de
+    ONTEM. Quando a carga nasce, o caminhão já saiu — às vezes já chegou. E o worker de
+    rastreamento amostra AO VIVO: ele só registra a saída se estiver assistindo no instante
+    em que ela acontece. O evento já passou, ninguém o viu, e a carga fica `Aberta` para
+    sempre com a placa longe da origem. É a §20.4 do handoff, literalmente.
+
+    O estrago, contado na tela em 10/09: 11 cargas `Aberta` com o subrótulo "placa longe",
+    das quais QUATRO tinham o caminhão em cima do destino (1,6 · 2,9 · 6,1 · 13,2 km) e uma
+    (C-2026-000800) estava aberta desde 04/09 tendo entregado no dia 07. O rótulo acusava
+    "provável carreta errada no documento"; nenhuma delas era.
+
+    Quem conserta isso é o robô atemporal, que relê o histórico de GPS e deriva saída,
+    chegada e conclusão do que já aconteceu. Ele existia desde 09/09 e **não era chamado por
+    ninguém** — nem thread, nem cron. Rodava na mão, quando alguém lembrava.
+
+    A JANELA TERMINA HOJE, e isso não é detalhe
+    -------------------------------------------
+    Rodar com `--ate` no último dia que interessa NÃO funciona: a prova que resolve uma carga
+    de 08/09 é um ponto de GPS do dia seguinte. Medido no mesmo dia: `--ate 2026-09-09` não
+    achou nada; `--ate 2026-09-10` achou 10 cargas, 9 delas com a saída faltando.
+
+    A ORDEM: motor primeiro, pernas depois
+    --------------------------------------
+    A perna vazia deriva a janela dela das cargas vizinhas (§20.2), então rederivar antes de
+    o motor corrigir as âncoras é derivar de um valor que vai mudar em seguida.
+
+    Cada script roda até parar de alterar (no máximo 3 passadas). Convergência é o teste:
+    oscilação é bug, não "quase convergiu" (§20.6). Os dois são idempotentes, só tocam em
+    carga `criada_por_robo` e deixam log por campo.
+    """
+    import sys as _sys
+    import subprocess as _sp
+    from datetime import timedelta as _td
+
+    if str(os.getenv('EMBARQUES_ATEMPORAL', 'true')).strip().lower() in (
+            '0', 'false', 'nao', 'não', 'off', 'no'):
+        print('ℹ️  Robô atemporal desligado (EMBARQUES_ATEMPORAL)')
+        return
+
+    dias = int(os.getenv('EMBARQUES_ATEMPORAL_DIAS', '40'))
+    desde, ate = (hoje - _td(days=dias)).isoformat(), hoje.isoformat()
+    base = os.path.dirname(os.path.abspath(__file__))
+
+    for script, rotulo in (('_robo_atemporal.py', 'motor'),
+                           ('_rederivar_vazias.py', 'pernas')):
+        for passada in (1, 2, 3):
+            try:
+                r = _sp.run([_sys.executable, '-X', 'utf8', script,
+                             '--desde', desde, '--ate', ate, '--aplicar'],
+                            cwd=base, capture_output=True, text=True, timeout=1800)
+            except Exception as e:
+                # Falhar aqui não pode derrubar a thread do diário: o pior caso é o dia
+                # ficar sem a releitura, e ela é idempotente — a rodada seguinte refaz.
+                print(f'⚠️  Atemporal ({rotulo}): falha ao executar: {e}')
+                break
+            linhas = [x for x in (r.stdout or '').splitlines() if 'GRAVADO' in x]
+            print(f'🔁 Atemporal {rotulo} p{passada}: '
+                  f'{linhas[-1].strip() if linhas else (r.stderr or "").strip()[-300:]}')
+            if linhas and linhas[-1].strip().startswith('GRAVADO: 0'):
+                break
+
+
 if __name__ == '__main__':
     print("\n⚡ Auditoria Receita — Backend")
     print("=" * 40)
@@ -7144,6 +7211,10 @@ if __name__ == '__main__':
                                   f"{sum(r['fechadas'].values())} encerrada(s), "
                                   f"{r['reconciliadas']} reconciliada(s) "
                                   f"[janela {r['janela'][0]}..{r['janela'][1]}]")
+                        # A releitura do histórico vem SEMPRE, mesmo se o diário falhou:
+                        # são trabalhos independentes, e a carga que ficou 'Aberta' de
+                        # ontem não espera o manifesto de hoje para ser corrigida.
+                        rodar_pos_diario(agora.date())
                 except Exception as e:
                     # Falha aqui não pode derrubar o processo: o pior caso é o dia
                     # ficar sem lançamento automático, e o índice único garante que
