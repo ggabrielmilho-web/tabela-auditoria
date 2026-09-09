@@ -5,9 +5,14 @@
 vazias** criadas, geocodificadas e com rota, e a convergência conjunta atingida — pernas
 24 → 0 → 0 e motor 26 → 0 → 0. É a primeira vez que produção converge com as pernas dentro
 da base. A §22.9 conta o que fechou o ciclo e os dois erros que custaram uma rodada cada
-(rederivar antes de traçar; aplicar sem conferir que a imagem tinha o conserto). O que
-continua aberto está na §22.8, e a estreia do robô **diário** com o código novo é a rodada
-das 16:30 de 10/09.
+(rederivar antes de traçar; aplicar sem conferir que a imagem tinha o conserto).
+
+E a §22.10 é a mudança de regime: o robô diário estreou com o código novo, e ficou provado
+que **a carga nasce já em viagem** — 11 cargas  cujo caminhão já tinha saído, 4 dele
+em cima do destino. Quem conserta isso é o robô atemporal, que existia desde 09/09 e **nunca
+era chamado**. Agora ele roda sozinho logo depois do diário, em quatro passos (motor →
+pernas → rotas → janela), com a janela terminando SEMPRE em hoje. O que continua aberto está
+na §22.8 e no fim da §22.10.
 
 **Antes disso:** a §21 (nove rodadas de adjudicação — o defeito do anel, as duas réguas, os
 consertos das Fases 1 e 2) e a §20 (a 3S voltou; agosto e setembro reprocessados na base
@@ -3112,3 +3117,161 @@ EMBARQUES_AUTO_JANELA_DIAS      5   |  EMBARQUES_MODELO_CARRETA ausente = false
 **Produção convergida, pela primeira vez com as pernas vazias dentro da base.** O que sobra
 está na §22.8, e a estreia do robô **diário** com o código novo é a rodada das 16:30 de
 10/09 — ninguém viu ainda como ele abre e fecha.
+
+### 22.10 A carga nasce já em viagem — e o robô atemporal passa a rodar sozinho (10/09/2026)
+
+O Gabriel olhou a tela depois da rodada das 16:30 e disse: *"no geral rodou muito bem, o
+problema é só esse rótulo aí que está bugado"*. O rótulo era o mensageiro.
+
+#### O que a tela mostrava
+
+Onze cargas `Aberta` com o subrótulo **"📍 placa longe"**, cujo tooltip acusa *"provável
+carreta errada no documento"*. Medindo placa por placa, com a distância até a **origem** e
+até o **destino**:
+
+```
+C-2026-000796   nao saiu    896.8 da origem      1.6 km do DESTINO
+C-2026-000804   nao saiu    293.3                2.9
+C-2026-000803   nao saiu   1032.9                6.1
+C-2026-000800   nao saiu    670.3               13.2
+C-2026-000797   nao saiu    773.9              172.1
+C-2026-000799   nao saiu    541.1              249.7
+C-2026-000795   nao saiu    294.8              560.4   <- meio do caminho
+C-2026-000798   nao saiu    472.0              552.2   <- meio do caminho
++ 3 que JA TINHAM saida gravada e mesmo assim levaram o rotulo
+```
+
+Quatro caminhões **em cima do destino** e dois no meio da rota. **Nenhuma das onze era
+carreta errada.** A `C-2026-000800` estava `Aberta` desde 04/09 tendo entregado no dia 07.
+
+#### A causa: o evento acontece antes de a carga existir
+
+O robô diário abre a carga às 16:30 a partir do manifesto do SSW, e o manifesto é **de
+ontem**. Quando a carga nasce, o caminhão já saiu — às vezes já chegou. E o worker de
+rastreamento **amostra ao vivo**: ele só grava a saída se estiver assistindo no instante em
+que ela acontece. O evento já passou, ninguém viu, e a carga fica `Aberta` para sempre com a
+placa longe da origem. É a §20.4, literalmente.
+
+> **O defeito da régua do rótulo continua aberto** (§22.8): ela pergunta *"a placa está longe
+> da origem?"* e nunca pergunta *"a carga já saiu?"*. Três das onze tinham saída gravada. O
+> discriminador que separa os casos é a **distância até o destino** — carreta errada fica
+> longe dos dois pontos; caminhão que saiu sem registro está indo para o destino.
+
+#### O robô atemporal sabia consertar, e nunca era chamado
+
+Ele relê o histórico de GPS e deriva saída, chegada e conclusão do que já aconteceu. Existia
+desde 09/09 e **não estava em lugar nenhum do agendador** — nem thread, nem cron, nem import.
+Rodava na mão, quando alguém lembrava. Rodado sobre as onze:
+
+```
+C-2026-000800   Aberta -> Entregue     saiu 05/09 12:00, chegou 07/09 09:20
+C-2026-000796   Aberta -> No destino   saiu 08/09 20:10, chegou 09/09 14:09
+C-2026-000804   Aberta -> No destino   saiu 09/09 09:13, chegou 09/09 16:09
+C-795/797/798/803  Aberta -> Em rota
+```
+
+#### A janela termina HOJE, e isso não é detalhe
+
+Medido no mesmo dia, com o mesmo motor:
+
+```
+--ate 2026-09-09   nada
+--ate 2026-09-10   10 cargas, 9 delas com a saida faltando
+```
+
+A prova que resolve uma carga de 08/09 é um ponto de GPS **do dia seguinte**. Rodar com o
+`--ate` no último dia que interessa é perguntar antes de a resposta existir.
+
+#### O ciclo diário, agora com quatro passos
+
+`server.rodar_pos_diario()` roda logo depois de `embarques_auto.executar()`, sempre — mesmo
+se o diário falhou, porque a carga que ficou `Aberta` ontem não espera o manifesto de hoje.
+
+```
+1. motor    _robo_atemporal      corrige saida/chegada/conclusao        ate 3 passadas
+2. pernas   _regerar_vazias      cria a viagem vazia dos intervalos     1
+3. rotas    _tracar_rotas        traca no ORS o que nasceu sem rota     1
+4. janela   _rederivar_vazias    rederiva a janela e rotula a lacuna    ate 3 passadas
+```
+
+Cada emenda da ordem tem um motivo que já custou uma rodada:
+
+* **motor antes das pernas** — a perna deriva a janela das cargas vizinhas (§20.2); gerar
+  antes é derivar de uma âncora que vai mudar em seguida;
+* **rotas antes da rederivação** — a régua da lacuna divide a janela pela distância da rota, e
+  com rota nula o critério fica 3x mais severo (§22.9);
+* **o traçado precisa de passo próprio** — a perna nasce `Entregue` (ela já aconteceu) e o
+  `tracar_rotas_pendentes` do robô diário exclui `Entregue`.
+
+São **subprocessos, não import**: os três scripts têm `argparse` e código no topo, e refatorar
+o que acabou de convergir em produção é procurar problema. Falha em qualquer um deles não
+derruba a thread do diário — o pior caso é o dia ficar sem a releitura, e ela é idempotente.
+
+Chaves: `EMBARQUES_ATEMPORAL=false` desliga sem deploy; `EMBARQUES_ATEMPORAL_DIAS` (padrão 40)
+dimensiona a janela.
+
+#### O gerador de pernas precisou virar idempotente para poder ser agendado
+
+A guarda de 09/09 era de **janela inteira** ("se já existe perna nesta janela, aborta").
+Protegia a execução manual; rodando todo dia, aborta sempre. E afrouxá-la sem trocar por outra
+é o caminho da duplicata — nada no banco impede, porque a chave única é o `manifesto_origem` e
+perna vazia não tem manifesto (§20.2).
+
+> **A guarda agora é por PAR:** descarta a perna nova se já existe perna da **mesma carreta**,
+> entre as **mesmas pontas**, com a janela **se sobrepondo**.
+>
+> * *sobreposição*, e não igualdade de instante, porque a rederivação **move** a janela da
+>   perna a cada passada — comparar instante criaria uma perna nova a cada ajuste;
+> * *e não só (carreta, pontas)*, porque a mesma carreta repete o mesmo trecho semanas depois,
+>   e aquilo é outra perna, legítima.
+
+Mais duas correções no mesmo arquivo: a **numeração continua** de onde parou (o `seq = 0`
+recomeçava do 1 a cada rodada e colidiria com as pernas já na tela, que é a identidade que o
+operacional vê), e a conta de duplicata saiu de dentro do `--aplicar` para que o **dry-run já
+responda "criaria N, pularia M"**.
+
+#### As medições
+
+Base local, o ciclo inteiro de ponta a ponta:
+
+```
+motor  p1: 40 cargas   p2: 0
+pernas p1: 3 viagens vazias criadas
+rotas  p1: 49 rotas tracadas · 0 falhas
+janela p1: 6 pernas     p2: 0
+```
+
+Idempotência do gerador, que era o risco: duas execuções seguidas → **pulou 100, criou 0**,
+com 104 números distintos em 104 pernas.
+
+E o ensaio em **produção**, antes de deixar rodar sozinho:
+
+```
+ja existiam (par com janela sobreposta)  113
+candidatas                               113   (81 + 21 + 11)
+a criar                                    0
+```
+
+Casou com todas. A partir de amanhã ele cria só as pernas das viagens que fecharem no dia.
+
+#### Duas armadilhas de ambiente registradas hoje
+
+* **O stack do Portainer diverge do serviço.** `docker service inspect` mostra
+  `EMBARQUES_AUTO_JANELA_DIAS=5`, mas o arquivo do stack ainda diz `=1` — porque a mudança foi
+  feita pela CLI (`--env-add`), e isso não volta para o arquivo. Não afeta nada agora; no dia
+  em que alguém salvar aquele stack, a variável volta para 1 **e o serviço volta para a imagem
+  antiga** (§ a armadilha de 21/08). Conferir com os dois `inspect` lado a lado, não com o
+  Portainer.
+* **A janela de disparo é 16:30–19:30 e o "já rodei hoje" vive na memória do processo.** Todo
+  `service update` dentro dessa faixa faz o robô diário **disparar de novo**. É inofensivo (o
+  índice único em `manifesto_origem` impede duplicar carga, e os quatro passos são
+  idempotentes), mas explica log repetido.
+
+#### O que isto deixa aberto
+
+1. **A régua do rótulo `placa_longe`** — medir o resíduo depois de o atemporal rodar e trocar
+   por: *já saiu* → em viagem · *não saiu + perto do destino* → saiu sem registro · *não saiu +
+   longe dos dois* → placa longe (a suspeita V1 de verdade).
+2. **Manifesto duplicado.** A `C-2026-000801` e a `C-2026-000802` são a mesma viagem física —
+   mesmo cavalo (`OWH0F53`), mesma saída (08/09 17:21), mesma chegada (09/09 17:01), dois
+   manifestos. O robô não enxerga manifesto cancelado.
