@@ -8,7 +8,7 @@ da base. A §22.9 conta o que fechou o ciclo e os dois erros que custaram uma ro
 (rederivar antes de traçar; aplicar sem conferir que a imagem tinha o conserto).
 
 E a §22.10 é a mudança de regime: o robô diário estreou com o código novo, e ficou provado
-que **a carga nasce já em viagem** — 11 cargas  cujo caminhão já tinha saído, 4 dele
+que **a carga nasce já em viagem** — 11 cargas `Aberta` cujo caminhão já tinha saído, 4 deles
 em cima do destino. Quem conserta isso é o robô atemporal, que existia desde 09/09 e **nunca
 era chamado**. Agora ele roda sozinho logo depois do diário, em quatro passos (motor →
 pernas → rotas → janela), com a janela terminando SEMPRE em hoje. O que continua aberto está
