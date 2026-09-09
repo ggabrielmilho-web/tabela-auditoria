@@ -140,13 +140,59 @@ for car, lst in por_car.items():
                       'reta': reta, 'km': km, 'de': A[1], 'para': B[1],
                       'longa': janela_longa, 'h': horas})
         if km is not None:
-            desc['CRIADA (km medido)'] += 1
+            desc['candidata (km medido)'] += 1
         elif janela_longa:
-            desc['CRIADA (janela longa - km nao atribuido)'] += 1
+            desc['candidata (janela longa - km nao atribuido)'] += 1
         else:
-            desc['CRIADA (sem GPS na janela)'] += 1
+            desc['candidata (sem GPS na janela)'] += 1
+
+# ── IDEMPOTENCIA POR PAR — aqui, e nao dentro do `--aplicar`, para que o DRY-RUN ja
+# responda "criaria N, pularia M". Enquanto esta conta morava no bloco de gravacao, o
+# dry-run listava todos os pares e nao dava como prever o estrago antes de gravar.
+#
+# A guarda ate 10/09/26 era de JANELA INTEIRA ("se ja existe perna nesta janela, aborta").
+# Ela protegia a execucao manual de rodar duas vezes, e para isso servia. Mas o gerador
+# passou a rodar TODO DIA depois do robo diario, e ai ela aborta sempre — toda janela vai ter
+# perna. Afrouxa-la sem trocar por outra e o caminho da duplicata: nada no banco impede,
+# porque a chave unica e o `manifesto_origem` e perna vazia nao tem manifesto (secao 20.2).
+#
+# Agora a perna nova e descartada se ja existe perna da MESMA carreta, entre as MESMAS
+# pontas, com a janela SE SOBREPONDO.
+#
+#   * sobreposicao, e nao igualdade de instante, porque a rederivacao MOVE a janela da perna
+#     a cada passada — comparar instante criaria perna nova a cada ajuste;
+#   * e nao so (carreta, pontas), porque a mesma carreta repete o mesmo trecho semanas
+#     depois, e aquilo e outra perna, legitima.
+#
+# Com `--refazer` nao se pula nada: as V- sao apagadas logo abaixo e recriadas do zero.
+_puladas = 0
+if not a.refazer:
+    cur.execute("""SELECT c.carreta1_placa, c.origem_cidade,
+                          COALESCE(c.data_saida_real, c.inicio_viagem), c.data_conclusao,
+                          (SELECT x.cidade FROM embarques_cargas_destinos x
+                            WHERE x.carga_id = c.id ORDER BY x.ordem DESC LIMIT 1)
+                     FROM embarques_cargas c
+                    WHERE COALESCE(c.viagem_vazia, FALSE)""")
+    _ja = {}
+    for _pl, _oc, _i0, _f0, _dc in cur.fetchall():
+        _ja.setdefault((placas.mercosul(_pl) or _pl, nrm(_oc), nrm(_dc)), []).append((_i0, _f0))
+
+    def _duplicada(n):
+        chave = (placas.mercosul(n['carreta']) or n['carreta'], nrm(n['o_ci']), nrm(n['d_ci']))
+        for _i0, _f0 in _ja.get(chave, []):
+            if _i0 is None or _f0 is None:
+                continue
+            if n['ini'] < _f0 and _i0 < n['fim']:
+                return True
+        return False
+
+    _antes = len(novas)
+    novas = [n for n in novas if not _duplicada(n)]
+    _puladas = _antes - len(novas)
 
 print('=== REGERACAO das viagens vazias de agosto ===')
+if _puladas:
+    print('  %-38s %4d' % ('ja existiam (par com janela sobreposta)', _puladas))
 for k, v in desc.most_common():
     print('  %-38s %4d' % (k, v))
 com = [n for n in novas if n['km'] is not None]
@@ -165,31 +211,37 @@ for n in sorted(novas, key=lambda x: -(x['km'] or 0))[:12]:
              n['km'] if n['km'] is not None else '—'))
 
 if a.aplicar:
-    # GUARDA: sem --refazer, so insere se nao houver V- na janela. Rodar duas vezes sem isso
-    # criaria uma perna duplicada para cada par (A,B), porque nada no banco impede: a chave
-    # unica e o `manifesto_origem`, e perna vazia nao tem manifesto (secao 20.2).
-    cur.execute("""SELECT count(*) FROM embarques_cargas
-                    WHERE COALESCE(viagem_vazia, FALSE)
-                      AND data_carregamento BETWEEN %s AND %s""", (a.desde, a.ate))
-    _ja = cur.fetchone()[0]
-    if _ja and not a.refazer:
-        print()
-        print('  ABORTADO: ja existem %d viagens vazias nesta janela.' % _ja)
-        print('  Rodar de novo criaria duplicatas. Use --refazer para APAGAR e recriar')
-        print('  (isso destroi o log e renumera as pernas), ou ajuste a janela.')
-        c.rollback(); c.close(); raise SystemExit(1)
-    if not a.refazer:
-        velhas = []
-    else:
+    # ── IDEMPOTENCIA POR PAR (10/09/26)
+    #
+    # Ate hoje a guarda era de JANELA INTEIRA: "se ja existe perna nesta janela, aborta".
+    # Ela protegia a execucao manual de rodar duas vezes, e para isso servia. Mas o gerador
+    # passou a rodar TODO DIA depois do robo diario, e ai essa guarda aborta sempre — toda
+    # janela vai ter perna. Afrouxa-la sem trocar por outra e o caminho da duplicata, porque
+    # nada no banco impede: a chave unica e o `manifesto_origem`, e perna vazia nao tem
+    # manifesto (secao 20.2).
+    #
+    # A guarda agora e por PAR: descarta a perna nova se ja existe perna da MESMA carreta,
+    # entre as MESMAS pontas, com a janela SE SOBREPONDO.
+    #
+    #   * sobreposicao, e nao igualdade de instante, porque a rederivacao MOVE a janela da
+    #     perna a cada passada — comparar instante criaria uma perna nova a cada ajuste;
+    #   * e nao so (carreta, pontas), porque a mesma carreta repete o mesmo trecho semanas
+    #     depois, e aquilo e outra perna, legitima.
+    if a.refazer:
         cur.execute("SELECT id FROM embarques_cargas WHERE numero LIKE 'V-2026-%'")
-    velhas = [r[0] for r in cur.fetchall()]
-    cur.execute("DELETE FROM embarques_cargas_destinos WHERE carga_id = ANY(%s)", (velhas,))
-    cur.execute("DELETE FROM embarques_cargas_log WHERE carga_id = ANY(%s)", (velhas,))
-    cur.execute("DELETE FROM embarques_cargas WHERE id = ANY(%s)", (velhas,))
-    print('\n  %d vazias antigas removidas' % len(velhas))
+        velhas = [r[0] for r in cur.fetchall()]
+        cur.execute("DELETE FROM embarques_cargas_destinos WHERE carga_id = ANY(%s)", (velhas,))
+        cur.execute("DELETE FROM embarques_cargas_log WHERE carga_id = ANY(%s)", (velhas,))
+        cur.execute("DELETE FROM embarques_cargas WHERE id = ANY(%s)", (velhas,))
+        print('\n  %d vazias antigas removidas (--refazer)' % len(velhas))
+
     cur.execute("SELECT setval(pg_get_serial_sequence('embarques_cargas','id'), "
                 "(SELECT MAX(id) FROM embarques_cargas))")
-    seq = 0
+    # A NUMERACAO CONTINUA de onde parou. Comecar do 1 a cada rodada colidiria com as pernas
+    # que ja estao na tela, e o numero e a identidade que o operacional ve.
+    cur.execute("SELECT COALESCE(MAX(substring(numero from 8)::int), 0) "
+                "FROM embarques_cargas WHERE numero LIKE 'V-2026-______'")
+    seq = cur.fetchone()[0]
     for n in novas:
         seq += 1
         if n['km'] is not None:

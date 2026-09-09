@@ -7102,14 +7102,26 @@ def rodar_pos_diario(hoje):
     de 08/09 é um ponto de GPS do dia seguinte. Medido no mesmo dia: `--ate 2026-09-09` não
     achou nada; `--ate 2026-09-10` achou 10 cargas, 9 delas com a saída faltando.
 
-    A ORDEM: motor primeiro, pernas depois
-    --------------------------------------
-    A perna vazia deriva a janela dela das cargas vizinhas (§20.2), então rederivar antes de
-    o motor corrigir as âncoras é derivar de um valor que vai mudar em seguida.
+    A ORDEM DOS QUATRO PASSOS, e o que cada um custa se sair do lugar
+    -----------------------------------------------------------------
+        1. motor    corrige saída/chegada/conclusão das cargas
+        2. pernas   cria a viagem vazia dos intervalos entre viagens
+        3. rotas    traça no ORS o que nasceu sem rota
+        4. janela   rederiva a janela das pernas e rotula a lacuna
+
+    * o **motor vem antes das pernas** porque a perna deriva a janela das cargas vizinhas
+      (§20.2): gerar antes é derivar de uma âncora que vai mudar em seguida;
+    * as **rotas vêm antes da rederivação** porque a régua da lacuna divide a janela pela
+      distância da rota, e com a rota nula o critério fica 3x mais severo — foi assim que 4
+      pernas foram carimbadas de lacuna sem ser (§22.9);
+    * o **traçado precisa de passo próprio**: a perna nasce `Entregue` (ela já aconteceu) e o
+      `tracar_rotas_pendentes` do robô diário exclui `Entregue`. Sem este passo ela nunca
+      ganharia rota.
 
     Cada script roda até parar de alterar (no máximo 3 passadas). Convergência é o teste:
-    oscilação é bug, não "quase convergiu" (§20.6). Os dois são idempotentes, só tocam em
-    carga `criada_por_robo` e deixam log por campo.
+    oscilação é bug, não "quase convergiu" (§20.6). Todos são idempotentes, só tocam em carga
+    `criada_por_robo` e deixam log por campo — o gerador pula o par (carreta, pontas, janela
+    sobreposta) que já tem perna.
     """
     import sys as _sys
     import subprocess as _sp
@@ -7124,19 +7136,25 @@ def rodar_pos_diario(hoje):
     desde, ate = (hoje - _td(days=dias)).isoformat(), hoje.isoformat()
     base = os.path.dirname(os.path.abspath(__file__))
 
-    for script, rotulo in (('_robo_atemporal.py', 'motor'),
-                           ('_rederivar_vazias.py', 'pernas')):
-        for passada in (1, 2, 3):
+    PASSOS = (
+        # script, argumentos extras, rótulo, passadas, marcador da linha de resultado
+        ('_robo_atemporal.py',        ['--aplicar'], 'motor',  3, 'GRAVADO'),
+        ('_regerar_vazias_agosto.py', ['--aplicar'], 'pernas', 1, 'viagens vazias'),
+        ('_tracar_rotas_agosto.py',   [],            'rotas',  1, 'FIM:'),
+        ('_rederivar_vazias.py',      ['--aplicar'], 'janela', 3, 'GRAVADO'),
+    )
+    for script, extra, rotulo, tentativas, marcador in PASSOS:
+        for passada in range(1, tentativas + 1):
             try:
                 r = _sp.run([_sys.executable, '-X', 'utf8', script,
-                             '--desde', desde, '--ate', ate, '--aplicar'],
-                            cwd=base, capture_output=True, text=True, timeout=1800)
+                             '--desde', desde, '--ate', ate] + extra,
+                            cwd=base, capture_output=True, text=True, timeout=3600)
             except Exception as e:
-                # Falhar aqui não pode derrubar a thread do diário: o pior caso é o dia
-                # ficar sem a releitura, e ela é idempotente — a rodada seguinte refaz.
+                # Falhar aqui não pode derrubar a thread do diário: o pior caso é o dia ficar
+                # sem a releitura, e ela é idempotente — a rodada seguinte refaz.
                 print(f'⚠️  Atemporal ({rotulo}): falha ao executar: {e}')
                 break
-            linhas = [x for x in (r.stdout or '').splitlines() if 'GRAVADO' in x]
+            linhas = [x for x in (r.stdout or '').splitlines() if marcador in x]
             print(f'🔁 Atemporal {rotulo} p{passada}: '
                   f'{linhas[-1].strip() if linhas else (r.stderr or "").strip()[-300:]}')
             if linhas and linhas[-1].strip().startswith('GRAVADO: 0'):
