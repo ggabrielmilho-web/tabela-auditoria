@@ -38,7 +38,15 @@ load_dotenv(os.path.join(_AQUI, '.env'))
 MIN_KM = 50
 
 ap = argparse.ArgumentParser()
+ap.add_argument('--desde', default='2026-08-01')
+ap.add_argument('--ate', default='2026-08-31')
 ap.add_argument('--aplicar', action='store_true')
+# O DELETE fica DESARMADO por padrao (09/09/26). Este script foi escrito para criar as
+# pernas do zero na base local, e ali apagar tudo antes era inofensivo. Em producao nao e:
+# apagar as V- destroi o `embarques_cargas_log` delas e troca o numero de cada uma, que e a
+# identidade que o operacional ve na tela. Refazer tem de ser um pedido explicito.
+ap.add_argument('--refazer', action='store_true',
+                help='APAGA as V- da janela antes de inserir (destroi log e renumera)')
 a = ap.parse_args()
 
 
@@ -67,10 +75,11 @@ cur.execute("""
       FROM embarques_cargas c
       LEFT JOIN LATERAL (SELECT * FROM embarques_cargas_destinos x
                           WHERE x.carga_id=c.id ORDER BY x.ordem DESC LIMIT 1) d ON TRUE
-     WHERE c.data_carregamento BETWEEN '2026-08-01' AND '2026-08-31'
+     WHERE c.data_carregamento BETWEEN %(desde)s AND %(ate)s
        AND NOT COALESCE(c.viagem_vazia, FALSE)
        AND c.carreta1_placa IS NOT NULL AND c.carreta1_placa <> ''
-     ORDER BY c.carreta1_placa, c.data_carregamento, c.id""")
+     ORDER BY c.carreta1_placa, c.data_carregamento, c.id""",
+            {'desde': a.desde, 'ate': a.ate})
 por_car = {}
 for r in cur.fetchall():
     por_car.setdefault(placas.mercosul(r[2]) or r[2], []).append(r)
@@ -156,7 +165,23 @@ for n in sorted(novas, key=lambda x: -(x['km'] or 0))[:12]:
              n['km'] if n['km'] is not None else '—'))
 
 if a.aplicar:
-    cur.execute("SELECT id FROM embarques_cargas WHERE numero LIKE 'V-2026-%'")
+    # GUARDA: sem --refazer, so insere se nao houver V- na janela. Rodar duas vezes sem isso
+    # criaria uma perna duplicada para cada par (A,B), porque nada no banco impede: a chave
+    # unica e o `manifesto_origem`, e perna vazia nao tem manifesto (secao 20.2).
+    cur.execute("""SELECT count(*) FROM embarques_cargas
+                    WHERE COALESCE(viagem_vazia, FALSE)
+                      AND data_carregamento BETWEEN %s AND %s""", (a.desde, a.ate))
+    _ja = cur.fetchone()[0]
+    if _ja and not a.refazer:
+        print()
+        print('  ABORTADO: ja existem %d viagens vazias nesta janela.' % _ja)
+        print('  Rodar de novo criaria duplicatas. Use --refazer para APAGAR e recriar')
+        print('  (isso destroi o log e renumera as pernas), ou ajuste a janela.')
+        c.rollback(); c.close(); raise SystemExit(1)
+    if not a.refazer:
+        velhas = []
+    else:
+        cur.execute("SELECT id FROM embarques_cargas WHERE numero LIKE 'V-2026-%'")
     velhas = [r[0] for r in cur.fetchall()]
     cur.execute("DELETE FROM embarques_cargas_destinos WHERE carga_id = ANY(%s)", (velhas,))
     cur.execute("DELETE FROM embarques_cargas_log WHERE carga_id = ANY(%s)", (velhas,))
