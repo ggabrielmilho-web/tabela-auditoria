@@ -1834,6 +1834,11 @@ C-500  Duque de Caxias   marcou 57,6 km -> chegou depois a  2,2 km   PERIFERIA (
 outras 9 (Rio x4, Brasilia x2, R. Pires x3)   nunca chegaram mais perto
 ```
 
+> ⚠ **CORRIGIDO em 09/09 — ver 21.15. O placar certo é 0 comprovadamente erradas, 11
+> indeterminadas:** as duas "derrotas" eram medição minha sem teto documental, e a
+> aproximação posterior pertencia à viagem seguinte da mesma carreta para o mesmo
+> destino. O texto original fica abaixo como registro.
+>
 > **O placar honesto é assimétrico: 2 comprovadamente erradas, 9 indeterminadas.** "Nunca
 > chegou mais perto" não é vitória — é não-falsificação, e é compatível com nunca ter
 > entregado, que é classe real e medida (§15.3: 10 cargas sem chegada nem 7 dias depois).
@@ -2093,3 +2098,107 @@ docker exec <container> grep -n "baixa_ctrb\|'timeout'" embarques_auto.py
 # so linha de comentario  -> imagem atual
 # if encerrar(cur, cid, ...) -> imagem velha
 ```
+
+### 21.15 Fase 1 e 2 aplicadas — e a retratação que elas produziram (09/09/2026)
+
+O checklist saiu do papel. O que mudou, com o numero de cada coisa:
+
+| item | estado |
+|---|---|
+| 1 · parada exigida no raio estrito | **aplicado** — 255/255 chegadas para FRENTE, p50 0,42 h, convergiu em 2 passadas |
+| 3 · regua unica motor × branch × aferidor | **aplicado** — `embarques_regua.py`; as 11 cargas de metropole passaram de 0/11 para **11/11** de concordancia |
+| 7 · janelas alinhadas | **aplicado** — horizonte de evidencia unico de 30 dias nos tres |
+| 8 · invariante de velocidade-na-chegada | **aplicado** — `C6`; dispara em 135 de 279 (48%) nos valores originais do worker e em **zero** na base corrigida |
+| 10 · biblioteca de primitivas | **iniciada** — a regua e a primeira peca; faltam janela de evidencia, grafias, ancoras e proveniencia |
+| 2 · raio re-derivado · 4 · guarda de aproximacao · 5 · ancoras aditivas | ver abaixo — **a evidencia que os motivava mudou** |
+
+15 de 15 testes passam. Aferidor: 181 -> 180 cargas com achado.
+
+#### O que a Fase 1 revelou: o worker e bimodal, e e otimo
+
+Com o piso de 0,42 h do anel fora do caminho, o erro real do worker aparece pela primeira
+vez (o "modo 1 inobservavel" da 21.2 deixou de ser inobservavel):
+
+```
+0-5 min      90  ##########################################
+5-15 min      6  ###
+15-30 min     2  #
+30-60 min     8  ####
+1-2 h         8  ####     <- vale
+2-3 h         3  ##       <- vale
+3-6 h        14  #######
+6-12 h       19  #########
+12-24 h      11  #####
+```
+
+**55% das chegadas do worker estao a menos de CINCO MINUTOS do instante real.** Ele nao e
+impreciso — e bimodal, e o modo bom e quase exato. Isso fecha a questao de arquitetura da
+21.2 a favor de **dono do registro × autor de escrita**: nao ha por que tirar da tela um
+escritor que acerta em minutos; ha por que nao deixar o registro na mao dele.
+
+#### Dois achados que nasceram do proprio conserto
+
+**A guarda de velocidade SUBSTITUIA em vez de validar.** Ela montava a lista de candidatas
+pelo raio estrito e trocava a chegada sempre que a primeira candidata diferisse — o que
+descartava, por construcao, toda chegada derivada por outra regua (metropole, presumida).
+Agora valida, e so procura substituta quando a apurada e implausivel. Efeito: as 9
+"velocidades impossiveis" sumiram sozinhas, porque **era o anel que as fabricava** —
+encurtando o tempo de viagem, ele inflava a velocidade media. Corroboracao independente do
+diagnostico.
+
+**O `F4` do aferidor media permanencia contra o RELOGIO DE PAREDE.** Acusava 7 cargas de
+06-08/09 que o motor deixou abertas com toda a razao: a base termina em 08/09 18:32 e o
+motor nao afirma permanencia que ninguem observou. Mesma armadilha da secao 16.1.
+
+#### RETRATACAO — as "2 derrotas comprovadas" da regra larga nao existem
+
+A secao 21.3 registrou o placar da regra de 60 km como **"2 comprovadamente erradas, 9
+indeterminadas"**, e as duas eram a C-2026-000371 (marcou 54,6 km, "chegou depois a 6,7 km")
+e a C-2026-000500 (marcou 57,6 km, "chegou depois a 2,2 km"). O documento chegou a chamar
+isso de "o fantasma da secao 17.2 medido em escala".
+
+**Estava errado, e o erro era da minha medicao, nao da regra:**
+
+```
+C-2026-000371  01/08  carreta TYN8I98  Rubiataba  -> Japeri/RJ
+C-2026-000481  22/08  carreta TYN8I98  Rubiataba  -> Japeri/RJ          <- a aproximacao de 26/08 e DESTA
+
+C-2026-000500  24/08  carreta QXA9H76  Neropolis  -> Duque de Caxias/RJ
+C-2026-000532  26/08  carreta QXA9H76  Seropedica -> Duque de Caxias/RJ <- a de 27/08 e DESTA
+```
+
+Nos dois casos a "aproximacao posterior" pertence a **viagem seguinte da mesma carreta para
+o MESMO destino**. Eu medi aproximacao sem teto documental — que e literalmente a ressalva
+que a revisao tinha feito ao propor a guarda: *"'se o veiculo depois se aproxima' tem que
+valer dentro da janela da carga, senao a passagem da viagem seguinte pelo mesmo corredor
+migra a chegada da carga anterior para um evento que nao e dela."* O teto do motor ja fazia
+a coisa certa; o auditor ad-hoc e que nao fazia.
+
+**Consequencias:**
+
+1. O placar honesto da regra larga passa a ser **0 comprovadamente erradas, 11
+   indeterminadas**. Ela nao foi falsificada em caso nenhum.
+2. O **item 4 do checklist (guarda de aproximacao posterior) perde a evidencia que o
+   motivava** e sai da fila. Construi-lo agora seria *introduzir* o defeito que eu pensei
+   estar consertando: migrar a chegada para um evento da viagem seguinte.
+3. O **item 2 (raio re-derivado)** perde urgencia junto — nao ha erro medido do raio largo
+   para corrigir. Continua valendo reconstruir o benchmark da secao 17.2 (21.9), mas como
+   instrumento, nao como arbitro de uma disputa que deixou de existir.
+4. O **item 5 (ancoras aditivas)** segue de pe: as 4 ancoras de Duque de Caxias sao fato, e
+   substituir centroide por agrupamento quebraria a C-2026-000532. So que agora e melhoria,
+   nao conserto de defeito.
+
+> **A regra de metodo, que e a mesma de sempre e ja errou quatro vezes nesta documentacao:**
+> toda comparacao "depois ele fez X" precisa da janela que define **de quem** e o "depois".
+> Sem teto, a viagem seguinte se disfarca de correcao da anterior.
+
+#### O que o conserto do anel fez com essas duas cargas
+
+Vale registrar porque parece regressao e nao e:
+
+* a **C-2026-000371 ficou SEM chegada**. Correto: dentro da janela dela (ate o manifesto de
+  22/08) a carreta nunca parou perto de Japeri. A carga esta `Entregue` sem prova, que e o
+  que o motor sinaliza com `sem_prova_revisar` — e e mais honesto que a chegada inventada
+  na borda do anel que ela tinha antes.
+* a **C-2026-000500 passou de 57,6 para 47,0 km**, pela exigencia de parada sustentada. Nao
+  chegou a ficar certa, mas o instante agora tem lastro de parada, nao de travessia.

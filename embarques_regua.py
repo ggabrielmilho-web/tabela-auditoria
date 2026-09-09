@@ -40,12 +40,33 @@ Corrigido, 255 de 255 chegadas se moveram para FRENTE, p50 de 0,42 h, e o robo c
 sozinhas — era o proprio anel que as fabricava, encurtando o tempo de viagem.
 """
 
-PARADO_KMH = 3.0          # espelha rastreamento_worker.PARADO_KMH
-RAIO_CHEGADA = 20.0       # raio do centroide que conta como "no destino"
-RAIO_METRO = 60.0         # tolerancia de metropole — SO com parada sustentada
-PARADA_MIN_H = 2.0        # parada que prova presenca (passagem dura minutos)
-RAIO_ORIGEM = 30.0        # esteve na origem
-RAIO_SAIDA_DESTINO = 30.0 # saiu do destino
+import os as _os
+
+
+def _f(nome, default):
+    """Le a env var de producao. As chaves sao as MESMAS que o embarques_auto ja usava —
+    a regua nao inventa configuracao, so passa a ser o unico lugar que a le."""
+    try:
+        return float(_os.getenv(nome, str(default)))
+    except (TypeError, ValueError):
+        return float(default)
+
+
+PARADO_KMH = _f('RASTREAMENTO_PARADO_KMH', 3.0)             # espelha rastreamento_worker
+RAIO_CHEGADA = _f('RASTREAMENTO_RAIO_CHEGADA_DESTINO', 20)  # conta como "no destino"
+RAIO_METRO = _f('RASTREAMENTO_RAIO_METRO', 60)              # metropole — SO com parada
+PARADA_MIN_H = _f('RASTREAMENTO_PARADA_MIN_H', 2.0)         # parada que prova presenca
+RAIO_ORIGEM = _f('RASTREAMENTO_RAIO_ORIGEM', 30)            # esteve na origem
+RAIO_SAIDA_DESTINO = _f('RASTREAMENTO_RAIO_SAIDA_DESTINO', 30)  # saiu do destino
+
+# HORIZONTE DE EVIDENCIA — ate onde vale procurar resposta depois do carregamento.
+# Sao 30 dias porque e ali que a evidencia de GPS acaba (a retencao da 3S), e porque e a
+# janela de reanalise que a secao 13.4 dimensionou. O motor usava 20 e o aferidor tambem:
+# na base local isso truncava so 1 carga, porque ela tem 5 semanas de fundo e nao existe
+# pendencia com mais de 20 dias. Em producao, com historico fundo, o motor pararia de
+# procurar 10 dias antes de a reanalise parar de perguntar — defeito invisivel no
+# laboratorio POR CONSTRUCAO (secao 21.6).
+JANELA_EVIDENCIA_D = int(_f('EMBARQUES_AUTO_JANELA_REANALISE_DIAS', 30))
 
 
 def parado(v):

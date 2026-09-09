@@ -874,7 +874,15 @@ def tracar_rotas_pendentes(conn, limite=None):
     return tracadas, falhas
 
 
-RAIO_CHEGADA_KM = float(os.getenv('RASTREAMENTO_RAIO_CHEGADA_DESTINO', '20'))
+# A REGUA DE CHEGADA E IMPORTADA, nao reescrita (09/09/26). Havia TRES copias da mesma
+# decisao — aqui, no _robo_atemporal e no _auditoria_geral — e elas ja divergiam em tres
+# pontos: este arquivo nao exigia parada (o defeito do anel: 240 de 292 chegadas marcadas
+# com o caminhao rodando), nao tinha tolerancia de metropole (11 cargas, 3,6%) e usava o
+# mesmo raio de 20 km para entrar e para SAIR do destino, contra os 30 km do motor.
+# Subir assim descasaria a base convergida no primeiro ciclo — secao 21.3 do handoff.
+import embarques_regua as regua
+
+RAIO_CHEGADA_KM = regua.RAIO_CHEGADA
 DWELL_ENTREGA_H = float(os.getenv('EMBARQUES_AUTO_DWELL_ENTREGA_H', '24'))
 JANELA_REANALISE_DIAS = _int('EMBARQUES_AUTO_JANELA_REANALISE_DIAS', 30)
 
@@ -900,35 +908,44 @@ def _destino_e_placa(cur, carga_id):
     return placa, float(la), float(ln), desde
 
 
-def _posicoes_perto(cur, placa, dla, dln, desde, raio_km, ate_dias=45):
-    """Posições da placa em ordem, com marca de dentro/fora do raio do destino.
+def _serie_destino(cur, placa, dla, dln, desde, ate_dias=45):
+    """Triplas `(instante, km até o destino, velocidade)` em ordem — o formato que a
+    `embarques_regua` consome.
+
+    A VELOCIDADE viaja junto desde 09/09/26: sem ela a régua não separa "chegou e parou" de
+    "cruzou a borda do raio a 80 km/h", que é o defeito do anel.
 
     A janela tem teto (`ate_dias`) porque isto roda por carga aberta a cada ciclo: sem ele,
     uma carga esquecida em aberto arrastaria o histórico inteiro da placa toda madrugada."""
     if not placa:
         return []
     cur.execute("""
-        SELECT data_posicao, latitude, longitude FROM embarques_posicoes_historico
+        SELECT data_posicao, latitude, longitude, velocidade
+          FROM embarques_posicoes_historico
          WHERE placa = ANY(%s) AND data_posicao >= %s AND data_posicao < %s
          ORDER BY data_posicao
     """, (_placas.grafias(str(placa).strip().upper()), desde, desde + timedelta(days=ate_dias)))
     saida = []
-    for d, la, ln in cur.fetchall():
+    for d, la, ln, vel in cur.fetchall():
         if la is None or ln is None:
             continue
         km = geocoding.km_entre(float(la), float(ln), dla, dln)
         if km is None:
             continue
-        saida.append((d, km <= raio_km))
+        saida.append((d, km, vel))
     return saida
 
 
 def _chegou_ao_destino(cur, carga_id):
     """A carreta desta carga já esteve dentro do raio do destino?
 
-    Usa bounding-box no banco e refina com `km_entre` — mesmo desenho do
-    `_esteve_no_destino` do worker (não importa o worker para não criar ciclo). Aqui não
-    interessa a ORDEM, só a existência, então a bbox resolve sem varrer o histórico.
+    Usa a MESMA régua do motor e do aferidor (`embarques_regua.chegada`), e não uma noção
+    própria de "esteve perto". Antes isto era uma bounding-box de presença: qualquer ponto
+    dentro de 20 km bastava, mesmo o caminhão passando a 80 km/h — e não havia tolerância de
+    metrópole, então 11 cargas que chegaram a CD fora do centroide contavam como não
+    chegadas. Duas cargas provam os dois lados: a C-2026-000684 atravessou Brasília rodando
+    (a bbox diria "chegou", e ela não tinha parado) e a C-2026-000511 encostou a 25,5 km do
+    centroide do Rio (a bbox diria "não chegou", e ela tinha entregue).
 
     Sem destino com coordenada devolve True: não há como julgar, e degradar para o
     comportamento antigo é melhor que travar o fechamento por falta de dado."""
@@ -937,21 +954,8 @@ def _chegou_ao_destino(cur, carga_id):
         return True
     if not placa:
         return False
-    m_lat = RAIO_CHEGADA_KM / 111.0
-    m_lng = RAIO_CHEGADA_KM / 90.0          # folga para cos(lat) no Brasil (~0,9–0,96)
-    cur.execute("""
-        SELECT latitude, longitude FROM embarques_posicoes_historico
-         WHERE placa = ANY(%s) AND data_posicao >= %s
-           AND latitude BETWEEN %s AND %s AND longitude BETWEEN %s AND %s
-    """, (_placas.grafias(str(placa).strip().upper()), desde,
-          dla - m_lat, dla + m_lat, dln - m_lng, dln + m_lng))
-    for la, ln in cur.fetchall():
-        if la is None or ln is None:
-            continue
-        km = geocoding.km_entre(float(la), float(ln), dla, dln)
-        if km is not None and km <= RAIO_CHEGADA_KM:
-            return True
-    return False
+    chegada, _como = regua.chegada(_serie_destino(cur, placa, dla, dln, desde))
+    return chegada is not None
 
 
 def dedup_veiculo(cur, ctrbs):
@@ -1042,12 +1046,18 @@ def reanalisar_pendentes(cur, janela_dias=None):
         placa, dla, dln, desde = _destino_e_placa(cur, cid)
         if dla is None:
             continue                                  # sem destino não se julga nada
-        pontos = _posicoes_perto(cur, placa, dla, dln, desde, RAIO_CHEGADA_KM)
-        chegada = next((d for d, dentro in pontos if dentro), None)
+        pontos = _serie_destino(cur, placa, dla, dln, desde)
+        # A régua é a de `embarques_regua` — a mesma do motor e do aferidor. Antes esta
+        # linha era `primeiro ponto dentro do raio`, sem exigir parada: era o defeito do
+        # anel, que marcava a chegada na borda dos 20 km com o caminhão a 60 km/h.
+        chegada, _como = regua.chegada(pontos)
         if chegada is None:
             continue                                  # segue pendente: silêncio não é evento
-        depois = [(d, dentro) for d, dentro in pontos if d > chegada]
-        saida = next((d for d, dentro in depois if not dentro), None)
+        # SAIR do destino tem raio próprio (30 km), maior que o de entrar. Antes os dois
+        # eram 20 km aqui e 30 km no motor — um caminhão manobrando a 22 km do centroide
+        # "saía do destino" para um e continuava lá para o outro.
+        depois = [(d, k) for d, k, v in pontos if d > chegada]
+        saida = next((d for d, k in depois if k > regua.RAIO_SAIDA_DESTINO), None)
         if saida is not None:
             quando, motivo = saida, 'gps_saiu_do_destino'
         else:

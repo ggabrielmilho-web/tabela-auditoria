@@ -44,11 +44,11 @@ load_dotenv('.env')
 import geocoding, placas as pl
 from embarques_regua import (perto_com_parada, RAIO_CHEGADA, RAIO_METRO,
                              RAIO_ORIGEM, RAIO_SAIDA_DESTINO, PARADA_MIN_H, PARADO_KMH,
-                             parado)
+                             parado, JANELA_EVIDENCIA_D)
 
 # Raios, limiares e a decisao de chegada vivem em embarques_regua.py — fonte unica.
 DWELL_H = 24.0
-JANELA_FUTURO_D = 20      # ate onde procurar evidencia depois do carregamento
+JANELA_FUTURO_D = JANELA_EVIDENCIA_D   # da regua: mesmo horizonte da reanalise
 VEL_MAX_CRIVEL = 100.0    # km/h medios: acima disso o par saida/chegada nao e a mesma viagem
 AUTOR = 'Robo atemporal'
 

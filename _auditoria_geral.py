@@ -35,7 +35,7 @@ import geocoding, placas as pl
 # A REGUA E IMPORTADA, nao copiada: aferidor e motor tem de decidir chegada do MESMO jeito.
 # Enquanto cada um tinha a sua, o placar F1 oscilou 13 -> 32 -> 17 -> 38 (secao 20.6).
 from embarques_regua import (chegada, perto_com_parada, parado, RAIO_CHEGADA, RAIO_METRO,
-                             PARADA_MIN_H, RAIO_ORIGEM, PARADO_KMH)
+                             PARADA_MIN_H, RAIO_ORIGEM, PARADO_KMH, JANELA_EVIDENCIA_D)
 TOL_H = 12.0             # manifesto nao tem hora: 00:00 vira tolerancia
 DWELL_H = 24.0           # regra de entrega por permanencia
 GAP_ALERTA_H = 24.0      # buraco de sinal que compromete o julgamento
@@ -121,7 +121,7 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
     # MESMA janela do motor (_robo_atemporal.JANELA_FUTURO_D). Enquanto o auditor cortava em
     # conclusao+2d e o motor varria carregamento+20d, os dois liam series diferentes e
     # discordavam para sempre: o motor gravava uma chegada que o auditor nao encontrava.
-    fim = min(HOJE, datetime.combine(dcarg, _time()) + timedelta(days=20))
+    fim = min(HOJE, datetime.combine(dcarg, _time()) + timedelta(days=JANELA_EVIDENCIA_D))
     ativo = status in ('Aberta', 'Em rota', 'No destino', 'Desengatada')
     idade_d = (HOJE - datetime.combine(dcarg, _time())).days
 

@@ -135,9 +135,19 @@ f = ea.reanalisar_pendentes(cur)
 cur.execute("SELECT status, encerrada_motivo FROM embarques_cargas WHERE id=%s", (cid617,))
 st, mot = cur.fetchone()
 checa('C-2026-000617 volta a fechar pela reanalise', (st, mot in ('gps_saiu_do_destino', 'gps_dwell_destino')), ('Entregue', True))
-# a C-2026-000603 nunca chegou: a reanalise NAO pode fecha-la
-cur.execute("SELECT status FROM embarques_cargas WHERE numero='C-2026-000603'")
-checa('C-2026-000603 (nunca chegou) continua aberta', cur.fetchone()[0], 'Aberta')
+# a C-2026-000603 nunca chegou: a reanalise NAO pode fecha-la.
+#
+# A asserção mudou em 09/09/26, e vale registrar por que: ela era `status == 'Aberta'`, um
+# PROXY de "nao fechou". O proxy quebrou sozinho quando o robo atemporal leu a serie inteira,
+# achou a saida da origem pelo GPS (30/08 20:39) e promoveu a carga de 'Aberta' para
+# 'Em rota' — que e ele acertando, nao errando: a secao 16.5 dizia que ela ficava 'Aberta'
+# porque o WORKER exige ver a placa na origem no instante certo, e o robo nao tem esse limite.
+# Teste que mede um proxy falha quando o proxy melhora. Agora ele afirma o que protege:
+# a carga NAO pode ter sido encerrada.
+cur.execute("SELECT status, data_conclusao FROM embarques_cargas WHERE numero='C-2026-000603'")
+_st, _conc = cur.fetchone()
+checa('C-2026-000603 (nunca chegou) NAO foi encerrada',
+      (_st not in ('Entregue', 'Cancelada'), _conc is None), (True, True))
 conn.rollback()
 
 print('\n5) a excecao do reforco no meio da rota continua valendo')
