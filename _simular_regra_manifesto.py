@@ -17,7 +17,11 @@ para medir, nao o universo inteiro.
 """
 import os, sys, unicodedata
 from datetime import datetime as dt, timedelta as td, time as _time
-sys.path.insert(0, r'c:/Phyton-Projetos/Tabela Auditoria'); os.chdir(r'c:/Phyton-Projetos/Tabela Auditoria')
+# A pasta do proprio arquivo, nao um caminho cravado: estes scripts precisam rodar
+# TAMBEM dentro do container (Linux), que e de onde o robo atemporal corrige os dados
+# de producao. O `c:/Phyton-Projetos/...` que estava aqui quebrava com FileNotFoundError.
+_AQUI = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, _AQUI); os.chdir(_AQUI)
 import psycopg2
 from dotenv import load_dotenv
 load_dotenv('.env')

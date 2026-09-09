@@ -2,11 +2,15 @@
 """Geocodifica a origem e traca a rota ORS das cargas de agosto (vazias e carregadas).
 Banco LOCAL. Ritmo de 1,6s entre chamadas (free tier do ORS e ~40/min)."""
 import os, sys, time, unicodedata
-sys.path.insert(0, r'c:/Phyton-Projetos/Tabela Auditoria')
-os.chdir(r'c:/Phyton-Projetos/Tabela Auditoria')
+# A pasta do proprio arquivo, nao um caminho cravado: estes scripts precisam rodar
+# TAMBEM dentro do container (Linux), que e de onde o robo atemporal corrige os dados
+# de producao. O `c:/Phyton-Projetos/...` que estava aqui quebrava com FileNotFoundError.
+_AQUI = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, _AQUI)
+os.chdir(_AQUI)
 import psycopg2, ors_client
 from dotenv import load_dotenv
-load_dotenv(r'c:/Phyton-Projetos/Tabela Auditoria/.env')
+load_dotenv(os.path.join(_AQUI, '.env'))
 def nrm(s): return unicodedata.normalize('NFKD', str(s or '')).encode('ascii','ignore').decode().upper().strip()
 c = psycopg2.connect(host=os.getenv('DB_HOST'), port=os.getenv('DB_PORT'), dbname=os.getenv('DB_NAME'),
                      user=os.getenv('DB_USER'), password=os.getenv('DB_PASSWORD'))

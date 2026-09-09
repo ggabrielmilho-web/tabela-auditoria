@@ -24,13 +24,17 @@ import math
 import argparse
 import unicodedata
 
-sys.path.insert(0, r'c:/Phyton-Projetos/Tabela Auditoria')
-os.chdir(r'c:/Phyton-Projetos/Tabela Auditoria')
+# A pasta do proprio arquivo, nao um caminho cravado: estes scripts precisam rodar
+# TAMBEM dentro do container (Linux), que e de onde o robo atemporal corrige os dados
+# de producao. O `c:/Phyton-Projetos/...` que estava aqui quebrava com FileNotFoundError.
+_AQUI = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, _AQUI)
+os.chdir(_AQUI)
 import psycopg2
 import placas
 from dotenv import load_dotenv
 
-load_dotenv(r'c:/Phyton-Projetos/Tabela Auditoria/.env')
+load_dotenv(os.path.join(_AQUI, '.env'))
 MIN_KM = 50
 
 ap = argparse.ArgumentParser()
