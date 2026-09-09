@@ -1,21 +1,22 @@
 # Handoff — Painel de Embarques autônomo
 
-**Estado em 09/09/2026 — ⚠ COMECE PELA §21.** Nove rodadas de adjudicação (sem tocar em
-arquivo nenhum) acharam que **o instante de chegada da base inteira está enviesado por
-construção**: o código marca chegada no primeiro ping dentro do raio, sem exigir parada, e
-**240 de 292 chegadas foram carimbadas com o caminhão rodando** — a §4.3 sempre mandou
-"entra no destino **e para**". Isso reordena a fila: consertar muda a régua, e mudar a
-régua exige **reconvergir a base** antes que qualquer medição posterior valha. A §21 traz
-os quatro defeitos novos, as dez conclusões derrubadas com o número que derrubou cada uma,
-e o checklist de pré-deploy de dez itens.
+**Estado em 09/09/2026 (fim do dia) — ⚠ COMECE PELA §22.** O pacote foi para **produção** e
+funcionou: gravidade alta de 92 para 50, sete classes de defeito a zero, convergência
+225 → 8 → 0 → 0. Em seguida as **109 pernas vazias** foram criadas lá, e a sessão acabou
+**antes de terminar o pipeline delas**. Produção está **correta, porém inacabada** — as
+pernas não têm rota traçada nem rederivação, e por isso a tela mostra "viagens" de 14 a 24
+dias sem linha no mapa. Nada corrompido. A §22.7 tem os comandos que fecham isso, e a §22.6
+o estado item a item.
 
-**Antes disso:** a §20 (a 3S voltou; agosto e setembro reprocessados pelo robô na base
-local, defeitos de 272 para 181 cargas, incoerências temporais a zero) e a §19 (o corte da
-3S). O modelo carreta-cêntrico segue **FORA DA `main`**, na branch
-`modelo-carreta-3s-congelado`; a `main` está no estado de produção.
+**Antes disso:** a §21 (nove rodadas de adjudicação — o defeito do anel, as duas réguas, os
+consertos das Fases 1 e 2) e a §20 (a 3S voltou; agosto e setembro reprocessados na base
+local). O modelo carreta-cêntrico **entrou na `main`** em 09/09 (`62ac510`), atrás da chave
+`EMBARQUES_MODELO_CARRETA=false` — nenhuma regra dele executa hoje.
 
-> ⚠ **Suspeita aberta (§20.10):** produção pode estar rodando uma imagem antiga — há carga
-> fechada por `baixa_ctrb`, regra removida do código em 03/09. Não verificado.
+> ✅ **A suspeita da §20.10 estava certa e foi resolvida.** Produção rodava a imagem de
+> 02/09, com o `baixa_ctrb` e o `timeout` ativos — regras removidas do código em 04/09 que
+> nunca chegaram à imagem no ar (§21.14). O deploy de 09/09 as tirou de circulação; os
+> `baixa_ctrb` que ainda aparecem na coluna `encerrada_motivo` são **histórico**.
 
 > 🔒 **O `.env` tem `START_WORKER=true`.** Subir o servidor local com `python server.py`
 > direto **liga o worker e ele reprocessa a base convergida**, desfazendo o que a §20
@@ -24,14 +25,14 @@ local, defeitos de 272 para 181 cargas, incoerências temporais a zero) e a §19
 
 | | estado |
 |---|---|
-| **o robô (`embarques_auto.py`)** | na `main`, **igual ao de produção**. O fechamento reescrito (§18) vive na branch `modelo-carreta-3s-congelado`, e lá ainda atrás de `EMBARQUES_MODELO_CARRETA=false`. A abertura não foi tocada em lugar nenhum |
-| **KPI, alertas e correções de mapa** | também na branch — saíram da `main` em 07/09 |
+| **o robô (`embarques_auto.py`)** | na `main` e **no ar em produção** desde 09/09, sem `baixa_ctrb` e sem `timeout`. O fechamento reescrito (§18) veio junto no merge, atrás de `EMBARQUES_MODELO_CARRETA=false`. A abertura não foi tocada em lugar nenhum |
+| **KPI, alertas e correções de mapa** | **na `main` e em produção** desde 09/09 (`62ac510`) |
 | **rastreamento (3S)** | **DE VOLTA em 08/09/26** — 93 veículos, 38 placas com posição < 1 h. Ficou o rastro: 5 carretas novas mudas desde 01–03/09 (§20.1) |
-| **motor + aferidor novos** | `_robo_atemporal.py` e `_auditoria_geral.py` — **VERSIONADOS em 09/09** na branch (`66451b4`, tag `estudo-embarques-2026-09-08`), junto deste handoff, dos simuladores e dos CSVs. Convergem a zero em 3 passadas (§20.6), e a passada de 09/09 confirmou: **0 alterações em 12,5 s** |
+| **motor + aferidor novos** | `_robo_atemporal.py` e `_auditoria_geral.py` — **na `main` desde 09/09** (`66451b4`, tag `estudo-embarques-2026-09-08`), junto deste handoff, dos simuladores e dos CSVs. Rodam DENTRO do container, contra o banco de produção. Convergem a zero em 3 passadas (§20.6), e a passada de 09/09 confirmou: **0 alterações em 12,5 s** |
 | **a adjudicação (§21)** | 9 rodadas, **nenhum arquivo alterado**. Achou o defeito do anel (240 de 292 chegadas marcadas em movimento), as duas réguas (11 cargas), a divergência dupla da §4.3 e a bimodalidade do worker (cauda de 53, p50 9,2 h) |
-| agosto + setembro reprocessados 100% pelo robô (370 cargas) | **só no banco LOCAL** — §20.7 |
-| `manifesto_origem` | **276/276 cargas reais com chave** (§20.2); as 63 vazias sem chave estão corretas |
-| rota planejada (ORS) | **370/370** em agosto e setembro |
+| agosto + setembro reprocessados pelo robô | **local E produção**. Em produção o robô atemporal rodou contra o banco real e convergiu (§22.1); não houve transporte de dados |
+| `manifesto_origem` | **276/276 cargas reais com chave** (§20.2); as vazias sem chave estão corretas — 63 local, 109 em produção |
+| rota planejada (ORS) | **370/370** local. Em produção **faltam as 109 pernas vazias** — §22.3 |
 | camada de consolidação diária | **commitada** (`7de4860`) e no ar |
 | auditoria dos 324 mapas | **rodada em 07/09** — §14; achou 1 bug na sanidade geométrica (§14.4) |
 | auditoria de chegada/fechamento | **rodada em 07/09** — §15; o raio de 20 km no centroide acusa falso em metrópole |
@@ -40,9 +41,13 @@ local, defeitos de 272 para 181 cargas, incoerências temporais a zero) e a §19
 As medições foram feitas sobre agosto/2026 com dado real de produção — 433 mil posições
 GPS, 229 cargas, 2.281 CTes.
 
-> ⚠ **A ordem importa:** subir os dados de agosto **antes** de consertar o robô é limpar
-> com a torneira aberta — ele refaz os mesmos ~32 fechamentos errados por mês e remexe as
-> 12 cargas reabertas. Ver §13.3.
+> ✅ **A ordem foi respeitada:** o robô foi consertado primeiro, e só então a base de
+> produção foi rederivada — pelo próprio robô atemporal rodando lá dentro, sem transporte de
+> dados e sem a defasagem da base local. Ver §22.1.
+
+> ⏭ **O que falta e é de negócio:** a perna vazia mistura **reposicionamento** (horas) com
+> **lacuna sem carga** (dias — provável Carreteiro). Um terço do "km vazio" é a segunda
+> coisa. Separar as duas na tela é decisão do Gabriel — §22.4.
 
 O objetivo é ter dois modelos convivendo:
 
@@ -2768,3 +2773,240 @@ comporta como antes, entao a compatibilidade fica preservada para qualquer chama
 > passou a 28 km de Amparo sem parar). Consertar ali exigiria confiar numa saida que eu sei
 > estar errada. Dano de 1,06x a rota; fica como esta, e o mecanismo ja tem codigo proprio
 > no aferidor (`C7`).
+
+---
+
+## 22. PRODUÇÃO — o deploy de 09/09/2026 e o que ficou pela metade
+
+> **Leia isto primeiro se você está retomando.** Em 09/09/2026 o pacote de correções foi
+> para produção e **funcionou**: os fechamentos errados caíram 46% na gravidade alta e sete
+> classes de defeito foram a zero. Depois disso as **109 pernas vazias** foram criadas lá — e
+> a sessão acabou (limite de contexto) **antes de terminar o pipeline delas**. Produção está
+> **correta, porém inacabada**: as pernas existem sem rota traçada e sem rederivação, e por
+> isso a tela mostra "viagens" de 14 a 24 dias sem linha no mapa. Nada está corrompido; falta
+> rodar três comandos, e eles estão na §22.7.
+
+### 22.1 O placar da Fase C — medido em produção, não no laboratório
+
+Mesma régua de sempre (`_auditoria_geral.py`, janela 01/08 a 09/09), contra a linha de base
+tirada antes do deploy:
+
+```
+                              antes   depois
+achados                         510  ->  352      -31%
+cargas com achado          257 (89%)  -> 231 (80%)
+gravidade ALTA                   92  ->   50      -46%
+gravidade MEDIA                 209  ->   93      -55%
+gravidade BAIXA                 209  ->  209        0   (hardware; ninguem conserta por software)
+```
+
+Sete classes **zeradas**:
+
+```
+C3  chegou e a chegada nao foi gravada    47  ->  0
+C1  saiu e a saida nao foi gravada        21  ->  0
+T2  conclusao anterior a chegada          19  ->  0
+C6  chegada com o veiculo em MOVIMENTO    10  ->  0
+F4  chegou e nao fechou                    8  ->  0
+T3  conclusao anterior a saida             4  ->  0
+T5  velocidade implicita impossivel        1  ->  0
+
+F3  recorte da conclusao errado           71  -> 41
+F2  FECHADA CEDO                          23  ->  3
+```
+
+O **F2 caindo de 23 para 3 é a medida direta do estrago** que o `baixa_ctrb` e o `timeout`
+faziam — regras que produção rodava desde 02/09 e que o commit `76f07a3` (04/09) já havia
+removido do código sem nunca chegar à imagem no ar (§21.14). Vinte cargas estavam com
+conclusão anterior à chegada real, uma delas por **9,2 dias**.
+
+O **C7 subiu de 2 para 4, e isso não é regressão**: com as saídas corrigidas, a invariante
+enxerga dois casos que antes estavam encobertos por outro defeito.
+
+**Convergência em produção: 225 → 8 → 0 → 0.** As oito da segunda passada eram o bug do `or`
+(§22.2).
+
+Os motivos de fechamento como ficaram (a coluna é histórica — `baixa_ctrb` e
+`sequencia_viagem` **não existem mais no código**, então nenhum novo pode surgir):
+
+```
+gps_saiu_do_destino     83        (vazio)                43
+baixa_ctrb              68  <-h   gps_dwell_destino      14
+manifesto_novo          65        sequencia_viagem       10  <-h
+sem_prova_revisar        4        manifesto_novo_carreta  3
+```
+
+**O que sobra na gravidade alta não se move por GPS:** V1 (20 — placa rastreada nunca esteve
+na origem), F5 (8 — desengate lido como entrega, a família da C-2026-000677 da §21.20), C7
+(4), F2 (3), C2 (3), F1 (3), S1 (9 — cega, sem sensor). Isso é **documento errado** e
+**desengate**, e o conserto é a chave `EMBARQUES_MODELO_CARRETA` — a Fase D.
+
+### 22.2 Três coisas quebraram no deploy, e duas eram legíveis daqui
+
+O Gabriel avisou antes: *"eu queria subir pronto localmente, mas você teimou"*. Ele estava
+certo, e o registro fica aqui como regra de método.
+
+| o que quebrou | dava para achar local? |
+|---|---|
+| **a coluna `no_local_fonte` não existia em produção** | **SIM.** `_robo_atemporal.py:75` faz `SELECT c.no_local_fonte`, e **nenhum** dos scripts (`_robo_atemporal`, `_auditoria_geral`, `_rederivar_vazias`) chama `garantir_colunas`. Essa DDL só roda no `main()` do `embarques_auto.py` (linha 1174). Em qualquer base que ainda não tenha visto o robô diário do dia 09/09, o robô atemporal morre na primeira query. **Continua assim — ver §22.8, item 1.** |
+| **o traçador de rotas ignora a perna vazia** | **SIM.** `tracar_rotas_pendentes` filtra `status NOT IN ('Entregue','Cancelada')` e a perna nasce `'Entregue'`. Eu afirmei ao Gabriel que "o robô diário traça amanhã" — errado, e o código diz isso em uma linha. Corrigido no commit `1666047`. |
+| **o `or` da coerência temporal oscilava** | **NÃO.** Esse precisava da base suja: local já tinha sido limpa em tantas passadas que a combinação (sem chegada derivada + chegada gravada + conclusão documental anterior) não existia mais. Commit `4de2d8f`. Produção é o melhor teste — mas é o melhor teste **do que não dá para simular**, não desculpa para os outros dois. |
+
+> **Regra:** o pipeline inteiro roda local antes de subir — inclusive os scripts avulsos,
+> inclusive contra uma base que não foi limpa por eles. Subir e descobrir é caro porque cada
+> descoberta custa um ciclo de build+push+`service update` e um pedaço da atenção do Gabriel.
+
+### 22.3 As 109 pernas vazias — criadas em produção, e só isso
+
+Produção tinha **zero** cargas com `viagem_vazia = TRUE` (conferido antes de qualquer
+escrita): as pernas nunca tinham sido criadas lá, só na base local. Nenhum risco de
+duplicata, nenhum `C-` com `viagem_vazia` lançado à mão para atropelar.
+
+O gerador foi endurecido antes de rodar em produção (commit `b314989`):
+
+* janela cravada em agosto → `--desde` / `--ate`;
+* o `DELETE FROM embarques_cargas WHERE numero LIKE 'V-2026-%'` ficou **atrás de `--refazer`**.
+  Local era inofensivo (criar do zero); em produção destrói o `embarques_cargas_log` das
+  pernas e **troca o número** de cada uma, que é a identidade que o operacional vê na tela;
+* **guarda anti-duplicata**: sem `--refazer`, aborta se já houver perna na janela. Nada no
+  banco impede a duplicata — a chave única é `manifesto_origem`, e perna vazia não tem
+  manifesto (§20.2). Testado: com 63 pernas locais, abortou e não tocou em nada.
+
+O `numero C-{ano}-{id}` do lançamento manual (`server.py:5240`) garante que o prefixo `V-` é
+exclusivo do gerador — uma perna vazia lançada à mão teria `C-` e ficaria fora do alcance.
+
+**Resultado: 109 pernas** na janela 01/08 → 09/09 (a base local tinha 63, mas só de agosto).
+
+**O que NÃO foi feito nelas:**
+
+1. **rota ORS** — nasceram sem `origem_latitude` e sem polyline. Aparecem com `D1 — sem rota
+   planejada` no aferidor e **sem linha no mapa**;
+2. **rederivação** (`_rederivar_vazias.py`) — a janela da perna é derivada das cargas
+   vizinhas, e é o robô atemporal quem corrige essas âncoras. Sem rederivar, os eventos
+   convergiram sobre uma janela que não convergiu, e **as lacunas não recebem rótulo**;
+3. **convergência conjunta** (motor + pernas até os dois zerarem) — a variável `$CT` estava
+   velha e as três passadas não executaram nada (§22.5).
+
+### 22.4 A perna vazia mistura duas coisas — e é isso que parece "viagem bugada"
+
+O Gabriel olhou a tela e disse *"muita viagem bugada"*. Não é bug de gravação; é o que a
+perna vazia **é** hoje. Medido na base local (63 pernas, que já passaram por rederivação):
+
+```
+faixa de janela        n    km medio   km total
+a) < 24h              19        224       4.256
+b) 1-3 dias           20        494       9.880
+c) 3-7 dias            7        642       4.491
+d) > 7 dias           17        984      16.731   <- 27% das pernas, 47% do km
+```
+
+```
+pernas limpas (reposicionamento real)  47 pernas   23.599 km
+rotuladas LACUNA NAO DOCUMENTADA       16 pernas   11.760 km   (33% do km vazio)
+```
+
+A pior tem **24 dias para 422 km de rota**. Isso não é reposicionamento: é intervalo em que
+a carreta não teve carga nossa (provável Carreteiro), e o `_rederivar_vazias.py` **já sabe
+disso** — é ele quem carimba `LACUNA NAO DOCUMENTADA` na observação.
+
+> **Em produção esse carimbo não existe ainda**, porque a rederivação não rodou. Por isso a
+> tela mostra uma "viagem" de 24 dias, sem rota, sem cliente e sem explicação. Rodar o passo
+> 2 da §22.7 já muda a leitura da tela sem apagar nada.
+
+**Consequência para o número de negócio da §6:** o "km vazio" bruto **superestima**. O número
+que vale para prospecção de frete de retorno é o das **pernas limpas**; a lacuna não
+documentada é outro assunto (e provavelmente outra conversa comercial). Separar as duas na
+tela — filtro ou coluna — é decisão do Gabriel, não do robô.
+
+### 22.5 Armadilhas do dia
+
+* **`$CT` envelhece.** `docker service update --force` **recria o container** com id novo. Uma
+  variável guardada antes disso quebra com `Error response from daemon: container ... is not
+  running` — e num `for` isso é silencioso, porque o `grep GRAVADO` não acha nada e o laço
+  segue como se tivesse rodado. **Re-resolva o id imediatamente antes de cada bloco:**
+  `CT=$(docker ps -q --filter "name=rizza-auditoria")`.
+* **A perna nasce `'Entregue'`** — porque ela já aconteceu. Isso a tira do traçador do robô
+  diário (§22.2) e de qualquer varredura que filtre por carga ativa.
+* **O gerador não geocodifica.** Ele insere sem `origem_latitude`; quem preenche é o passo 1
+  do `_tracar_rotas_agosto.py`. Rodar a rederivação antes do traçador funciona, mas a perna
+  fica sem mapa até o traçador passar.
+* **O ORS tem dois limites e a mesma mensagem para os dois** (§12.12): 2,6 s entre chamadas e
+  backoff de 70/140/210 s no 403. ~119 rotas ≈ 6 minutos. **Não interrompa** ao ver 403.
+
+### 22.6 O estado exato de produção ao fim de 09/09/2026
+
+| item | estado |
+|---|---|
+| `git push origin main` | **feito** — `origin/main..main` vazio; HEAD é `1666047` |
+| imagem no ar | **CONFERIR.** O build/push/`service update` do `1666047` não foi confirmado antes do fim da sessão |
+| motor sem `baixa_ctrb` / `timeout` | **no ar** — provado pelo placar da §22.1 |
+| convergência do robô atemporal | **atingida** (8 → 0 → 0), *antes* de as pernas entrarem |
+| pernas vazias | **109 criadas**, sem rota, sem rederivação |
+| rotas ORS das pernas | **não traçadas** |
+| convergência conjunta (motor + pernas) | **nunca rodou** — `$CT` velho |
+| `EMBARQUES_AUTO_JANELA_DIAS` | ainda **1**; o default do código é 5 (§13.3) |
+| robô diário com o código novo | ainda não rodou. Em 09/09 quem escreveu foi o `Robo atemporal` (718 escritas, última 17:19). A primeira rodada do **diário** com o código novo é a das 16:30 de **10/09** |
+| coluna `no_local_fonte` | existe (criada pelo robô diário); os scripts continuam **sem** a DDL |
+
+### 22.7 A sequência para terminar (copiar e colar, na ordem)
+
+```bash
+# --- no servidor
+cd /opt/stacks/rizza-auditoria
+git pull origin main
+git log --oneline -1                     # tem de mostrar 1666047 fix(rotas)
+
+docker build -t ghcr.io/ggabrielmilho-web/rizza-auditoria:latest .
+docker push ghcr.io/ggabrielmilho-web/rizza-auditoria:latest
+docker service update --force rizza-auditoria_app
+
+# --- SEMPRE re-resolver o id DEPOIS do service update
+CT=$(docker ps -q --filter "name=rizza-auditoria")
+docker exec $CT ls embarques_regua.py                                          # imagem nova?
+docker exec $CT grep -c "encerrar(cur, cid, 'baixa_ctrb')" embarques_auto.py   # tem de dar 0
+
+# 1) tracar as rotas (~119 rotas x 2,6s = ~6 min; 403 = rajada, ele espera sozinho)
+docker exec $CT python -X utf8 _tracar_rotas_agosto.py \
+       --desde 2026-08-01 --ate 2026-09-09 2>&1 | tail -20
+
+# 2) rederivar as pernas — da janela coerente e carimba a LACUNA NAO DOCUMENTADA
+docker exec $CT python -X utf8 _rederivar_vazias.py \
+       --desde 2026-08-01 --ate 2026-09-09 --aplicar 2>&1 | tail -12
+
+# 3) convergencia CONJUNTA — os dois tem de zerar. Oscilou? e bug: pare e conserte.
+CT=$(docker ps -q --filter "name=rizza-auditoria")
+for i in 1 2 3; do
+  echo "--- passada $i"
+  docker exec $CT python -X utf8 _robo_atemporal.py   --desde 2026-08-01 --ate 2026-09-09 --csv /tmp/w$i.csv  --aplicar 2>&1 | grep GRAVADO
+  docker exec $CT python -X utf8 _rederivar_vazias.py --desde 2026-08-01 --ate 2026-09-09 --csv /tmp/wr$i.csv --aplicar 2>&1 | grep GRAVADO
+done
+
+# 4) a janela do robo diario: 1 -> 5 (§13.3). CUIDADO: mexer na env pelo Portainer faz o
+#    servico VOLTAR para a imagem antiga (armadilha de 21/08). Pela CLI:
+docker service update --env-add EMBARQUES_AUTO_JANELA_DIAS=5 rizza-auditoria_app
+
+# 5) o aferidor de novo — e a medicao que fecha o assunto das pernas
+CT=$(docker ps -q --filter "name=rizza-auditoria")
+docker exec $CT python -X utf8 _auditoria_geral.py --desde 2026-08-01 --ate 2026-09-09 2>&1 | head -28
+```
+
+**O que esperar no passo 5:** o `D1 — sem rota planejada` tem de voltar para perto de zero
+(era 10 antes das pernas; com 109 pernas sem rota ele explode e depois volta). As classes
+altas (V1, F5, S1) **não se movem** — elas dependem da Fase D.
+
+E em **10/09 depois das 16:30**, rodar o aferidor mais uma vez: é a primeira rodada do robô
+**diário** com o código novo, e ninguém viu ainda como ele abre e fecha.
+
+### 22.8 O que fica em aberto
+
+1. **A DDL nos scripts avulsos.** `_robo_atemporal.py` lê `no_local_fonte` sem garantir que a
+   coluna exista. Hoje funciona só porque o robô diário passou antes. O conserto é uma linha
+   (`from embarques_auto import garantir_colunas`, chamada logo após o `connect` com o
+   `commit`), mas é código que roda em produção — **precisa do "pode fazer" do Gabriel**.
+2. **Separar reposicionamento de lacuna na tela** (§22.4) — decisão de negócio: filtro,
+   coluna, ou tipo de operação próprio.
+3. **Fase D — `EMBARQUES_MODELO_CARRETA`.** É o que ataca os 20 V1 e os 8 F5, hoje **56% da
+   gravidade alta**. A chave está no ar em `FALSE`, com 4 gates e o bloco 0 do
+   `_testar_regras_fechamento.py` provando que nada dela executa.
+4. **As pernas fora de 01/08 → 09/09.** A janela usada é a janela auditada; ampliar é decisão
+   separada, e o gerador agora aceita qualquer uma.
