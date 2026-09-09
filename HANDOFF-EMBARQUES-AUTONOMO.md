@@ -2425,3 +2425,58 @@ _validar_carga_payload · _buscar_conflitos · POST /api/embarques/cargas · edi
 nenhum status novo: o unico literal que o diff acrescenta e a LEITURA de 'Aberta'
 os demais status devolvem aberta_situacao = None, e nenhum campo interno vaza no JSON
 ```
+
+### 21.19 A chegada passa a declarar a própria fonte (09/09/2026)
+
+Item 3.1, escopado pelo que estava **concretamente se perdendo**. A conclusao ja tinha
+`encerrada_motivo` e a saida ja tinha `saida_auto`; a chegada era o unico evento sem lastro
+declarado — o motor CALCULAVA a forca dela (`estrita`, `presumida_silencio`, `metropole`) e
+jogava fora, gravando so o instante. Tela, aferidor e a rodada seguinte tinham de re-derivar,
+cada um com a sua regua, o que e como as reguas divergem.
+
+Coluna nova `no_local_fonte` (DDL idempotente no `garantir_colunas`, como o resto), com o
+**mesmo vocabulario da `embarques_regua`** — uma linguagem so. Estado da base:
+
+```
+estrita              283      metropole             11
+estrita+velocidade     4      presumida_silencio     1      (sem fonte)  1
+```
+
+A unica sem fonte e a `C-2026-000632`: chegada gravada por producao que a regua atual **nao
+corrobora nem rejeita**. `NULL` ali significa "nao estabelecida por esta regua", que e a
+verdade — e agora da para perguntar isso ao banco em vez de adivinhar.
+
+A fonte tambem se atualiza **sem o instante mudar**: quando o backfill traz o ponto parado
+que faltava, a mesma chegada passa de `presumida_silencio` para `estrita`. Sem isso o campo
+congelaria na primeira gravacao.
+
+#### O bug que eu introduzi, e por que a base se curou sozinha
+
+Acrescentar a coluna ao `SELECT` **deslocou os indices posicionais** que montavam o indice de
+"proximo manifesto":
+
+```python
+if not r[16] and r[14]:                      # r[16] era viagem_vazia, r[14] era carreta1
+    prox[pl.mercosul(r[14])].append(...)     # viraram carreta2 e cavalo
+```
+
+O robo passou a parear manifesto **pela placa errada** e nao reclamou de nada — escreveu 316
+linhas assim. Indice posicional sobre `SELECT` que cresce e armadilha esperando o dia.
+Agora sao indices **nomeados**, com `assert` que quebra se o mapa e o `SELECT` divergirem.
+
+**A recuperacao foi de uma passada: 42 cargas corrigidas, depois zero.** E o desenho
+convergente pagando — o motor rederiva da fonte em vez de incrementar estado, entao escrita
+errada se conserta na rodada seguinte.
+
+> Mas convergencia sozinha **nao prova** que o estrago sumiu: se o bug preencheu um campo
+> VAZIO, o motor corrigido pode simplesmente nao mexer mais nele (o `if n_conc and not dconc`
+> nao dispara com `dconc` ja preenchido). O teste que fecha e direto, no log: *escritas do
+> lote bugado em campo vazio que o lote corretivo nao revisitou* — **zero**. Verificado, nao
+> inferido.
+
+#### Placar
+
+```
+aferidor:  181 cargas / 240 achados  ->  176 / 233      (F3  16 -> 9)
+15 de 15 testes · convergencia conjunta estavel · campo circulando ate a API
+```

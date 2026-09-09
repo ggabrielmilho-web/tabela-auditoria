@@ -549,6 +549,14 @@ def garantir_colunas(cur):
     cur.execute("ALTER TABLE embarques_cargas ADD COLUMN IF NOT EXISTS criada_por_robo BOOLEAN DEFAULT FALSE;")
     cur.execute("ALTER TABLE embarques_cargas ADD COLUMN IF NOT EXISTS auto_incompleta BOOLEAN DEFAULT FALSE;")
     cur.execute("ALTER TABLE embarques_cargas ADD COLUMN IF NOT EXISTS encerrada_motivo VARCHAR(30);")
+    # COMO a chegada foi estabelecida. Ate 09/09/26 essa informacao era CALCULADA e jogada
+    # fora: o motor sabia se a chegada veio de um ponto parado no raio, de um silencio depois
+    # de entrar nele, ou da tolerancia de metropole — e gravava so o instante. A tela, o
+    # aferidor e a proxima rodada do robo tinham de re-derivar, cada um do seu jeito, o que
+    # e como as reguas divergem. A conclusao ja tinha `encerrada_motivo` e a saida ja tinha
+    # `saida_auto`; a chegada era a unica sem lastro declarado.
+    # O vocabulario e o MESMO da `embarques_regua` — uma linguagem so.
+    cur.execute("ALTER TABLE embarques_cargas ADD COLUMN IF NOT EXISTS no_local_fonte VARCHAR(32);")
     cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_cargas_manifesto_origem "
                 "ON embarques_cargas (manifesto_origem) WHERE manifesto_origem IS NOT NULL;")
 

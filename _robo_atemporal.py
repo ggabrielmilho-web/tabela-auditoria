@@ -68,7 +68,7 @@ cur = cn.cursor()
 filtro = '' if A.tudo else 'AND COALESCE(c.criada_por_robo,FALSE)'
 cur.execute(f"""SELECT c.id,c.numero,c.status,c.encerrada_motivo,COALESCE(c.entregue_auto,FALSE),
                        COALESCE(c.saida_auto,FALSE),c.data_carregamento,c.data_saida_real,
-                       c.inicio_viagem,c.no_local_desde,c.data_conclusao,
+                       c.inicio_viagem,c.no_local_desde,c.data_conclusao,c.no_local_fonte,
                        c.origem_latitude,c.origem_longitude,c.cavalo_placa,c.carreta1_placa,
                        c.carreta2_placa,COALESCE(c.viagem_vazia,FALSE),
                        COALESCE(c.criada_por_robo,FALSE),c.distancia_planejada_km,
@@ -81,11 +81,26 @@ cur.execute(f"""SELECT c.id,c.numero,c.status,c.encerrada_motivo,COALESCE(c.entr
                  ORDER BY c.data_carregamento, c.id""", (A.desde, A.ate))
 CARGAS = cur.fetchall()
 
-# "manifesto novo da mesma carreta": 1 carga = 1 manifesto, entao a proxima carga da placa serve
+# "manifesto novo da mesma carreta": 1 carga = 1 manifesto, entao a proxima carga da placa serve.
+#
+# Os indices sao NOMEADOS de proposito. Eram posicionais (r[16], r[14]) e em 09/09/26
+# acrescentar uma coluna ao SELECT os deslocou em silencio: o `vazia` virou `carreta2` e a
+# `carreta1` virou `cavalo`, e o robo passou a parear manifesto pela placa errada sem
+# reclamar de nada. Indice posicional sobre SELECT que cresce e armadilha esperando o dia.
+_COL = {c: i for i, c in enumerate(
+    ('id', 'numero', 'status', 'encerrada_motivo', 'entregue_auto', 'saida_auto',
+     'data_carregamento', 'data_saida_real', 'inicio_viagem', 'no_local_desde',
+     'data_conclusao', 'no_local_fonte', 'origem_latitude', 'origem_longitude',
+     'cavalo_placa', 'carreta1_placa', 'carreta2_placa', 'viagem_vazia',
+     'criada_por_robo', 'distancia_planejada_km', 'dest_lat', 'dest_lng', 'dest_cidade'))}
+assert len(_COL) == len(CARGAS[0]), (
+    'o SELECT e o mapa de colunas divergiram: %d x %d' % (len(_COL), len(CARGAS[0])))
+
 prox = defaultdict(list)
 for r in CARGAS:
-    if not r[16] and r[14]:
-        prox[pl.mercosul(r[14])].append((r[6], r[1], r[0]))
+    if not r[_COL['viagem_vazia']] and r[_COL['carreta1_placa']]:
+        prox[pl.mercosul(r[_COL['carreta1_placa']])].append(
+            (r[_COL['data_carregamento']], r[_COL['numero']], r[_COL['id']]))
 for k in prox:
     prox[k].sort()
 
@@ -103,7 +118,7 @@ def serie(placa, ini, fim):
 mudancas, resumo, detalhe = [], Counter(), []
 
 for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal, dconc,
-     ola, oln, cav, c1, c2, vazia, robo, dist_plan, dla, dln, dcid) in CARGAS:
+     nolocal_fonte, ola, oln, cav, c1, c2, vazia, robo, dist_plan, dla, dln, dcid) in CARGAS:
 
     ini = datetime.combine(dcarg, _time()) - timedelta(hours=12)
     fim = min(HOJE, datetime.combine(dcarg, _time()) + timedelta(days=JANELA_FUTURO_D))
@@ -280,18 +295,23 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
         # 24 min antes — e a coerencia, estrita, corrigia a cada passada. Tolerar na escrita
         # e ser estrito na conferencia nunca converge.
         campos['no_local_desde'] = n_cheg
+        # A FONTE viaja com o instante. Gravar um sem o outro e o que obrigava aferidor e
+        # tela a re-derivar a forca da afirmacao, cada um com a sua regua.
+        campos['no_local_fonte'] = (como_cheg or '')[:32] or None
     elif nolocal and d_dst and ((piso and nolocal < piso) or (teto and nolocal > teto)):
         # A chegada guardada esta FORA da janela possivel da viagem (antes de sair, ou depois
         # de a carreta ja ter partido em outra). Nao e questao de o robo nao ter visto: e
         # impossivel. Apagar fecha o princípio de fonte unica — sem isso a regra de coerencia
         # segue comparando com um valor que o proprio robo ja rejeitou, e oscila.
         campos['no_local_desde'] = None
+        campos['no_local_fonte'] = None
         resumo['chegada guardada fora da janela da viagem (apagada)'] += 1
     elif nolocal and como_cheg == 'passou_sem_parar':
         # PROVA POSITIVA de nao-chegada: esteve no raio, nunca parou, e seguiu viagem. Isso
         # nao e silencio — e evidencia contraria, e a fonte unica manda apagar. Se a carga
         # estiver 'Entregue', o bloco acima ja a marcou 'sem_prova_revisar' para o humano.
         campos['no_local_desde'] = None
+        campos['no_local_fonte'] = None
         resumo['passou por perto sem parar — chegada apagada'] += 1
     if n_conc and not dconc:
         campos['data_conclusao'] = n_conc
@@ -344,7 +364,15 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
     if ref_cheg and ref_saida and ref_cheg < ref_saida:
         # nao ha chegada valida antes da saida: descarta a chegada em vez de mentir
         campos['no_local_desde'] = None
+        campos['no_local_fonte'] = None
         resumo['coerencia: chegada anterior a saida (descartada)'] += 1
+    # A fonte pode mudar SEM o instante mudar: a regua reclassificou a mesma chegada (de
+    # 'presumida_silencio' para 'estrita', por exemplo, quando o backfill trouxe o ponto
+    # parado que faltava). Sem esta linha o campo congelaria na primeira gravacao.
+    if n_cheg and 'no_local_fonte' not in campos:
+        _f = (como_cheg or '')[:32] or None
+        if _f != nolocal_fonte:
+            campos['no_local_fonte'] = _f
     if n_status != status:
         campos['status'] = n_status
     if n_motivo and not motivo:
@@ -417,10 +445,11 @@ if not A.aplicar:
 n = 0
 for cid, num, campos, sensor, como in mudancas:
     cur.execute("""SELECT status,data_saida_real,inicio_viagem,no_local_desde,data_conclusao,
-                          encerrada_motivo,saida_auto,entregue_auto
+                          encerrada_motivo,saida_auto,entregue_auto,no_local_fonte
                      FROM embarques_cargas WHERE id=%s""", (cid,))
     antes = dict(zip(['status', 'data_saida_real', 'inicio_viagem', 'no_local_desde',
-                      'data_conclusao', 'encerrada_motivo', 'saida_auto', 'entregue_auto'],
+                      'data_conclusao', 'encerrada_motivo', 'saida_auto', 'entregue_auto',
+                      'no_local_fonte'],
                      cur.fetchone()))
     sets = ', '.join(f'{k}=%s' for k in campos)
     cur.execute(f"UPDATE embarques_cargas SET {sets}, atualizado_em=NOW() WHERE id=%s",

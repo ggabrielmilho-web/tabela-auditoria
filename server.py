@@ -5350,7 +5350,7 @@ def api_embarques_cargas_list():
                c.data_carregamento, c.previsao_entrega, c.data_conclusao,
                c.observacoes,
                c.criado_em, c.criado_por_id, c.criado_por_nome, c.atualizado_em,
-               c.no_local_desde, c.saida_auto, c.entregue_auto, c.data_saida_real,
+               c.no_local_desde, c.no_local_fonte, c.saida_auto, c.entregue_auto, c.data_saida_real,
                c.distancia_planejada_km, c.duracao_estimada_min,
                c.desengatada_em, c.descarga_motorista_nome, c.descarga_cavalo_placa,
                -- Compara pela grafia NORMALIZADA (`_pn`), não por igualdade exata: a

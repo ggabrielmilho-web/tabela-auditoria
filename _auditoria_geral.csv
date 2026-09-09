@@ -60,10 +60,7 @@ C-2026-000429;S3;baixa;cavalo tem 16754 pontos contra 2993 da carreta — sensor
 C-2026-000433;F1d;media;ENTREGA NAO PROVADA (encerramento tem lastro): aproximacao maxima do destino 5 km, mas a carreta saiu em manifesto novo;motivo=gps_carreta · destino=Anápolis · proxima=C-2026-000451
 C-2026-000435;S2;baixa;buraco de sinal de 105 h no rastreio (carreta1);
 C-2026-000435;S3;baixa;cavalo tem 14498 pontos contra 95 da carreta — sensor mais pobre em uso;carreta1=HMV3D38
-C-2026-000435;F3;media;RECORTE ERRADO: fechou 2026-08-19 23:45, 24 h longe do instante com lastro (chegada+24h);chegada=2026-08-19 23:45
 C-2026-000436;S3;baixa;cavalo tem 8239 pontos contra 2250 da carreta — sensor mais pobre em uso;carreta1=QXH6I52
-C-2026-000436;F3;media;RECORTE ERRADO: fechou 2026-08-19 20:28, 21 h longe do instante com lastro (saida do destino);chegada=2026-08-19 20:28
-C-2026-000437;F3;media;RECORTE ERRADO: fechou 2026-08-20 04:57, 24 h longe do instante com lastro (chegada+24h);chegada=2026-08-20 04:57
 C-2026-000440;S2;baixa;buraco de sinal de 24 h no rastreio (carreta1);
 C-2026-000441;S3;baixa;cavalo tem 7053 pontos contra 896 da carreta — sensor mais pobre em uso;carreta1=TZC9G24
 C-2026-000443;S2;baixa;buraco de sinal de 35 h no rastreio (carreta1);
@@ -180,7 +177,6 @@ C-2026-000578;F1d;media;ENTREGA NAO PROVADA (encerramento tem lastro): aproximac
 C-2026-000582;S1;alta;CEGA: nenhuma placa da carga transmitiu no periodo;cavalo=HJZ0B89 carreta=HKE0E20
 C-2026-000584;S2;baixa;buraco de sinal de 68 h no rastreio (cavalo);
 V-2026-000011;S2;baixa;buraco de sinal de 43 h no rastreio (carreta1);
-C-2026-000588;F3;media;RECORTE ERRADO: fechou 2026-08-31 04:52, 24 h longe do instante com lastro (chegada+24h);chegada=2026-08-31 04:52
 C-2026-000589;S3;baixa;cavalo tem 3502 pontos contra 1129 da carreta — sensor mais pobre em uso;carreta1=TCE7I47
 C-2026-000592;S3;baixa;cavalo tem 3057 pontos contra 795 da carreta — sensor mais pobre em uso;carreta1=HNH1D02
 C-2026-000595;F1d;media;ENTREGA NAO PROVADA (encerramento tem lastro): aproximacao maxima do destino 233 km, mas a carreta saiu em manifesto novo;motivo=manifesto_novo_sem_gps · destino=Hidrolândia · proxima=C-2026-000679
@@ -197,8 +193,6 @@ C-2026-000606;V1;alta;a placa rastreada NUNCA esteve na origem (96 km no minimo)
 V-2026-000021;F1d;media;ENTREGA NAO PROVADA (encerramento tem lastro): aproximacao maxima do destino 0 km, mas a carreta saiu em manifesto novo;motivo=reposicionamento · destino=Uberlândia · proxima=C-2026-000633
 V-2026-000033;S2;baixa;buraco de sinal de 53 h no rastreio (carreta1);
 C-2026-000609;F5;alta;ENTREGUE mas a carreta nunca chegou (234 km) e so o CAVALO pegou carga nova — e desengate, nao entrega;proxima do cavalo=C-2026-000646
-C-2026-000610;F3;media;RECORTE ERRADO: fechou 2026-09-03 02:46, 24 h longe do instante com lastro (chegada+24h);chegada=2026-09-03 02:46
-C-2026-000611;F3;media;RECORTE ERRADO: fechou 2026-09-04 05:06, 24 h longe do instante com lastro (chegada+24h);chegada=2026-09-04 05:06
 C-2026-000615;V1;alta;a placa rastreada NUNCA esteve na origem (292 km no minimo) — nem carreta nem cavalo estiveram na origem;origem=Uberlândia
 C-2026-000615;F1d;media;ENTREGA NAO PROVADA (encerramento tem lastro): aproximacao maxima do destino 57 km, mas a carreta saiu em manifesto novo;motivo=manifesto_novo_sem_gps · destino=Brasília · proxima=C-2026-000646
 C-2026-000618;S2;baixa;buraco de sinal de 53 h no rastreio (carreta1);
@@ -207,7 +201,6 @@ C-2026-000621;S3;baixa;cavalo tem 3358 pontos contra 997 da carreta — sensor m
 C-2026-000622;S2;baixa;buraco de sinal de 68 h no rastreio (cavalo);
 C-2026-000628;V1;alta;a placa rastreada NUNCA esteve na origem (93 km no minimo) — nem carreta nem cavalo estiveram na origem;origem=Seropédica
 C-2026-000628;F1d;media;ENTREGA NAO PROVADA (encerramento tem lastro): aproximacao maxima do destino 332 km, mas a carreta saiu em manifesto novo;motivo=manifesto_novo_sem_gps · destino=Uberlândia · proxima=C-2026-000676
-C-2026-000630;F3;media;RECORTE ERRADO: fechou 2026-09-03 02:22, 24 h longe do instante com lastro (chegada+24h);chegada=2026-09-03 02:22
 C-2026-000632;S3;baixa;cavalo tem 5321 pontos contra 2 da carreta — sensor mais pobre em uso;carreta1=HMV3D38
 C-2026-000632;C5;baixa;saida digitada a mao, sem lastro no GPS (nao e defeito do motor);
 C-2026-000632;C4;media;carga ativa ha 7 dias e a placa nunca saiu da origem;
