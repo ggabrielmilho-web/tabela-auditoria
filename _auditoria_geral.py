@@ -145,7 +145,11 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
     # for impossivel para um caminhao, um dos dois instantes esta errado. Pega o que nenhuma
     # regra geometrica pega: a C-2026-000642 tinha saida 13:41 e chegada 14:01 para 94 km
     # de rota — 282 km/h. Nao ha caminhao assim, entao a viagem nao e essa.
-    if dsaida and nolocal and nolocal > dsaida and dist_plan:
+    # T5 nao se aplica a PERNA VAZIA: a "saida" dela e a conclusao da carga A — um limite
+    # herdado, nao um evento do veiculo. A carreta pode ter ficado parada dias antes de
+    # partir, e ai a velocidade implicita nao descreve viagem nenhuma. A pergunta certa para
+    # a perna e outra (P1, abaixo).
+    if dsaida and nolocal and nolocal > dsaida and dist_plan and not vazia:
         _h = (nolocal - dsaida).total_seconds() / 3600.0
         if _h > 0:
             _v = float(dist_plan) / _h
@@ -279,6 +283,19 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
                     f'instante de borda de raio, nao de chegada',
                     f'gravada={str(nolocal)[:16]} · ponto={str(_d)[:16]}')
 
+    # ── P1: a PERNA descreve deslocamento?
+    #
+    # A perna vazia so existe se a carreta saiu de um lugar e foi para outro. Quando ela JA
+    # ESTAVA no destino no inicio da janela, nao ha reposicionamento: ha uma carreta parada
+    # esperando a proxima carga, e a "perna" e efeito cascata de um fechamento errado da
+    # carga anterior (secao 16.3). A secao 17.4 tinha achado 9 casos assim olhando mapa a
+    # mapa; aqui e uma linha.
+    if vazia and cheg and dsaida and (cheg - dsaida).total_seconds() / 3600.0 < 1.0:
+        add(num, 'P1', 'media',
+            f'PERNA SEM DESLOCAMENTO: a carreta ja estava no destino quando a janela abriu '
+            f'({str(dsaida)[:16]}) — nao ha reposicionamento a medir',
+            f'destino={dcid} · rota={float(dist_plan or 0):.0f} km')
+
     # ── FECHAMENTO
     if status in ('Entregue', 'Cancelada') and dconc:
         conc = dconc if isinstance(dconc, datetime) else datetime.combine(dconc, _time())
@@ -315,9 +332,14 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
                 if erro > TOL_H:
                     ref = 'saida do destino' if saiu_dst and abs((conc-saiu_dst).total_seconds()/3600) == erro \
                           else f'chegada+{DWELL_H:.0f}h'
-                    add(num, 'F3', 'media',
-                        f'RECORTE ERRADO: fechou {str(conc)[:16]}, {erro:.0f} h longe do '
-                        f'instante com lastro ({ref})', f'chegada={str(cheg)[:16]}')
+                    # ...menos na PERNA VAZIA, onde a conclusao E a saida da carga B por
+                    # definicao. A carreta chega ao ponto de recarga e ESPERA — a V-2026-000017
+                    # esperou 23 dias — e isso nao e recorte errado, e o significado do campo.
+                    # Medir perna com regua de carga fabricou 7 achados de uma vez em 09/09/26.
+                    if not vazia:
+                        add(num, 'F3', 'media',
+                            f'RECORTE ERRADO: fechou {str(conc)[:16]}, {erro:.0f} h longe do '
+                            f'instante com lastro ({ref})', f'chegada={str(cheg)[:16]}')
     elif ativo and cheg:
         # A permanencia se mede contra a ULTIMA OBSERVACAO, nao contra o relogio de parede.
         # O motor so fecha por DWELL_H quando existem DWELL_H de serie depois da chegada —
@@ -351,7 +373,8 @@ NOMES = {
     'T5': 'velocidade implicita impossivel', 'T1': 'chegada anterior a saida', 'T2': 'conclusao anterior a chegada',
     'T3': 'conclusao anterior a saida (zera o km na tela)', 'T4': 'conclusao anterior ao carregamento',
     'C5': 'saida digitada a mao, sem lastro',
-    'C6': 'chegada gravada com o veiculo EM MOVIMENTO (borda de raio)', 'D1': 'sem rota planejada', 'D2': 'sem manifesto_origem', 'D3': 'destino sem coordenada',
+    'C6': 'chegada gravada com o veiculo EM MOVIMENTO (borda de raio)',
+    'P1': 'perna vazia sem deslocamento (a carreta ja estava la)', 'D1': 'sem rota planejada', 'D2': 'sem manifesto_origem', 'D3': 'destino sem coordenada',
 }
 print(f'AUDITORIA GERAL — {len(CARGAS)} cargas entre {A.desde} e {A.ate}')
 print(f'{cargas_com} cargas com pelo menos um achado ({cargas_com/max(1,len(CARGAS))*100:.0f}%) · '

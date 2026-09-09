@@ -42,8 +42,7 @@ V-2026-000051;S2;baixa;buraco de sinal de 302 h no rastreio (carreta1);
 V-2026-000053;F1;alta;FECHADA SEM PROVA: aproximacao maxima do destino 13 km;motivo=reposicionamento · destino=Juiz de Fora
 C-2026-000400;S2;baixa;buraco de sinal de 165 h no rastreio (carreta1);
 V-2026-000013;S2;baixa;buraco de sinal de 53 h no rastreio (carreta1);
-V-2026-000005;S3;baixa;cavalo tem 21975 pontos contra 3936 da carreta — sensor mais pobre em uso;carreta1=HIG4A80
-V-2026-000008;F3;media;RECORTE ERRADO: fechou 2026-08-18 08:44, 24 h longe do instante com lastro (chegada+24h);chegada=2026-08-18 08:44
+V-2026-000005;S3;baixa;cavalo tem 22019 pontos contra 3904 da carreta — sensor mais pobre em uso;carreta1=HIG4A80
 V-2026-000027;S2;baixa;buraco de sinal de 49 h no rastreio (carreta1);
 C-2026-000075;S1;alta;CEGA: nenhuma placa da carga transmitiu no periodo;cavalo=HOA0B56 carreta=GSV8C03
 C-2026-000080;S2;baixa;buraco de sinal de 112 h no rastreio (carreta1);
@@ -78,7 +77,6 @@ C-2026-000450;S2;baixa;buraco de sinal de 68 h no rastreio (cavalo);
 C-2026-000451;S3;baixa;cavalo tem 20294 pontos contra 1162 da carreta — sensor mais pobre em uso;carreta1=QXH6J44
 C-2026-000452;S3;baixa;cavalo tem 18340 pontos contra 2721 da carreta — sensor mais pobre em uso;carreta1=TCE7I47
 V-2026-000012;S3;baixa;cavalo tem 14730 pontos contra 1222 da carreta — sensor mais pobre em uso;carreta1=HKE0D75
-V-2026-000061;T5;alta;velocidade impossivel: 2816 km em 9.1 h = 311 km/h — saida ou chegada esta errada;
 V-2026-000061;S3;baixa;cavalo tem 7053 pontos contra 896 da carreta — sensor mais pobre em uso;carreta1=TZC9G24
 V-2026-000061;V1;alta;a placa rastreada NUNCA esteve na origem (786 km no minimo) — nem carreta nem cavalo estiveram na origem;origem=Arujá
 C-2026-000453;S3;baixa;cavalo tem 7273 pontos contra 1698 da carreta — sensor mais pobre em uso;carreta1=TCX3D71
@@ -100,13 +98,13 @@ C-2026-000470;S2;baixa;buraco de sinal de 35 h no rastreio (carreta1);
 C-2026-000473;S2;baixa;buraco de sinal de 196 h no rastreio (carreta1);
 C-2026-000473;F1;alta;FECHADA SEM PROVA: aproximacao maxima do destino 87 km;motivo=transbordo_udi · destino=Uberaba
 C-2026-000475;S3;baixa;cavalo tem 16596 pontos contra 2384 da carreta — sensor mais pobre em uso;carreta1=TCE7I47
+V-2026-000009;P1;media;PERNA SEM DESLOCAMENTO: a carreta ja estava no destino quando a janela abriu (2026-08-21 08:31) — nao ha reposicionamento a medir;destino=Monte Mor · rota=66 km
 V-2026-000016;S2;baixa;buraco de sinal de 112 h no rastreio (carreta1);
-V-2026-000018;F3;media;RECORTE ERRADO: fechou 2026-08-22 11:41, 15 h longe do instante com lastro (saida do destino);chegada=2026-08-22 11:41
 V-2026-000019;F1;alta;FECHADA SEM PROVA: aproximacao maxima do destino 0 km;motivo=reposicionamento · destino=Uberlândia
 V-2026-000022;S2;baixa;buraco de sinal de 196 h no rastreio (carreta1);
 V-2026-000022;V1;alta;a placa rastreada NUNCA esteve na origem (72 km no minimo) — nem carreta nem cavalo estiveram na origem;origem=Guarulhos
 V-2026-000028;S2;baixa;buraco de sinal de 35 h no rastreio (carreta1);
-V-2026-000036;S3;baixa;cavalo tem 7154 pontos contra 1990 da carreta — sensor mais pobre em uso;carreta1=QXH6I52
+V-2026-000028;P1;media;PERNA SEM DESLOCAMENTO: a carreta ja estava no destino quando a janela abriu (2026-08-21 14:07) — nao ha reposicionamento a medir;destino=Jarinu · rota=165 km
 C-2026-000478;S3;baixa;cavalo tem 6393 pontos contra 1407 da carreta — sensor mais pobre em uso;carreta1=TCX3D71
 C-2026-000481;S3;baixa;cavalo tem 17679 pontos contra 1120 da carreta — sensor mais pobre em uso;carreta1=TYN8I98
 C-2026-000481;F1;alta;FECHADA SEM PROVA: aproximacao maxima do destino 7 km;motivo=gps_carreta · destino=Japeri
@@ -119,12 +117,16 @@ V-2026-000015;S3;baixa;cavalo tem 11964 pontos contra 65 da carreta — sensor m
 V-2026-000015;F1;alta;FECHADA SEM PROVA: aproximacao maxima do destino 6 km;motivo=reposicionamento · destino=Cordeirópolis
 V-2026-000025;S2;baixa;buraco de sinal de 29 h no rastreio (carreta1);
 V-2026-000025;V1;alta;a placa rastreada NUNCA esteve na origem (118 km no minimo) — nem carreta nem cavalo estiveram na origem;origem=Extrema
+V-2026-000025;P1;media;PERNA SEM DESLOCAMENTO: a carreta ja estava no destino quando a janela abriu (2026-08-22 00:00) — nao ha reposicionamento a medir;destino=Cordeirópolis · rota=173 km
+V-2026-000030;P1;media;PERNA SEM DESLOCAMENTO: a carreta ja estava no destino quando a janela abriu (2026-08-22 10:50) — nao ha reposicionamento a medir;destino=Amparo · rota=76 km
 C-2026-000493;S1;alta;CEGA: nenhuma placa da carga transmitiu no periodo;cavalo=HDI9E22 carreta=HOA0E67
 C-2026-000494;F3;media;RECORTE ERRADO: fechou 2026-08-28 00:00, 12 h longe do instante com lastro (chegada+24h);chegada=2026-08-26 11:36
 C-2026-000495;F1;alta;FECHADA SEM PROVA: aproximacao maxima do destino 58 km;motivo=transbordo_udi · destino=Ribeirão Pires
 C-2026-000498;S2;baixa;buraco de sinal de 41 h no rastreio (carreta1);
 C-2026-000500;S2;baixa;buraco de sinal de 35 h no rastreio (carreta1);
 C-2026-000505;S1;alta;CEGA: nenhuma placa da carga transmitiu no periodo;cavalo=HJZ0B89 carreta=HKE0E20
+V-2026-000036;S3;baixa;cavalo tem 6494 pontos contra 1892 da carreta — sensor mais pobre em uso;carreta1=QXH6I52
+V-2026-000058;P1;media;PERNA SEM DESLOCAMENTO: a carreta ja estava no destino quando a janela abriu (2026-08-24 05:26) — nao ha reposicionamento a medir;destino=Resende · rota=152 km
 C-2026-000507;V1;alta;a placa rastreada NUNCA esteve na origem (146 km no minimo) — nem carreta nem cavalo estiveram na origem;origem=Uberlândia
 C-2026-000507;F3;media;RECORTE ERRADO: fechou 2026-08-28 00:27, 24 h longe do instante com lastro (chegada+24h);chegada=2026-08-28 00:27
 C-2026-000513;S3;baixa;cavalo tem 6241 pontos contra 1859 da carreta — sensor mais pobre em uso;carreta1=QXH6I52
@@ -140,7 +142,6 @@ C-2026-000530;S1;alta;CEGA: nenhuma placa da carga transmitiu no periodo;cavalo=
 C-2026-000532;S2;baixa;buraco de sinal de 35 h no rastreio (carreta1);
 C-2026-000533;S2;baixa;buraco de sinal de 112 h no rastreio (carreta1);
 C-2026-000534;S3;baixa;cavalo tem 5763 pontos contra 1764 da carreta — sensor mais pobre em uso;carreta1=QXH6I52
-V-2026-000035;V1;alta;a placa rastreada NUNCA esteve na origem (187 km no minimo) — nem carreta nem cavalo estiveram na origem;origem=Brasília
 V-2026-000037;S3;baixa;cavalo tem 5763 pontos contra 1764 da carreta — sensor mais pobre em uso;carreta1=QXH6I52
 V-2026-000050;S3;baixa;cavalo tem 9580 pontos contra 817 da carreta — sensor mais pobre em uso;carreta1=TYN8I98
 V-2026-000060;S3;baixa;cavalo tem 9461 pontos contra 1566 da carreta — sensor mais pobre em uso;carreta1=TZC0I44
@@ -160,10 +161,8 @@ C-2026-000551;S2;baixa;buraco de sinal de 68 h no rastreio (cavalo);
 V-2026-000014;S2;baixa;buraco de sinal de 41 h no rastreio (carreta1);
 V-2026-000014;S3;baixa;cavalo tem 1964 pontos contra 382 da carreta — sensor mais pobre em uso;carreta1=HMV3H14
 V-2026-000014;F1;alta;FECHADA SEM PROVA: aproximacao maxima do destino 291 km;motivo=reposicionamento · destino=Nerópolis
-V-2026-000020;V1;alta;a placa rastreada NUNCA esteve na origem (281 km no minimo) — nem carreta nem cavalo estiveram na origem;origem=Teresina
 V-2026-000029;S2;baixa;buraco de sinal de 35 h no rastreio (carreta1);
 V-2026-000040;S3;baixa;cavalo tem 11345 pontos contra 1508 da carreta — sensor mais pobre em uso;carreta1=TCE7I47
-V-2026-000040;F3;media;RECORTE ERRADO: fechou 2026-08-28 01:02, 24 h longe do instante com lastro (saida do destino);chegada=2026-08-28 01:02
 C-2026-000552;C4;media;carga ativa ha 12 dias e a placa nunca saiu da origem;
 C-2026-000553;S3;baixa;cavalo tem 8030 pontos contra 1307 da carreta — sensor mais pobre em uso;carreta1=TZC0I44
 C-2026-000559;F1;alta;FECHADA SEM PROVA: aproximacao maxima do destino 4 km;motivo=sequencia_viagem · destino=Goiânia

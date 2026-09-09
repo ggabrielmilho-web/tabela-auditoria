@@ -405,9 +405,16 @@ FEIRA DE SANTANA/BA → MONTES CLAROS/MG       5×   3.617 km
 
 1. **Transbordo vira status próprio?** São 6% das cargas, com endereço conhecido e causa
    operacional real (armazém de Uberlândia). Hoje é lido como erro.
-2. **Carreteiro entra no robô?** 196 manifestos em agosto, com carreta Rizza rastreada e
-   nenhuma carga aberta — é boa parte dos 36% de km de carreta sem dono atribuído.
-   Decisão de negócio: a carreta em Carreteiro é viagem nossa ou locação de ativo?
+2. ~~**Carreteiro entra no robô?**~~ **DECIDIDO em 09/09/2026 (Gabriel): NÃO — fora de
+   escopo.** Carreteiro carrega uma vez ou outra; o modelo autônomo é para **Frota e
+   Agregado**, e é assim que o código já está (`EMBARQUES_AUTO_TIPOS=Frota,Agregado`,
+   com Terceiro fora por design). Os 196 manifestos e a fatia dos 36% de km de carreta
+   sem dono **não são lacuna a fechar** — são volume que o modelo não persegue.
+
+   Consequência para o desenho: o "balde de período não documentado" do ladrilhamento
+   perde a pergunta que o justificava. Ele continua útil como **rótulo** ("este buraco na
+   linha do tempo da carreta é provavelmente Carreteiro, ignore"), nunca como métrica a
+   ser reduzida.
 3. **A carga deve carregar todos os destinos do manifesto?** Para os 12 manifestos de
    distribuição (16 a 27 cidades) um destino só não tem significado. "Chegou ao destino"
    viraria "entregou N de M".
@@ -2202,3 +2209,90 @@ Vale registrar porque parece regressao e nao e:
   na borda do anel que ela tinha antes.
 * a **C-2026-000500 passou de 57,6 para 47,0 km**, pela exigencia de parada sustentada. Nao
   chegou a ficar certa, mas o instante agora tem lastro de parada, nao de travessia.
+
+### 21.16 A perna vazia entra na convergência — e o escritor duplo que eu criei (09/09/2026)
+
+Item 3.5 do plano: a janela da perna vazia nao converge junto com as cargas. Ela e derivada
+inteiramente das vizinhas —
+
+```
+inicio = data_conclusao da carga A       fim = data_saida_real da carga B
+```
+
+— e essas duas ancoras sao exatamente o que o robo atemporal corrige a cada passada. Os
+EVENTOS da perna convergiam sobre uma JANELA que nao convergia, o que e pior do que estar
+fora do circuito: a perna passa pelo robo e *parece* auditada.
+
+Ferramenta nova: **`_rederivar_vazias.py`**, que atualiza a janela **no lugar**, com log. Nao
+e o `_regerar_vazias_agosto.py` — aquele faz DELETE + INSERT, apagaria o
+`embarques_cargas_log` das 63 pernas e trocaria a identidade (o `V-`) de cada uma. Serve para
+criar do zero, nao para reconciliar.
+
+**Resultado:** 32 pernas rederivadas, 27 ja coerentes, **4 com par sobreposto** (a carga B
+partiu antes de a A concluir — problema NAS CARGAS, e a perna fica contestada em vez de
+maquiada com janela artificial).
+
+#### O escritor duplo, e como ele apareceu
+
+Ao rodar motor e rederivacao em sequencia, os dois **oscilaram: 13 e 13, toda passada.**
+
+```
+passada 1:  motor=13   rederivacao=13
+passada 2:  motor=13   rederivacao=13
+passada 3:  motor=13   rederivacao=13
+```
+
+O motor derivava `data_conclusao` da perna pelo GPS; a rederivacao a escrevia de volta pelas
+vizinhas; e assim para sempre. **Oscilacao e bug, nao convergencia** (secao 20.6) — e o bug
+era meu: eu tinha acabado de criar um segundo escritor para o mesmo campo, que e literalmente
+o defeito que a secao 21.2 diagnosticou no par worker/robo.
+
+A regra que resolve sai do primeiro principio: **a perna vazia nao tem evento proprio.** A
+janela dela e, por definicao, o intervalo entre o fim da carga A e o inicio da carga B — e
+por isso o dono e a rederivacao. O motor so apura o que acontece DENTRO dela (chegada,
+status). Com o dono declarado, a convergencia conjunta passou a ser imediata e estavel em 3
+rodadas.
+
+> **Um campo, um dono.** Vale para worker × robo (21.2) e vale aqui. Foi a terceira vez neste
+> projeto que dois escritores do mesmo campo produziram oscilacao, e a primeira em que o
+> segundo escritor fui eu.
+
+#### Regua de carga nao mede perna
+
+Com as janelas verdadeiras a vista, o aferidor passou a acusar **7 achados novos de uma vez**
+— e estava errado, porque aplicava regras de carga a pernas:
+
+* **`F3` (recorte da conclusao errado)** espera conclusao = "saiu do destino" ou
+  "chegada + 24 h". Mas a conclusao de uma perna E a saida da carga B, por definicao: a
+  carreta chega ao ponto de recarga e **espera**. A `V-2026-000017` esperou 23 dias. Nao e
+  recorte errado, e o significado do campo.
+* **`T5` (velocidade impossivel)** dava "165 km em 0,0 h" quando a carreta **ja estava** no
+  destino da perna no inicio da janela. Informacao real, mensagem errada.
+
+Os dois passam a exemplar `vazia`, e a perna ganha a invariante que ela precisa:
+
+**`P1` — PERNA SEM DESLOCAMENTO.** A perna so existe se a carreta saiu de um lugar e foi para
+outro; quando ela ja estava no destino quando a janela abriu, nao ha reposicionamento — ha
+carreta parada esperando carga, e a "perna" e efeito cascata de um fechamento errado da carga
+anterior (secao 16.3). **Dispara em 5 pernas.** A secao 17.4 tinha achado essa mesma classe
+(9 casos) abrindo mapa a mapa; aqui e uma linha de aferidor.
+
+#### Lacuna nao documentada — rotulo, nao metrica
+
+A trava de plausibilidade da secao 12.5 (que ja existia para o km) passou a valer para a
+**janela**: se o intervalo nao cabe na distancia, aquilo nao e perna, e um buraco com
+conteudo desconhecido dentro. O caso-tipo e a `V-2026-000035` (Brasilia -> Uberlandia), cujas
+ancoras de hoje dizem **22 dias** contra os 15 h que ela tinha gravados.
+
+**16 das 63 pernas** sao assim, e todas levam rotulo em `observacoes` para a tela nao desenhar
+22 dias de reposicionamento como se fosse viagem. Pela decisao da secao 8 nº 2 esses buracos
+sao Carreteiro e estao **fora de escopo**: o rotulo existe para explicar, nao para virar meta.
+
+#### Placar
+
+```
+aferidor:  180 cargas / 238 achados  ->  179 / 235
+           V1  22 -> 18   (janela rederivada consertou 4 "nunca esteve na origem")
+           F3  19 -> 16   ·  T5  1 -> 0  ·  C6  1 -> 0  ·  P1  0 -> 5 (nova)
+15 de 15 testes passam · convergencia conjunta motor+pernas estavel em 3 rodadas
+```

@@ -314,6 +314,23 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
     if n_motivo and not motivo:
         campos['encerrada_motivo'] = n_motivo
 
+    # ── DONO DA JANELA. A perna vazia NAO tem evento proprio: a janela dela e, por
+    # definicao, o intervalo entre o fim da carga A e o inicio da carga B da mesma carreta.
+    # Quem a deriva e o `_rederivar_vazias.py`; o motor so apura o que acontece DENTRO dela
+    # (chegada, status).
+    #
+    # Sem esta regra os dois viram escritores do mesmo campo e oscilam para sempre: medido em
+    # 09/09/26, motor e rederivacao trocavam as MESMAS 13 pernas a cada passada, uma
+    # desfazendo a outra. Oscilacao e bug, nao convergencia (secao 20.6) — e desta vez o bug
+    # foi criar um segundo escritor, que e exatamente o defeito que a secao 21.2 diagnosticou
+    # no par worker/robo. Um campo, um dono.
+    if vazia:
+        for _k in ('data_saida_real', 'inicio_viagem', 'data_conclusao', 'data_carregamento',
+                   'saida_auto', 'entregue_auto'):
+            if _k in campos:
+                del campos[_k]
+                resumo['vazia: janela e da rederivacao, nao do motor'] += 1
+
     if campos:
         mudancas.append((cid, num, campos, sensor, como_cheg))
         for k in campos:
