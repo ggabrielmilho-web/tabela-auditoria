@@ -1,12 +1,13 @@
 # Handoff — Painel de Embarques autônomo
 
-**Estado em 09/09/2026 (fim do dia) — ⚠ COMECE PELA §22.** O pacote foi para **produção** e
-funcionou: gravidade alta de 92 para 50, sete classes de defeito a zero, convergência
-225 → 8 → 0 → 0. Em seguida as **109 pernas vazias** foram criadas lá, e a sessão acabou
-**antes de terminar o pipeline delas**. Produção está **correta, porém inacabada** — as
-pernas não têm rota traçada nem rederivação, e por isso a tela mostra "viagens" de 14 a 24
-dias sem linha no mapa. Nada corrompido. A §22.7 tem os comandos que fecham isso, e a §22.6
-o estado item a item.
+**Estado em 10/09/2026 — ⚠ COMECE PELA §22.** O pacote está em **produção** e o pipeline
+**fechou**: gravidade alta de 92 para 50, sete classes de defeito a zero, as **110 pernas
+vazias** criadas, geocodificadas e com rota, e a convergência conjunta atingida — pernas
+24 → 0 → 0 e motor 26 → 0 → 0. É a primeira vez que produção converge com as pernas dentro
+da base. A §22.9 conta o que fechou o ciclo e os dois erros que custaram uma rodada cada
+(rederivar antes de traçar; aplicar sem conferir que a imagem tinha o conserto). O que
+continua aberto está na §22.8, e a estreia do robô **diário** com o código novo é a rodada
+das 16:30 de 10/09.
 
 **Antes disso:** a §21 (nove rodadas de adjudicação — o defeito do anel, as duas réguas, os
 consertos das Fases 1 e 2) e a §20 (a 3S voltou; agosto e setembro reprocessados na base
@@ -2856,7 +2857,7 @@ certo, e o registro fica aqui como regra de método.
 > inclusive contra uma base que não foi limpa por eles. Subir e descobrir é caro porque cada
 > descoberta custa um ciclo de build+push+`service update` e um pedaço da atenção do Gabriel.
 
-### 22.3 As 109 pernas vazias — criadas em produção, e só isso
+### 22.3 As 110 pernas vazias em produção
 
 Produção tinha **zero** cargas com `viagem_vazia = TRUE` (conferido antes de qualquer
 escrita): as pernas nunca tinham sido criadas lá, só na base local. Nenhum risco de
@@ -2875,17 +2876,18 @@ O gerador foi endurecido antes de rodar em produção (commit `b314989`):
 O `numero C-{ano}-{id}` do lançamento manual (`server.py:5240`) garante que o prefixo `V-` é
 exclusivo do gerador — uma perna vazia lançada à mão teria `C-` e ficaria fora do alcance.
 
-**Resultado: 109 pernas** na janela 01/08 → 09/09 (a base local tinha 63, mas só de agosto).
+**Resultado: 110 pernas** na janela 01/08 → 09/09 (a base local tinha 63, mas só de agosto).
 
-**O que NÃO foi feito nelas:**
+> ⚠ **Correção — o que eu escrevi aqui de manhã estava errado em três pontos.** Eu montei
+> esta seção a partir da conversa, e o banco de produção contou outra história quando foi
+> consultado (§22.9): o traçador **já tinha rodado** (108 das 110 com rota, 110
+> geocodificadas) e a rederivação **já tinha sido aplicada** às 17:27, com 24 escritas. O que
+> de fato faltava era a **convergência conjunta** — essa sim nunca rodou, porque a variável
+> `$CT` estava velha e as três passadas não executaram nada (§22.5). **Lição:** o estado de
+> produção se lê no banco, não na transcrição da sessão.
 
-1. **rota ORS** — nasceram sem `origem_latitude` e sem polyline. Aparecem com `D1 — sem rota
-   planejada` no aferidor e **sem linha no mapa**;
-2. **rederivação** (`_rederivar_vazias.py`) — a janela da perna é derivada das cargas
-   vizinhas, e é o robô atemporal quem corrige essas âncoras. Sem rederivar, os eventos
-   convergiram sobre uma janela que não convergiu, e **as lacunas não recebem rótulo**;
-3. **convergência conjunta** (motor + pernas até os dois zerarem) — a variável `$CT` estava
-   velha e as três passadas não executaram nada (§22.5).
+**O que faltava nelas, de verdade:** a convergência conjunta — e, escondido atrás dela, o
+defeito do rótulo (§22.9), que só apareceu quando os números foram conferidos um a um.
 
 ### 22.4 A perna vazia mistura duas coisas — e é isso que parece "viagem bugada"
 
@@ -2933,22 +2935,22 @@ tela — filtro ou coluna — é decisão do Gabriel, não do robô.
 * **O ORS tem dois limites e a mesma mensagem para os dois** (§12.12): 2,6 s entre chamadas e
   backoff de 70/140/210 s no 403. ~119 rotas ≈ 6 minutos. **Não interrompa** ao ver 403.
 
-### 22.6 O estado exato de produção ao fim de 09/09/2026
+### 22.6 O estado exato de produção (atualizado em 10/09/2026)
 
 | item | estado |
 |---|---|
 | `git push origin main` | **feito** — `origin/main..main` vazio; HEAD é `1666047` |
-| imagem no ar | **CONFERIR.** O build/push/`service update` do `1666047` não foi confirmado antes do fim da sessão |
+| imagem no ar | `46818ab` — conferida DENTRO do container, não presumida (§22.9) |
 | motor sem `baixa_ctrb` / `timeout` | **no ar** — provado pelo placar da §22.1 |
 | convergência do robô atemporal | **atingida** (8 → 0 → 0), *antes* de as pernas entrarem |
-| pernas vazias | **109 criadas**, sem rota, sem rederivação |
-| rotas ORS das pernas | **não traçadas** |
-| convergência conjunta (motor + pernas) | **nunca rodou** — `$CT` velho |
-| `EMBARQUES_AUTO_JANELA_DIAS` | ainda **1**; o default do código é 5 (§13.3) |
+| pernas vazias | **110 criadas** (`V-2026-000001` a `V-2026-000110`) |
+| rotas ORS das pernas | **110/110 traçadas** — 108 em 09/09, as 2 últimas em 10/09 |
+| convergência conjunta (motor + pernas) | ✅ **fechada em 10/09**: pernas 24 → 0 → 0, motor 26 → 0 → 0 |
+| `EMBARQUES_AUTO_JANELA_DIAS` | **já estava 5** — a §13.3 dizia "hoje está 1" e estava desatualizada |
 | robô diário com o código novo | ainda não rodou. Em 09/09 quem escreveu foi o `Robo atemporal` (718 escritas, última 17:19). A primeira rodada do **diário** com o código novo é a das 16:30 de **10/09** |
 | coluna `no_local_fonte` | existe (criada pelo robô diário); os scripts continuam **sem** a DDL |
 
-### 22.7 A sequência para terminar (copiar e colar, na ordem)
+### 22.7 A sequência que fechou o pipeline (executada em 10/09 — fica como receita)
 
 ```bash
 # --- no servidor
@@ -3010,3 +3012,103 @@ E em **10/09 depois das 16:30**, rodar o aferidor mais uma vez: é a primeira ro
    `_testar_regras_fechamento.py` provando que nada dela executa.
 4. **As pernas fora de 01/08 → 09/09.** A janela usada é a janela auditada; ampliar é decisão
    separada, e o gerador agora aceita qualquer uma.
+
+### 22.9 O fecho do pipeline — e o rótulo que só sabia empilhar (09-10/09/2026)
+
+O que faltava era rodar a convergência conjunta. Ao conferir os números antes de gravar,
+apareceu um defeito que estava a **um `--aplicar` de estragar 18 pernas**.
+
+#### O estado real, lido no banco
+
+A primeira coisa foi consultar produção em vez de confiar na transcrição:
+
+```
+vazias = 110  (V-2026-000001 a V-2026-000110)  | ja com LACUNA = 24
+com rota = 108 | geocodificadas = 110 | vazias que nao sao V-: nenhuma
+quem ja escreveu nas pernas:  Robo atemporal 206 · Rederivacao de vazias 24  (ultimo 17:27)
+```
+
+Ou seja: o traçador e a rederivação **já tinham rodado** em 09/09. A §22.3 dizia o contrário
+e foi corrigida. **O estado de produção se lê no banco.**
+
+#### O defeito: o rótulo só sabia ser acrescentado
+
+```python
+if rot not in (obs or ''):
+    campos['observacoes'] = ((obs + ' | ') if obs else '') + rot
+```
+
+Dois furos na mesma linha, e os dois vieram à tona no mesmo dia:
+
+1. **o texto embute os números** (`{horas/24:.1f} dias para {dist:.0f} km`). Qualquer mudança
+   no número gera um rótulo *diferente*, o `not in` deixa passar, e a perna termina com dois
+   rótulos contraditórios grudados;
+2. **rótulo nunca saía.** A régua da lacuna divide a janela pela distância da rota —
+   `cabivel = dist/600*24 + 24` — e com `dist` nulo ela desaba para 24 h, ficando **3x mais
+   severa**.
+
+E o `dist` estava nulo porque **eu mandei rederivar antes de traçar**. Ordem errada, minha:
+
+> **Traçar vem antes de rederivar.** A rota não é enfeite do mapa: ela é o denominador da
+> régua de plausibilidade. Rederivar sem rota é julgar com um critério três vezes mais duro.
+
+A medição, perna a perna, das 24 rotuladas:
+
+```
+20 ainda valiam pela regua de hoje   |  4 eram rotulo VELHO (V-20, V-42, V-105, V-108)
+mas so 2 tinham o texto EXATO que o script escreveria agora
+-> aplicar como estava poria um SEGUNDO rotulo em 18 pernas
+```
+
+#### O conserto (`46818ab`)
+
+O script passou a **desmontar e remontar** a observação: split por `' | '`, descarta todo
+trecho que comece com `LACUNA NAO DOCUMENTADA`, e recompõe com o rótulo de hoje **se** ainda
+for lacuna. Split em vez de corte no fim do texto porque hoje o rótulo é o último trecho, mas
+nada garante que continue sendo.
+
+Isso devolve a **convergência**, que é a regra do modelo (§5): rodar duas vezes dá zero.
+
+Testado na base local nos três caminhos, antes de subir:
+
+```
+nao-regressao          59 coerentes / 16 rotuladas / 4 sobrepostas, 0 gravacoes
+rotulo velho           detectado, retirado, observacao voltou BYTE A BYTE ao original
+numeros desatualizados substituido — a perna ficou com UM rotulo, com o km da rota atual
+convergencia           a passada seguinte deu 0 nas tres vezes
+```
+
+#### O erro que custou uma rodada: aplicar sem conferir a imagem
+
+Com o conserto commitado, eu mandei aplicar em produção. Resultado:
+
+```
+pernas rotuladas: 24 | com rotulo dobrado: 20
+```
+
+**Exatamente o estrago que o conserto existia para evitar** — porque o container ainda rodava
+a imagem anterior. O sinal estava na própria saída e eu não olhei: o contador
+`rotulo VELHO retirado` **não apareceu em nenhuma passada**, e ele só existe no código novo.
+
+> É a §21.14 se repetindo, e agora vira regra dura: **antes de rodar um script que depende de
+> um conserto, prove que o conserto está DENTRO do container** —
+> `docker exec $CT grep -c "<trecho novo>" <arquivo>` tem de dar 1. O `docker service update`
+> não é prova; a linha nova dentro do container é.
+
+O dano foi só em `observacoes` e o próprio conserto o desfez: com a imagem certa, a passada
+seguinte gravou **24 pernas** (os 20 pares colapsados em um rótulo + as 4 velhas limpas) e
+zerou.
+
+#### O estado final, medido
+
+```
+pernas vazias                 110   |  com rota   110/110
+rotuladas como lacuna          20   |  dobradas   0
+rederivacao (3 passadas)   24 -> 0 -> 0
+robo atemporal (3 passadas) 0 ->  0 -> 0     (tinha zerado 26 -> 0 -> 0 na rodada anterior)
+EMBARQUES_AUTO_JANELA_DIAS      5   |  EMBARQUES_MODELO_CARRETA ausente = false
+```
+
+**Produção convergida, pela primeira vez com as pernas vazias dentro da base.** O que sobra
+está na §22.8, e a estreia do robô **diário** com o código novo é a rodada das 16:30 de
+10/09 — ninguém viu ainda como ele abre e fecha.
