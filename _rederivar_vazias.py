@@ -160,13 +160,33 @@ for pid, num, car, dcar, dsai, iviag, dconc, org, dst, dist, obs in PERNAS:
         campos['data_carregamento'] = ini.date()
     if dconc != fim:
         campos['data_conclusao'] = fim
+    # O ROTULO E SUBSTITUIDO, NUNCA EMPILHADO (conserto de 09/09/26, medido em producao).
+    # A versao anterior so sabia ACRESCENTAR, e com `rot not in obs` como unica guarda. Isso
+    # tem dois defeitos, e os dois apareceram no mesmo dia:
+    #
+    #   1) o texto embute os dias e o km, entao qualquer mudanca no numero gera um rotulo
+    #      DIFERENTE e o `not in` deixa passar: a perna termina com dois rotulos contraditorios
+    #      grudados. Em producao, 18 das 20 pernas implausiveis estavam a um `--aplicar` disso;
+    #   2) rotulo nao saia nunca. A regua divide a janela pela DISTANCIA DA ROTA, e em producao
+    #      a rederivacao rodou ANTES do tracado — com `dist` nulo o `cabivel` desaba para 24 h e
+    #      o criterio fica 3x mais severo. Quatro pernas (V-20, V-42, V-105, V-108) ficaram
+    #      carimbadas de lacuna e deixaram de ser assim que a rota entrou.
+    #
+    # Limpar e recompor faz a rederivacao voltar a ser CONVERGENTE, que e a regra do modelo:
+    # rodar duas vezes tem de dar zero alteracoes (secao 5). Split por ' | ' em vez de corte no
+    # fim do texto porque o rotulo hoje e o ultimo trecho, mas nada garante que continue sendo.
+    partes = [t for t in (obs or '').split(' | ') if not t.startswith('LACUNA NAO DOCUMENTADA')]
+    tinha_rotulo = 'LACUNA NAO DOCUMENTADA' in (obs or '')
     if implausivel:
-        rot = (f'LACUNA NAO DOCUMENTADA: {horas/24:.1f} dias para {float(dist or 0):.0f} km '
-               f'de rota — nao e reposicionamento, e intervalo sem carga (provavel Carreteiro, '
-               f'fora do escopo do robo)')
-        if rot not in (obs or ''):
-            campos['observacoes'] = ((obs + ' | ') if obs else '') + rot
+        partes.append(f'LACUNA NAO DOCUMENTADA: {horas/24:.1f} dias para {float(dist or 0):.0f} km '
+                      f'de rota — nao e reposicionamento, e intervalo sem carga (provavel '
+                      f'Carreteiro, fora do escopo do robo)')
         resumo['LACUNA nao documentada (rotulada, fora de escopo)'] += 1
+    obs_nova = ' | '.join(partes)
+    if obs_nova != (obs or ''):
+        campos['observacoes'] = obs_nova or None
+        if tinha_rotulo and not implausivel:
+            resumo['rotulo VELHO retirado (a rota entrou e a janela virou plausivel)'] += 1
     if not campos:
         resumo['ja estava coerente'] += 1
         continue
