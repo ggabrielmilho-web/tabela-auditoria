@@ -212,11 +212,33 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
             if (ultima - n_cheg).total_seconds()/3600 >= DWELL_H:
                 n_conc, n_motivo = n_cheg + timedelta(hours=DWELL_H), 'gps_dwell_destino'
 
-    # ── manifesto novo da MESMA CARRETA encerra a anterior — so COM prova de chegada
-    if n_cheg and not n_conc and c1:
+    # ── manifesto novo da MESMA CARRETA encerra a anterior
+    #
+    # Ate 09/09/26 esta regra exigia `n_cheg` — prova de chegada por GPS. O efeito colateral
+    # so aparece no apagao: sem feed, o motor fechava ZERO, enquanto o `fechar_pendentes` do
+    # branch continuava fechando por documento. A secao 19.2 e literal sobre qual dos dois e
+    # o comportamento desejado: *"o robo tem de seguir com as regras antigas, que decidem por
+    # documento"*. Promover o motor a escritor unico sem isto seria regressao de robustez, e
+    # apagao ja aconteceu uma vez (secao 19).
+    #
+    # E nao fere a regra de ouro: manifesto novo NAO E SILENCIO, e evento documental
+    # positivo. Uma carreta carregada nao fica em dois lugares — quando ela sai de novo, a
+    # viagem anterior acabou.
+    #
+    # O que muda e a FORCA da afirmacao, e ela passa a ser declarada no motivo (secao 4.2:
+    # encerramento e entrega sao eventos diferentes):
+    #
+    #   manifesto_novo_carreta   a viagem acabou E o GPS provou a chegada ao destino
+    #   manifesto_novo_sem_gps   a viagem acabou (documento), a ENTREGA nao esta provada
+    #
+    # Medido em ago+set: 38 das 39 cargas que o aferidor marca "fechada sem prova" (F1) tem
+    # manifesto novo da mesma carreta. Elas nao deixam de ser entregas nao provadas — mas
+    # deixam de ser encerramentos inexplicados, que sao coisas diferentes.
+    if not n_conc and c1:
         seg = [(dt, nm) for dt, nm, i in prox.get(pl.mercosul(c1), []) if dt > dcarg and i != cid]
         if seg:
-            n_conc, n_motivo = datetime.combine(seg[0][0], _time()), 'manifesto_novo_carreta'
+            n_conc = datetime.combine(seg[0][0], _time())
+            n_motivo = 'manifesto_novo_carreta' if n_cheg else 'manifesto_novo_sem_gps'
 
     # O manifesto nao tem hora, entao a data do seguinte vira 00:00 e pode cair ANTES da
     # chegada do mesmo dia. A viagem nao termina antes de chegar: o piso da conclusao e a
@@ -273,10 +295,24 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
         resumo['passou por perto sem parar — chegada apagada'] += 1
     if n_conc and not dconc:
         campos['data_conclusao'] = n_conc
-        campos['entregue_auto'] = True
+        # `entregue_auto` significa ENTREGA PROVADA PELO GPS, e nao "o robo fechou". A
+        # convencao e do `embarques_auto.encerrar`: *"fica em 'Entregue' com
+        # entregue_auto=FALSE e encerrada_motivo != 'gps' [...] a coluna de motivo impede que
+        # fechamento por regra se confunda com entrega provada por GPS"* — ate a confirmacao
+        # manual da tela grava FALSE. Fechamento documental nao prova entrega nenhuma; marcar
+        # TRUE ali publicaria como entrega verificada o que e so fim de viagem.
+        campos['entregue_auto'] = bool(n_motivo and n_motivo.startswith('gps'))
     elif n_conc and dconc:
         erro_h = abs((dconc - n_conc).total_seconds())/3600
-        if erro_h > 24:                                  # recorte errado: corrige o instante
+        # NAO REBAIXA PRECISAO. O manifesto nao tem hora (secao 18.1), entao a conclusao
+        # documental e sempre 00:00 — precisao de DIA. Sobrescrever com ela um instante que
+        # tem hora troca uma base melhor por uma resolucao pior, e foi assim que nasceram as
+        # 37 conclusoes em meia-noite da secao 15.2. Medido: sem esta guarda, a regra
+        # documental de 09/09/26 criaria 23 meia-noites novas de uma vez.
+        # A discordancia nao some — ela vira achado do aferidor (F3), que e onde deve estar.
+        _dia = n_motivo in ('manifesto_novo_sem_gps', 'manifesto_novo_carreta')
+        _tem_hora = dconc.time() != _time()
+        if erro_h > 24 and not (_dia and _tem_hora):     # recorte errado: corrige o instante
             campos['data_conclusao'] = n_conc
 
     # ── COERENCIA TEMPORAL: saida <= chegada <= conclusao. Nao e refinamento, e o que

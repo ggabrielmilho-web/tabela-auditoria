@@ -144,9 +144,19 @@ checa('C-2026-000617 volta a fechar pela reanalise', (st, mot in ('gps_saiu_do_d
 # porque o WORKER exige ver a placa na origem no instante certo, e o robo nao tem esse limite.
 # Teste que mede um proxy falha quando o proxy melhora. Agora ele afirma o que protege:
 # a carga NAO pode ter sido encerrada.
+#
+# Segunda correcao, no mesmo dia: o teste MONTA a propria pre-condicao, como o da C-617 ja
+# fazia. Antes ele lia o estado ambiente do banco, e por isso quebrou de novo quando o motor
+# passou a fechar por documento (`manifesto_novo_sem_gps`) — que e outro componente, com
+# outra regra, e nao e o que este teste protege. Teste que depende de estado ambiente mede o
+# vizinho; este aqui abre a carga, roda a reanalise e afirma sobre ELA.
+cur.execute("""UPDATE embarques_cargas SET status='Em rota', data_conclusao=NULL,
+                      encerrada_motivo=NULL, entregue_auto=FALSE
+                WHERE numero='C-2026-000603'""")
+ea.reanalisar_pendentes(cur)
 cur.execute("SELECT status, data_conclusao FROM embarques_cargas WHERE numero='C-2026-000603'")
 _st, _conc = cur.fetchone()
-checa('C-2026-000603 (nunca chegou) NAO foi encerrada',
+checa('C-2026-000603 (nunca chegou) a reanalise NAO fecha',
       (_st not in ('Entregue', 'Cancelada'), _conc is None), (True, True))
 conn.rollback()
 

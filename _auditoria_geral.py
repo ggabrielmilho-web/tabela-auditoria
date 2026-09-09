@@ -311,9 +311,24 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
                     f'ENTREGUE mas a carreta nunca chegou ({mind:.0f} km) e so o CAVALO pegou carga nova '
                     f'— e desengate, nao entrega', f'proxima do cavalo={depois[0]}')
             else:
-                add(num, 'F1', 'alta',
-                    f'FECHADA SEM PROVA: aproximacao maxima do destino {mind:.0f} km',
-                    f'motivo={motivo or "(perdido no import)"} · destino={dcid}')
+                # ENCERRAMENTO e ENTREGA sao eventos diferentes (secao 4.2), e ate 09/09/26
+                # o F1 misturava os dois num balde so. Manifesto novo da MESMA carreta prova
+                # que a VIAGEM acabou — uma carreta carregada nao fica em dois lugares — mas
+                # nao prova entrega nenhuma. Sao 38 das 39 cargas do F1 antigo: elas nao
+                # deixam de ser entregas nao provadas, mas deixam de ser encerramentos
+                # inexplicados, que e outra coisa e leva a outra acao.
+                _doc = [n for dt_, n in prox_carreta.get(pl.mercosul(c1 or ''), []) if dt_ > dcarg]
+                if _doc:
+                    add(num, 'F1d', 'media',
+                        f'ENTREGA NAO PROVADA (encerramento tem lastro): aproximacao maxima '
+                        f'do destino {mind:.0f} km, mas a carreta saiu em manifesto novo',
+                        f'motivo={motivo or "(perdido no import)"} · destino={dcid} · '
+                        f'proxima={_doc[0]}')
+                else:
+                    add(num, 'F1', 'alta',
+                        f'FECHADA SEM PROVA NENHUMA: aproximacao maxima do destino '
+                        f'{mind:.0f} km e a carreta nao saiu em manifesto novo',
+                        f'motivo={motivo or "(perdido no import)"} · destino={dcid}')
         else:
             atraso = (cheg - conc).total_seconds() / 3600
             if atraso > TOL_H:
@@ -367,7 +382,8 @@ NOMES = {
     'V1': 'placa rastreada nunca esteve na origem',
     'C1': 'saiu e a saida nao foi gravada', 'C2': 'saida gravada sem lastro no GPS',
     'C3': 'chegou e a chegada nao foi gravada', 'C4': 'ativa ha dias sem sair da origem',
-    'F1': 'FECHADA SEM PROVA de chegada', 'F2': 'FECHADA CEDO (chegou depois)',
+    'F1': 'FECHADA SEM PROVA NENHUMA (nem GPS nem manifesto novo)',
+    'F1d': 'entrega nao provada, mas encerramento tem lastro documental', 'F2': 'FECHADA CEDO (chegou depois)',
     'F3': 'recorte da conclusao errado', 'F4': 'chegou e nao fechou',
     'F5': 'entrega que era DESENGATE', 'F6': 'aberta alem do horizonte',
     'T5': 'velocidade implicita impossivel', 'T1': 'chegada anterior a saida', 'T2': 'conclusao anterior a chegada',

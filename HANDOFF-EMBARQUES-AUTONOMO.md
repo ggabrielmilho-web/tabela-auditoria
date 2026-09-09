@@ -2296,3 +2296,85 @@ aferidor:  180 cargas / 238 achados  ->  179 / 235
            F3  19 -> 16   ·  T5  1 -> 0  ·  C6  1 -> 0  ·  P1  0 -> 5 (nova)
 15 de 15 testes passam · convergencia conjunta motor+pernas estavel em 3 rodadas
 ```
+
+### 21.17 Fechamento documental no motor — e a separação entre encerrar e entregar (09/09/2026)
+
+Item 3.2, a pre-condicao do escritor unico. O motor exigia `n_cheg` — prova de chegada por
+GPS — para fechar pelo manifesto novo. O efeito so aparece no apagao: sem feed o motor fecha
+**zero**, enquanto o `fechar_pendentes` do branch continua fechando por documento. A secao
+19.2 e literal sobre qual e o comportamento desejado: *"o robo tem de seguir com as regras
+antigas, que decidem por documento"*.
+
+E nao fere a regra de ouro: **manifesto novo nao e silencio, e evento documental positivo.**
+Uma carreta carregada nao fica em dois lugares — quando ela sai de novo, a viagem anterior
+acabou.
+
+O que muda e a FORCA da afirmacao, e ela passa a ser **declarada no motivo**:
+
+```
+manifesto_novo_carreta   a viagem acabou E o GPS provou a chegada ao destino
+manifesto_novo_sem_gps   a viagem acabou (documento); a ENTREGA nao esta provada
+```
+
+**Efeito medido: 5 cargas** que ficariam abertas para sempre passam a fechar — 3 `Em rota` e
+2 `Aberta`. Nenhuma carga ja fechada foi tocada, pelo motivo abaixo.
+
+#### Dois consertos que a medicao obrigou, antes de aplicar
+
+**1. Nao rebaixar precisao.** Na primeira versao a regra mexeria em **28** cargas, e 23 delas
+so para reescrever a `data_conclusao` para **meia-noite** — porque o manifesto nao tem hora
+(secao 18.1). Isso trocaria um instante com hora por uma resolucao de dia, que e exatamente
+como nasceram as 37 conclusoes em 00:00 da secao 15.2. A guarda: a conclusao documental so
+grava quando **nao ha** conclusao; ela nunca sobrescreve um instante que tem hora. A
+discordancia nao some — vira achado do aferidor, que e onde deve estar.
+
+**2. `entregue_auto` significa ENTREGA PROVADA, nao "o robo fechou".** O motor marcava `TRUE`
+incondicionalmente. A convencao e do `embarques_auto.encerrar`: *"fica em 'Entregue' com
+entregue_auto=FALSE e encerrada_motivo != 'gps' [...] a coluna de motivo impede que
+fechamento por regra se confunda com entrega provada por GPS"* — ate a confirmacao manual da
+tela grava FALSE. Fechamento documental nao prova entrega nenhuma; marcar TRUE publicaria
+como entrega verificada o que e so fim de viagem. Agora e `TRUE` so quando o motivo comeca
+com `gps`.
+
+#### O `F1` era um balde com duas coisas dentro
+
+A secao 4.2 separa **encerramento** (manifesto: a viagem acabou) de **entrega** (GPS/CTe: a
+mercadoria chegou). O aferidor nao separava: tudo caia em `F1 — FECHADA SEM PROVA`. Medido:
+**38 das 39** cargas do `F1` antigo tinham manifesto novo da mesma carreta.
+
+Elas nao deixam de ser entregas nao provadas — mas deixam de ser encerramentos inexplicados,
+que e outra coisa e leva a outra acao. Entao o codigo se divide:
+
+```
+F1    fechada SEM PROVA NENHUMA — nem GPS, nem manifesto novo          gravidade alta
+F1d   entrega nao provada, mas o ENCERRAMENTO tem lastro documental    gravidade media
+```
+
+Resultado:
+
+```
+F1   39 -> 1        F1d  0 -> 43
+```
+
+O unico `F1` puro que sobra e a `C-2026-000662`: fechada com `sem_prova_revisar`, destino
+Santa Izabel do Para, **aproximacao maxima de 1.726 km**. E o caso em que o sistema tem de
+dizer "nao sei" e chamar um humano — e agora ele diz isso sozinho, em vez de esconder o caso
+no meio de 43 outros.
+
+#### Um teste corrigido pela segunda vez no mesmo dia
+
+O caso "C-2026-000603 nao foi encerrada" quebrou de novo — desta vez porque o motor passou a
+fecha-la por documento, que e **outro componente com outra regra**, e nao e o que aquele teste
+protege. Ele lia o estado ambiente do banco. Agora **monta a propria pre-condicao** (abre a
+carga, roda a reanalise, afirma sobre ela), como o teste vizinho da C-617 ja fazia.
+
+> Teste que depende de estado ambiente mede o vizinho. Foi a segunda quebra do mesmo teste em
+> um dia, e as duas foram legitimas — o vizinho tinha melhorado.
+
+#### Placar
+
+```
+aferidor:  179 cargas / 235 achados  ->  181 / 240
+           F1  39 -> 1   ·   F1d  0 -> 43   (o +5 sao as cargas recem-fechadas por documento)
+15 de 15 testes · convergencia conjunta estavel em 3 rodadas
+```
