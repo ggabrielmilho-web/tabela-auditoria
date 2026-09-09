@@ -444,7 +444,14 @@ def _consolidar_kpi(cur, carga_id, final=False):
     # Recorta o trecho PRÉ-origem (caminhão rodando antes do lançamento)
     if rows and origem_lat is not None and origem_lng is not None:
         coords = [(float(la), float(ln)) for (la, ln, _v, _d) in rows]
-        idx = geocoding.indice_saida_origem(coords, float(origem_lat), float(origem_lng))
+        # MESMA regua do mapa (server.py): velocidade, instante e o teto da saida. Se o KPI
+        # gravado aqui usar uma ancora e a tela outra, os dois numeros divergem para sempre —
+        # e foi essa a licao que custou o placar F1 oscilando 13 -> 32 -> 17 -> 38.
+        idx = geocoding.indice_saida_origem(
+            coords, float(origem_lat), float(origem_lng),
+            velocidades=[_v for (_la, _ln, _v, _d) in rows],
+            instantes=[_d for (_la, _ln, _v, _d) in rows],
+            ate=(data_saida_real or inicio_viagem))
         rows = rows[idx:]
 
     # ── FALLBACK: chegada NÃO detectada (no_local_desde nulo). Aí a janela por data vai

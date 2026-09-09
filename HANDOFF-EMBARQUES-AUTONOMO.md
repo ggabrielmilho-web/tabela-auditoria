@@ -2688,3 +2688,83 @@ C-665 (entrega normal).
 > errados — um no escopo e no mecanismo, o outro no criterio. Os dois so ficaram certos
 > depois de medir. "Analisa antes de implementar para ter certeza" pagou duas vezes na mesma
 > tarde.
+
+### 21.22 O recorte pré-origem ancorava na passagem errada (09/09/2026)
+
+Terceiro caso da tela, e o mais sutil. A `C-2026-000630` (Resende -> Extrema, rota de
+317 km) exibia **568 km percorridos e 601 km de odômetro** — 1,79x a rota — com a linha
+começando 33 h antes da saída e incluindo uma ida e volta a Duque de Caxias.
+
+**A causa:** o `indice_saida_origem` ancora no PRIMEIRO bloco contíguo dentro de 30 km da
+origem. Existiam dois:
+
+```
+bloco 0   01/09 17:50 -> 18:50    13 pts   parada    0 min   min 3,0 km   <- ancorava AQUI
+          ...entre os blocos afastou-se 125 km...
+bloco 1   02/09 10:42 -> 21:10    62 pts   parada  470 min   min 2,0 km   <- era AQUI
+saida gravada: 02/09 21:15
+```
+
+O bloco 0 e o caminhao **saindo de Resende no dia anterior, em outra viagem**, a 66-87 km/h.
+O bloco 1 e o carregamento: 10 horas de patio terminando 5 minutos antes da saida.
+
+> A ancora no primeiro bloco **existe de proposito** — a docstring registra que ela impede
+> que uma viagem que VOLTA pra base (origem->destino->origem) tenha o recorte puxado pro
+> ponto da volta, o que zerava o trajeto. Ela so nao previa que o primeiro bloco pudesse ser
+> uma PASSAGEM, e nao uma estadia.
+
+#### A regra nova, e o que cada palavra dela custou
+
+> **Âncora = o ÚLTIMO bloco com PARADA SUSTENTADA (>=60 min) que começa até a saída
+> registrada.** Sem nenhum, cai no comportamento antigo.
+
+* **parada sustentada**, nao "algum ponto parado": a primeira medicao deu 6 cargas e **nao
+  pegou a C-630**, porque o bloco 0 dela tem UM ping a <=3 km/h (um pedagio). Com o
+  discriminador certo foram 11. Blocos errados tem **0 a 5 min** de parada; blocos de
+  carregamento tem **167 a 4.471 min** — duas ordens de grandeza, entao o limiar de 60 min
+  nao e delicado.
+* **até a saída registrada**: sem esse teto a regra QUEBRA a `C-2026-000376`, cujo bloco com
+  parada longa comeca **dois dias depois** da saida (e o caminhao voltando e estacionando
+  48 h). Ancorar ali cortaria a viagem inteira. Foi a minha primeira versao, e a medicao a
+  derrubou antes de virar codigo.
+* **último**, nao primeiro, porque ha dois formatos e os dois resolvem certo:
+
+```
+C-539 / C-502 / C-464   entre blocos afastou-se 32-47 km   -> manobra: nunca saiu do patio
+C-630                   entre blocos afastou-se  125 km    -> saiu e voltou (viagem anterior)
+```
+
+#### O resultado
+
+A razao km/rota **colapsou sobre a rota** — que e onde uma viagem real tem de ficar (um pouco
+abaixo, porque o haversine corta curva e subestima 3 a 5%, secao 12.1):
+
+```
+carga              antes    depois     rota   razao
+C-2026-000630      568,0     295,1    317,4   1,79x -> 0,93x
+C-2026-000531      575,9     296,6    317,4   1,81x -> 0,93x
+C-2026-000501      547,0     295,6    317,4   1,72x -> 0,93x
+C-2026-000534     2141,9    1313,4   1546,9   1,38x -> 0,85x
+C-2026-000611     1219,6     971,9    931,0   1,31x -> 1,04x
+C-2026-000599     1073,9     911,4    931,0   1,15x -> 0,98x
+C-2026-000672     1106,2     929,6   1026,4   1,08x -> 0,91x
+C-2026-000547     1000,2     941,8    923,3   1,08x -> 1,02x
+C-2026-000490     3096,0    3024,4   3133,9   0,99x -> 0,97x
++ C-539, C-502, C-464 (que a regra do "ultimo bloco" descobriu e a do "primeiro" nao via)
+```
+
+**12 consertos, 0 regressoes.** Os 4 do fallback ficaram identicos, inclusive a
+`C-2026-000521` nos mesmos 978,8 km. Aferidor 176/234 inalterado, 15 de 15 testes.
+
+#### Uma régua, dois chamadores
+
+`indice_saida_origem` e chamada pelo mapa (`server.py`) **e pelo worker**, que grava o KPI no
+banco. Mudar so um criaria duas reguas — exatamente o defeito que esta seção inteira combate.
+Os dois passaram a mandar velocidade, instante e o teto; sem esses parametros a funcao se
+comporta como antes, entao a compatibilidade fica preservada para qualquer chamador futuro.
+
+> **O resíduo declarado:** a `C-2026-000521` nao e consertada porque o bloco certo dela
+> comeca 10 min DEPOIS da saida gravada — e a saida dela e ela mesma fabricada (a placa
+> passou a 28 km de Amparo sem parar). Consertar ali exigiria confiar numa saida que eu sei
+> estar errada. Dano de 1,06x a rota; fica como esta, e o mecanismo ja tem codigo proprio
+> no aferidor (`C7`).

@@ -6514,11 +6514,26 @@ def api_rastreamento_trajeto(carga_id):
         _olat, _olng = carga.get('origem_latitude'), carga.get('origem_longitude')
         if _olat is not None and _olng is not None:
             import geocoding as _geo
+            # A ancora leva VELOCIDADE, INSTANTE e o TETO da saida registrada. Sem os tres
+            # a funcao cai na regra antiga (primeiro bloco no raio), que ancorava na
+            # passagem ERRADA quando o veiculo tinha estado perto da origem antes — a
+            # C-2026-000630 desenhava 33 h e uma ida-e-volta a Duque de Caxias a mais,
+            # exibindo 568 km numa rota de 317. Ver a docstring de `indice_saida_origem`.
+            _saida_ref = carga.get('data_saida_real') or carga.get('inicio_viagem')
+
             def _recorta_origem(traj):
                 if not traj:
                     return traj
-                idx = _geo.indice_saida_origem([(p['lat'], p['lng']) for p in traj],
-                                               float(_olat), float(_olng))
+                _inst = []
+                for p in traj:
+                    try:
+                        _inst.append(_dt.fromisoformat(str(p['data']).replace('Z', '')))
+                    except Exception:
+                        _inst.append(None)
+                idx = _geo.indice_saida_origem(
+                    [(p['lat'], p['lng']) for p in traj], float(_olat), float(_olng),
+                    velocidades=[p.get('velocidade') for p in traj],
+                    instantes=_inst, ate=_saida_ref)
                 return traj[idx:]
             traj_cavalo = _recorta_origem(traj_cavalo)
             traj_c1 = _recorta_origem(traj_c1)
