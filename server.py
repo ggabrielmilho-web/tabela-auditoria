@@ -6326,6 +6326,35 @@ def _kpi_plausibilidade(kpi, inicio, fim, km_rota, chegou=True):
             return kpi
         dias = (fim - inicio).total_seconds() / 86400.0
         cabivel = (float(km_rota) / 600.0 + 1.0) if km_rota else 2.0
+
+        # ── JANELA CURTA DEMAIS: a gêmea simétrica da trava acima.
+        #
+        # Quando a conclusão de produção é ANTERIOR à saída (impossível), a regra de
+        # coerência do robô fixa a conclusão no instante da saída. Fica coerente e fica
+        # inútil: a viagem passa a ter duração ~zero, e a tela publica o que sobrou da folga
+        # pré-origem como se fosse a viagem. A C-2026-000648 (rota de 899 km) exibia
+        # "34,2 km · 30 min em movimento · 0 min parado" — números de uma janela vazia.
+        #
+        # O discriminador NÃO é o tamanho da janela, e isso custou uma medição para
+        # descobrir: a C-2026-000680 tem janela de 1,2 h e é viagem de verdade (rota de
+        # 114 km, chegada provada), enquanto a C-2026-000677 tem 1,1 h e é conclusão
+        # fabricada. Janelas quase idênticas, significados opostos — o que separa é a PROVA
+        # DE CHEGADA. Por isso a trava só vale sem ela.
+        #
+        # Medido em agosto/setembro: barra 5 cargas (janelas de 0 a 1,1 h para rotas de 24 a
+        # 982 km) e não toca em nenhuma com chegada provada.
+        if not chegou and dias < cabivel * 0.05:
+            kpi = dict(kpi)
+            for campo in ('distancia_km', 'km_odometro'):
+                if kpi.get(campo) is not None:
+                    kpi[campo + '_bruto'] = kpi[campo]
+                    kpi[campo] = None
+            kpi['km_janela_motivo'] = (
+                'a viagem foi fechada %.1f h depois de sair, para uma rota de %.0f km e sem '
+                'nenhuma posição provando a chegada — a janela não contém a viagem, e o km '
+                'medido nela não é desta carga' % (dias * 24, float(km_rota or 0)))
+            return kpi
+
         if dias <= cabivel * 3:
             return kpi
         kpi = dict(kpi)
@@ -6855,7 +6884,8 @@ def api_rastreamento_trajeto(carga_id):
                     _kpi_sanidade(kpi, origem, destinos,
                                   concluida=carga.get('data_conclusao') is not None),
                     carga.get('data_saida_real') or carga.get('inicio_viagem'), fim,
-                    carga.get('distancia_planejada_km')),
+                    carga.get('distancia_planejada_km'),
+                    chegou=carga.get('no_local_desde') is not None),
                 carga.get('distancia_planejada_km'),
                 carga.get('no_local_desde') is not None),
         }

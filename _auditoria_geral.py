@@ -227,6 +227,29 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
                     else:
                         add(num, 'C5', 'baixa',
                             'saida digitada a mao, sem lastro no GPS (nao e defeito do motor)')
+                # ── C7: a saida gravada tem uma PARADA na origem por tras?
+                #
+                # Quem carrega, para. O `perto_com_parada` da SAIDA nao exige parada (so o
+                # da chegada passou a exigir em 09/09/26), entao passar perto da origem em
+                # rodovia conta como "esteve la" e a saida sai fabricada do momento em que a
+                # placa cruza para fora do raio.
+                #
+                # O caso: a C-2026-000648 (Canapolis -> Juiz de Fora) ganhou saida em
+                # 05/09 02:25 porque a carreta passou a 6,6 km de Canapolis a 74 km/h —
+                # a caminho de OUTRA carga dela (a C-2026-000656, Hidrolandia -> Duque de
+                # Caxias). A viagem que o mapa desenhava nunca aconteceu com essa carreta.
+                #
+                # E ACHADO, nao conserto: mudar a regra da saida seria prospectivo (o motor
+                # grava saida so quando o campo esta vazio e nunca apaga), custaria o piso da
+                # chegada dessas cargas, e vale para 2 casos. Aqui o custo e uma linha e o
+                # risco e zero.
+                if dsaida and saida_auto and any(k <= RAIO_ORIGEM for _, k, _ in d0)                         and not any(parado(v) for _, k, v in d0 if k <= RAIO_ORIGEM):
+                    _mk = min(k for _, k, _ in d0 if k <= RAIO_ORIGEM)
+                    add(num, 'C7', 'alta',
+                        f'SAIDA FABRICADA: a placa passou a {_mk:.1f} km da origem mas NUNCA '
+                        f'PAROU la — quem carrega, para. A viagem desenhada pode ser de outra carga',
+                        f'saida gravada={str(dsaida)[:16]} · origem={ocid}')
+
                 if not saiu and ativo and idade_d >= PARADA_ABERTA_D:
                     add(num, 'C4', 'media',
                         f'carga ativa ha {idade_d} dias e a placa nunca saiu da origem')
@@ -390,6 +413,7 @@ NOMES = {
     'T3': 'conclusao anterior a saida (zera o km na tela)', 'T4': 'conclusao anterior ao carregamento',
     'C5': 'saida digitada a mao, sem lastro',
     'C6': 'chegada gravada com o veiculo EM MOVIMENTO (borda de raio)',
+    'C7': 'saida fabricada — a placa passou pela origem sem parar',
     'P1': 'perna vazia sem deslocamento (a carreta ja estava la)', 'D1': 'sem rota planejada', 'D2': 'sem manifesto_origem', 'D3': 'destino sem coordenada',
 }
 print(f'AUDITORIA GERAL — {len(CARGAS)} cargas entre {A.desde} e {A.ate}')

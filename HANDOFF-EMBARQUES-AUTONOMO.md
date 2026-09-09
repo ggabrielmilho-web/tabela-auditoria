@@ -2610,3 +2610,81 @@ controles (aberta · entregue com prova · carreta ja saiu)  ->  0, inalterados
 > MENOS confiavel quando o fechamento esta errado, porque ela herda o erro em silencio —
 > 119 de 143 pontos ficaram invisiveis sem nenhum aviso. Os KPIs e o card denunciam; a linha
 > esconde. Numero errado se discute; desenho errado convence.
+
+### 21.21 A C-2026-000648 — saída fabricada e janela degenerada (09/09/2026)
+
+Segundo caso que o Gabriel achou olhando a tela. A carga aparecia `Entregue`, rota de 899 km
+(Canapolis -> Juiz de Fora) e KPIs de **34,2 km · 30 min em movimento · 0 min parado**.
+
+**A cadeia inteira:**
+
+1. Producao fechou em **04/09 00:00** — um dia depois do carregamento e **antes** de qualquer
+   saida. Conclusao anterior a saida e impossivel.
+2. O robo detectou a impossibilidade e a regra de coerencia fixou a conclusao **no instante da
+   saida**. Ficou coerente e ficou inutil: a viagem passou a ter **duracao zero**, e a tela
+   publicou o que sobrou da folga pre-origem como se fosse a viagem.
+3. **E a propria saida era falsa.** A carreta `TZC9F36` nunca parou em Canapolis — passou a
+   **6,6 km** as 01:55, a 74 km/h, a caminho de outro lugar.
+4. Aquele "outro lugar" e a **C-2026-000656** — outra carga da mesma carreta (04/09,
+   Hidrolandia -> Duque de Caxias, cliente MARTINS). O GPS confirma: Hidrolandia ->
+   Uberlandia -> Ribeirao Preto -> Limeira -> **Nova Iguacu/RJ** em 07/09.
+5. Os "110 km de Juiz de Fora" que o aferidor reportava sao coincidencia geografica: Duque de
+   Caxias fica a ~110 km de la.
+
+**A viagem Canapolis -> Juiz de Fora nao aconteceu com esta carreta.** O manifesto existe; o
+GPS conta outra historia.
+
+#### O que eu propus, e por que retirei metade
+
+A primeira proposta foi **exigir parada na origem**, simetrica ao conserto do anel. A analise
+antes de implementar (a pedido do Gabriel) derrubou:
+
+* **escopo menor do que eu dissera:** sobre a janela real do robo sao **2 cargas**, nao as que
+  eu contara numa janela de 36 h — a C-2026-000521 sai porque para perto de Amparo em outro
+  momento da janela;
+* **nao consertaria o caso:** o motor grava a saida so quando o campo esta vazio
+  (`if n_saida and not dsaida`) e **nunca apaga**. A mudanca seria prospectiva, e a saida
+  falsa da C-648 continuaria na tela. Consertar de verdade exigiria uma regra de APAGAR
+  saida — destrutiva, no campo com o melhor historico do sistema (11 correcoes contra 167 da
+  chegada);
+* **removeria o piso da chegada:** `piso = max(saida, saida_gravada) or t_org`. Exigir parada
+  zera o `t_org` dessas cargas e a busca de chegada fica sem limite inferior — risco de
+  *criar* chegada espuria. Trocar risco de regressao por ganho de 2 casos e mau negocio.
+
+**No lugar, uma invariante do aferidor.** Nao destroi nada, pega o caso, risco zero:
+
+```
+C7 · SAIDA FABRICADA: a placa passou a 6,6 km da origem mas NUNCA PAROU la —
+     quem carrega, para. A viagem desenhada pode ser de outra carga
+```
+
+#### A trava de janela degenerada — e o criterio que a medicao corrigiu
+
+Eu ia travar por "janela de duracao zero". **Errado.** O tamanho da janela nao discrimina:
+
+```
+C-2026-000680   janela 1,2 h   rota 114 km   chegada PROVADA   <- viagem curta de verdade
+C-2026-000677   janela 1,1 h   rota 959 km   sem chegada       <- conclusao fabricada
+```
+
+Janelas quase identicas, significados opostos: **o que separa e a prova de chegada.**
+
+Criterio final — *fechada SEM prova de chegada E janela < 5% do tempo cabivel* — implementado
+como a **gemea simetrica** do `_kpi_plausibilidade`, que ja barrava janela LONGA demais (3x o
+cabivel, 24 cargas). Barra 5, e o valor cru fica em `_bruto` com o motivo no tooltip:
+
+```
+C-2026-000084   0,0 h    982 km   exibia 1.657,2 km   <- pior que o caso original
+C-2026-000427   0,0 h    601 km   exibia   291,7 km
+C-2026-000559   0,0 h     24 km   exibia     2,4 km
+C-2026-000648   0,0 h    899 km   exibia    34,2 km   <- o do Gabriel
+C-2026-000677   1,1 h    959 km   exibia   101,3 km
+```
+
+Controles conferidos e **intocados**: C-680 (1,2 h com chegada), C-659 (5,7 h com chegada) e
+C-665 (entrega normal).
+
+> **A licao de metodo:** eu tinha os dois consertos prontos na cabeca e os dois estavam
+> errados — um no escopo e no mecanismo, o outro no criterio. Os dois so ficaram certos
+> depois de medir. "Analisa antes de implementar para ter certeza" pagou duas vezes na mesma
+> tarde.

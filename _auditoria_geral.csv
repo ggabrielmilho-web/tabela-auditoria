@@ -210,6 +210,7 @@ C-2026-000638;S3;baixa;cavalo tem 1229 pontos contra 259 da carreta — sensor m
 C-2026-000652;S2;baixa;buraco de sinal de 68 h no rastreio (cavalo);
 C-2026-000651;S3;baixa;cavalo tem 4690 pontos contra 879 da carreta — sensor mais pobre em uso;carreta1=TCE7I47
 C-2026-000650;S3;baixa;cavalo tem 5433 pontos contra 832 da carreta — sensor mais pobre em uso;carreta1=TCX3D71
+C-2026-000648;C7;alta;SAIDA FABRICADA: a placa passou a 6.6 km da origem mas NUNCA PAROU la — quem carrega, para. A viagem desenhada pode ser de outra carga;saida gravada=2026-09-05 02:25 · origem=Canápolis
 C-2026-000648;F1d;media;ENTREGA NAO PROVADA (encerramento tem lastro): aproximacao maxima do destino 110 km, mas a carreta saiu em manifesto novo;motivo=sem_prova_revisar · destino=Juiz de Fora · proxima=C-2026-000656
 C-2026-000647;S3;baixa;cavalo tem 1493 pontos contra 419 da carreta — sensor mais pobre em uso;carreta1=HNH1D02
 C-2026-000646;S1;alta;CEGA: nenhuma placa da carga transmitiu no periodo;cavalo=NJZ9B97 carreta=MWP0H69
