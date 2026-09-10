@@ -162,3 +162,112 @@ def perto_com_parada(dd, raio_estrito=RAIO_CHEGADA, raio_largo=RAIO_METRO,
 def chegada(dd):
     """Atalho: a regua da CHEGADA, com parada exigida. Motor e aferidor usam ESTA."""
     return perto_com_parada(dd, RAIO_CHEGADA, RAIO_METRO, exigir_parada=True)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# POSICAO FALSA — a regua do que o veiculo NAO pode ter feito (10/09/2026)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# O historico de posicoes contem pontos comprovadamente falsos, e ate hoje ninguem os
+# filtrava. Nao e furo de sinal: sao dois pontos consecutivos da MESMA placa, minutos um
+# do outro, separados por centenas de quilometros. O caso que o Gabriel viu na tela:
+#
+#     TYX9F52  07/09 07:37  Formosa   -> Jaborandi  257,5 km em 2,0 min  odo 37487 -> 37487
+#     TYX9F52  07/09 07:57  Jaborandi -> Formosa    257,5 km em 2,0 min  odo 37487 -> 37487
+#     HKE0321  08/09 14:30  Sta Luzia -> Serra      374,4 km em 3,5 min  odo 376904 -> 376904
+#
+# Foi e voltou, com o ODOMETRO CONGELADO no mesmo numero. O odometro e cumulativo no
+# aparelho e independente do GPS — se o caminhao tivesse rodado 374 km ele marcaria +374.
+# E o mesmo arbitro que a §12.3 ja elegeu como fonte de km ("atravessa buraco de sinal").
+#
+# ESCALA, medida na base local em agosto/setembro (fita 100% backfillada desde 13/08):
+#     301 pares impossiveis em 34 placas · 235 com o odometro negando o deslocamento
+#     327 buracos LEGITIMOS (salto grande, mas velocidade plausivel para o tempo decorrido)
+#      74 de 334 mapas (22%) com pelo menos uma posicao falsa desenhada na linha
+#
+# O ESTRAGO ia alem do desenho: o km do KPI somava a distancia fantasma. A C-2026-000503
+# publicava 1.864 km com um salto falso de 718 km dentro. As tres camadas de plausibilidade
+# do KPI (`_kpi_sanidade`, `_kpi_plausibilidade`, `_kpi_sem_chegada`) pegavam 5 dos 74 —
+# elas defendem o NUMERO no atacado, nao a perna individual.
+#
+# O TESTE QUE DECIDIU: nao da para saber QUAL dos dois pontos e o falso, entao nao se
+# escolhe — apenas nao se soma a perna impossivel. Se a tese estiver certa, o km do GPS
+# tem de convergir com o odometro, que e testemunha independente:
+#
+#     erro medio contra o odometro:  CRU 415,8%  ->  LIMPO 7,5%   (52 melhoraram, 12 nao)
+#     C-2026-000486  cru 765,4  limpo  40,9  odo   41   -> 0,4%
+#     C-2026-000503  cru 1864,0 limpo 1145,3 odo 1141   -> 0,4%
+#     C-2026-000495  cru 1405,4 limpo  914,3 odo  914   -> 0,0%
+#
+# E POR QUE A LINHA QUEBRA EM VEZ DE EMENDAR: desenhar um vao e honesto ("nao sabemos como
+# ele foi de A ate B"); adivinhar qual ponto descartar e chute com cara de dado. Mesmo
+# criterio do "—" da §12.13 — numero sem lastro nao se publica.
+
+TETO_KMH = _f('RASTREAMENTO_TETO_KMH', 150.0)   # teto fisico de um cavalo mecanico
+SALTO_MIN_KM = _f('RASTREAMENTO_SALTO_MIN_KM', 30.0)  # abaixo disso e jitter, nao teleporte
+
+
+def _instante(v):
+    from datetime import datetime as _d
+    if hasattr(v, 'year'):
+        return v
+    try:
+        return _d.fromisoformat(str(v).replace('Z', ''))
+    except Exception:
+        return None
+
+
+def perna_impossivel(a, b, teto_kmh=None, salto_min_km=None):
+    """True quando o trecho a->b nao pode ter acontecido.
+
+    Dois testes, e basta um. O primeiro e fisico e nao precisa de odometro: deslocamento
+    grande num tempo curto demais. O segundo e a testemunha: o odometro do aparelho nao
+    andou o que a distancia afirma. O odometro so entra quando existe nos dois lados — em
+    ponto vindo do polling ao vivo ele e nulo, e ausencia nao e prova de nada.
+    """
+    import geocoding
+    teto = TETO_KMH if teto_kmh is None else teto_kmh
+    minimo = SALTO_MIN_KM if salto_min_km is None else salto_min_km
+    km = geocoding.km_entre(a.get('lat'), a.get('lng'), b.get('lat'), b.get('lng'))
+    if km is None or km <= minimo:
+        return False
+    ta, tb = _instante(a.get('data')), _instante(b.get('data'))
+    if ta and tb:
+        h = (tb - ta).total_seconds() / 3600.0
+        if h > 0 and (km / h) > teto:
+            return True
+    oa, ob = a.get('odometer'), b.get('odometer')
+    if oa is not None and ob is not None:
+        try:
+            if (int(ob) - int(oa)) < km * 0.5:
+                return True
+        except (TypeError, ValueError):
+            pass
+    return False
+
+
+def cortes_do_trajeto(pontos, teto_kmh=None, salto_min_km=None):
+    """Indices i em que a linha tem de QUEBRAR entre pontos[i] e pontos[i+1]."""
+    if not pontos or len(pontos) < 2:
+        return []
+    return [i for i in range(len(pontos) - 1)
+            if perna_impossivel(pontos[i], pontos[i + 1], teto_kmh, salto_min_km)]
+
+
+def segmentos(pontos, teto_kmh=None, salto_min_km=None):
+    """O trajeto partido nos trechos contiguos que sao possiveis.
+
+    Um segmento de um ponto so nao vira linha (Leaflet nao desenha), mas fica na lista:
+    quem quiser marcar "aqui houve um salto" precisa saber que existe ponto ali.
+    """
+    if not pontos:
+        return []
+    fora = set(cortes_do_trajeto(pontos, teto_kmh, salto_min_km))
+    out, atual = [], [pontos[0]]
+    for i in range(len(pontos) - 1):
+        if i in fora:
+            out.append(atual)
+            atual = []
+        atual.append(pontos[i + 1])
+    out.append(atual)
+    return out

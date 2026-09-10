@@ -147,6 +147,7 @@
       <div class="legenda-row"><span style="font-size:14px;">📍</span> Destinos</div>
       <div class="legenda-row"><span style="font-size:14px;">🚚</span> Posição atual</div>
       <div class="legenda-row" id="legPosFech" style="display:none;"><span style="color:#fb923c;">┈┈</span> Depois do fechamento</div>
+      <div class="legenda-row" id="legSalto" style="display:none;"><span style="color:#fbbf24;">●</span> Salto impossível (linha quebrada)</div>
     </div>
   </div>
 
@@ -396,7 +397,37 @@
     }
     if (trajPrinc.length > 1) {
       const pts = trajPrinc.map(t => [t.lat, t.lng]);
-      addLayer(L.polyline(pts, { color: '#94a3b8', weight: 3, opacity: 0.9, dashArray: '6,6' }));
+      // A LINHA QUEBRA NA PERNA IMPOSSIVEL, em vez de atravessa-la. O backend manda os
+      // indices em `trajeto_cortes` (regua em embarques_regua): deslocamento que implica
+      // velocidade acima do teto fisico, ou que o odometro do aparelho nega. Nao da para
+      // saber QUAL dos dois pontos e o falso, entao nao se escolhe — desenha-se o vao,
+      // que e honesto. Sem isto o traco cruzava o Brasil e voltava em 2 minutos.
+      const cortes = new Set(((d.trajeto_cortes || {})[tipoPrinc]) || []);
+      let seg = [pts[0]];
+      const segmentos = [];
+      for (let i = 0; i < pts.length - 1; i++) {
+        if (cortes.has(i)) { segmentos.push(seg); seg = []; }
+        seg.push(pts[i + 1]);
+      }
+      segmentos.push(seg);
+      segmentos.forEach(sg => {
+        if (sg.length > 1) {
+          addLayer(L.polyline(sg, { color: '#94a3b8', weight: 3, opacity: 0.9, dashArray: '6,6' }));
+        }
+      });
+      // Marca cada quebra, senao o vao fica indistinguivel de "nao passou por aqui".
+      cortes.forEach(i => {
+        if (!pts[i] || !pts[i + 1]) return;
+        [pts[i], pts[i + 1]].forEach(pp => addLayer(
+          L.circleMarker(pp, { radius: 4, color: '#fbbf24', weight: 2, fillOpacity: 0.9 })
+            .bindPopup('<strong>Salto impossível</strong><br>A linha quebra aqui: o veículo '
+                     + 'não pode ter feito este trecho no tempo registrado.<br>'
+                     + 'O km deste trecho não entra no total.')));
+      });
+      if (cortes.size) {
+        const leg = document.getElementById('legSalto');
+        if (leg) leg.style.display = '';
+      }
       pts.forEach(p => bounds.push(p));
     }
 

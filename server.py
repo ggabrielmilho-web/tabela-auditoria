@@ -6147,12 +6147,22 @@ def _kpi_ao_vivo(traj, traj_odo=None):
         try: return _d.fromisoformat(str(s).replace('Z', ''))
         except Exception: return None
 
+    # A PERNA IMPOSSIVEL NAO ENTRA NO KM (10/09/2026). Ate aqui o somatorio engolia o
+    # teleporte: a C-2026-000503 publicava 1.864 km com um salto falso de 718 km dentro,
+    # e as tres camadas de plausibilidade do KPI so pegavam 5 dos 74 mapas afetados —
+    # elas defendem o numero no atacado, nao a perna individual. A regua e a mesma que
+    # quebra a linha do mapa (`embarques_regua`), para a tela parar de se contradizer.
+    import embarques_regua as _regua
     total_m = 0.0; vmax = 0; vsum = 0; vn = 0; tmov = 0; tpar = 0
+    pernas_falsas = 0
     for i in range(len(traj) - 1):
         a, b = traj[i], traj[i + 1]
         seg = geocoding.km_entre(a['lat'], a['lng'], b['lat'], b['lng'])
         if seg is not None:
-            total_m += seg * 1000
+            if _regua.perna_impossivel(a, b):
+                pernas_falsas += 1
+            else:
+                total_m += seg * 1000
         av = a.get('velocidade')
         if av is not None:
             vmax = max(vmax, int(av)); vsum += int(av); vn += 1
@@ -6216,8 +6226,23 @@ def _kpi_ao_vivo(traj, traj_odo=None):
             seg = _geo_odo.km_entre(a_['lat'], a_['lng'], b_['lat'], b_['lng']) or 0
             if 0 < d_odo <= teto:
                 km_odo += d_odo; n_odo += 1
-            elif d_odo <= 0 and seg > 5:
+            elif d_odo <= 0 and seg > 5 and not _regua.perna_impossivel(a_, b_):
                 km_odo += seg;   n_gps += 1         # aparelho mudo: o GPS é o que há
+            # ── O FALLBACK "APARELHO MUDO" PRECISA DA MESMA REGUA (10/09/2026)
+            #
+            # `d_odo <= 0 and seg > 5` descreve DUAS coisas que nao se parecem em nada:
+            #
+            #   aparelho mudo num furo real ... HKE0D21, Catuji->Manhuacu, 327 km em 12 h
+            #   posicao FALSA ................. HKE0321, Sta Luzia->Serra, 374 km em 3,5 min
+            #
+            # Nas duas o contador nao anda e o haversine e grande, e sem a regua o fallback
+            # somava as duas. Efeito medido: a C-2026-000486 publicava `km_odometro` = 766
+            # para uma viagem cujo odometro cru andou 41 km — o proprio arbitro que usamos
+            # para provar a perna falsa vinha contaminado por ela, e o aceite so pegou isso
+            # porque foi medido pelo ENDPOINT e nao por um calculo paralelo.
+            #
+            # O discriminador e velocidade, que e o que a regua ja sabe. Furo legitimo
+            # continua entrando (e por isso que este ramo existe); teleporte, nao.
         # Zero não é medição. Se nenhum trecho contribuiu (contador congelado o tempo
         # todo, sem deslocamento aproveitável), o número não existe — e `—` é honesto
         # onde "0 km" seria uma afirmação falsa.
@@ -6232,6 +6257,9 @@ def _kpi_ao_vivo(traj, traj_odo=None):
         'velocidade_media': round(vsum / vn, 1) if vn else None,
         'tempo_movimento_seg': int(tmov),
         'tempo_parado_seg': int(tpar),
+        # Quantas pernas o km NAO somou por serem impossiveis. Vai para a tela: descontar
+        # em silencio esconderia que a fita esta suja naquela carga.
+        'pernas_falsas': pernas_falsas,
     })
     return base
 
@@ -6912,6 +6940,7 @@ def api_rastreamento_trajeto(carga_id):
                                  'cidade': _pa[5], 'uf': _pa[6]}
 
         cur.close(); conn.close()
+        import embarques_regua as _regua_mapa
 
         # Última posição = a de agora (carga aberta) ou o fim do trajeto da placa rastreada
         ultima = pos_agora or (traj_principal[-1] if traj_principal else None)
@@ -6973,6 +7002,19 @@ def api_rastreamento_trajeto(carga_id):
                 'cavalo': traj_cavalo,
                 'carreta1': traj_c1,
                 'carreta2': traj_c2,
+            },
+            # ONDE A LINHA TEM DE QUEBRAR (10/09/2026). Os pontos continuam saindo crus —
+            # quem os consome para outra coisa nao perde nada — e o que se acrescenta e a
+            # lista de indices cuja perna seguinte e impossivel (`embarques_regua`). O mapa
+            # desenha um vao ali em vez de atravessar: nao da para saber QUAL dos dois
+            # pontos e o falso, e adivinhar seria chute com cara de dado. Foi este traco
+            # atravessando o teleporte que o Gabriel viu como "ja foi no meio do caminho e
+            # voltou" — a TYX9F52 fazendo Formosa->Jaborandi->Formosa, 257 km para cada
+            # lado, em 2 minutos, com o odometro parado em 37487.
+            'trajeto_cortes': {
+                'cavalo': _regua_mapa.cortes_do_trajeto(traj_cavalo),
+                'carreta1': _regua_mapa.cortes_do_trajeto(traj_c1),
+                'carreta2': _regua_mapa.cortes_do_trajeto(traj_c2),
             },
             'rota_planejada': {
                 'polyline': carga.get('rota_planejada_polyline'),
