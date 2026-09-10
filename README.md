@@ -423,13 +423,13 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 - `GET /api/embarques/embarcadores` — lista de usuários (filtro "quem lançou")
 - `GET /api/embarques/conflitos?cpf=&placas=` — checa CPF/placa já em carga ativa
 - `POST /api/embarques/cargas` — cria carga (snapshot + destinos **com `data_agendamento`** em transação, geocoding origem/destinos, rota ORS origem→destino, gera `numero`, retorna warnings)
-- `GET /api/embarques/cargas` — listagem com filtros (período, tipo, cliente, embarcador, motorista, UF, status, busca livre)
+- `GET /api/embarques/cargas` — listagem com filtros (período, tipo, cliente, embarcador, motorista, UF, status, busca livre). Dois filtros distintos para viagem vazia: **`viagem_vazia`** (a flag, pega as duas espécies) e **`perna_vazia`** (só a perna DERIVADA do robô — `viagem_vazia AND criada_por_robo`). A home usa o segundo, para não esconder a viagem vazia lançada à mão junto com as pernas
 - `GET /api/embarques/cargas/<id>` — detalhe (carga + destinos)
 - `PATCH /api/embarques/cargas/<id>` — edita (diff por campo → `embarques_cargas_log`; status `Entregue` preenche `data_conclusao`)
 - `POST /api/embarques/cargas/<id>/desengatar` — desengate de carreta carregada: `status='Desengatada'`, libera cavalo+motorista do conflito (carreta segue comprometida), seta `no_local_desde` se nulo e registra substituto opcional + log. Requer status `Em rota`/`No destino` e permissão de edição
 - `GET /api/embarques/cargas/<id>/log` — histórico de edições
 - `GET /api/embarques/cargas/csv` — CSV streaming (mesmos filtros)
-- `GET /api/embarques/kpis` — 4 contadores (hoje, em rota, entregues no mês, abertas)
+- `GET /api/embarques/kpis` — 7 contadores (hoje, em rota, no destino, entregues no mês, abertas, desengatadas, **vazias no mês**). **`entregues_mes` não conta viagem vazia** — a perna de reposicionamento nasce `Entregue` porque já aconteceu, e inflava o número que o operacional lê como entrega ao cliente (35 de 130 na medição de 10/09/26)
 
 ### Rastreamento (todos sob `@login_required`)
 - `GET /api/rastreamento/posicoes` — posições atuais + info da carga ativa (filtros: `carregado`, `eh_rizza`, `q`)

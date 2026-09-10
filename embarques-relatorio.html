@@ -93,6 +93,9 @@
   .badge-Desengatada { background: rgba(250,204,21,0.15); color: #facc15; }
   .badge-Entregue { background: rgba(52,211,153,0.15); color: var(--green); }
   .badge-Cancelada{ background: rgba(248,113,113,0.15); color: var(--red); }
+  /* Perna vazia concluida: rotulo proprio sobre o status 'Entregue', que nao muda
+     (secao 0 do handoff). Mesmo criterio da 21.18 — rotulo, nunca status. */
+  .badge-Vazia    { background: rgba(148,163,184,0.15); color: var(--text-dim); }
 
   .info-vazio { padding: 40px; text-align: center; color: var(--text-dim); }
 
@@ -382,7 +385,11 @@
   }
 
   function indicadoresStatus(c) {
-    let html = badge(c.status);
+    // A perna vazia nao entrega nada — ela termina. O status interno segue 'Entregue'
+    // (a coluna Cliente ja diz "Vazia"; aqui o badge responde em que pe esta).
+    let html = (c.viagem_vazia && c.status === 'Entregue')
+      ? '<span class="badge badge-Vazia" title="Viagem vazia concluída (status interno: Entregue)">Concluída</span>'
+      : badge(c.status);
     if (c.no_local_desde && c.status === 'Em rota') {
       html += ` <span style="cursor:help;" title="Na cidade da descarga há ${tempoCurto(c.no_local_desde)}">📦</span>`;
     }

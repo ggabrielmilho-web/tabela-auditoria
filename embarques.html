@@ -43,7 +43,13 @@
     font-size: 0.82rem; border-radius: 8px; cursor: pointer; transition: all 0.15s;
   }
   .btn-sm:hover { border-color: var(--accent); color: var(--accent); }
-  .kpi-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 28px; }
+  /* 7 cards numa linha so: (1400 - 48 de padding - 6 gaps de 12) / 7 = 182,9px por card,
+     menos 32 de padding = 150,9px de texto. O rotulo mais longo tinha 21 caracteres
+     ("CARRETAS DESENGATADAS", ~145px a 0.66rem uppercase) e sobravam 6px — margem que
+     some no primeiro notebook de 1366. Por isso ele virou "Desengatadas", que e como o
+     filtro do mapa geral ja o chama. Degrau em 1280 para nao pular de 7 direto para 3. */
+  .kpi-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 12px; margin-bottom: 28px; }
+  @media (max-width: 1280px) { .kpi-grid { grid-template-columns: repeat(4, 1fr); } }
   @media (max-width: 1100px) { .kpi-grid { grid-template-columns: repeat(3, 1fr); } }
   @media (max-width: 640px)  { .kpi-grid { grid-template-columns: repeat(2, 1fr); } }
   .kpi-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; position: relative; overflow: hidden; }
@@ -56,6 +62,7 @@
   .kpi-card:nth-child(4)::before { background: var(--green); }
   .kpi-card:nth-child(5)::before { background: var(--accent2); }
   .kpi-card:nth-child(6)::before { background: var(--yellow, #facc15); }
+  .kpi-card:nth-child(7)::before { background: var(--text-dim, #94a3b8); }
   .kpi-card .label { font-size: 0.66rem; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; }
   .kpi-card .value { font-size: 1.55rem; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
 
@@ -87,6 +94,10 @@
   .badge-Desengatada { background: rgba(250,204,21,0.15); color: #facc15; }
   .badge-Entregue { background: rgba(52,211,153,0.15); color: var(--green); }
   .badge-Cancelada{ background: rgba(248,113,113,0.15); color: var(--red); }
+  /* Perna vazia: o STATUS continua sendo 'Entregue' (secao 0 do handoff — nenhum status
+     muda de significado, e toda tela que filtra 'Entregue' quebraria). O que muda e o
+     rotulo, no padrao da 21.18: "rotulo, nunca status". Cinza porque nao houve entrega. */
+  .badge-Vazia    { background: rgba(148,163,184,0.15); color: var(--text-dim); }
 </style>
 </head>
 <body>
@@ -109,7 +120,8 @@
     <a class="kpi-card" href="/embarques/relatorio?status=No%20destino"><div class="label">No destino</div><div class="value" id="kpiNoDestino">—</div></a>
     <a class="kpi-card" href="/embarques/relatorio?status=Entregue"><div class="label">Entregues no mês</div><div class="value" id="kpiEntregues">—</div></a>
     <a class="kpi-card" href="/embarques/relatorio?status=Aberta"><div class="label">Abertas</div><div class="value" id="kpiAbertas">—</div></a>
-    <a class="kpi-card" href="/embarques/relatorio?status=Desengatada"><div class="label">Carretas desengatadas</div><div class="value" id="kpiDesengatadas">—</div></a>
+    <a class="kpi-card" href="/embarques/relatorio?status=Desengatada"><div class="label">Desengatadas</div><div class="value" id="kpiDesengatadas">—</div></a>
+    <a class="kpi-card" href="/embarques/relatorio?viagem_vazia=1" title="Pernas de reposicionamento: o trecho que a carreta rodou sem carga entre uma viagem e a seguinte. Nao entram em 'Entregues no mes'."><div class="label">Vazias no mês</div><div class="value" id="kpiVazias">—</div></a>
   </div>
 
   <div class="acoes" style="grid-template-columns:repeat(3,1fr);">
@@ -169,12 +181,19 @@
         document.getElementById('kpiEntregues').textContent = j.data.entregues_mes;
         document.getElementById('kpiAbertas').textContent = j.data.abertas;
         document.getElementById('kpiDesengatadas').textContent = j.data.desengatadas ?? 0;
+        document.getElementById('kpiVazias').textContent = j.data.vazias_mes ?? 0;
       }
     } catch (e) {}
   }
 
-  function badgeStatus(s) {
-    const cls = 'badge-' + (s || '').replace(' ', '-');
+  // Recebe a CARGA, nao so o status: a perna vazia precisa do `viagem_vazia` para trocar
+  // o rotulo. `Entregue` numa perna vazia e mentira — ela nao entregou nada, so terminou.
+  function badgeStatus(c) {
+    const s = (c && c.status) || '';
+    if (c && c.viagem_vazia && s === 'Entregue') {
+      return '<span class="badge-status badge-Vazia" title="Viagem vazia concluída (status interno: Entregue)">Concluída</span>';
+    }
+    const cls = 'badge-' + s.replace(' ', '-');
     return '<span class="badge-status ' + cls + '">' + (s || '—') + '</span>';
   }
 
@@ -186,7 +205,16 @@
 
   async function loadUltimas() {
     try {
-      const r = await fetch('/api/embarques/cargas?limit=10', { credentials: 'same-origin' });
+      // A perna do robo e criada DEPOIS da carga que a origina, entao tem id maior e domina
+      // o topo da lista: medido na base local em 10/09/26, as 10 ultimas eram 10 pernas e
+      // nenhuma carga de verdade aparecia. A porta de entrada delas passa a ser o card
+      // "Vazias no mes".
+      //
+      // `perna_vazia=0` e NAO `viagem_vazia=0`: a segunda esconderia tambem a viagem vazia
+      // LANCADA A MAO (a C-2026-000036, aberta desde 07/07), e sumir com carga do caminho
+      // manual e o que a secao 0 do handoff proibe. O filtro do servidor exige a conjuncao
+      // `viagem_vazia AND criada_por_robo`.
+      const r = await fetch('/api/embarques/cargas?limit=10&perna_vazia=0', { credentials: 'same-origin' });
       const j = await r.json();
       const box = document.getElementById('ultimasBox');
       if (!j.ok || j.count === 0) {
@@ -198,7 +226,7 @@
         html += '<tr>'
           + '<td><strong>' + (c.numero || '—') + '</strong></td>'
           + '<td>' + fmtData(c.data_carregamento) + '</td>'
-          + '<td>' + badgeStatus(c.status) + '</td>'
+          + '<td>' + badgeStatus(c) + '</td>'
           + '<td>' + (c.tipo_operacao || '—') + '</td>'
           + '<td>' + (c.cliente_nome || '—') + '</td>'
           + '<td>' + (c.origem_cidade || '') + '/' + (c.origem_uf || '') + ' → ' + (c.destinos || '—') + '</td>'

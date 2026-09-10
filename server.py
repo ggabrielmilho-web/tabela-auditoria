@@ -5380,6 +5380,20 @@ def api_embarques_cargas_list():
         where.append("c.status = %s"); params.append(args['status'])
     if args.get('viagem_vazia') in ('1', '0'):
         where.append("c.viagem_vazia = %s"); params.append(args['viagem_vazia'] == '1')
+    # `perna_vazia` NAO e sinonimo de `viagem_vazia` — a flag cobre DUAS coisas diferentes,
+    # e confundi-las quebra a garantia da secao 0 do handoff (o autonomo e aditivo e nunca
+    # altera o caminho manual). Medido na base local em 10/09/26:
+    #
+    #   107  V-*  criada_por_robo=TRUE   intervalo DERIVADO entre duas viagens; nasce
+    #                                    'Entregue' e nao e tarefa de ninguem
+    #     1  C-2026-000036  a mao        viagem vazia que o Carvalho lancou em 07/07 e
+    #                                    segue 'Aberta' — trabalho de verdade, acompanhado
+    #
+    # Esconder pela flag tiraria a segunda da tela junto com as 107, que e exatamente o dano
+    # colateral que a secao 0 proibe. O filtro e a CONJUNCAO: so a perna derivada.
+    if args.get('perna_vazia') in ('1', '0'):
+        _pv = "(COALESCE(c.viagem_vazia, FALSE) AND COALESCE(c.criada_por_robo, FALSE))"
+        where.append(_pv if args['perna_vazia'] == '1' else "NOT " + _pv)
     if args.get('q'):
         q = f"%{args['q']}%"
         where.append("(c.numero ILIKE %s OR c.motorista_nome ILIKE %s OR c.cliente_nome ILIKE %s OR c.cavalo_placa ILIKE %s OR c.carreta1_placa ILIKE %s OR c.carreta2_placa ILIKE %s)")
@@ -5924,10 +5938,20 @@ def api_embarques_kpis():
               COUNT(*) FILTER (WHERE data_carregamento = (NOW() AT TIME ZONE 'America/Sao_Paulo')::date) AS hoje,
               COUNT(*) FILTER (WHERE status = 'Em rota')                 AS em_rota,
               COUNT(*) FILTER (WHERE status = 'No destino')              AS no_destino,
+              -- A PERNA VAZIA NAO E ENTREGA. Ela e o intervalo derivado entre duas
+              -- viagens: nasce 'Entregue' porque ja aconteceu, e sem este filtro entrava
+              -- inteira no contador do operacional. Medido na base local em 10/09/26:
+              -- 35 das 130 "entregues no mes" eram pernas — 27% de um numero que a
+              -- diretoria le como entrega ao cliente. Sai daqui e ganha card proprio.
               COUNT(*) FILTER (WHERE status = 'Entregue'
+                               AND NOT COALESCE(viagem_vazia, FALSE)
                                AND date_trunc('month', data_conclusao) = date_trunc('month', (NOW() AT TIME ZONE 'America/Sao_Paulo')::date)) AS entregues_mes,
               COUNT(*) FILTER (WHERE status = 'Aberta')                 AS abertas,
-              COUNT(*) FILTER (WHERE status = 'Desengatada')            AS desengatadas
+              COUNT(*) FILTER (WHERE status = 'Desengatada')            AS desengatadas,
+              -- Vazias do mes: o km de reposicionamento que fechou no periodo. Conta pela
+              -- `data_conclusao` igual as entregues, para as duas falarem do mesmo mes.
+              COUNT(*) FILTER (WHERE COALESCE(viagem_vazia, FALSE)
+                               AND date_trunc('month', data_conclusao) = date_trunc('month', (NOW() AT TIME ZONE 'America/Sao_Paulo')::date)) AS vazias_mes
             FROM embarques_cargas
         """)
         r = cur.fetchone()
@@ -5941,6 +5965,7 @@ def api_embarques_kpis():
                 'entregues_mes':  r[3] or 0,
                 'abertas':        r[4] or 0,
                 'desengatadas':   r[5] or 0,
+                'vazias_mes':     r[6] or 0,
             }
         })
     except Exception as e:
