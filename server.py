@@ -7220,6 +7220,7 @@ def rodar_pos_diario(hoje):
     `criada_por_robo` e deixam log por campo — o gerador pula o par (carreta, pontas, janela
     sobreposta) que já tem perna.
     """
+    import re as _re
     import sys as _sys
     import subprocess as _sp
     from datetime import timedelta as _td
@@ -7235,27 +7236,69 @@ def rodar_pos_diario(hoje):
 
     PASSOS = (
         # script, argumentos extras, rótulo, passadas, marcador da linha de resultado
-        ('_robo_atemporal.py',        ['--aplicar'], 'motor',  3, 'GRAVADO'),
-        ('_regerar_vazias_agosto.py', ['--aplicar'], 'pernas', 1, 'viagens vazias'),
-        ('_tracar_rotas_agosto.py',   [],            'rotas',  1, 'FIM:'),
-        ('_rederivar_vazias.py',      ['--aplicar'], 'janela', 3, 'GRAVADO'),
+        ('_robo_atemporal.py',        ['--aplicar'], 'motor',  'GRAVADO'),
+        ('_regerar_vazias_agosto.py', ['--aplicar'], 'pernas', 'viagens vazias'),
+        ('_tracar_rotas_agosto.py',   [],            'rotas',  'FIM:'),
+        ('_rederivar_vazias.py',      ['--aplicar'], 'janela', 'GRAVADO'),
     )
-    for script, extra, rotulo, tentativas, marcador in PASSOS:
-        for passada in range(1, tentativas + 1):
-            try:
-                r = _sp.run([_sys.executable, '-X', 'utf8', script,
-                             '--desde', desde, '--ate', ate] + extra,
-                            cwd=base, capture_output=True, text=True, timeout=3600)
-            except Exception as e:
-                # Falhar aqui não pode derrubar a thread do diário: o pior caso é o dia ficar
-                # sem a releitura, e ela é idempotente — a rodada seguinte refaz.
-                print(f'⚠️  Atemporal ({rotulo}): falha ao executar: {e}')
-                break
-            linhas = [x for x in (r.stdout or '').splitlines() if marcador in x]
-            print(f'🔁 Atemporal {rotulo} p{passada}: '
-                  f'{linhas[-1].strip() if linhas else (r.stderr or "").strip()[-300:]}')
-            if linhas and linhas[-1].strip().startswith('GRAVADO: 0'):
-                break
+    MOTOR, PERNAS, ROTAS, JANELA = PASSOS
+
+    def _passo(passo, rodada):
+        """Roda um passo e devolve quantas linhas ele gravou (None = nao deu para saber)."""
+        script, extra, rotulo, marcador = passo
+        try:
+            r = _sp.run([_sys.executable, '-X', 'utf8', script,
+                         '--desde', desde, '--ate', ate] + extra,
+                        cwd=base, capture_output=True, text=True, timeout=3600)
+        except Exception as e:
+            # Falhar aqui não pode derrubar a thread do diário: o pior caso é o dia ficar
+            # sem a releitura, e ela é idempotente — a rodada seguinte refaz.
+            print(f'⚠️  Atemporal ({rotulo}): falha ao executar: {e}')
+            return None
+        linhas = [x for x in (r.stdout or '').splitlines() if marcador in x]
+        eco = linhas[-1].strip() if linhas else (r.stderr or '').strip()[-300:]
+        print(f'🔁 Atemporal {rotulo} r{rodada}: {eco}')
+        if linhas:
+            m = _re.search(r'GRAVADO:\s*(\d+)', linhas[-1])
+            if m:
+                return int(m.group(1))
+        return None
+
+    # ── O PONTO FIXO E CONJUNTO, NAO DE CADA PASSO (medido em 10/09/2026)
+    #
+    # A versao anterior levava cada passo ao ponto fixo DELE, em sequencia: motor 3x, depois
+    # janela 3x. Isso nao converge o par, e a razao esta na dependencia cruzada — a janela e
+    # dona da janela da perna (§20.2), e o motor deriva a CHEGADA dentro dessa janela. A
+    # janela rodava por ultimo, movia a janela, e ninguem rodava o motor de novo.
+    #
+    # O estrago medido na base local: 7 escritas pendentes do motor, TODAS em perna vazia e
+    # todas no campo `no_local_desde` — e 4 delas reescrevendo, com valor diferente, o que o
+    # proprio "Robo atemporal" ja tinha gravado (uma querendo por NULL por cima). Isso e
+    # oscilacao, que a §20.6 define como bug e nao como "quase convergiu". O numero nao se
+    # move com a janela (7 com --ate 08/09, 09/09, 10/09 e 15/09), entao nao e evidencia
+    # nova chegando: e um desacordo parado.
+    #
+    # A receita manual da §22.7 — a que PRODUZIU a base convergida — ja fazia o certo, e o
+    # detalhe passou despercebido quando isto virou codigo: ela ALTERNAVA os dois dentro do
+    # mesmo laco (`for i in 1 2 3; do motor; janela; done`), que e o que alcanca o ponto
+    # fixo conjunto. Aqui a alternancia volta.
+    #
+    # A ordem de dentro do laco preserva as duas emendas que ja custaram uma rodada cada:
+    # o motor abre (a perna deriva a janela das cargas vizinhas, entao as ancoras precisam
+    # estar corretas antes de gerar), e as rotas vem antes da janela (a regua da lacuna
+    # divide a janela pela distancia da rota — §22.9).
+    _passo(MOTOR, 1)          # ancoras antes de gerar perna
+    _passo(PERNAS, 1)         # cria a perna nova do dia
+    _passo(ROTAS, 1)          # denominador da regua da lacuna
+    for rodada in range(1, 4):
+        n_janela = _passo(JANELA, rodada)
+        n_motor = _passo(MOTOR, rodada + 1)
+        if n_janela == 0 and n_motor == 0:
+            print(f'✅ Atemporal: ponto fixo CONJUNTO na rodada {rodada}')
+            break
+    else:
+        print('⚠️  Atemporal: motor e janela NAO convergiram em 3 rodadas — '
+              'isso e bug, nao "quase convergiu" (§20.6). Rodar _ensaio_pipeline.py.')
 
 
 if __name__ == '__main__':

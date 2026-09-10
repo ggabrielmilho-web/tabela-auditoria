@@ -417,6 +417,45 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
                 del campos[_k]
                 resumo['vazia: janela e da rederivacao, nao do motor'] += 1
 
+        # ── E "DENTRO DELA" PRECISA SER IMPOSTO, NAO SO PROMETIDO (10/09/2026).
+        #
+        # A regra acima entrega a JANELA para a rederivacao, mas deixava a CHEGADA passar
+        # sem conferir se ela cai dentro dessa janela. E ela nem sempre cai: a
+        # V-2026-000106 saiu daqui com `no_local_desde` em 13/08 19:29 para uma perna que
+        # termina em 04/08 15:26 — uma chegada NOVE DIAS depois de a perna ter acabado. O
+        # aferidor pegou na hora (T2, conclusao anterior a chegada), e era o motor apurando
+        # fora do intervalo que ele mesmo declara respeitar.
+        #
+        # Isto tambem e o que produzia o desacordo com a rederivacao: medido antes do
+        # conserto, o motor tinha 7 escritas pendentes, TODAS de perna vazia e todas neste
+        # campo, sendo 4 reescrevendo com valor diferente o que o proprio "Robo atemporal"
+        # ja gravara (uma querendo por NULL por cima). A janela e movel — ela pertence a
+        # rederivacao — entao uma chegada derivada sem amarra na janela muda toda vez que a
+        # janela muda, e o par nunca assenta.
+        #
+        # Fora da janela o campo nao e apurado — e, se ja houver valor gravado fora dela, ele
+        # e RETRATADO. Descartar a escrita nova nao basta: a V-2026-000106 ja carregava o
+        # 13/08 no banco, e so nao escrever de novo deixaria a afirmacao errada de pe para
+        # sempre. Retratar nao e palpite: e desafirmar o que nao tem lastro, o mesmo criterio
+        # do "—" da secao 12.13. Para a perna, o motor e o unico escritor deste campo (a
+        # rederivacao nao o toca e o worker so processa Aberta/Em rota/No destino), entao
+        # nao ha com quem brigar.
+        _ini_j = campos.get('data_saida_real', dsaida) or campos.get('inicio_viagem', inicio)
+        _fim_j = campos.get('data_conclusao', dconc)
+        _cheg_j = campos.get('no_local_desde', nolocal)
+        _fora = _cheg_j is not None and ((_ini_j and _cheg_j < _ini_j)
+                                         or (_fim_j and _cheg_j > _fim_j))
+        if _fora:
+            campos.pop('no_local_fonte', None)
+            if nolocal is not None:
+                campos['no_local_desde'] = None       # retrata o que esta gravado
+                if nolocal_fonte is not None:
+                    campos['no_local_fonte'] = None
+                resumo['vazia: chegada fora da janela — RETRATADA'] += 1
+            else:
+                campos.pop('no_local_desde', None)
+                resumo['vazia: chegada fora da janela — nao apurada'] += 1
+
     if campos:
         mudancas.append((cid, num, campos, sensor, como_cheg))
         for k in campos:
