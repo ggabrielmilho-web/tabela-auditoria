@@ -1456,3 +1456,77 @@ para trazer a imagem de volta ao `latest`.
 
 As 6 bloqueadas são 4 placas sem ano no cadastro: `HDI9E22` (3 viagens), `DTE1F36`, `IJJ4D59`,
 `DBM5I14`. Preenchido o ano no 045, elas entram sozinhas na rodada seguinte — a aba lista e copia.
+
+---
+
+## 19. A escala de consumo foi elevada por decisão da diretoria (10/09/2026)
+
+`CONSUMO_POR_IDADE` passou de três faixas para quatro, com valores bem maiores:
+
+```
+        ANTES                        DEPOIS
+   ate  5 anos   2,20 km/l      ate  5 anos   3,00 km/l
+   ate 10 anos   1,80 km/l      ate 10 anos   2,80 km/l
+   acima         1,50 km/l      ate 20 anos   2,50 km/l
+                                acima         2,20 km/l
+```
+
+O rígido segue em `CONSUMO_RIGIDO = 3,70`.
+
+### O efeito
+
+| | 2026 inteiro |
+|---|---|
+| km/l ponderado | 1,62 → **2,55** |
+| litros | 2.539.127 → **1.611.565** (−37%) |
+| CO₂e | 5.800 t → **3.681 t** |
+
+Por faixa, o corte vai de −26% (0-5 anos) a −39% (11-20 anos, que sozinha é 59%
+do km da operação).
+
+### ⚠ A divergência que fica registrada
+
+Nas **duas únicas faixas em que a Rizza tem medição própria**, o valor adotado
+ficou **acima** do ciclo medido no ValeCard:
+
+| faixa | ciclo medido (`CICLO_MEDIDO`) | adotado (carregado) |
+|---|---|---|
+| 0-5 anos | 2,71 km/l | **3,00 km/l** |
+| 6-10 anos | 2,52 km/l | **2,80 km/l** |
+
+O `FuelConsumption` da Verda é consumo **carregado**; a medição do ValeCard é de
+**ciclo**, que inclui a volta vazia. Como a volta vazia gasta menos por km, o
+ciclo é sempre **maior ou igual** ao carregado — é assim por construção, e a
+§3.3 deste handoff foi escrita justamente para explicar por que a escala antiga
+ficava *abaixo* do ciclo medido.
+
+A escala nova inverte essa relação: declara que o caminhão carregado rende mais
+que o mesmo caminhão fazendo ida carregada + volta vazia.
+
+**Isto foi apontado com os números na mesa antes da mudança, e a diretoria
+manteve a decisão** (informada pelo Gabriel em 10/09/2026). Está aqui como
+registro, não como contestação — se uma verificação da Nestlé ou uma auditoria
+perguntar, a resposta e a origem da decisão precisam estar documentadas.
+
+Acima de 10 anos — **76% da operação** — não existe medição própria, então ali os
+valores são premissa e não contradizem nada.
+
+> Para reverter, é uma constante: `CONSUMO_POR_IDADE` em `verda_veiculos.py`. O
+> `CICLO_MEDIDO` continua no arquivo como referência de conferência.
+
+### O que mais mudou junto
+
+- **A base local da `verda_envios` foi zerada** (587 linhas de homologação
+  apagadas), a pedido, para a aba `/verda` estrear limpa em produção. As 574
+  transações continuam **vivas na conta de homologação da Verda** e agora sem
+  vínculo no nosso banco — decisão consciente, por ser ambiente de teste. Há um
+  backup do par (transportation_id × transaction_id) fora do repo; se um dia for
+  preciso limpar aquela conta, o `CancelTransaction` também serve de oráculo
+  (§13).
+- **Os indicadores da ABIQUIM passaram a usar a mesma escala**, para não haver
+  duas réguas de consumo na empresa. Ver a memória de cálculo em
+  `integracao_verda/`.
+
+> **Ao reler a §3.3 e a §17.5:** elas descrevem o raciocínio da escala ANTIGA e
+> continuam válidas como histórico, mas os números que citam (2,20/1,80/1,50 e o
+> efeito do rígido) não são mais os que estão no código.

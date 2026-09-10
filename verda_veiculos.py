@@ -162,12 +162,32 @@ FAIXA_KML = {
 # Ela vale só para os ARTICULADOS. Rígido tem escala própria (CONSUMO_RIGIDO,
 # logo abaixo).
 #
-# (idade máxima da faixa, km/l carregado). São as três faixas definidas pela
-# diretoria; a última é aberta e vale para tudo acima de 10 anos.
+# (idade máxima da faixa, km/l carregado). Faixas definidas pela diretoria.
+#
+# ── REVISADO EM 10/09/2026, POR DECISÃO DA DIRETORIA ──
+# A escala anterior era 2,20 / 1,80 / 1,50 em três faixas. A diretoria decidiu
+# elevar as médias e detalhar em quatro. Efeito no ano de 2026: o consumo médio
+# ponderado sobe de 1,62 para 2,55 km/l, os litros caem 37% e o inventário CO2e
+# vai de 5.800 t para 3.681 t.
+#
+# ⚠ DIVERGÊNCIA REGISTRADA, para quem for auditar ou revisar isto:
+# nas duas faixas em que a Rizza TEM medição própria, o valor adotado ficou
+# ACIMA do ciclo medido no ValeCard (ver CICLO_MEDIDO logo abaixo):
+#
+#        faixa        ciclo medido      adotado (carregado)
+#        0-5 anos       2,71 km/l           3,00 km/l
+#        6-10 anos      2,52 km/l           2,80 km/l
+#
+# Isso inverte a relação física entre os dois: o ciclo inclui a volta vazia, que
+# gasta menos por km, então o ciclo é sempre >= o carregado. Foi apontado antes
+# da mudança e a diretoria manteve a decisão. Nas faixas acima de 10 anos (76%
+# da operação) não há medição própria, então ali os valores são premissa e não
+# contradizem nada.
 CONSUMO_POR_IDADE = [
-    (5, 2.20),
-    (10, 1.80),
-    (999, 1.50),
+    (5, 3.00),
+    (10, 2.80),
+    (20, 2.50),
+    (999, 2.20),
 ]
 
 # ── Consumo do RÍGIDO (truck/toco) ──
@@ -190,7 +210,9 @@ CONSUMO_POR_IDADE = [
 # Estávamos superestimando 121,8 t/ano.
 CONSUMO_RIGIDO = 3.70
 
-# Veículo sem ano no cadastro (175 viagens) cai na última faixa.
+# Veículo sem ano no cadastro cai na última faixa (a mais econômica agora, que
+# antes era a mais pesada — atenção ao reler: a troca de escala inverteu o lado
+# conservador dessa regra).
 IDADE_SEM_ANO = 999
 
 # Referência de conferência, não é o que se envia: média de CICLO medida no
