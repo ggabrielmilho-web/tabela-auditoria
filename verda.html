@@ -60,7 +60,7 @@
   .chart-wrap { position: relative; height: 190px; }
 
   .bars { display: flex; flex-direction: column; gap: 9px; }
-  .bar-row { display: grid; grid-template-columns: 118px 1fr 54px; align-items: center; gap: 10px; font-size: 0.8rem; }
+  .bar-row { display: grid; grid-template-columns: 142px 1fr 54px; align-items: center; gap: 10px; font-size: 0.8rem; }
   .bar-row .lab { font-family: 'JetBrains Mono', monospace; color: var(--text-dim); }
   .bar-track { height: 9px; background: var(--surface2); border-radius: 5px; overflow: hidden; }
   .bar-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); border-radius: 5px; }
@@ -164,7 +164,7 @@
       <div class="bar-foot"><span>Média ponderada</span><b id="kmlMedio">—</b></div>
     </div>
     <div class="card">
-      <h3>Configuração declarada</h3>
+      <h3>VehicleTypeKey <span class="hint">— o código da Verda; passe o mouse para a descrição dela</span></h3>
       <div class="bars" id="barsTipos"></div>
       <div class="bar-foot"><span>Entrada (IsInbound) × saída</span><b id="inbOut">—</b></div>
     </div>
@@ -294,7 +294,7 @@ function render() {
 
   const maxT = Math.max(...d.tipos.map(t => t.viagens), 1);
   document.getElementById('barsTipos').innerHTML = d.tipos.map(t => `
-    <div class="bar-row"><span class="lab" title="${t.tipo}">${t.label}</span>
+    <div class="bar-row"><span class="lab" title="${t.descricao || t.tipo}">${t.tipo}</span>
       <div class="bar-track"><div class="bar-fill" style="width:${100 * t.viagens / maxT}%"></div></div>
       <span class="num">${fmt(t.viagens)}</span></div>`).join('');
   document.getElementById('inbOut').textContent = `${k.n_inbound} × ${k.n_outbound}`;
@@ -353,7 +353,7 @@ function desenharTabela() {
     <tr data-i="${i}" style="cursor:pointer">
       <td class="mono">${v.id}</td><td class="mono">${v.data.slice(8, 10)}/${v.data.slice(5, 7)}</td>
       <td>${v.rota || '—'}</td><td class="mono">${v.placa || '—'}</td>
-      <td><span class="pill dim" title="${v.tipo || ''}">${v.tipo_label || '—'}</span></td>
+      <td><span class="pill dim" title="${v.tipo_descricao || ''}">${v.tipo || '—'}</span></td>
       <td class="num-cell">${fmt(v.km)}</td><td class="num-cell">${fmt(v.t, 1)}</td>
       <td class="num-cell">${fmt(v.kml, 1)}</td><td class="num-cell">${fmt(v.co2, 3)}</td>
       <td><span class="pill ${cls(v.status)}">${v.status}</span></td>

@@ -30,13 +30,20 @@ from collections import defaultdict
 # `RenewableShare` não é enviado — mandar contaria o biodiesel duas vezes.
 FATOR_CO2E = 2.28429
 
-# Faixas de consumo em uso, para a tela rotular sem depender do dado.
-ROTULO_TIPO = {
-    'articulado_35': 'carreta (ate 33 t)',
-    'articulado_330': 'bitrem / rodotrem',
-    'rigido_35': 'rigido leve',
-    'rigido_75': 'truck',
-    'rigido_170': 'rigido pesado',
+# A descrição que a PRÓPRIA VERDA mostra em Atributos do cliente, palavra por
+# palavra. Não traduzir, não apelidar: o código é a chave do payload e o texto é
+# o da plataforma, então a tela, a conta da Verda e o JSON falam a mesma língua.
+#
+# Já tentei apelidar aqui ("truck", "bitrem/rodotrem") e confunde: `rigido_75` é
+# faixa de PESO (7,5 a 17 t) e "truck" é configuração de eixos — coisas
+# diferentes com o mesmo nome. Quem lê a tela precisa poder procurar o código na
+# conta da Verda e achar.
+DESCRICAO_VERDA = {
+    'articulado_35': 'Caminhão articulado - 3,5 a 33 ton',
+    'articulado_330': 'Caminhão articulado - acima de 33',
+    'rigido_35': 'Caminhão rígido - 3,5 a 7,5 ton',
+    'rigido_75': 'Caminhão rígido - 7,5 a 17 ton',
+    'rigido_170': 'Caminhão rígido - acima de 17 ton',
 }
 
 # Uma viagem parada em `enviado` por mais que isto sem veredito é sintoma, não
@@ -138,7 +145,7 @@ def painel(cur, desde, ate, ambiente):
             'id': tid, 'data': str(data), 'api': api, 'status': status,
             'rota': p.get('RouteId'), 'placa': p.get('VehicleKey'),
             'ano': p.get('VehicleModelYear'), 'tipo': p.get('VehicleTypeKey'),
-            'tipo_label': ROTULO_TIPO.get(p.get('VehicleTypeKey'), p.get('VehicleTypeKey')),
+            'tipo_descricao': DESCRICAO_VERDA.get(p.get('VehicleTypeKey'), ''),
             'km': round(km, 1), 't': round(t, 2), 'kml': kml,
             'litros': round(litros, 1), 'co2': round(co2, 3),
             'esc1': esc1, 'inbound': inbound, 'ctes': n_ctes,
@@ -180,7 +187,7 @@ def painel(cur, desde, ate, ambiente):
         'status': dict(contagem),
         'por_dia': [{'data': d, 'co2': round(v, 3)} for d, v in sorted(por_dia.items())],
         'consumo': [{'kml': k, 'viagens': v} for k, v in sorted(consumo.items(), reverse=True)],
-        'tipos': [{'tipo': k, 'label': ROTULO_TIPO.get(k, k), 'viagens': v}
+        'tipos': [{'tipo': k, 'descricao': DESCRICAO_VERDA.get(k, ''), 'viagens': v}
                   for k, v in sorted(tipos.items(), key=lambda x: -x[1])],
         'bloqueadas': [{'placa': k, **v} for k, v in
                        sorted(por_placa.items(), key=lambda x: -x[1]['viagens'])],
