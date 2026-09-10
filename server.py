@@ -6759,7 +6759,28 @@ def api_rastreamento_trajeto(carga_id):
         # seria PIOR que o defeito: das 51 cargas fechadas sem prova, 47 tem carreta que ja
         # saiu de novo, e para essas a posicao ao vivo e de outra viagem. Sobram 4, que sao a
         # classe mais urgente que existe — carga parada em algum lugar, carimbada de entregue.
-        _fechada_sem_prova = bool(carga.get('data_conclusao')) and not carga.get('no_local_desde')
+        #
+        # A PERNA VAZIA fica FORA disto, e nao por detalhe: ela nao e uma viagem rastreada,
+        # e o intervalo DERIVADO entre duas viagens. A `data_conclusao` dela e o instante em
+        # que o carregamento SEGUINTE comecou — entao toda posicao posterior e, por
+        # definicao, da proxima viagem, carregada. Sem esta clausula o mapa desenhava a
+        # viagem seguinte por cima da perna (a V-2026-000117 subia ate Uberlandia numa perna
+        # Anapolis->Goiania) e o "km faltando" saia projetado dali, num documento `Entregue`.
+        #
+        # Ela nunca tem `no_local_desde` de origem — o gerador nao grava a coluna, porque a
+        # perna nao tem chegada a provar — entao `fechada sem prova` e verdade para 100%
+        # delas no nascimento, e as duas travas abaixo nao seguram: a da carreta compara
+        # `data_carregamento`, que na perna e meia-noite do dia em que a viagem ANTERIOR
+        # terminou, contra a DATE da carga seguinte (medido: falha em 29 de 99 porque a
+        # seguinte carregou no mesmo dia, mais 8 em que ela ainda nem existe — o robo cria
+        # em D-1). E o mesmo tropeco DATE x timestamp que o docstring do
+        # `_regerar_vazias_agosto.py` conta ter consertado na janela.
+        #
+        # E o mesmo criterio que o arquivo ja aplica a vazia em outros quatro pontos: nao
+        # desenhar, e nao medir, o que essa placa nao fez nesta perna.
+        _fechada_sem_prova = (bool(carga.get('data_conclusao'))
+                              and not carga.get('no_local_desde')
+                              and not carga.get('viagem_vazia'))
         if _fechada_sem_prova and carga.get('carreta1_placa'):
             # `placas.grafias()` em vez de `_pn(%s)`: o helper repete a coluna QUATRO vezes,
             # entao passar o placeholder por dentro dele gera quatro %s para um valor so.
