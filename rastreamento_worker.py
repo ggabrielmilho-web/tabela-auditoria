@@ -1226,25 +1226,66 @@ def _ciclo():
         try:
             posicoes = tres_s_client.lista_ultima_posicao(0)
 
+            # ── TRES ETAPAS, TRES TRANSACOES (10/09/2026)
+            #
+            # Ate hoje as tres compartilhavam uma transacao so, e isso custou 30 HORAS de
+            # rastreamento parado em producao. A tabela `embarques_rastreio_dia` nunca tinha
+            # sido criada la (o `init_db.py` a cria desde o commit 7de4860, mas ninguem o
+            # rodou), entao `_consolidar_dias` levantava UndefinedTable, o `rollback` levava
+            # junto as 93 POSICOES que ja tinham sido gravadas, e o log da 3S — que roda em
+            # conexao separada — continuava mostrando HTTP 200 sem um unico erro.
+            #
+            # O que transformou uma falha diaria em falha permanente foi a linha
+            # `_ultima_retencao = datetime.utcnow()` estar DEPOIS da chamada que levantava:
+            # nunca era marcada, `_deve_rodar_retencao()` seguia True, e TODO ciclo repetia.
+            # Sem isso teria sido 1 ciclo perdido por dia; com isso, 100% deles.
+            #
+            # A posicao e FATO BRUTO e nao pode depender de nenhuma derivacao nossa. Agora
+            # ela commita sozinha, primeiro, e o que vier depois falha por conta propria.
             conn = _get_db()
-            cur = conn.cursor()
             try:
-                _persistir_posicoes(cur, posicoes)
-                _processar_cargas(cur)
+                cur = conn.cursor()
+                try:
+                    _persistir_posicoes(cur, posicoes)
+                    conn.commit()
+                except Exception:
+                    conn.rollback()
+                    raise                      # posicao nao grava = problema de verdade
+                finally:
+                    cur.close()
+
+                # Derivacao de eventos: uma carga ruim nao pode mais derrubar o GPS da frota.
+                cur = conn.cursor()
+                try:
+                    _processar_cargas(cur)
+                    conn.commit()
+                except Exception:
+                    conn.rollback()
+                    _logger.exception('Falha ao processar cargas — as posicoes deste ciclo '
+                                      'JA foram gravadas e o rastreamento segue')
+                finally:
+                    cur.close()
 
                 if _deve_rodar_retencao():
-                    # A ORDEM NÃO PODE INVERTER: consolidar antes de purgar. O que a
-                    # purga leva não volta (a 3S serve ~35 dias de histórico).
-                    _consolidar_dias(cur)
-                    _purgar_posicoes_antigas(cur)
+                    cur = conn.cursor()
+                    try:
+                        # A ORDEM NÃO PODE INVERTER: consolidar antes de purgar. O que a
+                        # purga leva não volta (a 3S serve ~35 dias de histórico) — por isso
+                        # a purga fica DENTRO do try da consolidacao: se consolidar falhou,
+                        # purgar seria destruir o que ninguem guardou.
+                        _consolidar_dias(cur)
+                        _purgar_posicoes_antigas(cur)
+                        conn.commit()
+                    except Exception:
+                        conn.rollback()
+                        _logger.exception('Falha na consolidacao/retencao — NADA foi purgado. '
+                                          'O historico esta intacto e o ciclo segue')
+                    finally:
+                        cur.close()
+                    # Marcada MESMO se falhou: o retry certo e amanha, nao daqui a 60s. Foi o
+                    # retry a cada ciclo que espalhou o estrago para o dia inteiro.
                     _ultima_retencao = datetime.utcnow()
-
-                conn.commit()
-            except Exception:
-                conn.rollback()
-                raise
             finally:
-                cur.close()
                 conn.close()
 
             dur = time.time() - t0
