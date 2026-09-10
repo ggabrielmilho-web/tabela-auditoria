@@ -331,7 +331,14 @@ def main():
         # versão gratuita não fica detalhe de viagem, só o consolidado do mês —
         # transação errada lá suja um número que ninguém consegue inspecionar
         # depois para conferir se o CancelTransaction limpou de verdade.
-        if cliente.ambiente == 'producao' and not args.sim_producao and not args.resumo:
+        #
+        # `--so-montar` e `--resumo` NÃO passam por aqui: nenhum dos dois fala com
+        # a Verda. O `--so-montar` lê o Power BI e grava pendente no nosso banco,
+        # e o expurgo é pulado. Barrá-lo tirava justamente a conferência que a
+        # trava quer incentivar — dava para ver o lote antes de mandar, e a trava
+        # obrigava a usar a flag de envio real só para poder olhar.
+        if (cliente.ambiente == 'producao' and not args.sim_producao
+                and not args.resumo and not args.so_montar):
             print('!! PRODUÇÃO exige --sim-producao. Valide em homologação primeiro.')
             con.close()
             return 1
