@@ -64,6 +64,7 @@ O estudo inteiro, com as medições e o porquê de cada regra, está em
 - **Mapa / Rastreamento** (`/embarques/mapa`, `/embarques/cargas/<id>/mapa`) — Mapa em tempo real (Leaflet): posição dos veículos e trajeto de cada carga, rota planejada **origem → cidades de rota → destinos** (completa, multi-ponto), KPIs de viagem **ao vivo** (vel. máx/média, km, tempos) e **Data de saída** no painel da carga. Fluxo de status automático **Aberta → Em rota → No destino → Entregue** (`No destino` = parado na cidade da descarga há +60 min), com desvio **Desengatada** (carreta carregada largada no destino). **Rastreia pela carreta** (carreta1 → cavalo → carreta2 — o GPS costuma estar na carreta). **Reconstrói o trajeto** mesmo em lançamento tardio: detecta a saída da origem pelo GPS (por distância, pois o 3S erra o nome da cidade) e persiste em `inicio_viagem`. Mapa geral tem filtro **🔌 Desengatadas** e marcador próprio
 
 ### Restrito a admins
+- **Verda — Emissões CO₂e** (`/verda`) — Acompanhamento do inventário de CO₂e enviado à plataforma **Verda** (exigência da Nestlé, escopo 3 do embarcador). Placar da rodada (enviadas / `executed` / rejeitadas / bloqueadas), inventário (t CO₂e, km, peso, diesel, **intensidade g/t·km**, escopo 1 × escopo 3), consumo aplicado por faixa de km/l, `VehicleTypeKey`, **as placas que estão bloqueando envio** (lista copiável para o cadastro resolver) e detalhe por viagem com drill nos CTes + CSV. **Não chama a Verda**: lê a `verda_envios` e recalcula o CO₂e com o fator reconstruído da API `Fuel` — na conta gratuita a Verda guarda só o consolidado mensal, então para o dado por viagem esta é a única tela que existe. Janela padrão = semana fechada anterior. Ver `HANDOFF-VERDA.md`
 - **Reunião** (`/reuniao`) — Gerador de ata de reunião a partir de áudio. Transcreve via AssemblyAI (com identificação de falantes) e gera ata profissional via GPT-4.1-mini. Exporta em Word e PDF
 - **Contratos** (`/contratos`) — Emissão de **contrato TAC Agregado** por IA. O operador sobe os documentos (CNH, CRLV, RNTRC/ANTT, comprovante de endereço, dados bancários); o GPT-4.1-mini (visão) **extrai os campos** de cada documento-fonte correto, o backend reconfere **pendências impeditivas** em Python e preenche o **template Word soberano** (`contrato_tac_template.docx` via docxtpl — o texto jurídico nunca é tocado). Gera **comodato de rastreador** quando o agregado não usa rastreador próprio. Exporta `.docx` e oferece **preview HTML** (para "Salvar como PDF" pelo navegador)
 - **DRE** (`/dre`) — Demonstração do Resultado do Exercício com 4 gráficos analíticos (Waterfall, Donut por Grupo, Pareto 80/20, Comparativo Mensal) e chat IA financeiro com streaming em tempo real
@@ -257,6 +258,17 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 |---|---|
 | `OPENAI_API_KEY` | Chave da OpenAI (ata + chat IA) |
 | `ASSEMBLYAI_API_KEY` | Chave da AssemblyAI (transcrição) |
+
+### Verda (CO₂e)
+| Variável | Descrição | Default |
+|---|---|---|
+| `VERDA_AMBIENTE` | `teste` ou `producao` — decide URL **e** par de chaves | `teste` |
+| `VERDA_SIMULADO` | `1` responde sem tocar a rede (não gasta transação) | `0` |
+| `VERDA_URL_PRODUCAO` | Host de produção (é o **mesmo** da homologação; o que muda são as chaves) | — |
+| `VERDA_URL_TESTE` | Host de homologação | embutido |
+| `VERDA_APPLICATION_KEY` | Chave da aplicação. **Produção e homologação são contas diferentes** | — |
+| `VERDA_SECRET_KEY` | Chave secreta (a autenticação exige o par; uma sozinha não vale) | — |
+| `VERDA_VEHICLE_TYPE_KEY` | Carimba o `VehicleTypeKey`. **Só homologação** — em produção NÃO definir, senão a classificação real não chega à Verda | vazio |
 
 ### Rastreamento
 | Variável | Descrição | Default |

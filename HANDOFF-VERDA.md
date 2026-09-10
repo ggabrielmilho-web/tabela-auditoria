@@ -1,16 +1,20 @@
 # HANDOFF — Integração Verda (emissões de CO₂e)
 
-**Estado: HOMOLOGAÇÃO NO AR, AGOSTO/2026 INTEIRO ENVIADO.** Em 01/09/2026 o Rafael mandou URL e
-credenciais. Subiu o mês fechado: **597 viagens, 597 `executed`, 0 rejeitadas, 0 falhas** — 629,52 t
-CO₂e. Ver [o resultado do lote](#11-primeiro-lote-real--agosto2026).
+**Estado: PRODUÇÃO ARMADA, PRIMEIRO ENVIO EM 11/09/2026.** O código está no ar no servidor, as
+credenciais de produção estão no serviço e o ensaio (`--so-montar`) rodou lá dentro: **119 viagens
+prontas, 6 bloqueadas, 1 sem CTRB**, ~154,40 t CO₂e previstos para a semana de 31/08 a 06/09.
+Falta só disparar o envio. Ver [seção 17](#17-produção-as-decisões-de-10092026) e
+[seção 18](#18-a-aba-verda-e-o-estado-do-deploy).
 
-As primeiras chamadas reais derrubaram **quatro** afirmações da documentação — três delas eram bugs
-que quebravam o robô em silêncio. Tudo corrigido e descrito na
-[seção 5](#5-o-que-a-documentação-respondeu-não-perguntar-de-novo).
+Antes disso, agosto inteiro rodou em **homologação** — 597 viagens, 0 rejeitadas. As primeiras
+chamadas reais derrubaram **quatro** afirmações da documentação, três delas bugs que quebravam o
+robô em silêncio ([seção 5](#5-o-que-a-documentação-respondeu-não-perguntar-de-novo)).
 
-**Falta para produção:** a URL de produção (não foi informada), o cadastro dos tipos de veículo na
-conta e as respostas 3 a 6 da [seção 4](#4-o-que-está-travado). Ver
-[Como ligar](#10-como-ligar-quando-a-verda-responder).
+> **Produção é OUTRA CONTA, não a mesma com chave nova** — provado por `GetTransaction` (§17.1). O
+> inventário de produção nasce limpo; as 574 viagens de homologação não contaminam nada.
+
+**Ainda aberto:** o agendamento semanal automático (hoje o disparo é manual) e as perguntas 4 e 6 da
+[seção 4](#4-o-que-está-travado).
 
 ---
 
@@ -137,9 +141,13 @@ Quatro decisões que não são óbvias:
 
 ### O que ainda falta
 
-**Tela de acompanhamento** — o que foi, o que falhou, por quê. As funções de leitura já existem
-(`verda_estado.resumo()` e `verda_estado.rejeitadas()`); falta a página. Enquanto isso,
-`verda_job.py --resumo` dá a mesma informação no terminal.
+**O agendamento automático.** Hoje o disparo é manual. O desenho combinado é uma thread no
+`server.py`, no padrão do robô de embarques (flag `VERDA_AUTO` para desligar pelo Portainer sem
+deploy), rodando **sexta-feira sobre a semana fechada anterior** (segunda a domingo) — 5 dias de
+folga para o CTRB consolidar. Precisa estar de pé antes de 18/09/2026.
+
+> A **tela de acompanhamento** que constava aqui como pendência já existe: é a aba `/verda`
+> ([seção 18](#18-a-aba-verda-e-o-estado-do-deploy)).
 
 ### Modo simulado
 
@@ -292,7 +300,7 @@ endereço da plataforma. Ela roda em **OutSystems Cloud**, e o Rafael mandou a U
 
 ```
 teste       https://personal-d33vvevh.outsystemscloud.com/VerdaIntegration/rest/
-producao    NÃO INFORMADA — ele disse só que as CREDENCIAIS mudam
+producao    A MESMA da homologação — só o par de chaves muda (confirmado em 10/09, §17.1)
 ```
 
 O **caminho** a partir do host é o documentado (`/VerdaIntegration/rest/<Dominio>/<Api>`), e
@@ -597,20 +605,30 @@ local aponta para `localhost` e a base local está meses atrás.
 
 ## 9. Ao retomar
 
-1. `python -X utf8 verda_job.py --resumo` — o que está em cada ambiente. Atenção: `executed` com
-   ambiente `simulado` **não** significa que a viagem chegou à Verda.
-2. `python -X utf8 _verda_valida.py --exemplos 3` — conferir que ainda dá ~95,6%
-3. `python -X utf8 verda_job.py --data <uma data> --so-montar` — monta sem tocar na rede
-4. Ver o que falta para produção (seção 10) e as perguntas 3 a 6 ainda abertas (seção 4)
+> **Produção roda no SERVIDOR, não na sua máquina.** O `verda_envios` mora no Postgres de lá e é
+> fonte única — rodar local contra o banco local cria um estado paralelo, e no envio seguinte a
+> Verda recusa tudo por `TransportationId` com transação viva, **sem dizer o motivo** (§13). Os
+> comandos de servidor estão na [seção 18](#18-a-aba-verda-e-o-estado-do-deploy).
 
-**Números de referência**, para perceber se algo mudou de forma estranha:
+1. Abrir a aba **`/verda`** — é a leitura mais rápida do estado (§18).
+2. `verda_job.py --resumo` — o mesmo no terminal, por ambiente. Atenção: `executed` em ambiente
+   `teste` **não** está no inventário de produção; são contas diferentes.
+3. `_verda_valida.py` — conferir que ainda aprova ~95,7% das que qualificam.
+4. `verda_job.py --desde X --ate Y --so-montar` — monta sem tocar na rede. **Funciona em produção**
+   sem `--sim-producao`, de propósito (§18.2).
+5. Ver o que continua aberto: o agendamento semanal (§2) e as perguntas 4 e 6 da seção 4.
+
+**Números de referência**, para perceber se algo mudou de forma estranha. Estes são os de HOJE, sob
+a regra do CTRB (§16) e a classificação por carga útil (§17) — os antigos, de quando a viagem era o
+CTe e a faixa era PBT, não servem de comparação:
 
 ```
-viagens com CTe ......... 4.528
-aprovadas ............... 4.327  (95,6%)
-Fuel .................... 4.520     Weight ......... 8
-escopo 1 ................   627     escopo 3 ....... 3.901
-articulado_330 .......... 4.331  (95,6%)
+viagens com CTe .......... 4.754      sem CTRB (não sobem) ..... 200
+aprovadas ................ 4.358      = 95,7% das que qualificam
+articulado_35 ............ 4.310      articulado_330 ....... 64 (9 carretas)
+rigido_75 ................   157      rigido_170 ........... 16
+km/l: articulado 2,20 / 1,80 / 1,50 por idade  |  rígido 3,70 fixo
+inventário anual estimado ~5,9 mil t CO2e
 ```
 
 ---
@@ -1329,3 +1347,112 @@ bloqueios: VehicleModelYear 178 | ShipperKey 10 | VehicleTypeKey 7 | peso implau
 ```
 
 Mesmo perfil da §7 — nada novo quebrou.
+
+---
+
+## 18. A aba `/verda` e o estado do deploy
+
+### 18.1 A aba
+
+Permissão `verda`, concedível no Admin (**não** vem liberada por padrão). Arquivos:
+`verda.html` (tela), `verda_painel.py` (leitura e agregação), rota `/verda` + `/api/verda` no
+`server.py`, entrada no `nav-perms.js`.
+
+**A tela não chama a Verda.** Lê só a `verda_envios`: o payload enviado está gravado em JSONB e o
+CO₂e é recalculado aqui com o fator reconstruído (`FATOR_CO2E = 2.28429`).
+
+> Isso não é atalho — é o que a torna possível. Na conta gratuita a Verda guarda **só o consolidado
+> mensal, sem detalhe de viagem**. Para o dado por viagem, esta tela é o único lugar onde ele existe.
+> E o fator foi conferido contra o relatório oficial deles em 597 viagens, erro de 0,0008% (§11).
+
+O que mostra: placar da rodada · inventário (t CO₂e, km, peso, diesel, intensidade g/t·km, escopo
+1 × 3) · consumo aplicado por faixa de km/l com a média ponderada · `VehicleTypeKey` · as placas que
+estão **bloqueando** viagem, agrupadas e com botão de copiar · detalhe por viagem com drill nos CTes
+e CSV.
+
+Alertas automáticos: viagem presa em `enviado` sem veredito há mais de 2 h (foi o sintoma do bug do
+`TransactionKey`, §5), rejeitada, e viagem fora de escopo com transação ainda viva.
+
+**A janela padrão é a semana fechada anterior** (segunda a domingo) — o mesmo recorte do robô. Abrir
+a tela sem filtro mostra o lote que acabou de subir.
+
+**Nomenclatura: usar a da Verda, sempre.** A tela mostra o **código** (`articulado_330`) e põe a
+descrição textual da própria plataforma no tooltip. Cheguei a apelidar (`rigido_75` → "truck") e o
+Gabriel derrubou com razão: na Verda `rigido_75` é faixa de **peso** (7,5 a 17 t) e "truck" é
+configuração de eixos — duas coisas diferentes com o mesmo nome, na mesma tela. Quem lê a tela
+precisa poder procurar o código na conta da Verda e achar.
+
+O card de **consumo** é o mais importante da tela: é o parâmetro mais sensível do inventário e o que
+o freio de anomalia vigia. Se a média ponderada sair do lugar, alguma coisa mudou no cadastro e o
+inventário inteiro se move junto.
+
+### 18.2 `--so-montar` funciona em produção, de propósito
+
+A trava de `--sim-producao` barrava o `--so-montar`, e ele é justamente o comando que **não fala com
+a Verda** (lê o Power BI, grava pendente no nosso banco, pula o expurgo). O efeito era o inverso do
+pretendido: para conferir o lote antes de mandar, era preciso usar a flag de envio real.
+
+> A trava existe para que ir a produção seja **ato deliberado**. Não para impedir de olhar antes.
+
+### 18.3 Deploy — os comandos
+
+O `docker-compose.yml` **não está no repo**: a stack vive só dentro do Portainer. Por isso as
+credenciais entram por `docker service update --env-add`, que altera o *service spec* sem tocar na
+imagem nem abrir o editor de stack — e **é abrir o editor de stack que faz o serviço voltar para a
+imagem antiga** neste ambiente.
+
+```bash
+# 1. build + imagem + credenciais num comando só (reinicia UMA vez)
+cd /opt/stacks/rizza-auditoria && git pull && \
+docker build -t ghcr.io/ggabrielmilho-web/rizza-auditoria:latest . && \
+docker service update --force \
+  --image ghcr.io/ggabrielmilho-web/rizza-auditoria:latest \
+  --env-add VERDA_AMBIENTE=producao \
+  --env-add VERDA_SIMULADO=0 \
+  --env-add VERDA_URL_PRODUCAO=https://personal-d33vvevh.outsystemscloud.com \
+  --env-add VERDA_APPLICATION_KEY=<chave da aplicação> \
+  --env-add VERDA_SECRET_KEY=<chave secreta> \
+  --env-rm VERDA_VEHICLE_TYPE_KEY \
+  rizza-auditoria_app
+
+# 2. conferir — e o que NÃO pode aparecer é o VERDA_VEHICLE_TYPE_KEY
+docker exec $(docker ps -q -f name=rizza-auditoria) printenv | grep VERDA
+
+# 3. ensaio, sem tocar na rede
+docker exec $(docker ps -q -f name=rizza-auditoria) \
+  python -X utf8 verda_job.py --desde 2026-08-31 --ate 2026-09-06 --so-montar
+
+# 4. envio real
+docker exec $(docker ps -q -f name=rizza-auditoria) \
+  python -X utf8 verda_job.py --desde 2026-08-31 --ate 2026-09-06 --sim-producao
+```
+
+> **`VERDA_VEHICLE_TYPE_KEY` sobrando é o erro que passa despercebido.** Ele carimba o campo e toda
+> a classificação por carga útil (§17.2) deixa de chegar à Verda — o envio funciona, o número fica
+> certo, e o tipo do veículo vai errado sem nenhum aviso. Conferir sempre no passo 2.
+
+Duas coisas normais neste fluxo, que assustam à toa:
+
+- o `docker build` avisa *"image could not be accessed on a registry to record its digest"* — é
+  esperado, a imagem é construída no próprio nó e não vai para o registry. Só importaria com mais de
+  um nó no cluster.
+- a `verda_envios` **nasce sozinha**: o job chama `garantir_tabela()` antes de tudo. Não há DDL na
+  mão, e a aba aguenta a tabela não existir (mostra "nenhuma viagem nesta janela" em vez de erro).
+
+**Cuidado com o `--env-add`:** ele grava no service spec, não na stack. No dia em que alguém
+reimplantar a stack pelo Portainer, as variáveis somem e a Verda para de autenticar. Para tornar
+permanente: pôr no YAML da stack, implantar, e **em seguida** rodar de novo o `--image ... --force`
+para trazer a imagem de volta ao `latest`.
+
+### 18.4 Estado em 10/09/2026, fim do dia
+
+| | |
+|---|---|
+| código no servidor | ✅ imagem construída e serviço convergido |
+| credenciais de produção | ✅ no service spec, `VERDA_VEHICLE_TYPE_KEY` ausente |
+| ensaio no servidor | ✅ **119 novas · 6 bloqueadas · 1 sem CTRB** |
+| envio real | ⬜ **combinado para 11/09/2026** |
+| agendamento semanal | ⬜ pendente, precisa estar de pé antes de 18/09 |
+
+As 6 bloqueadas são 4 placas sem ano no cadastro: `HDI9E22` (3 viagens), `DTE1F36`, `IJJ4D59`,
+`DBM5I14`. Preenchido o ano no 045, elas entram sozinhas na rodada seguinte — a aba lista e copia.
