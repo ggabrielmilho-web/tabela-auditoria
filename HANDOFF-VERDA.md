@@ -627,8 +627,8 @@ viagens com CTe .......... 4.754      sem CTRB (não sobem) ..... 200
 aprovadas ................ 4.358      = 95,7% das que qualificam
 articulado_35 ............ 4.310      articulado_330 ....... 64 (9 carretas)
 rigido_75 ................   157      rigido_170 ........... 16
-km/l: articulado 2,20 / 1,80 / 1,50 por idade  |  rígido 3,70 fixo
-inventário anual estimado ~5,9 mil t CO2e
+km/l: 3,00 / 2,80 / 2,50 / 2,20 por idade  |  rígido 3,70  |  ponderado 2,55
+inventário anual estimado ~3,7 mil t CO2e  (era ~5,9 mil na escala antiga, §19)
 ```
 
 ---
