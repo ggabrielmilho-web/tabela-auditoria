@@ -30,6 +30,9 @@
     // cavalo + carreta. Nada de 🛞/🛻 — são do Emoji 13/14 e o Windows 10 não tem o
     // glifo, sai quadradinho vazio. Emoji desta lista: só de blocos antigos.
     { id: 'veiculos',      page: 'veiculos',      href: '/veiculos',          label: '🚛 Veículos' },
+    // 🌱 e não ♻/🌍: é inventário de emissão, não reciclagem nem "planeta".
+    // Emoji de bloco antigo, pela mesma razão do 🚛 acima (glifo no Windows 10).
+    { id: 'verda',         page: 'verda',         href: '/verda',             label: '🌱 Verda' },
     { id: 'admin',         page: 'admin',         href: '/admin',             label: '⚙ Admin' }
     // O relatório de uso (/uso) NÃO entra aqui de propósito: é tela escondida,
     // acessada só por quem sabe a URL. Protegida por admin_required no servidor.

@@ -17,6 +17,7 @@ import psycopg2
 import requests
 import pgr
 import placas
+import verda_painel
 from flask import Flask, Response, jsonify, send_from_directory, request, session, redirect, url_for, send_file, stream_with_context
 from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -114,7 +115,7 @@ def admin_required(f):
 # Abas concedíveis por usuário (a aba Admin NÃO entra — é exclusiva de role=admin).
 PAGINAS_VALIDAS = {'auditoria', 'tarifas', 'embarques', 'reuniao', 'dre',
                    'despesas', 'conhecimentos', 'faturamento', 'contratos', 'veiculos',
-                   'pgr', 'contabil'}
+                   'pgr', 'contabil', 'verda'}
 # O de-para aba → rota e a ordem de preferência viviam aqui para escolher em qual
 # aba o usuário caía no login. Não existem mais: quem escolhe é ele, na /inicio.
 # As rotas de cada aba são declaradas uma vez só, no `ABAS` do nav-perms.js.
@@ -492,6 +493,56 @@ def faturamento_page():
 @page_required('veiculos')
 def veiculos_page():
     return send_from_directory('.', 'veiculos.html')
+
+
+# ── Verda — inventário de CO2e ───────────────────────────────────────
+#
+# A tela lê só a `verda_envios`: o payload que enviamos está gravado em JSONB e
+# o CO2e sai do fator reconstruído da API `Fuel`. Não chama a Verda — e não é
+# atalho: no plano gratuito eles guardam só o consolidado mensal, sem detalhe de
+# viagem, então para o dado por viagem esta é a única tela que existe.
+
+@app.route('/verda')
+@page_required('verda')
+def verda_page():
+    return send_from_directory('.', 'verda.html')
+
+
+def _janela_verda():
+    """Janela pedida, ou a semana fechada anterior (segunda a domingo).
+
+    O padrão é o mesmo recorte do robô: ele roda na sexta sobre a semana que
+    fechou no domingo. Abrir a tela sem parâmetro tem de mostrar exatamente o
+    lote que acabou de subir.
+    """
+    from datetime import date, timedelta
+    desde, ate = request.args.get('desde'), request.args.get('ate')
+    if desde and ate:
+        return desde, ate
+    hoje = date.today()
+    domingo = hoje - timedelta(days=hoje.weekday() + 1)   # domingo que passou
+    return str(domingo - timedelta(days=6)), str(domingo)
+
+
+@app.route('/api/verda')
+@login_required
+def api_verda():
+    desde, ate = _janela_verda()
+    ambiente = request.args.get('ambiente') or os.getenv('VERDA_AMBIENTE', 'producao')
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        dados = verda_painel.painel(cur, desde, ate, ambiente)
+        dados['rodada'] = verda_painel.ultima_rodada(cur, ambiente)
+        cur.close()
+    except psycopg2.errors.UndefinedTable:
+        # Antes do primeiro envio a tabela ainda não existe. Não é erro de tela.
+        conn.rollback()
+        return jsonify({'ok': True, 'vazio': True, 'ambiente': ambiente,
+                        'janela': {'desde': desde, 'ate': ate}})
+    finally:
+        conn.close()
+    return jsonify({'ok': True, **dados})
 
 
 # ── PGR — excesso de velocidade ──────────────────────────────────────

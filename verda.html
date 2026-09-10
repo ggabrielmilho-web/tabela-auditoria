@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Emissões CO₂e — Verda — Rizza Log</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%2338bdf8'/%3E%3Ctext x='50' y='72' font-family='Arial,sans-serif' font-size='68' font-weight='900' text-anchor='middle' fill='%230a0e17'%3ER%3C/text%3E%3C/svg%3E">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0a0e17; --surface: #111827; --surface2: #1a2235; --border: #1e293b;
+    --text: #e2e8f0; --text-dim: #94a3b8; --accent: #38bdf8; --accent2: #818cf8;
+    --green: #34d399; --red: #f87171; --orange: #fb923c; --yellow: #fbbf24;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .loading-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; gap: 20px; }
+  .spinner { width: 44px; height: 44px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; }
+  .loading-screen h2 { font-size: 1.1rem; font-weight: 600; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .loading-screen p { color: var(--text-dim); font-size: 0.85rem; }
+  .error-box { margin-top: 16px; padding: 14px 20px; background: rgba(248,113,113,0.08); border: 1px solid rgba(248,113,113,0.25); border-radius: 10px; color: var(--red); font-size: 0.82rem; max-width: 620px; text-align: center; line-height: 1.5; }
+
+  .dashboard { padding: 22px; max-width: 1500px; margin: 0 auto; animation: fadeUp 0.3s ease; }
+  .top-bar { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; flex-wrap: wrap; gap: 14px; }
+  .top-bar h1 { font-size: 1.4rem; font-weight: 700; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .meta { font-size: 0.78rem; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; margin-top: 4px; }
+  .badge { display: inline-block; padding: 2px 9px; border-radius: 6px; font-size: 0.68rem; font-weight: 700;
+           text-transform: uppercase; letter-spacing: 0.05em; font-family: 'DM Sans', sans-serif; }
+  .badge.prod { background: rgba(52,211,153,0.14); color: var(--green); border: 1px solid rgba(52,211,153,0.3); }
+  .badge.teste { background: rgba(251,191,36,0.14); color: var(--yellow); border: 1px solid rgba(251,191,36,0.3); }
+  .btn-sm { padding: 8px 16px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); font-weight: 500; font-size: 0.82rem; border-radius: 8px; cursor: pointer; transition: all 0.15s; text-decoration: none; display: inline-block; font-family: 'DM Sans', sans-serif; }
+  .btn-sm:hover { border-color: var(--accent); color: var(--accent); }
+
+  .controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+  .field-label { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); font-weight: 700; }
+  .toggle { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .toggle button { padding: 8px 14px; background: var(--surface2); border: none; color: var(--text-dim); font-family: 'DM Sans', sans-serif; font-weight: 600; font-size: 0.82rem; cursor: pointer; transition: all 0.15s; }
+  .toggle button.active { background: var(--accent); color: var(--bg); }
+  input[type=date] { padding: 7px 10px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+                     color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; color-scheme: dark; }
+
+  .kpis { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+  .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 18px; min-width: 132px; flex: 1; }
+  .kpi .l { font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); font-weight: 600; }
+  .kpi .v { font-size: 1.25rem; font-weight: 700; font-family: 'JetBrains Mono', monospace; margin-top: 4px; }
+  .kpi .s { font-size: 0.68rem; color: var(--text-dim); margin-top: 2px; font-family: 'JetBrains Mono', monospace; }
+  .kpi .v.ok { color: var(--green); } .kpi .v.bad { color: var(--red); } .kpi .v.warn { color: var(--orange); }
+  .kpi.hero { background: linear-gradient(135deg, rgba(56,189,248,0.10), rgba(129,140,248,0.06)); border-color: rgba(56,189,248,0.30); }
+  .kpi.hero .v { font-size: 1.7rem; color: var(--accent); }
+
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+  @media (max-width: 980px) { .grid2 { grid-template-columns: 1fr; } }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+  .card h3 { font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-dim); font-weight: 700; margin-bottom: 12px; }
+  .card h3 .hint { text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--text-dim); opacity: 0.75; }
+  .chart-wrap { position: relative; height: 190px; }
+
+  .bars { display: flex; flex-direction: column; gap: 9px; }
+  .bar-row { display: grid; grid-template-columns: 118px 1fr 54px; align-items: center; gap: 10px; font-size: 0.8rem; }
+  .bar-row .lab { font-family: 'JetBrains Mono', monospace; color: var(--text-dim); }
+  .bar-track { height: 9px; background: var(--surface2); border-radius: 5px; overflow: hidden; }
+  .bar-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); border-radius: 5px; }
+  .bar-row .num { text-align: right; font-family: 'JetBrains Mono', monospace; font-weight: 600; }
+  .bar-foot { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); display: flex;
+              justify-content: space-between; font-size: 0.8rem; }
+  .bar-foot b { font-family: 'JetBrains Mono', monospace; color: var(--accent); }
+
+  .alerta { padding: 11px 14px; border-radius: 10px; font-size: 0.82rem; margin-bottom: 10px; line-height: 1.5; }
+  .alerta.bad { background: rgba(248,113,113,0.08); border: 1px solid rgba(248,113,113,0.28); color: #fecaca; }
+  .alerta.warn { background: rgba(251,146,60,0.08); border: 1px solid rgba(251,146,60,0.28); color: #fed7aa; }
+  .alerta code { font-family: 'JetBrains Mono', monospace; font-size: 0.76rem; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+  thead th { text-align: left; padding: 8px 10px; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em;
+             color: var(--text-dim); font-weight: 700; border-bottom: 1px solid var(--border); white-space: nowrap; cursor: pointer; user-select: none; }
+  thead th:hover { color: var(--accent); }
+  tbody td { padding: 8px 10px; border-bottom: 1px solid rgba(30,41,59,0.55); }
+  tbody tr:hover { background: var(--surface2); }
+  .num-cell { text-align: right; font-family: 'JetBrains Mono', monospace; }
+  .mono { font-family: 'JetBrains Mono', monospace; }
+  .pill { padding: 2px 8px; border-radius: 5px; font-size: 0.68rem; font-weight: 600; white-space: nowrap; }
+  .pill.ok { background: rgba(52,211,153,0.13); color: var(--green); }
+  .pill.bad { background: rgba(248,113,113,0.13); color: var(--red); }
+  .pill.warn { background: rgba(251,191,36,0.13); color: var(--yellow); }
+  .pill.dim { background: var(--surface2); color: var(--text-dim); }
+  .scroll { overflow-x: auto; max-height: 560px; overflow-y: auto; }
+  .drill { background: var(--surface2); font-size: 0.74rem; color: var(--text-dim); }
+  .drill td { padding: 10px 14px; }
+  .tab-search { padding: 7px 12px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+                color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 0.8rem; min-width: 230px; }
+  .empty { padding: 40px; text-align: center; color: var(--text-dim); font-size: 0.86rem; line-height: 1.6; }
+</style>
+</head>
+<body>
+
+<div class="loading-screen" id="loadingScreen">
+  <div class="spinner"></div>
+  <h2>Carregando inventário de emissões</h2>
+  <p>lendo a base de envios</p>
+  <div class="error-box" id="errorBox" style="display:none"></div>
+</div>
+
+<div class="dashboard" id="dash" style="display:none">
+
+  <div class="top-bar">
+    <div>
+      <h1>Emissões CO₂e — Verda</h1>
+      <div class="meta" id="metaLinha"></div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <span data-nav-menu data-nav-style="btn-anchor" data-nav-active="verda"></span>
+    </div>
+  </div>
+
+  <div class="controls">
+    <span class="field-label">Período</span>
+    <div class="toggle" id="presets">
+      <button data-p="semana" class="active">Semana</button>
+      <button data-p="mes">Mês</button>
+      <button data-p="ano">Ano</button>
+    </div>
+    <input type="date" id="dDesde"><span style="color:var(--text-dim)">até</span><input type="date" id="dAte">
+    <button class="btn-sm" id="btnAplicar">Aplicar</button>
+    <button class="btn-sm" id="btnCsv">Baixar CSV</button>
+  </div>
+
+  <div id="alertas"></div>
+
+  <div class="kpis">
+    <div class="kpi hero"><div class="l">Emissão</div><div class="v" id="kCo2">—</div><div class="s" id="kCo2Sub"></div></div>
+    <div class="kpi"><div class="l">Distância</div><div class="v" id="kKm">—</div></div>
+    <div class="kpi"><div class="l">Transportado</div><div class="v" id="kT">—</div></div>
+    <div class="kpi"><div class="l">Diesel</div><div class="v" id="kL">—</div></div>
+    <div class="kpi"><div class="l">Intensidade</div><div class="v" id="kInt">—</div><div class="s">g CO₂e / t·km</div></div>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi"><div class="l">Viagens</div><div class="v" id="sViagens">—</div><div class="s" id="sCtes"></div></div>
+    <div class="kpi"><div class="l">No inventário</div><div class="v ok" id="sExec">—</div><div class="s">executed</div></div>
+    <div class="kpi"><div class="l">Rejeitadas</div><div class="v" id="sRej">—</div></div>
+    <div class="kpi"><div class="l">Bloqueadas</div><div class="v" id="sBloq">—</div><div class="s">não saíram daqui</div></div>
+    <div class="kpi"><div class="l">Aguardando</div><div class="v" id="sPend">—</div><div class="s">pendente + enviado</div></div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h3>Escopo <span class="hint">— 1 é diesel que a Rizza queima; 3 é frete contratado</span></h3>
+      <div class="chart-wrap"><canvas id="chEscopo"></canvas></div>
+    </div>
+    <div class="card">
+      <h3>Emissão por dia</h3>
+      <div class="chart-wrap"><canvas id="chDia"></canvas></div>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h3>Consumo aplicado <span class="hint">— o parâmetro mais sensível do inventário</span></h3>
+      <div class="bars" id="barsConsumo"></div>
+      <div class="bar-foot"><span>Média ponderada</span><b id="kmlMedio">—</b></div>
+    </div>
+    <div class="card">
+      <h3>Configuração declarada</h3>
+      <div class="bars" id="barsTipos"></div>
+      <div class="bar-foot"><span>Entrada (IsInbound) × saída</span><b id="inbOut">—</b></div>
+    </div>
+  </div>
+
+  <div class="card" id="cardBloq" style="margin-bottom:14px;display:none">
+    <h3 id="bloqTitulo"></h3>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Placa</th><th class="num-cell">Viagens</th><th>Motivo</th><th>Rota de exemplo</th></tr></thead>
+        <tbody id="tbBloq"></tbody>
+      </table>
+    </div>
+    <div style="margin-top:11px;display:flex;gap:9px;align-items:center">
+      <button class="btn-sm" id="btnCopiar">Copiar lista de placas</button>
+      <span style="font-size:0.76rem;color:var(--text-dim)">preenchido o cadastro, elas entram sozinhas na próxima rodada</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3 style="display:flex;justify-content:space-between;align-items:center">
+      <span>Viagens <span class="hint">— clique na linha para ver os CTes</span></span>
+      <input class="tab-search" id="busca" placeholder="filtrar por viagem, rota ou placa…">
+    </h3>
+    <div class="scroll">
+      <table id="tabela">
+        <thead><tr>
+          <th data-s="id">Viagem</th><th data-s="data">Data</th><th data-s="rota">Rota</th>
+          <th data-s="placa">Placa</th><th data-s="tipo">Tipo</th>
+          <th data-s="km" class="num-cell">KM</th><th data-s="t" class="num-cell">Peso t</th>
+          <th data-s="kml" class="num-cell">km/l</th><th data-s="co2" class="num-cell">t CO₂e</th>
+          <th data-s="status">Status</th>
+        </tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<script src="/nav-perms.js"></script>
+<script>
+const fmt = (n, d = 0) => (n == null ? '—' : Number(n).toLocaleString('pt-BR', { minimumFractionDigits: d, maximumFractionDigits: d }));
+let DADOS = null, ordem = { campo: 'co2', desc: true }, chEscopo = null, chDia = null;
+
+function iso(d) { return d.toISOString().slice(0, 10); }
+
+// A semana padrão é a mesma do robô: ele roda na sexta sobre a semana que
+// fechou no domingo. Abrir a tela sem filtro mostra o lote que acabou de subir.
+function janelaPreset(p) {
+  const hoje = new Date();
+  if (p === 'semana') {
+    const dom = new Date(hoje); dom.setDate(hoje.getDate() - ((hoje.getDay() + 6) % 7) - 1);
+    const seg = new Date(dom); seg.setDate(dom.getDate() - 6);
+    return [iso(seg), iso(dom)];
+  }
+  if (p === 'mes') return [iso(new Date(hoje.getFullYear(), hoje.getMonth(), 1)), iso(hoje)];
+  return [iso(new Date(hoje.getFullYear(), 0, 1)), iso(hoje)];
+}
+
+async function carregar(desde, ate) {
+  const r = await fetch(`/api/verda?desde=${desde}&ate=${ate}`);
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  const d = await r.json();
+  if (!d.ok) throw new Error(d.error || 'resposta inválida');
+  DADOS = d;
+  document.getElementById('loadingScreen').style.display = 'none';
+  document.getElementById('dash').style.display = 'block';
+  if (window.NavPerms) window.NavPerms.montar();
+  render();
+}
+
+function render() {
+  const d = DADOS;
+  const amb = d.ambiente === 'producao' ? '<span class="badge prod">produção</span>'
+                                        : `<span class="badge teste">${d.ambiente}</span>`;
+  const rod = d.rodada && d.rodada.enviado_em
+    ? 'último envio ' + new Date(d.rodada.enviado_em).toLocaleString('pt-BR')
+    : 'nenhum envio ainda';
+  document.getElementById('metaLinha').innerHTML =
+    `${amb} &nbsp; ${d.janela.desde} → ${d.janela.ate} &nbsp;·&nbsp; ${rod}`;
+
+  if (d.vazio || !d.kpis || !d.kpis.viagens) {
+    document.getElementById('alertas').innerHTML =
+      `<div class="alerta warn">Nenhuma viagem nesta janela para o ambiente <code>${d.ambiente}</code>.
+       Se o robô ainda não rodou, é isso mesmo.</div>`;
+    ['kCo2','kKm','kT','kL','kInt','sViagens','sExec','sRej','sBloq','sPend'].forEach(i =>
+      document.getElementById(i).textContent = '—');
+    document.getElementById('tbody').innerHTML = '<tr><td colspan="10" class="empty">Sem viagens.</td></tr>';
+    return;
+  }
+
+  const k = d.kpis, st = d.status || {};
+  document.getElementById('kCo2').textContent = fmt(k.co2, 2) + ' t';
+  document.getElementById('kCo2Sub').textContent =
+    `escopo 1 ${fmt(k.co2_esc1, 1)} t · escopo 3 ${fmt(k.co2_esc3, 1)} t`;
+  document.getElementById('kKm').textContent = fmt(k.km) + ' km';
+  document.getElementById('kT').textContent = fmt(k.t, 1) + ' t';
+  document.getElementById('kL').textContent = fmt(k.litros) + ' L';
+  document.getElementById('kInt').textContent = fmt(k.intensidade, 1);
+  document.getElementById('sViagens').textContent = fmt(k.viagens);
+  document.getElementById('sCtes').textContent = fmt(k.ctes) + ' CTes';
+  document.getElementById('sExec').textContent = fmt(st.executed || 0);
+
+  const rej = (st.rejected || 0);
+  const elRej = document.getElementById('sRej');
+  elRej.textContent = fmt(rej); elRej.className = 'v ' + (rej ? 'bad' : 'ok');
+  const bl = document.getElementById('sBloq');
+  bl.textContent = fmt(d.n_bloqueadas || 0); bl.className = 'v ' + (d.n_bloqueadas ? 'warn' : 'ok');
+  document.getElementById('sPend').textContent = fmt((st.pendente || 0) + (st.enviado || 0));
+
+  // ── alertas ──
+  const al = (d.alertas || []);
+  document.getElementById('alertas').innerHTML = al.length
+    ? al.slice(0, 6).map(a => `<div class="alerta ${a.tipo === 'rejeitada' ? 'bad' : 'warn'}">
+        <b>${a.id}</b> — ${a.texto}</div>`).join('')
+      + (al.length > 6 ? `<div class="alerta warn">…e mais ${al.length - 6}.</div>` : '')
+    : '';
+
+  // ── consumo ──
+  const maxC = Math.max(...d.consumo.map(c => c.viagens), 1);
+  document.getElementById('barsConsumo').innerHTML = d.consumo.map(c => `
+    <div class="bar-row"><span class="lab">${fmt(c.kml, 1)} km/l</span>
+      <div class="bar-track"><div class="bar-fill" style="width:${100 * c.viagens / maxC}%"></div></div>
+      <span class="num">${fmt(c.viagens)}</span></div>`).join('');
+  document.getElementById('kmlMedio').textContent = fmt(k.kml_medio, 2) + ' km/l';
+
+  const maxT = Math.max(...d.tipos.map(t => t.viagens), 1);
+  document.getElementById('barsTipos').innerHTML = d.tipos.map(t => `
+    <div class="bar-row"><span class="lab" title="${t.tipo}">${t.label}</span>
+      <div class="bar-track"><div class="bar-fill" style="width:${100 * t.viagens / maxT}%"></div></div>
+      <span class="num">${fmt(t.viagens)}</span></div>`).join('');
+  document.getElementById('inbOut').textContent = `${k.n_inbound} × ${k.n_outbound}`;
+
+  // ── bloqueadas ──
+  const cb = document.getElementById('cardBloq');
+  if (d.bloqueadas && d.bloqueadas.length) {
+    cb.style.display = 'block';
+    document.getElementById('bloqTitulo').innerHTML =
+      `${d.n_bloqueadas} viagens bloqueadas — ${d.bloqueadas.length} placas <span class="hint">— pendência de cadastro, não erro do robô</span>`;
+    document.getElementById('tbBloq').innerHTML = d.bloqueadas.map(b => `<tr>
+      <td class="mono">${b.placa}</td><td class="num-cell">${b.viagens}</td>
+      <td>${b.motivo}</td><td style="color:var(--text-dim)">${b.rota || '—'}</td></tr>`).join('');
+  } else { cb.style.display = 'none'; }
+
+  desenharGraficos();
+  desenharTabela();
+}
+
+function desenharGraficos() {
+  const k = DADOS.kpis;
+  const grid = { color: 'rgba(30,41,59,0.6)' }, tick = { color: '#94a3b8', font: { size: 10 } };
+  if (chEscopo) chEscopo.destroy();
+  chEscopo = new Chart(document.getElementById('chEscopo'), {
+    type: 'doughnut',
+    data: { labels: [`Escopo 1 — frota (${k.n_esc1})`, `Escopo 3 — agregado (${k.n_esc3})`],
+      datasets: [{ data: [k.co2_esc1, k.co2_esc3],
+        backgroundColor: ['#38bdf8', '#818cf8'], borderColor: '#111827', borderWidth: 2 }] },
+    options: { responsive: true, maintainAspectRatio: false, cutout: '58%',
+      plugins: { legend: { position: 'bottom', labels: { color: '#e2e8f0', font: { size: 11 }, padding: 14 } },
+        tooltip: { callbacks: { label: c => ` ${fmt(c.raw, 2)} t (${fmt(100 * c.raw / (k.co2 || 1), 1)}%)` } } } }
+  });
+  if (chDia) chDia.destroy();
+  chDia = new Chart(document.getElementById('chDia'), {
+    type: 'bar',
+    data: { labels: DADOS.por_dia.map(p => p.data.slice(8, 10) + '/' + p.data.slice(5, 7)),
+      datasets: [{ data: DADOS.por_dia.map(p => p.co2), backgroundColor: '#38bdf8', borderRadius: 4 }] },
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => ` ${fmt(c.raw, 2)} t CO₂e` } } },
+      scales: { x: { grid: { display: false }, ticks: tick }, y: { grid, ticks: tick, beginAtZero: true } } }
+  });
+}
+
+function desenharTabela() {
+  const q = (document.getElementById('busca').value || '').toLowerCase();
+  let arr = DADOS.viagens.filter(v => !q ||
+    (v.id + ' ' + (v.rota || '') + ' ' + (v.placa || '')).toLowerCase().includes(q));
+  const c = ordem.campo;
+  arr = arr.slice().sort((a, b) => {
+    const x = a[c], y = b[c];
+    const r = (typeof x === 'number' && typeof y === 'number') ? x - y : String(x).localeCompare(String(y));
+    return ordem.desc ? -r : r;
+  });
+  const cls = s => s === 'executed' ? 'ok' : (s === 'rejected' ? 'bad' : (s === 'enviado' ? 'warn' : 'dim'));
+  document.getElementById('tbody').innerHTML = arr.length ? arr.map((v, i) => `
+    <tr data-i="${i}" style="cursor:pointer">
+      <td class="mono">${v.id}</td><td class="mono">${v.data.slice(8, 10)}/${v.data.slice(5, 7)}</td>
+      <td>${v.rota || '—'}</td><td class="mono">${v.placa || '—'}</td>
+      <td><span class="pill dim" title="${v.tipo || ''}">${v.tipo_label || '—'}</span></td>
+      <td class="num-cell">${fmt(v.km)}</td><td class="num-cell">${fmt(v.t, 1)}</td>
+      <td class="num-cell">${fmt(v.kml, 1)}</td><td class="num-cell">${fmt(v.co2, 3)}</td>
+      <td><span class="pill ${cls(v.status)}">${v.status}</span></td>
+    </tr>
+    <tr class="drill" id="dr${i}" style="display:none"><td colspan="10">
+      <b>${v.ctes} CTe(s):</b> ${(v.ctes_lista || []).join(' · ') || '—'}<br>
+      escopo ${v.esc1 ? '1 (frota própria)' : '3 (agregado)'} ·
+      ${v.inbound ? 'entrada' : 'saída'} · veículo ${v.ano || 'sem ano'} ·
+      ${fmt(v.litros)} L · transação <span class="mono">${v.transaction_id || '—'}</span>
+      ${(v.avisos || []).length ? '<br><span style="color:var(--orange)">avisos: ' + v.avisos.join(' | ') + '</span>' : ''}
+    </td></tr>`).join('')
+    : '<tr><td colspan="10" class="empty">Nada bate com o filtro.</td></tr>';
+
+  document.querySelectorAll('#tbody tr[data-i]').forEach(tr => tr.onclick = () => {
+    const dr = document.getElementById('dr' + tr.dataset.i);
+    dr.style.display = dr.style.display === 'none' ? 'table-row' : 'none';
+  });
+}
+
+function baixarCsv() {
+  const cab = ['viagem', 'data', 'rota', 'placa', 'tipo', 'km', 'peso_t', 'km_l', 'litros', 't_co2e',
+               'escopo', 'inbound', 'ctes', 'status', 'transaction_id'];
+  const linhas = DADOS.viagens.map(v => [v.id, v.data, v.rota, v.placa, v.tipo, v.km, v.t, v.kml,
+    v.litros, v.co2, v.esc1 ? 1 : 3, v.inbound ? 1 : 0, v.ctes, v.status, v.transaction_id || '']);
+  const csv = [cab, ...linhas].map(l => l.map(c =>
+    `"${String(c == null ? '' : c).replace(/"/g, '""')}"`).join(';')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
+  a.download = `verda_${DADOS.janela.desde}_a_${DADOS.janela.ate}.csv`;
+  a.click();
+}
+
+function aplicar(desde, ate) {
+  document.getElementById('dDesde').value = desde;
+  document.getElementById('dAte').value = ate;
+  document.getElementById('dash').style.opacity = '0.5';
+  carregar(desde, ate).finally(() => document.getElementById('dash').style.opacity = '1');
+}
+
+document.getElementById('presets').onclick = e => {
+  if (!e.target.dataset.p) return;
+  document.querySelectorAll('#presets button').forEach(b => b.classList.remove('active'));
+  e.target.classList.add('active');
+  const [a, b] = janelaPreset(e.target.dataset.p); aplicar(a, b);
+};
+document.getElementById('btnAplicar').onclick = () =>
+  aplicar(document.getElementById('dDesde').value, document.getElementById('dAte').value);
+document.getElementById('btnCsv').onclick = baixarCsv;
+document.getElementById('busca').oninput = desenharTabela;
+document.getElementById('btnCopiar').onclick = () => {
+  navigator.clipboard.writeText(DADOS.bloqueadas.map(b => b.placa).join('\n'));
+  document.getElementById('btnCopiar').textContent = 'copiado ✓';
+  setTimeout(() => document.getElementById('btnCopiar').textContent = 'Copiar lista de placas', 1800);
+};
+document.querySelectorAll('#tabela thead th').forEach(th => th.onclick = () => {
+  const c = th.dataset.s; if (!c) return;
+  ordem = { campo: c, desc: ordem.campo === c ? !ordem.desc : true };
+  desenharTabela();
+});
+
+const [d0, a0] = janelaPreset('semana');
+document.getElementById('dDesde').value = d0;
+document.getElementById('dAte').value = a0;
+carregar(d0, a0).catch(e => {
+  const b = document.getElementById('errorBox');
+  b.style.display = 'block';
+  b.innerHTML = 'Não consegui carregar o inventário.<br><code>' + e.message + '</code>';
+});
+</script>
+</body>
+</html>
