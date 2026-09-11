@@ -172,6 +172,14 @@ def expurgar_do_inventario(con, cliente, expurgar):
     """
     contagem = {'cancelada': 0, 'FALHOU': 0}
     for tpid, tid in expurgar:
+        # Transação já morta não segura emissão nenhuma: não há o que cancelar,
+        # só o vínculo a apagar. Tentar cancelá-la devolveria erro e a viagem
+        # ficaria marcada como falha de expurgo sem nada de errado acontecendo.
+        if not _transacao_viva(cliente, tid):
+            estado.limpar_cancelada(con, tpid, cliente.rotulo)
+            contagem['ja estava morta'] = contagem.get('ja estava morta', 0) + 1
+            con.commit()
+            continue
         try:
             ok, msg = cliente.cancelar(tid, tpid)
         except verda_client.VerdaErro as e:
@@ -471,6 +479,16 @@ def main():
                                         'antes do início')):
         print('\n!! NENHUMA viagem na janela %s a %s. Se era dia útil, suspeite do ETL '
               'de manifestos, não de falta de movimento.' % (desde, ate))
+
+    # Junta o que ficou pendente de rodadas anteriores — tipicamente um
+    # `--so-montar` que marcou fora de escopo sem cancelar nada. Sem isto, aquela
+    # transação nunca mais seria alcançada por nenhuma rodada.
+    ja_marcadas = [par for par in estado.escopo_com_vinculo(con, cliente.rotulo)
+                   if par[0] not in {t for t, _ in expurgar}]
+    if ja_marcadas:
+        print('\n%d viagem(ns) ja estavam fora de escopo com vinculo pendente.'
+              % len(ja_marcadas))
+        expurgar += ja_marcadas
 
     if expurgar:
         print('')

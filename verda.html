@@ -363,12 +363,27 @@ function render() {
   document.getElementById('sPend').textContent = fmt((st.pendente || 0) + (st.enviado || 0));
 
   // ── alertas ──
+  // Agrupados por motivo, não uma linha por viagem: 20 alertas iguais empilhados
+  // escondem o que é diferente, e cortar em 6 com "…e mais 14" deixa o resto
+  // sem como ser lido. Uma linha por motivo, com a contagem, e a lista de
+  // viagens atrás de um clique.
   const al = (d.alertas || []);
-  document.getElementById('alertas').innerHTML = al.length
-    ? al.slice(0, 6).map(a => `<div class="alerta ${a.tipo === 'rejeitada' ? 'bad' : 'warn'}">
-        <b>${a.id}</b> — ${a.texto}</div>`).join('')
-      + (al.length > 6 ? `<div class="alerta warn">…e mais ${al.length - 6}.</div>` : '')
-    : '';
+  const grupos = new Map();
+  al.forEach(a => {
+    const chave = a.tipo + '|' + a.texto;
+    if (!grupos.has(chave)) grupos.set(chave, {tipo: a.tipo, texto: a.texto, ids: []});
+    grupos.get(chave).ids.push(a.id);
+  });
+  document.getElementById('alertas').innerHTML = [...grupos.values()].map(g => {
+    const n = g.ids.length;
+    const cls = g.tipo === 'rejeitada' ? 'bad' : 'warn';
+    if (n === 1) return `<div class="alerta ${cls}"><b>${g.ids[0]}</b> — ${g.texto}</div>`;
+    return `<details class="alerta ${cls}">
+      <summary style="cursor:pointer"><b>${n} viagens</b> — ${g.texto}</summary>
+      <div style="margin-top:7px;font-size:0.78rem;line-height:1.7;opacity:0.85">
+        ${g.ids.join(' · ')}</div>
+    </details>`;
+  }).join('');
 
   // ── consumo ──
   const maxC = Math.max(...d.consumo.map(c => c.viagens), 1);

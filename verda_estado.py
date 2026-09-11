@@ -251,11 +251,40 @@ def fora_de_escopo(con, transportation_id, motivo, ambiente='simulado'):
         r = cur.fetchone()
         if not r:
             return None
-        cur.execute("""UPDATE verda_envios SET status = %s, mensagem = %s, atualizado_em = NOW()
-                       WHERE transportation_id = %s AND ambiente = %s""",
-                    (STATUS_FORA_ESCOPO, str(motivo)[:500], transportation_id, ambiente))
-        # só há o que cancelar se a transação chegou a existir na Verda
+        # Transação já morta (`rejected` e afins) não segura nada na Verda, e o
+        # vínculo com ela não serve para mais nada: nem conferir, nem cancelar.
+        # Guardá-lo faz a tela acusar "transação continua viva" para sempre, num
+        # alerta que ninguém tem como resolver — foi o que apareceu nas 18
+        # viagens de 31/08 retiradas em 11/09/2026.
+        morta = r['status'] in ('rejected', 'canceled', 'internal_error')
+        cur.execute("""UPDATE verda_envios
+                          SET status = %s, mensagem = %s, atualizado_em = NOW(),
+                              transaction_id = CASE WHEN %s THEN NULL ELSE transaction_id END
+                        WHERE transportation_id = %s AND ambiente = %s""",
+                    (STATUS_FORA_ESCOPO, str(motivo)[:500], morta,
+                     transportation_id, ambiente))
+        # só há o que cancelar se a transação chegou a existir E ainda está viva
         return r['transaction_id'] if r['status'] in (STATUS_ENVIADO, 'executed') else None
+
+
+def escopo_com_vinculo(con, ambiente='simulado'):
+    """Tudo que está `fora_escopo` e ainda guarda um `transaction_id`.
+
+    O expurgo não pode depender só do que MUDOU de status na rodada: basta um
+    `--so-montar` antes do envio para a viagem virar `fora_escopo` sem que nada
+    seja cancelado, e a partir daí nenhuma rodada futura a pega — o
+    `fora_de_escopo` só devolve id para cancelar quando o status anterior ainda
+    era `enviado`/`executed`. A transação fica viva na Verda contando emissão,
+    para sempre, e o único sinal é um alerta na tela.
+
+    Varrer o estado a cada rodada faz o expurgo se curar sozinho.
+    """
+    with con.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("""SELECT transportation_id, transaction_id FROM verda_envios
+                       WHERE status = %s AND transaction_id IS NOT NULL AND ambiente = %s
+                       ORDER BY data_viagem, transportation_id""",
+                    (STATUS_FORA_ESCOPO, ambiente))
+        return [(r['transportation_id'], r['transaction_id']) for r in cur.fetchall()]
 
 
 def limpar_cancelada(con, transportation_id, ambiente='simulado'):
