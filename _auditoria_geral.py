@@ -57,6 +57,7 @@ HOJE = datetime.now()
 cn = psycopg2.connect(host=os.getenv('DB_HOST'), port=os.getenv('DB_PORT'), dbname=os.getenv('DB_NAME'),
                       user=os.getenv('DB_USER'), password=os.getenv('DB_PASSWORD'))
 cur = cn.cursor()
+import embarques_continuacao as _ec
 
 cur.execute("""SELECT c.id,c.numero,c.status,c.encerrada_motivo,COALESCE(c.entregue_auto,FALSE),
                       COALESCE(c.saida_auto,FALSE),c.data_carregamento,c.data_saida_real,
@@ -64,6 +65,7 @@ cur.execute("""SELECT c.id,c.numero,c.status,c.encerrada_motivo,COALESCE(c.entre
                       c.origem_latitude,c.origem_longitude,c.cavalo_placa,c.carreta1_placa,
                       c.carreta2_placa,c.manifesto_origem,COALESCE(c.viagem_vazia,FALSE),
                       c.rota_planejada_polyline IS NOT NULL,COALESCE(c.criada_por_robo,FALSE),
+                      """ + ('c.continua_em, c.desengate_local,' if _ec.ativo(cur) else 'NULL::int, NULL::text,') + """
                       c.distancia_planejada_km,
                       d.cidade,d.uf,d.latitude,d.longitude
                  FROM embarques_cargas c
@@ -119,7 +121,7 @@ def add(num, cod, grav, msg, extra=''):
     achados.append({'carga': num, 'codigo': cod, 'gravidade': grav, 'achado': msg, 'prova': extra})
 
 for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal, dconc,
-     ocid, ola, oln, cav, c1, c2, man, vazia, tem_rota, robo, dist_plan, dcid, duf, dla, dln) in CARGAS:
+     ocid, ola, oln, cav, c1, c2, man, vazia, tem_rota, robo, cont_em, des_local, dist_plan, dcid, duf, dla, dln) in CARGAS:
 
     base = datetime.combine(dcarg, _time()) - timedelta(hours=12)
     # MESMA janela do motor (_robo_atemporal.JANELA_FUTURO_D). Enquanto o auditor cortava em
@@ -127,7 +129,13 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
     # discordavam para sempre: o motor gravava uma chegada que o auditor nao encontrava.
     fim = min(HOJE, datetime.combine(dcarg, _time()) + timedelta(days=JANELA_EVIDENCIA_D))
     ativo = status in ('Aberta', 'Em rota', 'No destino', 'Desengatada')
+    # §24 — a ligacao (`continua_em`) torna a carga terminal, seja qual for a palavra; e
+    # `Desengatada` no PATIO sem ligacao e a pendencia nova: carreta carregada esperando cavalo.
+    if cont_em is not None or status == 'Continuada':
+        ativo = False
     idade_d = (HOJE - datetime.combine(dcarg, _time())).days
+    if status == 'Desengatada' and cont_em is None and des_local == 'patio' and idade_d >= 3:
+        add(num, 'X1', 'alta', f'DESENGATADA NO PATIO ha {idade_d} d sem continuacao — carreta carregada esperando cavalo (ou carreta muda)')
 
     # ── COERENCIA TEMPORAL — nao depende de GPS, e aritmetica de datas, mas era o que
     # obrigava a abrir carga por carga: o mapa monta o trajeto ate a data_conclusao, entao
@@ -324,7 +332,7 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
             f'destino={dcid} · rota={float(dist_plan or 0):.0f} km')
 
     # ── FECHAMENTO
-    if status in ('Entregue', 'Cancelada') and dconc:
+    if (status in ('Entregue', 'Cancelada', 'Continuada') or cont_em is not None) and dconc:
         conc = dconc if isinstance(dconc, datetime) else datetime.combine(dconc, _time())
         if not cheg:
             # fechou sem nenhuma prova de chegada

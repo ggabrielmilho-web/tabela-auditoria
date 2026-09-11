@@ -70,6 +70,11 @@ cn = psycopg2.connect(host=os.getenv('DB_HOST'), port=os.getenv('DB_PORT'), dbna
 cur = cn.cursor()
 
 filtro = '' if A.tudo else 'AND COALESCE(c.criada_por_robo,FALSE)'
+# §24 — carga com ligacao (`continua_em`), `Continuada` e `Desengatada` no PATIO pertencem ao
+# robo diario (documento). Aqui o motor derivaria `Entregue` pelo manifesto novo da carreta e
+# REESCREVERIA o status — 27 cargas oscilando por rodada no ensaio. Vazio com a chave desligada.
+import embarques_continuacao as _ec
+filtro += _ec.filtro_ativas(cur)
 cur.execute(f"""SELECT c.id,c.numero,c.status,c.encerrada_motivo,COALESCE(c.entregue_auto,FALSE),
                        COALESCE(c.saida_auto,FALSE),c.data_carregamento,c.data_saida_real,
                        c.inicio_viagem,c.no_local_desde,c.data_conclusao,c.no_local_fonte,

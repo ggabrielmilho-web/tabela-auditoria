@@ -79,6 +79,7 @@
   .badge-Desengatada { background: rgba(250,204,21,0.15); color: #facc15; }
   .badge-Entregue { background: rgba(52,211,153,0.15); color: var(--green); }
   .badge-Cancelada{ background: rgba(248,113,113,0.15); color: var(--red); }
+  .badge-Continuada { background: rgba(148,163,184,0.15); color: var(--text-dim); }
 
   .kpi-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .kpi-mini { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
@@ -162,6 +163,10 @@
       <div class="info-row"><span class="k">Rastreado via</span><span class="v mono" id="iRastreio">—</span></div>
       <div class="info-row"><span class="k">Data de saída</span><span class="v" id="iDataSaida">—</span></div>
       <div class="info-row"><span class="k">Chegada no destino</span><span class="v" id="iDataChegada">—</span></div>
+      <!-- §24: a ligacao entre cargas. Linhas escondidas ate haver o que mostrar. -->
+      <div class="info-row" id="rowDesengate" style="display:none;"><span class="k">Desengate</span><span class="v" id="iDesengate">—</span></div>
+      <div class="info-row" id="rowContinuaEm" style="display:none;"><span class="k">Continua em</span><span class="v" id="iContinuaEm">—</span></div>
+      <div class="info-row" id="rowContinuacaoDe" style="display:none;"><span class="k">Continuação de</span><span class="v" id="iContinuacaoDe">—</span></div>
     </div>
 
     <div class="card">
@@ -351,8 +356,28 @@
     document.getElementById('iDataSaida').textContent = fmtData(c.data_saida_real);
     document.getElementById('iDataChegada').textContent = fmtData(c.no_local_desde);
 
-    // Ações
-    if (c.status === 'Em rota' || c.status === 'Aberta' || c.status === 'No destino' || c.status === 'Desengatada') {
+    // §24 — a ligacao. Esta carga terminou onde a carreta ficou; a mercadoria seguiu em B.
+    const ligada = !!c.continua_em;
+    if (c.status === 'Desengatada' && (c.desengatada_em || c.desengate_local)) {
+      document.getElementById('rowDesengate').style.display = '';
+      document.getElementById('iDesengate').textContent =
+        (c.desengatada_em ? fmtData(c.desengatada_em) : '—') +
+        (c.desengate_local === 'patio' ? ' · no pátio (longe do destino)' : c.desengate_local === 'destino' ? ' · no destino' : '');
+    }
+    if (ligada && c.continua_em_numero) {
+      document.getElementById('rowContinuaEm').style.display = '';
+      document.getElementById('iContinuaEm').innerHTML =
+        `<a href="/embarques/cargas/${c.continua_em}/mapa" style="color:var(--accent);">${c.continua_em_numero} ↗</a>`;
+      document.getElementById('iDataChegada').innerHTML = '<span title="Esta carga não chegou ao destino: a mercadoria seguiu na carga ligada">— (segue em ' + c.continua_em_numero + ')</span>';
+    }
+    if (c.continuacao_de && c.continuacao_de_id) {
+      document.getElementById('rowContinuacaoDe').style.display = '';
+      document.getElementById('iContinuacaoDe').innerHTML =
+        `<a href="/embarques/cargas/${c.continuacao_de_id}/mapa" style="color:var(--accent);">${c.continuacao_de} ↗</a>`;
+    }
+
+    // Ações — carga ligada e terminal: nada a confirmar aqui
+    if (!ligada && (c.status === 'Em rota' || c.status === 'Aberta' || c.status === 'No destino' || c.status === 'Desengatada')) {
       document.getElementById('cardAcoes').style.display = '';
       // Na carga desengatada, a "entrega" é a finalização da descarga
       if (c.status === 'Desengatada') {

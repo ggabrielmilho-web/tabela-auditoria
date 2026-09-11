@@ -96,6 +96,11 @@
   /* Perna vazia concluida: rotulo proprio sobre o status 'Entregue', que nao muda
      (secao 0 do handoff). Mesmo criterio da 21.18 — rotulo, nunca status. */
   .badge-Vazia    { background: rgba(148,163,184,0.15); color: var(--text-dim); }
+  /* §24 — mesmo conjunto parou no hub, manifesto novo, seguiu: terminal, nao conta entrega */
+  .badge-Continuada { background: rgba(148,163,184,0.15); color: var(--text-dim); }
+  /* a ligacao A -> B (continua_em): quem manda no significado do status e o ponteiro */
+  .lig { font-size: 0.72rem; color: var(--text-dim); text-decoration: none; margin-left: 4px; white-space: nowrap; }
+  .lig:hover { color: var(--accent); }
 
   .info-vazio { padding: 40px; text-align: center; color: var(--text-dim); }
 
@@ -396,10 +401,20 @@
     if (c.status === 'Desengatada') {
       const partes = [];
       if (c.desengatada_em) partes.push('Desengatada há ' + tempoCurto(c.desengatada_em));
+      if (c.desengate_local === 'patio') partes.push('Carreta carregada parada no PÁTIO (longe do destino), esperando cavalo');
       if (c.descarga_cavalo_placa) partes.push('Cavalo p/ descarga: ' + c.descarga_cavalo_placa);
       if (c.descarga_motorista_nome) partes.push('Motorista p/ descarga: ' + c.descarga_motorista_nome);
       const tip = partes.length ? partes.join('\n') : 'Carreta carregada parada no destino; cavalo+motorista liberados';
       html += ` <span style="cursor:help;" title="${tip.replace(/"/g,'&quot;')}">🔌</span>`;
+    }
+    // §24 — a ligacao entre cargas. "→ C-B": esta carga acabou aqui e a mercadoria seguiu em B
+    // (desengate: outro cavalo levou; continuacao: mesmo conjunto com manifesto novo; reemissao).
+    // "← C-A": esta e a carga que veio de A. So B conta como entrega.
+    if (c.continua_em && c.continua_em_numero) {
+      html += ` <a class="lig" href="/embarques/cargas/${c.continua_em}/mapa" target="_blank" title="A mercadoria seguiu nesta carga — é ela que entrega">→ ${c.continua_em_numero}</a>`;
+    }
+    if (c.continuacao_de_id && c.continuacao_de) {
+      html += ` <a class="lig" href="/embarques/cargas/${c.continuacao_de_id}/mapa" target="_blank" title="Continuação da carga anterior (desengate / manifesto novo)">← ${c.continuacao_de}</a>`;
     }
     if (c.entregue_auto && c.status === 'Entregue') {
       html += ` <span style="color:var(--yellow);font-size:0.85em;cursor:help;" title="Entrega detectada automaticamente">⚡</span>`;

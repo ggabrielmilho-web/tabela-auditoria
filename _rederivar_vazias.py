@@ -72,9 +72,11 @@ def nrm(s):
 
 
 # ── as cargas REAIS, por carreta, em ordem: e delas que sai toda janela de perna
+import embarques_continuacao as _ec
 cur.execute("""SELECT c.id, c.numero, c.carreta1_placa, c.data_carregamento,
                       c.data_conclusao, COALESCE(c.data_saida_real, c.inicio_viagem),
-                      c.origem_cidade, d.cidade
+                      c.origem_cidade, d.cidade,
+                      """ + ('c.continua_em' if _ec.ativo(cur) else 'NULL::int') + """
                  FROM embarques_cargas c
                  LEFT JOIN LATERAL (SELECT cidade FROM embarques_cargas_destinos x
                                      WHERE x.carga_id = c.id ORDER BY x.ordem DESC LIMIT 1) d ON TRUE
@@ -93,6 +95,8 @@ for car, lst in por_car.items():
         Ax, Bx = lst[i], lst[i + 1]
         ini, fim = Ax[4], Bx[5]                 # conclusao de A, saida de B
         org, dst = Ax[7], Bx[6]                 # destino de A, origem de B
+        if Ax[8] is not None:                   # §24: A continua em B — nao ha perna entre as duas
+            continue
         if not org or not dst:
             continue
         pares[(car, nrm(org), nrm(dst))].append((ini, fim, Ax[1], Bx[1]))

@@ -527,13 +527,18 @@ def _consolidar_kpi(cur, carga_id, final=False):
 def _processar_cargas(cur):
     """Itera cargas Aberta/Em rota com ao menos 1 veículo rastreado e aplica detecção.
     Segue a carreta (carreta1 → cavalo → carreta2) — o rastreador costuma estar nela."""
-    cur.execute("""
+    # §24 — com a continuação ligada, `Desengatada` no PÁTIO e carga com `continua_em` saem
+    # daqui: o GPS da carreta ali é de OUTRA viagem (a carga seguinte), e aplicá-lo nesta
+    # marcava "No destino"/"Entregue" com prova alheia em 7 de 9 desengates medidos.
+    import embarques_continuacao as _ec
+    cur.execute(f"""
         SELECT c.id, c.status, c.cavalo_placa, c.carreta1_placa, c.carreta2_placa,
                c.origem_cidade, c.origem_uf, c.origem_latitude, c.origem_longitude,
                c.no_local_desde, c.rota_planejada_polyline, c.rota_recalculada_em,
                c.distancia_planejada_km, c.inicio_viagem, c.data_carregamento
         FROM embarques_cargas c
         WHERE c.status IN ('Aberta', 'Em rota', 'No destino', 'Desengatada')
+        {_ec.filtro_ativas(cur)}
     """)
     # O pré-filtro por EXISTS saiu de propósito: em SQL não dá para gerar a
     # grafia alternativa da placa, e ele descartava carga rastreável cuja placa

@@ -518,6 +518,12 @@ cur.execute("ALTER TABLE embarques_cargas ADD COLUMN IF NOT EXISTS ctrb_origem V
 cur.execute("ALTER TABLE embarques_cargas ADD COLUMN IF NOT EXISTS criada_por_robo BOOLEAN DEFAULT FALSE;")
 cur.execute("ALTER TABLE embarques_cargas ADD COLUMN IF NOT EXISTS auto_incompleta BOOLEAN DEFAULT FALSE;")
 cur.execute("ALTER TABLE embarques_cargas ADD COLUMN IF NOT EXISTS encerrada_motivo VARCHAR(30);")
+# §24 (11/09/26) — continuação/desengate de pátio: A aponta para a carga em que a mercadoria
+# seguiu (`continua_em`); `desengate_local` separa carreta largada no destino (comportamento
+# antigo) de carreta largada no pátio (o worker não a rastreia; só o documento encerra).
+cur.execute("ALTER TABLE embarques_cargas ADD COLUMN IF NOT EXISTS continua_em INTEGER;")
+cur.execute("ALTER TABLE embarques_cargas ADD COLUMN IF NOT EXISTS desengate_local VARCHAR(10);")
+cur.execute("CREATE INDEX IF NOT EXISTS ix_cargas_continua_em ON embarques_cargas (continua_em) WHERE continua_em IS NOT NULL;")
 # Indice PARCIAL: carga lancada a mao tem manifesto_origem NULL, e NULL nao colide.
 cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_cargas_manifesto_origem "
             "ON embarques_cargas (manifesto_origem) WHERE manifesto_origem IS NOT NULL;")

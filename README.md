@@ -314,6 +314,8 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 | `EMBARQUES_AUTO_REANALISE` | Sub-chave da anterior: revisita pendência com evidência posterior | `true` |
 | `EMBARQUES_AUTO_JANELA_REANALISE_DIAS` | Até onde a reanálise olha para trás (a retenção de GPS é ~30 d) | `30` |
 | `EMBARQUES_AUTO_DWELL_ENTREGA_H` | Horas paradas no destino que valem como entrega, quando não há saída | `24` |
+| `EMBARQUES_CONTINUACAO` | **Continuação/desengate de pátio (§24).** Manifesto novo do cavalo com outra carreta vira `Desengatada` (não `Entregue`); CTe com `primeiro_manifesto ≠ ultimo_manifesto` liga A → B (`continua_em`) com o terminal certo (`Desengatada`/`Continuada`/`Cancelada`); só B conta como entrega. Nasce desligada; desligar pela CLI, nunca pelo stack do Portainer | `false` |
+| `EMBARQUES_CONTINUACAO_RAIO_DESTINO` | Km do destino abaixo do qual o desengate é "no destino" (comportamento antigo); acima é "no pátio" (o worker não rastreia; só o documento encerra) | `25` |
 
 ### PGR (relatório de excesso de velocidade)
 | Variável | Descrição | Default |
@@ -644,6 +646,18 @@ operacional. O robô não arbitra.
 Encerramento por regra fica em `Entregue` (único status final que as telas
 entendem) com `entregue_auto=FALSE` e `encerrada_motivo` gravado — assim não se
 confunde com entrega provada por GPS.
+
+**Continuação e desengate de pátio (`EMBARQUES_CONTINUACAO`, §24 do handoff).** A mesma
+mercadoria atravessa duas cargas em ~8% das viagens: o cavalo larga a carreta carregada na
+filial, outro cavalo a leva (desengate, 33 em 40 dias), ou o conjunto para no hub e ganha
+manifesto novo (10), ou o manifesto é reemitido (8). Com a chave ligada, a primeira carga
+(A) **não** vira `Entregue`: recebe `continua_em = B` e o terminal certo — `Desengatada`
+(cavalo trocou), `Continuada` (mesmo conjunto) ou `Cancelada` (reemissão) — e só B conta
+em `entregues_mes`. A palavra `Desengatada` é **ativa sem ligação** (carreta esperando; no
+pátio o worker não a rastreia, só o documento encerra) e **terminal com ligação**. Medido:
+`entregues_mes` caía 7–12% e 27 pernas vazias fabricadas deixam de existir. Rede de
+segurança: tag `pre-continuacao-2026-09-11`, a chave, e `_snapshot_embarques.py` (snapshot
+por schema + restore **por id**, nunca as tabelas de posição).
 
 **Segurança do robô:**
 - `manifesto_origem` com índice único parcial → rodar duas vezes não duplica

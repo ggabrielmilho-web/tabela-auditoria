@@ -559,6 +559,10 @@ def garantir_colunas(cur):
     cur.execute("ALTER TABLE embarques_cargas ADD COLUMN IF NOT EXISTS no_local_fonte VARCHAR(32);")
     cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_cargas_manifesto_origem "
                 "ON embarques_cargas (manifesto_origem) WHERE manifesto_origem IS NOT NULL;")
+    # Continuação/desengate de pátio (§24): colunas aditivas, só com a chave ligada.
+    import embarques_continuacao as _ec
+    if _ec.ligado():
+        _ec.garantir_colunas(cur)
 
 
 def _ja_lancada(cur, carga):
@@ -674,7 +678,12 @@ def encerrar(cur, carga_id, motivo, quando=None):
     Fica em 'Entregue' com `entregue_auto=FALSE` e `encerrada_motivo` != 'gps':
     é o único status final que as telas entendem, e a coluna de motivo impede
     que fechamento por regra se confunda com entrega provada por GPS."""
-    cur.execute("SELECT status FROM embarques_cargas WHERE id=%s", (carga_id,))
+    import embarques_continuacao as _ec
+    if _ec.ativo(cur):
+        # §24 — carga com ligação já terminou (a mercadoria segue em outra): não se reescreve.
+        cur.execute("SELECT status FROM embarques_cargas WHERE id=%s AND continua_em IS NULL AND status <> 'Continuada'", (carga_id,))
+    else:
+        cur.execute("SELECT status FROM embarques_cargas WHERE id=%s", (carga_id,))
     r = cur.fetchone()
     if not r:
         return False
@@ -729,7 +738,7 @@ def _reforco_no_meio_da_rota(cand, origem_aberta, destino_aberto):
     return mesmo_destino and em_rota
 
 
-def fechar_pendentes(cur, manifestos, candidatas=None):
+def fechar_pendentes(cur, manifestos, candidatas=None, ctrcs=None):
     """Fecha a carga anterior de uma placa quando ela sai em viagem nova.
 
     Roda ANTES de criar, para liberar cavalo/carreta que estão presos numa carga
@@ -750,6 +759,7 @@ def fechar_pendentes(cur, manifestos, candidatas=None):
     O fim de viagem que não tem manifesto seguinte é do GPS (worker) ou da mão
     do operacional. O robô não arbitra.
     """
+    import embarques_continuacao as _ec
     fechadas = Counter()
     if not fechamento_ligado():
         return fechadas
@@ -778,7 +788,9 @@ def fechar_pendentes(cur, manifestos, candidatas=None):
         #
         # Medido em ago+set com `_simular_regras_fechamento.py`: os fechamentos errados do
         # `manifesto_novo` caem de 15 para 9, sem perder fechamento certo.
-        if modelo_carreta_ligado():
+        # Com a CONTINUAÇÃO ligada (§24) o eixo também é a carreta: o manifesto novo do
+        # cavalo com outra carreta vira DESENGATE (`desengatar_por_cavalo`), não `Entregue`.
+        if modelo_carreta_ligado() or _ec.ligado():
             carreta = _placa(man.get('placa_carreta'))
             if carreta:
                 alvos = [('(c.carreta1_placa=%s OR c.carreta2_placa=%s)', (carreta, carreta))]
@@ -808,12 +820,23 @@ def fechar_pendentes(cur, manifestos, candidatas=None):
                    AND c.status IN ('Aberta','Em rota','No destino','Desengatada')
                    AND c.data_carregamento < %s
                    AND COALESCE(c.criada_por_robo, FALSE) = TRUE
+                   """ + _ec.filtro_ativas(cur) + """
             """, args + (dt,))
             cand = por_manifesto.get(_norm(man.get('CHAVE_MANIFESTO')))
             for (cid, origem_aberta, destino_aberto) in cur.fetchall():
                 if modelo_carreta_ligado() and _reforco_no_meio_da_rota(cand, origem_aberta, destino_aberto):
                     fechadas['mantida (reforco no meio da rota)'] += 1
                     continue
+                # A mercadoria SEGUIU neste manifesto (CTe pm→um)? Então a carga anterior não
+                # "acabou": ela continua em B, e quem grava o verbo certo (Desengatada /
+                # Continuada / Cancelada + `continua_em`) é `ligar_continuacoes`, depois de B
+                # existir. Fechar aqui como `Entregue` seria a mentira que a §24 tira.
+                if _ec.ligado() and ctrcs is not None:
+                    cur.execute("SELECT manifesto_origem FROM embarques_cargas WHERE id=%s", (cid,))
+                    _mo = cur.fetchone()
+                    if _mo and _ec.continua_manifesto(ctrcs, _mo[0], man.get('CHAVE_MANIFESTO')):
+                        fechadas['mantida (mercadoria segue no manifesto novo)'] += 1
+                        continue
                 if encerrar(cur, cid, 'manifesto_novo', datetime.combine(dt, datetime.min.time())):
                     fechadas['manifesto novo'] += 1
 
@@ -991,14 +1014,19 @@ def dedup_veiculo(cur, ctrbs):
 
     Sem destino com coordenada não há como julgar — aí mantém o comportamento antigo, que é
     degradar sem surpresa (o mesmo que `_esteve_no_destino` já faz)."""
+    import embarques_continuacao as _ec
     fechadas = Counter()
-    for campo in ('cavalo_placa', 'carreta1_placa'):
+    # Com a continuação ligada (§24) o mesmo cavalo em duas cargas ativas é DESENGATE da
+    # anterior (`desengatar_por_cavalo`), não "sequência de viagem": só a carreta dedupa.
+    dimensoes = ('carreta1_placa',) if _ec.ligado() else ('cavalo_placa', 'carreta1_placa')
+    for campo in dimensoes:
         cur.execute(f"""
             SELECT {campo}, id, data_carregamento, ctrb_origem
             FROM embarques_cargas
             WHERE status IN ('Aberta','Em rota','No destino','Desengatada')
               AND COALESCE(criada_por_robo, FALSE) = TRUE
               AND {campo} IS NOT NULL AND {campo} <> ''
+              {_ec.filtro_ativas(cur, 'embarques_cargas')}
         """)
         grupos = defaultdict(list)
         for placa, cid, dt, ctrb_k in cur.fetchall():
@@ -1141,6 +1169,7 @@ def executar(dia=None, dry_run=False, token=None, conn=None):
     Devolve dict com o que foi feito — é o que vai para o log e para o relatório
     do piloto."""
     from server import get_token, get_db
+    import embarques_continuacao as _ec
 
     if not ligado() and not dry_run:
         _logger.info('EMBARQUES_AUTO desligado — nada a fazer.')
@@ -1175,8 +1204,13 @@ def executar(dia=None, dry_run=False, token=None, conn=None):
 
         # `cargas` (as candidatas ja montadas) entra para o fechamento saber o destino do
         # manifesto novo -- e o que sustenta a excecao do reforco no meio da rota.
-        resumo['fechadas'] = fechar_pendentes(cur, manifestos, cargas) \
+        resumo['fechadas'] = fechar_pendentes(cur, manifestos, cargas, ctrcs) \
             if not dry_run else Counter()
+        # §24 — o cavalo saiu com outra carreta: a carga que ficou é DESENGATADA, não entregue.
+        # Antes de criar, como o fechamento: libera cavalo/motorista para a viagem nova.
+        if not dry_run and _ec.ligado() and fechamento_ligado():
+            for k, v in _ec.desengatar_por_cavalo(cur, manifestos).items():
+                resumo['fechadas'][k] += v
 
         for c in cargas:
             # A checagem de duplicata roda TAMBÉM no dry-run: ela é só leitura, e
@@ -1202,6 +1236,11 @@ def executar(dia=None, dry_run=False, token=None, conn=None):
             resumo['detalhe'].append(f"{numero} <- {c['manifesto']}")
 
         if not dry_run:
+            # §24 — o CTe diz que a mercadoria seguiu em outro manifesto: liga A → B com o
+            # terminal certo. Depois de criar, porque precisa do id de B.
+            if _ec.ligado() and fechamento_ligado():
+                for k, v in _ec.ligar_continuacoes(cur, ctrcs, ctrbs).items():
+                    resumo['fechadas'][k] += v
             # Depois de criar: duas pernas da mesma viagem no mesmo dia deixam o
             # mesmo cavalo em duas cargas ativas. Só a última fica aberta.
             if fechamento_ligado():

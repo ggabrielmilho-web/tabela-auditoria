@@ -98,6 +98,7 @@
      muda de significado, e toda tela que filtra 'Entregue' quebraria). O que muda e o
      rotulo, no padrao da 21.18: "rotulo, nunca status". Cinza porque nao houve entrega. */
   .badge-Vazia    { background: rgba(148,163,184,0.15); color: var(--text-dim); }
+  .badge-Continuada { background: rgba(148,163,184,0.15); color: var(--text-dim); }
 </style>
 </head>
 <body>
@@ -194,7 +195,9 @@
       return '<span class="badge-status badge-Vazia" title="Viagem vazia concluída (status interno: Entregue)">Concluída</span>';
     }
     const cls = 'badge-' + s.replace(' ', '-');
-    return '<span class="badge-status ' + cls + '">' + (s || '—') + '</span>';
+    // §24 — carga com ligacao: o status e terminal e a mercadoria seguiu em `continua_em`
+    const lig = (c && c.continua_em_numero) ? ' <span style="font-size:0.7rem;color:var(--text-dim);" title="A mercadoria seguiu nesta carga">→ ' + c.continua_em_numero + '</span>' : '';
+    return '<span class="badge-status ' + cls + '">' + (s || '—') + '</span>' + lig;
   }
 
   function fmtData(iso) {

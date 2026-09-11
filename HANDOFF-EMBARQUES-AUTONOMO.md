@@ -1,6 +1,12 @@
 # Handoff — Painel de Embarques autônomo
 
-**Estado em 10/09/2026 (noite) — ⚠ COMECE PELA §23.** Três defeitos sem relação entre si,
+**Estado em 11/09/2026 — ⚠ COMECE PELA §24.** Continuação e desengate de pátio: a C-677
+provou que "trocou o cavalo = desengate, e só a carga seguinte entrega". Implementado atrás de
+`EMBARQUES_CONTINUACAO` (desligada), testado com o robô real dia a dia na base local (achou
+2 bugs que os simuladores não viam), **não deployado**. Rede de segurança: tag
+`pre-continuacao-2026-09-11` + chave + `_snapshot_embarques.py`. Receita de subida na §24.7.
+
+**Antes disso — 10/09 (noite), §23.** Três defeitos sem relação entre si,
 dois deles invisíveis para todo instrumento que existia. O maior: **produção passou 30 horas
 sem rastreamento e nada acusou** — a tabela `embarques_rastreio_dia` nunca tinha sido criada
 lá, `_consolidar_dias` levantava, e o `rollback` levava junto as posições que já estavam
@@ -3501,3 +3507,174 @@ posição posterior é, por definição, da próxima viagem.
 3. **A régua do rótulo `placa_longe`** (§22.10 nº 1) e o **manifesto duplicado** (§22.10
    nº 2) continuam abertos, sem mudança.
 4. **Fase D — `EMBARQUES_MODELO_CARRETA`** segue sendo o que ataca V1 e F5.
+
+---
+
+## 24. Continuação e desengate de pátio — a C-677 e o que ela ensinou (11/09/2026)
+
+> **Comece por aqui se está retomando.** Implementado atrás de `EMBARQUES_CONTINUACAO`
+> (nasce desligada), testado na base local com o robô REAL rodando dia a dia, **não
+> deployado**. A rede de segurança tem três camadas (§24.7). Nada aqui toca o caminho
+> manual (§0): zero cargas lançadas à mão no log da rodada de teste.
+
+### 24.1 O caso
+
+A `C-2026-000677` (Química Amparo, Amparo → Brasília, FFA2I61 + QXA9H76) aparecia `Entregue`
+com `chegada —` e `KM FALTANDO 421 km`. Três fontes independentes contaram a mesma história:
+o Marley levou a carreta carregada até o pátio de Uberlândia em 06/09, **desengatou**, pegou a
+TZB1D35 (C-684) e foi para Brasília; a QXA9H76 ficou 3 dias parada (odômetro 423.525 congelado);
+em 09/09 o Egnaldo a engatou no DIL8F42 (manifesto `UDI029149-8` → C-818) e entregou em
+Brasília em 10/09. Os 3 CTes da C-677 têm `primeiro_manifesto = 029121-8` e
+`ultimo_manifesto = 029149-8`. Mesma carreta, mesma mercadoria, outro cavalo — **desengate no
+pátio**, não transbordo, não entrega.
+
+O Gabriel resumiu a regra antes de eu chegar nela: *"tudo que troca o cavalo é desengate; a
+primeira linha é desengate sempre; só a nova marca entregue; contaria uma carga de todo jeito."*
+
+### 24.2 O que foi medido (01/08 → 10/09, CTe `pm ≠ um`)
+
+```
+2.002 CTes com manifesto · 80 (4,0%) atravessam dois manifestos · 55 pares
+   33  mesma carreta, cavalo trocou ........ DESENGATE (em 12 o cavalo pegou outro manifesto no meio)
+   10  mesma carreta, mesmo cavalo ......... parou na filial, doc novo, seguiu (2 com troca de motorista)
+    8  mesmo par, <=1 dia, CTRB idêntico ... REEMISSÃO (uma viagem, dois manifestos → 2 cargas no robô)
+    4  carreta trocou ...................... transbordo (Química Amparo CD25, fora deste desenho)
+```
+
+* **Continuação é fenômeno de hub**: 51 de 55 mantêm a carreta. Uberlândia na maioria,
+  Seropédica (RIO) no caso Heinz. A carreta espera **16–80 h** (mediana 28 h) contra pousos
+  de < 12 h. Dois cavalos chegaram a trocar de carreta entre si no pátio (Doce Mineiro).
+* **Nenhum caso** de "mesmo cavalo fez outra viagem e voltou para a mesma carreta" — a regra
+  existe na máquina, mas não ocorreu.
+* `entregues_mes` contava a perna 1: **ago 206 → 191 (−7%), set 95 → 84 (−12%)**.
+* **Km vazio fabricado**: V-029, V-050, V-059, V-120 = 1.384 km de perna entre o *destino do
+  papel* de A e a origem de B, que a carreta nunca rodou (ela estava parada no pátio).
+* **Risco de duplicata confirmado**: 8 viagens físicas em 40 dias geram 2 cargas (C-459/C-476
+  Jundiaí→Teresina 2.635 km; C-801/C-802 da §22.10). A `manifestos` do SSW não marca cancelado;
+  quem denuncia é o CTe.
+* Para a auditoria, fora do painel: em 12 dos 33 desengates o **CTRB da perna 1 cobre a viagem
+  inteira** e o da perna 2 cobre o trecho final de novo — ~6,7 mil km documentados duas vezes
+  (`UDI028908-6 → 028921-3`: dois CTRBs Uberlândia→Três Rios de 843 km, e o primeiro cavalo
+  nem saiu de Uberlândia). Se algum é agregado, é frete pago em dobro.
+
+### 24.3 O modelo — um status novo (`Continuada`); quem manda é a ligação
+
+| primeira linha (A) | quando | ativa? | conta entrega? |
+|---|---|---|---|
+| `Desengatada` (sem `continua_em`) | cavalo saiu, carreta esperando — no **destino** (regra antiga) ou no **pátio** (`desengate_local`) | sim | não |
+| `Desengatada → C-B` | outro cavalo levou a carreta | **não** | não |
+| `Continuada → C-B` | mesmo conjunto, manifesto novo, seguiu | não | não |
+| `Cancelada → C-B` | reemissão | não | não |
+| `Entregue` | chegou ao cliente | não | **sim** |
+
+"Ativa" = o worker aplica GPS, o conflito prende cavalo/carreta, os contadores contam. A
+palavra `Desengatada` é **ativa sem ligação e terminal com ela** — é a coluna `continua_em`
+que decide, não o status. No **pátio** o worker não deriva chegada nem entrega: o GPS ali é
+de OUTRA viagem (medido par a par: em 7 de 9 desengates a carreta chega ao destino sob o
+documento B **antes** de o robô ligar A→B; na C-481 viraria `Entregue` com `entregue_auto=TRUE`
+pelo GPS da C-514). Só o documento encerra o pátio. Carga B ganha o rótulo "← continuação da
+C-A"; nasce `Aberta`, roda e termina `Entregue` normalmente — é a única que conta.
+
+Dois gatilhos, duas fontes: o **desengate** vem do manifesto do cavalo (com outra carreta) +
+GPS da carreta (≤ 25 km do destino = destino; longe = pátio); a **ligação** vem do CTe
+(`pm → um`), exata, e só o diário enxerga CTe. **`continua_em` é o contrato** entre o diário
+e todo o resto (atemporal, worker, gerador de pernas, aferidor, telas): sem a coluna, o
+atemporal derivaria `Entregue` pelo manifesto novo da carreta e reescreveria o status — 27
+cargas oscilando por rodada no ensaio (§20.6: oscilação é bug).
+
+### 24.4 O que foi escrito
+
+| arquivo | o quê |
+|---|---|
+| `embarques_continuacao.py` (novo) | chave, DDL (`continua_em`, `desengate_local`), `desengatar_por_cavalo`, `ligar_continuacoes`, `parada_carreta`, `filtro_ativas`/`filtro_ligadas` (fragmentos SQL vazios com a chave desligada ou sem as colunas) |
+| `embarques_auto.py` | `fechar → desengatar → criar → ligar`; eixo carreta também com esta chave; `fechar_pendentes` não fecha A quando o CTe diz que seguiu; `dedup_veiculo` só por carreta; `encerrar` recusa carga ligada |
+| `rastreamento_worker.py` | `_processar_cargas` exclui pátio e ligadas |
+| `server.py` | conflitos, KPIs (`entregues_mes` sem continuação; `desengatadas` só as que esperam), listagem e detalhe devolvem `continua_em_numero` / `continuacao_de` |
+| `_robo_atemporal.py`, `_regerar_vazias_agosto.py`, `_rederivar_vazias.py` | respeitam a ligação (atemporal não toca; A ligada não ancora perna) |
+| `_auditoria_geral.py` | `Continuada`/ligada = fechada; classe nova **X1** (desengatada no pátio há ≥ 3 d sem continuação) |
+| `embarques-relatorio.html`, `embarques.html`, `mapa-carga.html` | badge `Continuada`, ponteiros `→ C-B` / `← C-A`, linha "Desengate · no pátio", "Chegada — (segue em C-B)", ações escondidas em carga ligada |
+| `init_db.py` | as colunas |
+| `_snapshot_embarques.py` (novo) | `criar / listar / diff / restaurar --ids` ou `--desde-log` |
+| `_ensaio_continuacao.py`, `_replay_producao.py`, `_rodar_diario_local.py` (novos) | os três testes (§24.5) |
+
+### 24.5 Os testes, e o que cada um pegou
+
+1. **`_ensaio_continuacao.py`** (estático, só leitura): aplica as regras sobre os pares e pergunta
+   a cada peça como reagiria sem ser ensinada. Achou R1 (atemporal oscila), R2 (worker aplica
+   GPS de B em A), R3 (pernas fabricadas), R4 (aferidor perde `Continuada`). A primeira versão
+   imprimiu "0" no R2 por bug meu — refeito par a par deu 7 de 9. *Teste que dá zero na primeira
+   rodada merece desconfiança.*
+2. **`_replay_producao.py`** (progressivo): reproduz produção dia a dia (manifesto visto em D+1
+   16:30, CTe mudando só quando B é emitido, GPS na hora). Calibração com as regras de HOJE:
+   **261/276 (95%)** iguais à base. Com as regras novas: a C-677 faz `Em rota → Desengatada
+   (pátio, "Uberlândia, 347 km do destino") → Desengatada → C-818`; a C-459 vira `Cancelada` no
+   dia em que B aparece; **85% dos desengates só são conhecidos quando B nasce** (o cavalo
+   largou a carreta sem emitir manifesto), e em 9 o GPS já tinha fechado A como `Entregue` no
+   hub — o "saiu do destino" era a carreta saindo com o cavalo B.
+3. **`_rodar_diario_local.py`** (o robô REAL, base local, chave ligada, 21/08 → 10/09): achou
+   **dois bugs que os simuladores não viam**:
+   * o `_norm` do robô compara manifesto **sem hífen** e `manifesto_origem` é gravado **com** —
+     A e B nunca se achavam. Corrigido com normalização dos dois lados no SQL (`SQL_MAN`);
+   * carga já ligada continuava na lista de ativas do `fechar_pendentes`, e o manifesto
+     *seguinte* da carreta a fechava de novo como `Entregue (manifesto_novo)` — 19 das 21
+     voltaram atrás. Corrigido com `filtro_ativas` no SELECT e guarda no `encerrar`.
+
+   Resultado final, contra o gabarito do replay: **21 `Desengatada → B` (11 pátio, 10 destino)
+   · 6 `Continuada` · 6 relabels de `Entregue` com prova · 0 carga manual · atemporal em
+   dry-run propõe 0 escritas em carga ligada · gerador pula 27 pares · F5 cai de 8 para 2 ·
+   X1 acusa as carretas paradas no pátio**. Com a chave desligada, `_testar_regras_fechamento.py`
+   dá 15/15 e os endpoints ignoram as colunas.
+
+   Limites do test-bed: a base local já estava convergida (as A chegam `Entregue`), então o
+   estado intermediário `Desengatada (pátio)` aparece pouco — é o relabel que domina, e é o que
+   produção vai fazer no dia em que a chave ligar. A C-459 saiu `Continuada` e não `Cancelada`
+   porque `ctrb_origem` é NULL nas cargas locais (o fallback compara as pontas das próprias
+   cargas, e a B nasceu com origem Uberlândia); muda a palavra, não o efeito. As 13 "sequência
+   de viagem" da rodada são artefato: as B criadas no teste nunca passaram pelo worker.
+
+### 24.6 O que fica aberto
+
+1. **Aviso precoce** "⚓ parada na filial há N h" em carga `Em rota` — rótulo, nunca status
+   (§21.18) — para os 85% em que o desengate só é conhecido quando B nasce.
+2. **`KM RASTREADOR —` na perna 1** (`_kpi_sanidade`): a régua geométrica assume "concluída =
+   chegou ao destino"; em carga fechada sem prova (C-677: 444 km de odômetro contra 455 de
+   reta até Uberlândia, medição impecável) ela apaga número certo. Comparador honesto ali é o
+   GPS da mesma janela, como na carga em trânsito (§14.4).
+3. **Transbordo** (carreta trocou, 4 casos) continua sem ligação — de propósito.
+4. **CTRB em dobro** nos desengates — assunto de auditoria de pagamento, não do painel.
+5. `ctrb_origem` vazio nas cargas antigas rebaixa reemissão a `Continuada`.
+
+### 24.7 Subir — a receita, com as três camadas de volta
+
+| camada | protege | volta |
+|---|---|---|
+| tag `pre-continuacao-2026-09-11` (HEAD `2473fb0`) | código | `git diff pre-continuacao-2026-09-11` / checkout |
+| `EMBARQUES_CONTINUACAO` | comportamento | `docker service update --env-add EMBARQUES_CONTINUACAO=false rizza-auditoria_app` — sem deploy; **nunca pelo stack do Portainer** (devolve a imagem antiga, 21/08) |
+| `_snapshot_embarques.py` | dados | restore **por id**, nunca tabela inteira: entre o snapshot e o restore o worker e o diário continuam gravando |
+
+```bash
+# 1) deploy INERTE (chave ausente = false): build, push, service update; conferir DENTRO do container
+CT=$(docker ps -q --filter "name=rizza-auditoria"); docker exec $CT ls embarques_continuacao.py
+
+# 2) snapshot das 5 tabelas derivadas (NUNCA posições — §23.2)
+docker exec $CT python -X utf8 _snapshot_embarques.py criar
+
+# 3) ligar pela CLI e deixar o diário das 16:30 rodar (ou executar à mão dentro do container)
+docker service update --env-add EMBARQUES_CONTINUACAO=true rizza-auditoria_app
+
+# 4) medir com o mesmo gabarito: ligações, zero carga manual, atemporal sem oscilar
+CT=$(docker ps -q --filter "name=rizza-auditoria")
+docker exec $CT python -X utf8 _snapshot_embarques.py diff snap_XXXX
+docker exec $CT python -X utf8 _robo_atemporal.py --desde 2026-08-15 --ate HOJE --csv /tmp/a.csv | tail -3
+docker exec $CT python -X utf8 _auditoria_geral.py --desde 2026-08-15 --ate HOJE | head -25
+
+# 5) divergiu? chave false no mesmo minuto, depois restore por id
+docker service update --env-add EMBARQUES_CONTINUACAO=false rizza-auditoria_app
+docker exec $CT python -X utf8 _snapshot_embarques.py restaurar snap_XXXX --desde-log 'AAAA-MM-DD HH:MM' --aplicar
+```
+
+O que esperar em produção no primeiro dia: o `coletar()` abre 10 dias de CTe antes da janela,
+então as ligações de **~25/08 em diante** entram na primeira rodada (as de agosto exigem
+`executar(dia=...)` para trás, como o `_rodar_diario_local.py` faz). `entregues_mes` de
+setembro cai ~10%; o card "Carretas desengatadas" passa a mostrar só as que esperam; o
+aferidor ganha a classe X1.

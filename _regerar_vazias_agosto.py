@@ -67,11 +67,13 @@ cur = c.cursor()
 cur.execute("SELECT cidade_normalizada, uf, latitude, longitude FROM municipios_ibge")
 CENT = {(nrm(x), y): (float(p), float(q)) for x, y, p, q in cur.fetchall()}
 
+import embarques_continuacao as _ec
 cur.execute("""
     SELECT c.id, c.numero, c.carreta1_placa, c.cavalo_placa, c.cavalo_tipo, c.motorista_nome,
            c.tipo_operacao, c.data_carregamento, c.data_conclusao,
            COALESCE(c.data_saida_real, c.inicio_viagem) AS partiu,
-           c.origem_cidade, c.origem_uf, d.cidade, d.uf, d.latitude, d.longitude
+           c.origem_cidade, c.origem_uf, d.cidade, d.uf, d.latitude, d.longitude,
+           """ + ('c.continua_em' if _ec.ativo(cur) else 'NULL::int') + """ AS continua_em
       FROM embarques_cargas c
       LEFT JOIN LATERAL (SELECT * FROM embarques_cargas_destinos x
                           WHERE x.carga_id=c.id ORDER BY x.ordem DESC LIMIT 1) d ON TRUE
@@ -91,6 +93,12 @@ for car, lst in por_car.items():
     for i in range(len(lst) - 1):
         A, B = lst[i], lst[i + 1]
         ini, fim = A[8], B[9]
+        # §24 — A continua em B (desengate no patio / hub / reemissao): a carreta ficou parada
+        # entre as duas, nao ha perna. Sem isto nasciam pernas do DESTINO DO PAPEL de A ate a
+        # origem de B (V-029, V-050, V-059, V-120: 1.384 km que ninguem rodou).
+        if A[16] is not None:
+            desc['A continua em B (sem perna)'] += 1
+            continue
         if ini is None:
             desc['carga A sem data_conclusao'] += 1
             continue

@@ -5067,6 +5067,9 @@ def _buscar_conflitos(cpf, placas, exclude_id=0):
     conn = get_db(); cur = conn.cursor()
     try:
         conflitos = []
+        # §24 — carga com ligação (`continua_em`) acabou: a carreta vive na carga seguinte.
+        import embarques_continuacao as _ec
+        _f24 = _ec.filtro_ligadas(cur, 'embarques_cargas')
 
         if cpf:
             # Compara SÓ OS DÍGITOS: o lançamento manual grava '04455930671' e o
@@ -5081,6 +5084,7 @@ def _buscar_conflitos(cpf, placas, exclude_id=0):
                       regexp_replace(%s, '[^0-9]', '', 'g')
                   AND status IN ('Aberta', 'Em rota', 'No destino')
                   AND id <> %s
+            """ + _f24 + """
                 ORDER BY data_carregamento DESC
                 LIMIT 5
             """, (cpf, exclude_id))
@@ -5109,6 +5113,7 @@ def _buscar_conflitos(cpf, placas, exclude_id=0):
                     OR ((carreta1_placa IN ({ph}) OR carreta2_placa IN ({ph}))
                         AND status IN ({car_ph}))
                   )
+                  {_f24}
                 ORDER BY data_carregamento DESC
                 LIMIT 10
             """, (exclude_id, *placas, *ativas_cav, *placas, *placas, *ativas_carreta))
@@ -5554,8 +5559,22 @@ def api_embarques_cargas_list():
         limite = 1000
     limite = max(1, min(limite, 1000))
 
+    # §24 — a ligação entre cargas (A continua em B). Só cita as colunas quando existem e a
+    # chave está ligada; fora disso devolve NULL e a tela não muda nada.
+    import embarques_continuacao as _ec
+    _c24 = get_db(); _cur24 = _c24.cursor(); _lig = _ec.ativo(_cur24); _cur24.close(); _c24.close()
+    _cols24 = ("""
+               c.continua_em, c.desengate_local,
+               (SELECT b.numero FROM embarques_cargas b WHERE b.id = c.continua_em) AS continua_em_numero,
+               (SELECT a.numero FROM embarques_cargas a WHERE a.continua_em = c.id ORDER BY a.id LIMIT 1) AS continuacao_de,
+               (SELECT a.id FROM embarques_cargas a WHERE a.continua_em = c.id ORDER BY a.id LIMIT 1) AS continuacao_de_id,"""
+               if _lig else """
+               NULL::int AS continua_em, NULL::text AS desengate_local, NULL::text AS continua_em_numero,
+               NULL::text AS continuacao_de, NULL::int AS continuacao_de_id,""")
+
     sql = f"""
         SELECT c.id, c.numero, c.status, c.tipo_operacao, c.viagem_vazia,
+               {_cols24}
                c.cliente_id, c.cliente_nome,
                c.origem_cidade, c.origem_uf,
                c.motorista_nome, c.motorista_cpf,
@@ -5720,6 +5739,19 @@ def api_embarques_carga_detail(carga_id):
         cur.execute("SELECT ordem, cidade, uf FROM embarques_cargas_rota WHERE carga_id = %s ORDER BY ordem", (carga_id,))
         carga['rota'] = [{'ordem': r[0], 'cidade': r[1], 'uf': r[2]} for r in cur.fetchall()]
         carga['pode_editar'] = _pode_editar_carga(carga.get('criado_por_id'))
+        # §24 — a ligacao entre cargas (numero da carga seguinte / anterior)
+        import embarques_continuacao as _ec
+        carga['continua_em_numero'] = carga['continuacao_de'] = carga['continuacao_de_id'] = None
+        if _ec.ativo(cur):
+            if carga.get('continua_em'):
+                cur.execute("SELECT numero FROM embarques_cargas WHERE id=%s", (carga['continua_em'],))
+                r = cur.fetchone(); carga['continua_em_numero'] = r[0] if r else None
+            cur.execute("SELECT id, numero FROM embarques_cargas WHERE continua_em=%s ORDER BY id LIMIT 1", (carga_id,))
+            r = cur.fetchone()
+            if r:
+                carga['continuacao_de_id'], carga['continuacao_de'] = r[0], r[1]
+        if carga.get('desengatada_em') and not isinstance(carga['desengatada_em'], str):
+            carga['desengatada_em'] = carga['desengatada_em'].isoformat()
         cur.close(); conn.close()
         return jsonify({'ok': True, 'data': carga})
     except Exception as e:
@@ -6082,7 +6114,9 @@ def api_embarques_cargas_csv():
 def api_embarques_kpis():
     try:
         conn = get_db(); cur = conn.cursor()
-        cur.execute("""
+        import embarques_continuacao as _ec
+        _f24 = _ec.filtro_ligadas(cur, 'embarques_cargas')
+        cur.execute(f"""
             SELECT
               COUNT(*) FILTER (WHERE data_carregamento = (NOW() AT TIME ZONE 'America/Sao_Paulo')::date) AS hoje,
               COUNT(*) FILTER (WHERE status = 'Em rota')                 AS em_rota,
@@ -6092,11 +6126,15 @@ def api_embarques_kpis():
               -- inteira no contador do operacional. Medido na base local em 10/09/26:
               -- 35 das 130 "entregues no mes" eram pernas — 27% de um numero que a
               -- diretoria le como entrega ao cliente. Sai daqui e ganha card proprio.
+              -- §24: a perna 1 de um desengate/continuação também não é entrega — a
+              -- mercadoria chegou ao cliente na carga seguinte (`continua_em`). Medido em
+              -- ago+set/26: 7–12% das "entregues" eram primeira perna.
               COUNT(*) FILTER (WHERE status = 'Entregue'
                                AND NOT COALESCE(viagem_vazia, FALSE)
+                               {_f24}
                                AND date_trunc('month', data_conclusao) = date_trunc('month', (NOW() AT TIME ZONE 'America/Sao_Paulo')::date)) AS entregues_mes,
               COUNT(*) FILTER (WHERE status = 'Aberta')                 AS abertas,
-              COUNT(*) FILTER (WHERE status = 'Desengatada')            AS desengatadas,
+              COUNT(*) FILTER (WHERE status = 'Desengatada' {_f24})     AS desengatadas,
               -- Vazias do mes: o km de reposicionamento que fechou no periodo. Conta pela
               -- `data_conclusao` igual as entregues, para as duas falarem do mesmo mes.
               COUNT(*) FILTER (WHERE COALESCE(viagem_vazia, FALSE)
