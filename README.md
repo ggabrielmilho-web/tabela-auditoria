@@ -9,49 +9,43 @@ URL de produção: **https://rizza.carvalhoia.com**
 
 ---
 
-## ⛔ CONGELADO — rastreamento e robô de embarques (desde 07/09/2026)
+## Estado atual do rastreamento e do robô (11/09/2026)
 
 **Antes de commitar ou subir qualquer coisa deste repositório, leia esta seção.**
 
-O acesso à API da **3S Tecnologia** foi cortado em 07/09/2026 por **desacordo comercial**
-da Rizza com o fornecedor. Todos os endpoints respondem `404` com código de negócio da
-própria 3S (`3S.1001 - Veículos não encontrados`, `3S.1003 - Posição de Veículos não
-encontrados`), embora o login continue funcionando. Efeito medido no mesmo dia: **nenhum
-veículo da frota reportou posição nas 6 horas anteriores** — a posição mais fresca das 94
-tinha 9 h, a mediana 13,6 h.
-
-### O que está parado, e por quê
-
-Existe no **working tree** (nada commitado) uma reescrita das regras de fechamento do robô
-e das medições do mapa, feita em 04 e 07/09. Ela é boa e está medida — mas **depende de
-prova por GPS**, e sem feed ela simplesmente não fecha nada. Por isso está congelada.
-
-| arquivo | o que tem de novo | risco se subir |
-|---|---|---|
-| `embarques_auto.py` | modelo carreta-cêntrico: `manifesto_novo` só da mesma carreta, `dedup_veiculo` exigindo chegada provada, `reanalisar_pendentes` | **nenhum** — tudo atrás da chave `EMBARQUES_MODELO_CARRETA`, que nasce **desligada**. Desligada, o robô se comporta byte a byte como hoje (há teste provando) |
-| `server.py`, `mapa-carga.html` | KPIs do mapa: janela que fecha na chegada, sanidade geométrica só em viagem fechada, travas de plausibilidade, `—` no lugar de número sem lastro | muda o que a **tela** mostra. Não escreve nada no banco, mas não foi combinado com o operacional |
+- **3S de volta desde 08/09/2026** (o corte comercial de 07/09 durou um dia). 93 veículos
+  reportando; ficaram 5 carretas mudas desde 01–03/09 (`HANDOFF-EMBARQUES-AUTONOMO.md` §20.1).
+- **O robô de embarques está em produção** (`EMBARQUES_AUTO=true`), sem `baixa_ctrb` e sem
+  `timeout`; o robô atemporal roda sozinho depois do diário (§22.10).
+- **Modelo carreta-cêntrico** (`EMBARQUES_MODELO_CARRETA`) está na `main` e **desligado** —
+  Fase D, ainda não medido com dado novo.
+- **Continuação / desengate de pátio** (`EMBARQUES_CONTINUACAO`) está na `main` e **LIGADA em
+  produção desde 11/09/2026** (§24). Primeira rodada ligou 14 cargas; snapshot de produção
+  `snap_20260911_1944` guardado para restore por id.
 
 ### O que fazer antes de qualquer deploy
 
 ```bash
 git status --short          # tem de estar limpo, ou você sabe exatamente o que está subindo
-git diff --stat             # 3 arquivos alterados = o pacote congelado está indo junto
+git diff --stat
 ```
 
-Se `embarques_auto.py`, `server.py` ou `mapa-carga.html` aparecerem e **não for este o
-assunto do seu deploy**, não suba: são as mudanças congeladas. Para trabalhar em outra
-função com segurança, o caminho é commitar este pacote numa **branch separada** (não na
-`main`) e voltar a `main` limpa.
+Mudança em `embarques_auto.py`, `embarques_continuacao.py`, `rastreamento_worker.py`,
+`_robo_atemporal.py` ou nos geradores de perna passa pelo **gate da §24.5**: rodar
+`_rodar_diario_local.py` (o robô REAL na base local, com snapshot antes) e comparar com o
+gabarito do `_replay_producao.py`. Os simuladores não viram dois bugs que o robô real viu.
 
-### Como religar, quando a 3S voltar
+### Voltar atrás sem deploy
 
-1. conferir que o feed voltou (idade da posição mais fresca da frota, em `/embarques/mapa`);
-2. refazer as medições com dado novo — `_simular_regras_fechamento.py`;
-3. rodar `_testar_regras_fechamento.py` (15 testes);
-4. só então `EMBARQUES_MODELO_CARRETA=true` no Portainer.
+| o quê | como |
+|---|---|
+| desligar o robô | `EMBARQUES_AUTO=false` |
+| desligar a continuação | `EMBARQUES_CONTINUACAO=false` |
+| desfazer o que a continuação gravou | `_snapshot_embarques.py restaurar snap_X --chave --aplicar` (por id; nunca as tabelas de posição) |
+| comparar código com o estado anterior | tags `modelo-manual-2026-09`, `estudo-embarques-2026-09-08`, `pre-continuacao-2026-09-11` |
 
-O estudo inteiro, com as medições e o porquê de cada regra, está em
-**`HANDOFF-EMBARQUES-AUTONOMO.md`** (§§14 a 19).
+Env sempre pela CLI (`docker service update --env-add`): editar pelo stack do Portainer devolve
+a imagem antiga (21/08/2026).
 
 ---
 
@@ -60,7 +54,7 @@ O estudo inteiro, com as medições e o porquê de cada regra, está em
 ### Para todos os usuários autenticados
 - **Auditoria Receita** (`/`) — Dashboard com KPIs e tabela de auditoria de receita, com filtros, drag-and-drop de colunas e exportação CSV. **Abre já filtrada no mês corrente** (fallback: mês mais recente com dados), **ordenada por data decrescente** (mais recente primeiro, ancorada por chave) e com **filtro por Cliente Pagador**
 - **Tarifas** (`/tarifas`) — Consulta de tabela de fretes em cascata (cliente → origem → destino → tipo veículo) + simulador de frete. **Comparativo de até 4 blocos** (rotas/clientes lado a lado, cada um com seu simulador) + **resumo consolidado** que reflete o filtro. **Total + Impostos (ICMS)** como linha informativa para o comercial — usa `icms_valor` ou a matriz `icms_aliquota` (cálculo por dentro). Mostra também **ICMS Incluso**, **Pedágio Incluso** e **Prazo de Recebimento** (colunas `icms_incluso`/`pedagio_incluso`/`prazo_recebimento` já publicadas no dataset Power BI)
-- **Embarques** (`/embarques`) — Lançamento de cargas (Terceiro / Agregado / Frota), relatório filtrável + CSV, edição com log de auditoria por campo e histórico. **Agendamento por destino** (data/hora com o cliente), com filtro "Por agendamento", **badge de atraso** (agendamento vencido + carga ativa) e **ETA realista** (~600 km/dia). Suporta **viagem vazia** (carga sem cliente) e **cidades de rota/passagem** (pontos que moldam o caminho da rota planejada sem serem destino de entrega). **Desengate de carreta carregada** (drop-and-hook): libera cavalo+motorista para outra viagem com a carreta ainda no destino aguardando descarga (ver Módulo Embarques)
+- **Embarques** (`/embarques`) — Lançamento de cargas (Terceiro / Agregado / Frota), relatório filtrável + CSV, edição com log de auditoria por campo e histórico. **Agendamento por destino** (data/hora com o cliente), com filtro "Por agendamento", **badge de atraso** (agendamento vencido + carga ativa) e **ETA realista** (~600 km/dia). Suporta **viagem vazia** (carga sem cliente) e **cidades de rota/passagem** (pontos que moldam o caminho da rota planejada sem serem destino de entrega). **Desengate de carreta carregada** (drop-and-hook): libera cavalo+motorista para outra viagem com a carreta ainda no destino aguardando descarga (ver Módulo Embarques). **Continuação** (`EMBARQUES_CONTINUACAO`): quando a mercadoria atravessa duas cargas (desengate no pátio, manifesto novo no hub, reemissão), a primeira aponta para a segunda (`→ C-B`) e só a segunda conta como entrega
 - **Mapa / Rastreamento** (`/embarques/mapa`, `/embarques/cargas/<id>/mapa`) — Mapa em tempo real (Leaflet): posição dos veículos e trajeto de cada carga, rota planejada **origem → cidades de rota → destinos** (completa, multi-ponto), KPIs de viagem **ao vivo** (vel. máx/média, km, tempos) e **Data de saída** no painel da carga. Fluxo de status automático **Aberta → Em rota → No destino → Entregue** (`No destino` = parado na cidade da descarga há +60 min), com desvio **Desengatada** (carreta carregada largada no destino). **Rastreia pela carreta** (carreta1 → cavalo → carreta2 — o GPS costuma estar na carreta). **Reconstrói o trajeto** mesmo em lançamento tardio: detecta a saída da origem pelo GPS (por distância, pois o 3S erra o nome da cidade) e persiste em `inicio_viagem`. Mapa geral tem filtro **🔌 Desengatadas** e marcador próprio. **Salto impossível**: a linha do GPS QUEBRA no trecho que o veículo não pode ter feito (velocidade implícita acima do teto físico, ou odômetro negando o deslocamento) — duas bolinhas âmbar marcam as pontas do buraco, e o km desse trecho sai do `KM PERCORRIDOS`, mas segue medido pelo `KM RASTREADOR` (o odômetro é cumulativo no aparelho e não depende da posição). Régua única em `embarques_regua.py`
 
 ### Restrito a admins
@@ -215,6 +209,11 @@ Tabela Auditoria/
 │
 │   # ── Módulo Rastreamento ──
 ├── rastreamento_worker.py       # Worker daemon (60s): posições, saída/entrega auto, recálculo de rota
+├── embarques_continuacao.py     # §24: desengate de pátio + ligação A→B (continua_em), atrás de EMBARQUES_CONTINUACAO
+├── _snapshot_embarques.py       # Snapshot por schema + restore POR ID das tabelas derivadas de embarques (nunca posições)
+├── _ensaio_continuacao.py       # Gate §24 (estático): regras propostas × reação de cada peça, só leitura
+├── _replay_producao.py          # Gate §24 (progressivo): reproduz produção dia a dia; gabarito do robô real
+├── _rodar_diario_local.py       # Gate §24: o robô REAL dia a dia na base LOCAL (grava; nunca em produção)
 ├── tres_s_client.py             # Cliente da API 3S (token bucket, cache de token, retry)
 ├── simulador_3s.py              # Stub da 3S (lê de embarques_simulacao) p/ MODO_SIMULADO
 ├── ors_client.py                # Cliente OpenRouteService (rota HGV)
@@ -427,13 +426,13 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 - `GET /api/embarques/embarcadores` — lista de usuários (filtro "quem lançou")
 - `GET /api/embarques/conflitos?cpf=&placas=` — checa CPF/placa já em carga ativa
 - `POST /api/embarques/cargas` — cria carga (snapshot + destinos **com `data_agendamento`** em transação, geocoding origem/destinos, rota ORS origem→destino, gera `numero`, retorna warnings)
-- `GET /api/embarques/cargas` — listagem com filtros (período, tipo, cliente, embarcador, motorista, UF, status, busca livre). Dois filtros distintos para viagem vazia: **`viagem_vazia`** (a flag, pega as duas espécies) e **`perna_vazia`** (só a perna DERIVADA do robô — `viagem_vazia AND criada_por_robo`). A home usa o segundo, para não esconder a viagem vazia lançada à mão junto com as pernas
+- `GET /api/embarques/cargas` — listagem com filtros (período, tipo, cliente, embarcador, motorista, UF, status, busca livre). Dois filtros distintos para viagem vazia: **`viagem_vazia`** (a flag, pega as duas espécies) e **`perna_vazia`** (só a perna DERIVADA do robô — `viagem_vazia AND criada_por_robo`). A home usa o segundo, para não esconder a viagem vazia lançada à mão junto com as pernas. Com a continuação ligada devolve também `continua_em`, `continua_em_numero`, `desengate_local`, `continuacao_de`, `continuacao_de_id` (NULL com a chave desligada)
 - `GET /api/embarques/cargas/<id>` — detalhe (carga + destinos)
 - `PATCH /api/embarques/cargas/<id>` — edita (diff por campo → `embarques_cargas_log`; status `Entregue` preenche `data_conclusao`)
 - `POST /api/embarques/cargas/<id>/desengatar` — desengate de carreta carregada: `status='Desengatada'`, libera cavalo+motorista do conflito (carreta segue comprometida), seta `no_local_desde` se nulo e registra substituto opcional + log. Requer status `Em rota`/`No destino` e permissão de edição
 - `GET /api/embarques/cargas/<id>/log` — histórico de edições
 - `GET /api/embarques/cargas/csv` — CSV streaming (mesmos filtros)
-- `GET /api/embarques/kpis` — 7 contadores (hoje, em rota, no destino, entregues no mês, abertas, desengatadas, **vazias no mês**). **`entregues_mes` não conta viagem vazia** — a perna de reposicionamento nasce `Entregue` porque já aconteceu, e inflava o número que o operacional lê como entrega ao cliente (35 de 130 na medição de 10/09/26)
+- `GET /api/embarques/kpis` — 7 contadores (hoje, em rota, no destino, entregues no mês, abertas, desengatadas, **vazias no mês**). **`entregues_mes` não conta viagem vazia** — a perna de reposicionamento nasce `Entregue` porque já aconteceu, e inflava o número que o operacional lê como entrega ao cliente (35 de 130 na medição de 10/09/26) — **nem carga com `continua_em`** (a perna 1 de um desengate/continuação; 7–12% a mais, §24). **`desengatadas` conta todo status `Desengatada`**, esperando ou já ligada: é o mesmo conjunto que o clique no card lista
 
 ### Rastreamento (todos sob `@login_required`)
 - `GET /api/rastreamento/posicoes` — posições atuais + info da carga ativa (filtros: `carregado`, `eh_rizza`, `q`)
@@ -537,7 +536,7 @@ CREATE TABLE auditoria_users (
 ### Embarques (Postgres local)
 | Tabela | Função |
 |---|---|
-| `embarques_cargas` | Carga com snapshot completo de motorista/veículos como TEXTO (preserva histórico). `numero` no formato `C-AAAA-000001`. **`viagem_vazia`** = carga sem cliente (`cliente_nome` aceita NULL). `status` ∈ `Aberta`/`Em rota`/`No destino`/**`Desengatada`**/`Entregue`/`Cancelada` (VARCHAR sem CHECK). Campos de rastreamento: `origem_latitude/longitude`, `data_saida_real`, `saida_auto`, `no_local_desde`, `entregue_auto`, `rota_planejada_polyline`, `distancia_planejada_km`, `duracao_estimada_min`, `rota_recalculada_em`, **`inicio_viagem`** (saída da origem detectada pelo GPS e persistida 1×). Desengate: `desengatada_em`, `desengatada_por_id/nome`, `descarga_motorista_nome`, `descarga_cavalo_placa` (substituto opcional) |
+| `embarques_cargas` | Carga com snapshot completo de motorista/veículos como TEXTO (preserva histórico). `numero` no formato `C-AAAA-000001`. **`viagem_vazia`** = carga sem cliente (`cliente_nome` aceita NULL). `status` ∈ `Aberta`/`Em rota`/`No destino`/**`Desengatada`**/`Entregue`/**`Continuada`**/`Cancelada` (VARCHAR sem CHECK). **Continuação (§24)**: `continua_em` (id da carga em que a mercadoria seguiu — com ela preenchida o status é terminal, seja qual for a palavra) e `desengate_local` (`destino` = comportamento antigo; `patio` = carreta largada longe do destino, o worker não rastreia). Campos de rastreamento: `origem_latitude/longitude`, `data_saida_real`, `saida_auto`, `no_local_desde`, `entregue_auto`, `rota_planejada_polyline`, `distancia_planejada_km`, `duracao_estimada_min`, `rota_recalculada_em`, **`inicio_viagem`** (saída da origem detectada pelo GPS e persistida 1×). Desengate: `desengatada_em`, `desengatada_por_id/nome`, `descarga_motorista_nome`, `descarga_cavalo_placa` (substituto opcional) |
 | `embarques_cargas_destinos` | Destinos múltiplos por carga (`ordem`, cidade, UF, lat/lng, **`data_agendamento`** = compromisso c/ cliente, `entregue_em`/`entregue_por_*`) |
 | `embarques_cargas_rota` | **Cidades de rota/passagem** por carga (`ordem`, cidade, UF, lat/lng). Moldam o caminho da rota planejada (origem → rota → destinos) — **não são pontos de entrega** |
 | `embarques_cargas_log` | Auditoria de edição — 1 linha por campo alterado |
@@ -1160,6 +1159,9 @@ Resultado Final   = Pós Investimento - Retiradas
 - [x] Emissão de contrato TAC Agregado por IA (extração de documentos + template soberano + comodato)
 - [x] Viagem vazia + cidades de rota/passagem (rota planejada multi-ponto)
 - [x] Desengate de carreta carregada (status `Desengatada`: libera cavalo+motorista, carreta segue no destino, finaliza automático na saída da carreta)
+- [x] **Continuação / desengate de pátio** (`EMBARQUES_CONTINUACAO`, §24): a mercadoria que atravessa duas cargas liga a primeira à segunda; só a segunda conta como entrega — em produção desde 11/09/26
+- [ ] Aviso precoce por GPS "⚓ parada na filial há N h" (rótulo) — os 85% dos desengates que só aparecem quando o manifesto seguinte nasce
+- [ ] `KM FALTANDO` em carga entregue e `KM RASTREADOR —` na perna 1 de um desengate (§24.6)
 - [x] **Publicar no Power BI as 3 colunas novas de tarifas** (`icms_incluso`, `pedagio_incluso`, `prazo_recebimento`) — já publicadas; cards e "Total + Impostos" ativos
 - [x] **Análise por Veículo** (cavalo/carreta/motorista/proprietário) com custo real da frota (pedágio + combustível + folha + manutenção/seguro/rastreador) e **drawer de detalhe** por carga; normalização de placa Mercosul
 - [x] **Pneu** na Análise por Veículo (eventos 5411/5412, split cavalo×carreta por nº de pneus) — frota e carreta

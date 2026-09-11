@@ -1,10 +1,11 @@
 # Handoff — Painel de Embarques autônomo
 
-**Estado em 11/09/2026 — ⚠ COMECE PELA §24.** Continuação e desengate de pátio: a C-677
+**Estado em 11/09/2026 (noite) — ⚠ COMECE PELA §24.** Continuação e desengate de pátio: a C-677
 provou que "trocou o cavalo = desengate, e só a carga seguinte entrega". Implementado atrás de
-`EMBARQUES_CONTINUACAO` (desligada), testado com o robô real dia a dia na base local (achou
-2 bugs que os simuladores não viam), **não deployado**. Rede de segurança: tag
-`pre-continuacao-2026-09-11` + chave + `_snapshot_embarques.py`. Receita de subida na §24.7.
+`EMBARQUES_CONTINUACAO`, testado com o robô real dia a dia na base local (achou 2 bugs que os
+simuladores não viam) e **LIGADO EM PRODUÇÃO às 16:4x de 11/09** — 14 cargas ligadas na primeira
+rodada, 0 atemporal em carga ligada, 0 manual tocada (§24.8). Snapshot `snap_20260911_1944` no
+banco. Rede de segurança: tag `pre-continuacao-2026-09-11` + chave + `_snapshot_embarques.py`.
 
 **Antes disso — 10/09 (noite), §23.** Três defeitos sem relação entre si,
 dois deles invisíveis para todo instrumento que existia. O maior: **produção passou 30 horas
@@ -3513,9 +3514,9 @@ posição posterior é, por definição, da próxima viagem.
 ## 24. Continuação e desengate de pátio — a C-677 e o que ela ensinou (11/09/2026)
 
 > **Comece por aqui se está retomando.** Implementado atrás de `EMBARQUES_CONTINUACAO`
-> (nasce desligada), testado na base local com o robô REAL rodando dia a dia, **não
-> deployado**. A rede de segurança tem três camadas (§24.7). Nada aqui toca o caminho
-> manual (§0): zero cargas lançadas à mão no log da rodada de teste.
+> (nasce desligada), testado na base local com o robô REAL rodando dia a dia, e **em produção
+> desde 11/09/2026** (§24.8). A rede de segurança tem três camadas (§24.7). Nada aqui toca o
+> caminho manual (§0): zero cargas lançadas à mão, no teste e em produção.
 
 ### 24.1 O caso
 
@@ -3678,3 +3679,55 @@ então as ligações de **~25/08 em diante** entram na primeira rodada (as de ag
 `executar(dia=...)` para trás, como o `_rodar_diario_local.py` faz). `entregues_mes` de
 setembro cai ~10%; o card "Carretas desengatadas" passa a mostrar só as que esperam; o
 aferidor ganha a classe X1.
+
+### 24.8 Produção — o que aconteceu depois do deploy (11/09/2026, 16:40 → 18:00)
+
+Sequência real, na ordem: push (`d74d04d`) → build/push/`service update` com a chave ausente
+(deploy inerte, os dois arquivos conferidos dentro do container) → `_snapshot_embarques.py criar`
+→ **`snap_20260911_1944`** (819 cargas, 823 destinos, 1.646 linhas de log, 494 KPIs) →
+`--env-add EMBARQUES_CONTINUACAO=true` às 16:4x BRT. Como o restart caiu dentro da janela
+16:30–19:30, o diário disparou sozinho em seguida (§22.10) — o log estava afogado pelo mapa geral
+aberto em alguém (`/trajeto` a cada minuto), e a prova de que rodou veio do banco, não do log.
+
+**Placar da primeira rodada:**
+
+```
+escritas: Robô SSW (manifesto)  status 18 · continua_em 14      Robo atemporal  16 status (datas de convergência normal)
+ligadas: 14  =  10 Desengatada → B (5 pátio, 5 destino)  +  4 Continuada
+   C-543→579  C-563→581  C-569→589  C-597→615  C-610→649  C-611→659  C-627→681 (era baixa_ctrb)
+   C-634→651  C-641→684  C-677→818  ·  C-550→605  C-628→676  C-642→647 (era sequencia_viagem)  C-669→821
+atemporal escrevendo em carga ligada/pátio: 0        carga manual tocada: 0
+Desengatada no pátio SEM continuação (pendência): 0   (a rodada ligou tudo de uma vez, retroativo)
+```
+
+Menos que na base local (27) porque o `coletar()` só abre ~15 dias de CTe: agosto não entrou e
+segue como está (ligar exige `executar(dia=...)` para trás — decisão adiada, sem pressa).
+
+**Dois consertos que só a tela mostrou:**
+
+1. **O card do mapa vem do `/trajeto`, não do detalhe** — e o `/trajeto` monta o dict da carga à
+   mão. A C-641 aparecia "Desengate 07/09" sem o "· no pátio" e sem "Continua em C-684" porque os
+   campos não iam no payload. `3429f36` leva `continua_em`, `continua_em_numero`, `desengate_local`,
+   `continuacao_de` junto. Lição repetida da §20.5: *medir pelo endpoint que a tela usa*.
+2. **O card "Desengatadas" conta TODO status `Desengatada`** (`90e9194`), ligada ou não. Eu tinha
+   posto só as que esperam — e o Gabriel apontou o óbvio: como 85% dos desengates só são conhecidos
+   quando o B nasce (já ligado), o card ficaria em zero para sempre. Agora card e clique
+   (`?status=Desengatada`) falam do mesmo conjunto: em produção, 10.
+
+**Os dois pares que o Gabriel abriu na tela, e o que confirmaram:**
+
+* **C-641 → C-684** (Pernod, TZB1D35): Antonio Claudio trouxe Extrema → Uberlândia (04/09), largou;
+  o Marley — que tinha acabado de largar a QXA9H76 da C-677 no mesmo pátio — engatou e entregou em
+  Brasília (08/09 05:29). As duas histórias se cruzam em Uberlândia em 06/09. "Bragança Paulista há
+  7 d" na C-641 é o teto documental (§21.20) sobre uma carreta muda desde 01–03/09 — a 3S a mostrou
+  em Uberlândia hoje.
+* **C-634 → C-651** (Casa Granado, TCE7I47): Rubiataba → Hidrolândia (2 h na filial GYN) →
+  Uberlândia 14h, **4 h no pátio**, TDW4E79 (Lunier) sai e TDW4G23 (Daniel) entra às 20:24 → Japeri
+  04/09 13:05, 961 km. É a troca rápida que nem o aviso por GPS de 16 h pegaria — ali o documento
+  é mesmo a única fonte. **CTRB em dobro com número**: C-634 `Rubiataba → Japeri, 1.467 km` e C-651
+  `Uberlândia → Japeri, 933 km`, contra 577 + 961 medidos pelo GPS. A TCE7I47 é a "carreta de
+  revezamento": 3 desengates em 5 semanas, 5 cavalos.
+
+**Estado exato de produção ao fim do dia:** chave `true`; imagem com `90e9194` (card) no ar e
+`3429f36` (mapa) a deployar; snapshot `snap_20260911_1944` guardado; a próxima rodada natural é a
+das 16:30 de 12/09 — vale um `diff` depois dela, só para ver o dia a dia com a chave.
