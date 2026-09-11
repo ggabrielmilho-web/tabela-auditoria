@@ -1,6 +1,15 @@
 # Handoff — Painel de Embarques autônomo
 
-**Estado em 10/09/2026 — ⚠ COMECE PELA §22.** O pacote está em **produção** e o pipeline
+**Estado em 10/09/2026 (noite) — ⚠ COMECE PELA §23.** Três defeitos sem relação entre si,
+dois deles invisíveis para todo instrumento que existia. O maior: **produção passou 30 horas
+sem rastreamento e nada acusou** — a tabela `embarques_rastreio_dia` nunca tinha sido criada
+lá, `_consolidar_dias` levantava, e o `rollback` levava junto as posições que já estavam
+gravadas, enquanto o log da 3S (conexão separada) mostrava HTTP 200 sem um único erro. Junto
+vieram a **posição falsa** do GPS (301 pares em 34 placas, 22% dos mapas) e o **ponto fixo
+conjunto** do par motor×janela. Ver §23. O que está aberto está na §23.8, e o item nº 1 é o
+health, que mente.
+
+**Antes disso — §22:** O pacote está em **produção** e o pipeline
 **fechou**: gravidade alta de 92 para 50, sete classes de defeito a zero, as **110 pernas
 vazias** criadas, geocodificadas e com rota, e a convergência conjunta atingida — pernas
 24 → 0 → 0 e motor 26 → 0 → 0. É a primeira vez que produção converge com as pernas dentro
@@ -528,6 +537,8 @@ produção.
 | `_regerar_vazias_agosto.py` | gerador de perna vazia por evento real (§12.5) |
 | `_tracar_rotas_agosto.py` | backfill ORS com backoff e ritmo (§12.12) |
 | `_reabrir_fechamento_indevido.py` | desfaz fechamento por `baixa_ctrb`/`timeout` |
+| `_ensaio_pipeline.py` | **o ensaio único** do ciclo inteiro (§23.6) — não escreve nada por padrão |
+| `_teste_ciclo_transacao.py` | regressão do apagão de 30 h: as três etapas do worker são independentes? (§23.2) |
 | `_auditoria_ANTES.csv` · `_auditoria_DEPOIS.csv` | **os snapshots do placar da §20.7** — 272 cargas com achado × 181. Não se reproduzem: a base mudou depois deles |
 | `_auditoria_mapas*.csv` · `_auditoria_fechamentos.csv` · `_auditoria_km_nulo.csv` · `_auditoria_reprocessamento.csv` | as rodadas de 04 e 07/09 |
 
@@ -3275,3 +3286,218 @@ Casou com todas. A partir de amanhã ele cria só as pernas das viagens que fech
 2. **Manifesto duplicado.** A `C-2026-000801` e a `C-2026-000802` são a mesma viagem física —
    mesmo cavalo (`OWH0F53`), mesma saída (08/09 17:21), mesma chegada (09/09 17:01), dois
    manifestos. O robô não enxerga manifesto cancelado.
+
+---
+
+## 23. O apagão de 30 h, a posição falsa e o ponto fixo conjunto (10/09/2026)
+
+> **Comece por aqui se está retomando.** A sessão começou com quinze prints do mapa —
+> "diversos bugs", "o robô atemporal está terrivelmente ruim" — e terminou em três defeitos
+> que não tinham relação um com o outro, dois deles invisíveis para todo instrumento que
+> existia. O maior: **produção passou 30 horas sem rastreamento nenhum e nada acusou**.
+
+### 23.1 O que os quinze prints eram, de verdade
+
+| o que parecia | o que era |
+|---|---|
+| traçado com buraco, ida-e-volta, salto | **posição falsa** do GPS, desenhada sem filtro (§23.3) |
+| o robô atemporal decidindo mal | ele lia uma fita com teleporte dentro |
+| "viagem duplicada" (C-801 × C-802) | item já conhecido — manifesto cancelado, §22.10 nº 2 |
+| todos com "há 1d" na posição | **o apagão** (§23.2) — e esse era o único que importava |
+
+O sinal que reordenou a investigação estava nos próprios prints: **quinze veículos
+diferentes, nenhum com posição mais nova que um dia**. Nenhum conserto de desenho resolve
+tela que não recebe presente.
+
+### 23.2 O apagão — três fatores, e o terceiro é o que fez durar 30 h
+
+A tabela `embarques_rastreio_dia` **nunca foi criada em produção**. O `init_db.py` a cria
+desde o commit `7de4860`, mas ninguém o rodou lá depois. Então, a cada ciclo de 60 s:
+
+```python
+_persistir_posicoes(cur, posicoes)   # grava as 93 posições
+_processar_cargas(cur)
+if _deve_rodar_retencao():
+    _consolidar_dias(cur)            # UndefinedTable  ->  levanta
+    _purgar_posicoes_antigas(cur)
+    _ultima_retencao = datetime.utcnow()
+conn.commit()
+except: conn.rollback()              # ...e leva as 93 posições junto
+```
+
+1. **a tabela não existia** → `_consolidar_dias` levantava;
+2. **as três etapas dividiam uma transação** → o `rollback` descartava as posições já
+   gravadas;
+3. **`_ultima_retencao` era marcada DEPOIS da chamada que levantava** → nunca era marcada,
+   `_deve_rodar_retencao()` seguia `True`, e **todo ciclo** repetia. Sem o item 3 teria sido
+   um ciclo perdido por dia; com ele, 100% deles.
+
+**Por que nenhum instrumento viu.** O log da 3S roda em **conexão separada**, então
+`embarques_3s_log` mostrava 66 chamadas/hora, HTTP 200, **zero erros**, durante um dia e
+meio. O `/api/rastreamento/health` conta os erros dessa tabela — dizia verde. A 3S estava
+saudável o tempo todo: consultada direto, devolveu 93 placas, 40 com posição < 1 h, a mais
+fresca de 35 segundos antes.
+
+> **Regra que sai daqui:** a posição é **fato bruto** e não pode depender de nenhuma
+> derivação nossa. Agora são três transações: a posição commita primeiro e sozinha,
+> `_processar_cargas` falha por conta própria (uma carga ruim não derruba mais o GPS da
+> frota), e a consolidação idem — com a **purga dentro do try dela**, porque purgar depois
+> de a consolidação falhar é destruir o que ninguém guardou. `_ultima_retencao` passa a ser
+> marcada mesmo na falha: o retry certo é amanhã, não em 60 s.
+
+Teste em `_teste_ciclo_transacao.py`, conferido **nos dois sentidos** — código anterior dá
+`AINDA QUEBRADO`, corrigido dá `CONSERTO PROVADO`. Teste que passa nas duas versões não
+prova nada.
+
+**A recuperação não perdeu dado:** o backfill (`/HistoricoPosicao`) rebusca o dia inteiro e
+vem mais denso que o polling (100% × 81%), e o robô atemporal re-deriva os eventos. O dia
+10/09 foi refeito em 18,5 min → 14.902 pontos em 71 placas, em linha com os vizinhos
+(09/09: 16.889/72; 08/09: 17.486/75).
+
+### 23.3 A posição falsa — o odômetro é o árbitro
+
+O histórico contém pontos comprovadamente falsos, e nenhum consumidor os filtrava:
+
+```
+TYX9F52  07/09 07:37  Formosa   -> Jaborandi  257,5 km em 2,0 min  odo 37487 -> 37487
+TYX9F52  07/09 07:57  Jaborandi -> Formosa    257,5 km em 2,0 min  odo 37487 -> 37487
+HKE0321  08/09 14:30  Sta Luzia -> Serra      374,4 km em 3,5 min  odo 376904 -> 376904
+```
+
+Foi e voltou, centenas de km, em minutos, com o **odômetro congelado**. Ele é cumulativo no
+aparelho e independente do GPS — 374 km rodados marcariam +374. É o árbitro que a §12.3 já
+tinha eleito.
+
+```
+301 pares impossíveis em 34 placas · 235 com o odômetro negando
+327 buracos LEGÍTIMOS (salto grande, velocidade plausível) — esses continuam passando
+ 74 de 334 mapas (22%) com pelo menos uma posição falsa desenhada
+```
+
+**O teste que decidiu:** não dá para saber *qual* dos dois pontos é o falso, então não se
+escolhe — apenas não se soma a perna. Se a tese estiver certa, o km tem de convergir com o
+odômetro, que é testemunha independente:
+
+```
+erro médio do km publicado contra o odômetro:  399,8%  ->  4,5%
+C-2026-000486  cru 765,4  limpo  40,9  odo   41   -> 0,4%
+C-2026-000495  cru 1405,4 limpo 914,3  odo  914   -> 0,0%
+```
+
+Os 4,5% que sobram são o **piso do instrumento**, não defeito: o próprio arquivo já
+registrava que "a razão mediana é 1,046 — o haversine subestima, cortando curva".
+
+A régua foi para `embarques_regua` (`perna_impossivel` / `cortes_do_trajeto` / `segmentos`),
+onde servidor, robô diário, atemporal e aferidor já bebem. **Três consumidores**, e o
+terceiro só apareceu porque o aceite foi medido pelo *endpoint* e não por um cálculo
+paralelo:
+
+1. **a linha do mapa** quebra no salto, com duas bolinhas âmbar marcando as pontas;
+2. **o km do KPI** não soma a perna (a C-503 publicava 1.864 km com 718 km falsos dentro);
+3. **o fallback do odômetro** — `"aparelho mudo → usa o GPS"` descrevia duas coisas com o
+   mesmo teste: furo real (HKE0D21, 327 km em 12 h) e posição falsa (374 km em 3,5 min). A
+   C-486 publicava `km_odometro` = 766 para uma viagem cujo odômetro andou 41. **O árbitro
+   vinha contaminado pelo que devia julgar.**
+
+> **O que a bolinha NÃO significa.** O km do trecho não se perde: quem perde é o haversine
+> do GPS. O odômetro mede, porque é cumulativo no aparelho e não depende da posição — numa
+> posição falsa ele marca ~0 km, que é a verdade. Só quando **falta odômetro nos dois
+> pontos** é que ninguém sabe, e o popup diz isso em vez do contrário.
+
+### 23.4 O ponto fixo é do PAR, não de cada passo
+
+A receita manual da §22.7 — **a que produziu a base convergida** — alternava os dois:
+
+```bash
+for i in 1 2 3; do motor; janela; done
+```
+
+Quando aquilo virou código em 10/09, virou sequencial (motor 3×, depois janela 3×). E a
+janela é dona da janela da perna enquanto o motor deriva a chegada **dentro** dela: rodando
+por último, ela movia a janela e ninguém rodava o motor de novo.
+
+Medido antes do conserto: **7 escritas pendentes, todas de perna vazia, todas em
+`no_local_desde`** — e 4 delas reescrevendo, com valor diferente, o que o próprio "Robo
+atemporal" já gravara (a V-081 querendo pôr `NULL` por cima). O número não se movia com a
+janela (7 com `--ate` 08/09, 09/09, 10/09 e 15/09): não era evidência nova chegando, era um
+**desacordo parado**.
+
+E havia um segundo escritor escondido na mesma função: a trava de 09/09 entregou a janela
+para a rederivação mas deixou a **chegada** passar sem conferir se cai dentro dela. A
+`V-2026-000106` tinha `no_local_desde` em 13/08 para uma perna que termina em 04/08 —
+**nove dias depois de a perna acabar**. Agora, fora da janela o campo não é apurado e, se já
+houver valor gravado fora dela, ele é **retratado**: só não escrever de novo deixaria a
+afirmação errada de pé para sempre.
+
+```
+rodando server.rodar_pos_diario REAL, três execuções seguidas:
+  motor 2 -> pernas 0 -> rotas 0 -> janela 0 -> motor 0   ponto fixo conjunto
+  motor 0 -> ...                            -> motor 0
+  motor 0 -> ...                            -> motor 0
+aferidor:  alta 39->38 (T2 zerou) · media 75->74 · achados 265->263
+```
+
+E o ciclo passa a **dizer em voz alta** quando não converge em 3 rodadas, em vez de seguir
+calado.
+
+### 23.5 A perna vazia sai de "Entregues"
+
+O badge dizia `Entregue` numa perna que não entregou nada. O conserto é **rótulo, nunca
+status** (§21.18): o status fica, o badge lê **"Concluída"** em cinza.
+
+Mas o defeito maior não era o rótulo: o `/api/embarques/kpis` **não filtrava `viagem_vazia`
+em lugar nenhum**. Medido: **35 das 130 "entregues no mês" eram pernas — 27%** de um número
+que a diretoria lê como entrega ao cliente. Agora `entregues_mes` conta só carga real, e o
+que saiu ganhou card próprio ("Vazias no mês", 7 cards numa linha).
+
+E isso obrigou a distinguir **duas espécies com a mesma flag**:
+
+```
+107  V-*  criada_por_robo=TRUE  intervalo DERIVADO entre duas viagens
+  1  C-2026-000036  a mão       viagem vazia lançada pelo Carvalho, ainda 'Aberta'
+```
+
+Esconder pela flag sumiria com a segunda junto com as 107 — esconder carga do caminho manual
+é o que a §0 proíbe. Entrou o filtro `perna_vazia`, que exige a **conjunção**
+`viagem_vazia AND criada_por_robo`.
+
+No mesmo pacote, o **trecho pós-fechamento** (a linha laranja da §21.20) deixou de aparecer
+em perna vazia: ela não é viagem rastreada, é o intervalo derivado entre duas viagens, e a
+`data_conclusao` dela é o instante em que o carregamento seguinte começou — então toda
+posição posterior é, por definição, da próxima viagem.
+
+### 23.6 As ferramentas novas
+
+| arquivo | papel |
+|---|---|
+| `_ensaio_pipeline.py` | **o ensaio único** — fotografia, convergência dos 4 passos, aferidor, fita/posição falsa, forma do traçado, veredito. Não escreve nada por padrão. Mesma régua local e em produção |
+| `_teste_ciclo_transacao.py` | regressão do apagão: roda o `_ciclo` REAL com a consolidação explodindo e exige posição gravada, purga não executada, `_ultima_retencao` marcada |
+
+### 23.7 Lições de método, com o preço de cada uma
+
+* **O instrumento tem de verificar se o conserto está ativo, não só medir o potencial.** A
+  seção 5 do ensaio imprimia os mesmos 74 mapas com ou sem o fix, e por isso "tá tudo igual"
+  não provou nada por uma rodada inteira.
+* **Medir pelo endpoint, não por cálculo paralelo.** O terceiro consumidor da régua (o
+  fallback do odômetro) ficou escondido enquanto a medição usava conta própria. É a §20.5 de
+  novo, mesmo estando catalogada.
+* **Achado não é escrita.** Contar linhas do CSV do `_rederivar_vazias` dava 4 escritas onde
+  havia 0 — o `par sobreposto` faz `continue` de propósito e sai no mesmo arquivo.
+* **Quando o usuário descreve o que vê, ele geralmente está certo.** "Era sempre uma linha
+  reta até o próximo ponto" foi lido como confusão entre camadas; era a descrição precisa do
+  comportamento antigo. Custou dois commits, um para desfazer o outro.
+* **Texto de tela é afirmação e precisa ser verdade.** O popup dizia "o km deste trecho não
+  entra no total" — falso: quem perde o trecho é o haversine, o odômetro mede.
+
+### 23.8 O que fica aberto
+
+1. **O `/api/rastreamento/health` mente.** Conta erro do `embarques_3s_log`, que fica verde
+   quando a falha é nossa. Precisa olhar a **idade de `embarques_posicoes_atuais`** — a única
+   tabela que só o polling escreve — e alarmar acima de um limiar. **É o item nº 1 da fila**:
+   sem ele, o próximo apagão também só aparece quando alguém olhar o mapa.
+2. **Relógio adiantado em alguns aparelhos.** A 3S devolveu posição ~40 min no futuro
+   (`TYO9J56`). Não atrapalha backfill nem contagem, mas adiantamento bagunça cálculo de
+   velocidade.
+3. **A régua do rótulo `placa_longe`** (§22.10 nº 1) e o **manifesto duplicado** (§22.10
+   nº 2) continuam abertos, sem mudança.
+4. **Fase D — `EMBARQUES_MODELO_CARRETA`** segue sendo o que ataca V1 e F5.

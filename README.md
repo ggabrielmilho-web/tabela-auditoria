@@ -61,7 +61,7 @@ O estudo inteiro, com as medições e o porquê de cada regra, está em
 - **Auditoria Receita** (`/`) — Dashboard com KPIs e tabela de auditoria de receita, com filtros, drag-and-drop de colunas e exportação CSV. **Abre já filtrada no mês corrente** (fallback: mês mais recente com dados), **ordenada por data decrescente** (mais recente primeiro, ancorada por chave) e com **filtro por Cliente Pagador**
 - **Tarifas** (`/tarifas`) — Consulta de tabela de fretes em cascata (cliente → origem → destino → tipo veículo) + simulador de frete. **Comparativo de até 4 blocos** (rotas/clientes lado a lado, cada um com seu simulador) + **resumo consolidado** que reflete o filtro. **Total + Impostos (ICMS)** como linha informativa para o comercial — usa `icms_valor` ou a matriz `icms_aliquota` (cálculo por dentro). Mostra também **ICMS Incluso**, **Pedágio Incluso** e **Prazo de Recebimento** (colunas `icms_incluso`/`pedagio_incluso`/`prazo_recebimento` já publicadas no dataset Power BI)
 - **Embarques** (`/embarques`) — Lançamento de cargas (Terceiro / Agregado / Frota), relatório filtrável + CSV, edição com log de auditoria por campo e histórico. **Agendamento por destino** (data/hora com o cliente), com filtro "Por agendamento", **badge de atraso** (agendamento vencido + carga ativa) e **ETA realista** (~600 km/dia). Suporta **viagem vazia** (carga sem cliente) e **cidades de rota/passagem** (pontos que moldam o caminho da rota planejada sem serem destino de entrega). **Desengate de carreta carregada** (drop-and-hook): libera cavalo+motorista para outra viagem com a carreta ainda no destino aguardando descarga (ver Módulo Embarques)
-- **Mapa / Rastreamento** (`/embarques/mapa`, `/embarques/cargas/<id>/mapa`) — Mapa em tempo real (Leaflet): posição dos veículos e trajeto de cada carga, rota planejada **origem → cidades de rota → destinos** (completa, multi-ponto), KPIs de viagem **ao vivo** (vel. máx/média, km, tempos) e **Data de saída** no painel da carga. Fluxo de status automático **Aberta → Em rota → No destino → Entregue** (`No destino` = parado na cidade da descarga há +60 min), com desvio **Desengatada** (carreta carregada largada no destino). **Rastreia pela carreta** (carreta1 → cavalo → carreta2 — o GPS costuma estar na carreta). **Reconstrói o trajeto** mesmo em lançamento tardio: detecta a saída da origem pelo GPS (por distância, pois o 3S erra o nome da cidade) e persiste em `inicio_viagem`. Mapa geral tem filtro **🔌 Desengatadas** e marcador próprio
+- **Mapa / Rastreamento** (`/embarques/mapa`, `/embarques/cargas/<id>/mapa`) — Mapa em tempo real (Leaflet): posição dos veículos e trajeto de cada carga, rota planejada **origem → cidades de rota → destinos** (completa, multi-ponto), KPIs de viagem **ao vivo** (vel. máx/média, km, tempos) e **Data de saída** no painel da carga. Fluxo de status automático **Aberta → Em rota → No destino → Entregue** (`No destino` = parado na cidade da descarga há +60 min), com desvio **Desengatada** (carreta carregada largada no destino). **Rastreia pela carreta** (carreta1 → cavalo → carreta2 — o GPS costuma estar na carreta). **Reconstrói o trajeto** mesmo em lançamento tardio: detecta a saída da origem pelo GPS (por distância, pois o 3S erra o nome da cidade) e persiste em `inicio_viagem`. Mapa geral tem filtro **🔌 Desengatadas** e marcador próprio. **Salto impossível**: a linha do GPS QUEBRA no trecho que o veículo não pode ter feito (velocidade implícita acima do teto físico, ou odômetro negando o deslocamento) — duas bolinhas âmbar marcam as pontas do buraco, e o km desse trecho sai do `KM PERCORRIDOS`, mas segue medido pelo `KM RASTREADOR` (o odômetro é cumulativo no aparelho e não depende da posição). Régua única em `embarques_regua.py`
 
 ### Restrito a admins
 - **Verda — Emissões CO₂e** (`/verda`) — Acompanhamento do inventário de CO₂e enviado à plataforma **Verda** (exigência da Nestlé, escopo 3 do embarcador). Placar da rodada (enviadas / `executed` / rejeitadas / bloqueadas), inventário (t CO₂e, km, peso, diesel, **intensidade g/t·km**, escopo 1 × escopo 3), consumo aplicado por faixa de km/l, `VehicleTypeKey`, **as placas que estão bloqueando envio** (lista copiável para o cadastro resolver) e detalhe por viagem com drill nos CTes + CSV. **Não chama a Verda**: lê a `verda_envios` e recalcula o CO₂e com o fator reconstruído da API `Fuel` — na conta gratuita a Verda guarda só o consolidado mensal, então para o dado por viagem esta é a única tela que existe. Janela padrão = semana fechada anterior. **Consumo**: escala por idade do veículo (3,00 / 2,80 / 2,50 / 2,20 km/l) e 3,70 no rígido, revisada pela diretoria em 10/09/2026 — a mesma régua vale para os indicadores ABIQUIM. Ver `HANDOFF-VERDA.md` (§19 registra a divergência com o ciclo medido no ValeCard)
@@ -288,6 +288,8 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 | `RASTREAMENTO_RECALCULO_MIN` | Intervalo mínimo (min) entre recálculos de rota | `30` |
 | `RASTREAMENTO_RETENCAO_DIAS` | Retenção do histórico de posições | `30` |
 | `RASTREAMENTO_KM_DIA_MAX` | Teto de km/dia na consolidação diária — acima disso é troca de rastreador, não viagem | `2500` |
+| `RASTREAMENTO_TETO_KMH` | **Teto físico do cavalo.** Acima disso o trecho é posição falsa: a linha quebra e o km não soma | `150` |
+| `RASTREAMENTO_SALTO_MIN_KM` | Deslocamento mínimo para a régua acima olhar o trecho — abaixo é jitter de GPS, não teleporte | `30` |
 | `RASTREAMENTO_RECONSTRUCAO_DIAS` | Teto p/ trás na detecção da saída da origem (`inicio_viagem`) | `15` |
 | `KM_DIA_PADRAO` | Km/dia usado na ETA realista | `600` |
 | `BACKFILL_HISTORICO` | Liga o backfill diário do histórico da 3S | `true` |
@@ -433,7 +435,7 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 
 ### Rastreamento (todos sob `@login_required`)
 - `GET /api/rastreamento/posicoes` — posições atuais + info da carga ativa (filtros: `carregado`, `eh_rizza`, `q`)
-- `GET /api/rastreamento/cargas/<id>/trajeto` — trajeto percorrido (1 placa principal) + rota planejada origem→destino + `rastreado_via` + **KPIs ao vivo** + `distancia_restante_km`/`eta_realista_iso` (janela a partir de `inicio_viagem`)
+- `GET /api/rastreamento/cargas/<id>/trajeto` — trajeto percorrido (1 placa principal) + rota planejada origem→destino + `rastreado_via` + **KPIs ao vivo** + `distancia_restante_km`/`eta_realista_iso` (janela a partir de `inicio_viagem`). Traz **`trajeto_cortes`** (índices onde a linha deve quebrar — perna impossível) e **`kpi.pernas_falsas`** (quantas o km não somou)
 - `POST /api/rastreamento/cargas/<id>/confirmar-entrega` — confirma entrega manualmente
 - `POST /api/rastreamento/sync-veiculos` — sincroniza mapeamento placa → idVeiculo da 3S
 - `GET /api/rastreamento/health` — saúde da integração (última posição, status do worker)
@@ -686,6 +688,18 @@ Acompanhamento GPS dos veículos em rota, com mapa em tempo real e automação d
 4. 1×/dia, **nesta ordem**: consolida o dia em `embarques_rastreio_dia` e **só então** purga o histórico além de `RASTREAMENTO_RETENCAO_DIAS`. Invertido, o dado não volta — a 3S serve ~35 dias de histórico (ver Consolidação diária).
 
 O worker só inicia se `START_WORKER=true`. O modo (SIMULADO/REAL) é impresso no boot.
+
+> ⚠️ **A posição é fato bruto: três etapas, TRÊS transações.** Até 10/09/2026 o ciclo fazia
+> tudo numa transação só, e isso custou **30 horas de rastreamento parado em produção** sem
+> nenhum alarme: a tabela `embarques_rastreio_dia` não existia lá, `_consolidar_dias`
+> levantava, e o `rollback` descartava as 93 posições que já tinham sido gravadas — enquanto
+> o `embarques_3s_log` (conexão separada) mostrava 66 chamadas/hora com HTTP 200 e zero
+> erros. Hoje a posição commita **primeiro e sozinha**; `_processar_cargas` e a consolidação
+> falham por conta própria. A **purga fica dentro do try da consolidação** (purgar depois de
+> a consolidação falhar é destruir o que ninguém guardou), e `_ultima_retencao` é marcada
+> mesmo na falha — era ela, marcada só no caminho feliz, que transformava uma falha diária
+> em falha a cada ciclo. Regressão em `_teste_ciclo_transacao.py`. Ver §23.2 do
+> `HANDOFF-EMBARQUES-AUTONOMO.md`.
 
 ### Consolidação diária (`embarques_rastreio_dia`)
 
