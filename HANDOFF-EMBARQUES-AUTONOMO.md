@@ -3728,6 +3728,6 @@ segue como está (ligar exige `executar(dia=...)` para trás — decisão adiada
   `Uberlândia → Japeri, 933 km`, contra 577 + 961 medidos pelo GPS. A TCE7I47 é a "carreta de
   revezamento": 3 desengates em 5 semanas, 5 cavalos.
 
-**Estado exato de produção ao fim do dia:** chave `true`; imagem com `90e9194` (card) no ar e
-`3429f36` (mapa) a deployar; snapshot `snap_20260911_1944` guardado; a próxima rodada natural é a
-das 16:30 de 12/09 — vale um `diff` depois dela, só para ver o dia a dia com a chave.
+**Estado exato de produção ao fim do dia:** chave `true`; imagem `b2bf48b` no ar (card, mapa e
+docs — nada pendente de deploy); snapshot `snap_20260911_1944` guardado; a próxima rodada natural
+é a das 16:30 de 12/09 — vale um `diff` depois dela, só para ver o dia a dia com a chave.
