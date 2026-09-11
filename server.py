@@ -6718,6 +6718,20 @@ def api_rastreamento_trajeto(carga_id):
             return jsonify({'ok': False, 'error': 'Carga não encontrada'}), 404
         cols = [c[0] for c in cur.description]
         carga = dict(zip(cols, r))
+        # §24 — a ligação entre cargas, para o card do mapa (este endpoint monta o dict à mão)
+        import embarques_continuacao as _ec
+        carga.update({'continua_em': None, 'continua_em_numero': None, 'desengate_local': None,
+                      'continuacao_de': None, 'continuacao_de_id': None})
+        if _ec.ativo(cur):
+            cur.execute("SELECT c.continua_em, c.desengate_local, b.numero FROM embarques_cargas c "
+                        "LEFT JOIN embarques_cargas b ON b.id = c.continua_em WHERE c.id=%s", (carga_id,))
+            _l = cur.fetchone()
+            if _l:
+                carga['continua_em'], carga['desengate_local'], carga['continua_em_numero'] = _l
+            cur.execute("SELECT id, numero FROM embarques_cargas WHERE continua_em=%s ORDER BY id LIMIT 1", (carga_id,))
+            _a = cur.fetchone()
+            if _a:
+                carga['continuacao_de_id'], carga['continuacao_de'] = _a
 
         cur.execute("""
             SELECT ordem, cidade, uf, latitude, longitude, data_agendamento
@@ -7185,6 +7199,11 @@ def api_rastreamento_trajeto(carga_id):
                 'desengatada_em': (carga['desengatada_em'].isoformat() + 'Z') if carga.get('desengatada_em') else None,
                 'descarga_motorista_nome': carga.get('descarga_motorista_nome'),
                 'descarga_cavalo_placa': carga.get('descarga_cavalo_placa'),
+                'continua_em': carga.get('continua_em'),
+                'continua_em_numero': carga.get('continua_em_numero'),
+                'desengate_local': carga.get('desengate_local'),
+                'continuacao_de': carga.get('continuacao_de'),
+                'continuacao_de_id': carga.get('continuacao_de_id'),
             },
             'origem': origem,
             'destinos': destinos,
