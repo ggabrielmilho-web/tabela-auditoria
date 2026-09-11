@@ -6134,7 +6134,10 @@ def api_embarques_kpis():
                                {_f24}
                                AND date_trunc('month', data_conclusao) = date_trunc('month', (NOW() AT TIME ZONE 'America/Sao_Paulo')::date)) AS entregues_mes,
               COUNT(*) FILTER (WHERE status = 'Aberta')                 AS abertas,
-              COUNT(*) FILTER (WHERE status = 'Desengatada' {_f24})     AS desengatadas,
+              -- Conta TODO status 'Desengatada' (esperando ou ja ligada a carga seguinte): e o
+              -- que o clique no card lista (/embarques/relatorio?status=Desengatada), e o card
+              -- e a lista tem de falar do mesmo conjunto. Decisao do Gabriel em 11/09/26.
+              COUNT(*) FILTER (WHERE status = 'Desengatada')            AS desengatadas,
               -- Vazias do mes: o km de reposicionamento que fechou no periodo. Conta pela
               -- `data_conclusao` igual as entregues, para as duas falarem do mesmo mes.
               COUNT(*) FILTER (WHERE COALESCE(viagem_vazia, FALSE)
