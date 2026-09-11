@@ -7521,6 +7521,30 @@ if __name__ == '__main__':
     else:
         print("ℹ️  Lançamento automático de embarques desligado (EMBARQUES_AUTO)")
 
+    # Robô semanal da Verda. Fica aqui, e não no worker, pelo mesmo motivo do PGR
+    # e dos embarques: é este lado que fala Power BI, e a `Auditoria Receita` é a
+    # fonte do trecho rodado.
+    #
+    # Ao contrário dos outros, NÃO vem ligado por padrão — este manda dado para
+    # fora, para a conta de um fornecedor, e no plano gratuito só fica o
+    # consolidado mensal. Subir a imagem não pode significar começar a publicar
+    # inventário. `VERDA_AUTO=true` liga; virar a variável no Portainer desliga
+    # sem deploy.
+    try:
+        import verda_auto
+    except Exception as _e:
+        verda_auto = None
+        print(f"⚠️  Robô da Verda não carregou: {_e}")
+    if verda_auto and verda_auto.ligado():
+        import threading as _th_v
+        _dia, _hh, _mm = verda_auto.config()
+        _th_v.Thread(target=verda_auto.loop, daemon=True, name='VerdaAuto').start()
+        _nome_dia = [k for k, v in verda_auto.DIAS.items() if v == _dia][0]
+        print(f"✅ Robô da Verda LIGADO ({_nome_dia} às {_hh:02d}:{_mm:02d} BRT, "
+              f"janela de {verda_auto.verda_job.DIAS_RETRO} dias até o domingo fechado)")
+    else:
+        print("ℹ️  Robô da Verda desligado (VERDA_AUTO)")
+
     # Boot do worker de rastreamento
     if os.getenv('START_WORKER', '').lower() == 'true':
         try:

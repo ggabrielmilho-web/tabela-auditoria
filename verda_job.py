@@ -24,6 +24,7 @@ exercitar o robô inteiro antes de a Verda liberar a URL.
 """
 
 import argparse
+import os
 import sys
 from datetime import date, datetime, timedelta
 
@@ -66,6 +67,10 @@ AVISAR_JANELA_VAZIA = True
 # A trava é aqui, na montagem, e não na janela do comando, porque a janela
 # semanal (segunda a domingo) atravessa a virada de mês uma vez por mês.
 DATA_INICIO_INVENTARIO = '2026-09-01'
+
+# Quantos dias a rodada automática olha para trás, terminando no último domingo
+# fechado. Duas semanas, não uma: ver `janela_automatica`.
+DIAS_RETRO = int(os.getenv('VERDA_AUTO_DIAS_RETRO', '14'))
 
 
 # ════════════════════════════════════════
@@ -380,6 +385,114 @@ def conferir(con, cliente, limite=None):
 
 
 # ════════════════════════════════════════
+# RODADA COMPLETA
+# ════════════════════════════════════════
+
+def janela_automatica(hoje=None, dias=None):
+    """A janela do robô semanal: termina no último domingo fechado.
+
+    Não é "a semana passada" e sim **os últimos N dias até o domingo fechado**,
+    com N = 14 por padrão. A diferença importa por três motivos, todos vistos na
+    prática:
+
+    - viagem BLOQUEADA por cadastro (placa sem ano) só volta a ser montada se a
+      janela passar por cima dela de novo. Com janela de exatamente uma semana, o
+      que o handoff promete — "preenchido o ano, elas entram sozinhas na rodada
+      seguinte" — simplesmente não acontece: a rodada seguinte olha outra semana.
+    - CTRB que consolidou atrasado entra na rodada de depois, sem ninguém pedir.
+    - rodada que falhou no meio é recuperada pela próxima.
+
+    Custa só tempo de montagem: o que já foi enviado volta como `inalterada` e
+    não sai de novo — a idempotência é por (viagem, ambiente) e o hash ignora o
+    `LocalDateTime`.
+    """
+    hoje = hoje or date.today()
+    dias = dias or DIAS_RETRO
+    domingo = hoje - timedelta(days=hoje.weekday() + 1)   # o domingo que passou
+    desde = domingo - timedelta(days=dias - 1)
+    piso = DATA_INICIO_INVENTARIO
+    return max(desde.isoformat(), piso or ''), domingo.isoformat()
+
+
+def rodada(con, cliente, desde, ate, so_montar=False, limite=None,
+           forcar_lote=False, ignorar_freio=False, log=None, detalhado=False):
+    """Montar → expurgar → enviar → conferir, numa chamada.
+
+    O robô automático e a linha de comando passam **por aqui**, os dois. Uma
+    cópia paralela da orquestração no agendador seria a forma mais fácil de
+    perder uma trava: o teto de lote, o freio de anomalia e o expurgo são
+    exatamente o que não pode faltar quando ninguém está olhando.
+    """
+    log = log or print
+    # No terminal vale a lista vertical, que é como se lê há semanas; no log do
+    # container vale uma linha só, que é o que cabe num `docker service logs`.
+    def bloco(titulo, contagem):
+        if detalhado:
+            _imprimir(titulo, contagem)
+        else:
+            log('%s %s' % (titulo, _resumir(contagem)))
+
+    r = {'janela': [desde, ate]}
+    contagem, alteradas, expurgar = montar(con, desde, ate, cliente.rotulo)
+    r['montagem'] = dict(contagem)
+    bloco('MONTAGEM', contagem)
+    if contagem.get('BLOQUEADA'):
+        log('   %d viagens NAO entraram na fila (payload invalido)' % contagem['BLOQUEADA'])
+    if alteradas:
+        log('   (%d viagens mudaram de conteudo e serao canceladas e reenviadas)'
+            % len(alteradas))
+
+    if AVISAR_JANELA_VAZIA and not any(contagem.get(k) for k in
+                                       ('nova', 'alterada', 'inalterada', 'BLOQUEADA',
+                                        'antes do início')):
+        r['alerta_janela_vazia'] = True
+        log('!! NENHUMA viagem na janela %s a %s. Se havia dia util, suspeite do ETL '
+            'de manifestos, nao de falta de movimento.' % (desde, ate))
+
+    ja_marcadas = [par for par in estado.escopo_com_vinculo(con, cliente.rotulo)
+                   if par[0] not in {t for t, _ in expurgar}]
+    if ja_marcadas:
+        log('%d viagem(ns) ja estavam fora de escopo com vinculo pendente.' % len(ja_marcadas))
+        expurgar += ja_marcadas
+
+    if expurgar:
+        if so_montar:
+            log('%d fora de escopo com transacao viva (--so-montar: nada cancelado)'
+                % len(expurgar))
+        else:
+            exp = expurgar_do_inventario(con, cliente, expurgar)
+            r['expurgo'] = exp
+            bloco('EXPURGO', exp)
+
+    if so_montar:
+        return r
+
+    envio, parada = enviar(con, cliente, limite=limite, forcar_lote=forcar_lote,
+                           ignorar_freio=ignorar_freio)
+    if parada:
+        r['parada'] = parada
+        log('!! ENVIO INTERROMPIDO: %s' % parada)
+        return r
+    r['envio'] = envio
+    bloco('ENVIO', envio)
+
+    conf = conferir(con, cliente, limite=limite)
+    r['conferencia'] = conf
+    bloco('CONFERENCIA', conf)
+
+    # O veredito real leva 1 a 2 min e o POST devolve só o TransactionId: parte
+    # do lote fica `enviado` ao fim da rodada e só a próxima passada resolve.
+    # Dizer "terminou" aqui seria dizer mais do que se sabe.
+    r['sem_veredito'] = conf.get('ainda processando', 0)
+    return r
+
+
+def _resumir(contagem):
+    return ' | '.join('%s %d' % (k, v) for k, v in
+                      sorted((contagem or {}).items(), key=lambda x: -x[1])) or 'nada'
+
+
+# ════════════════════════════════════════
 # CLI
 # ════════════════════════════════════════
 
@@ -466,54 +579,11 @@ def main():
         desde = ate = ontem
     print('janela: %s a %s' % (desde, ate))
 
-    contagem, alteradas, expurgar = montar(con, desde, ate, cliente.rotulo)
-    _imprimir('MONTAGEM', contagem)
-    if contagem.get('BLOQUEADA'):
-        print('   %d viagens NÃO entraram na fila (payload inválido) — '
-              'veja com --resumo' % contagem['BLOQUEADA'])
-    if alteradas:
-        print('   (%d viagens mudaram de conteúdo e serão canceladas e reenviadas)' % len(alteradas))
-
-    # 'antes do início' entra na conta para não disparar alarme falso: janela
-    # inteiramente anterior a DATA_INICIO_INVENTARIO não é ETL parado.
-    if AVISAR_JANELA_VAZIA and not any(contagem.get(k) for k in
-                                       ('nova', 'alterada', 'inalterada', 'BLOQUEADA',
-                                        'antes do início')):
-        print('\n!! NENHUMA viagem na janela %s a %s. Se era dia útil, suspeite do ETL '
-              'de manifestos, não de falta de movimento.' % (desde, ate))
-
-    # Junta o que ficou pendente de rodadas anteriores — tipicamente um
-    # `--so-montar` que marcou fora de escopo sem cancelar nada. Sem isto, aquela
-    # transação nunca mais seria alcançada por nenhuma rodada.
-    ja_marcadas = [par for par in estado.escopo_com_vinculo(con, cliente.rotulo)
-                   if par[0] not in {t for t, _ in expurgar}]
-    if ja_marcadas:
-        print('\n%d viagem(ns) ja estavam fora de escopo com vinculo pendente.'
-              % len(ja_marcadas))
-        expurgar += ja_marcadas
-
-    if expurgar:
-        print('')
-        print('%d viagem(ns) sairam do escopo e ainda estao no inventario da Verda.'
-              % len(expurgar))
-        if args.so_montar:
-            print('   (--so-montar: nada foi cancelado)')
-        else:
-            _imprimir('EXPURGO', expurgar_do_inventario(con, cliente, expurgar))
-
-    if args.so_montar:
-        con.close()
-        return
-
-    envio, parada = enviar(con, cliente, limite=args.limite,
-                           forcar_lote=args.forcar_lote, ignorar_freio=args.ignorar_freio)
-    if parada:
-        print('\n!! ENVIO INTERROMPIDO\n   %s' % parada)
-        con.close()
-        return 1
-    _imprimir('ENVIO', envio)
-    _imprimir('CONFERÊNCIA', conferir(con, cliente, limite=args.limite))
+    r = rodada(con, cliente, desde, ate, so_montar=args.so_montar, limite=args.limite,
+               forcar_lote=args.forcar_lote, ignorar_freio=args.ignorar_freio,
+               detalhado=True)
     con.close()
+    return 1 if r.get('parada') else None
 
 
 if __name__ == '__main__':
