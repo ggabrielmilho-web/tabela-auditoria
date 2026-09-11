@@ -121,6 +121,25 @@ def painel(cur, desde, ate, ambiente):
             })
             continue
 
+        # Os alertas destes dois saem ANTES da exclusão: a viagem não entra no
+        # inventário, mas precisa continuar gritando.
+        if status == 'rejected':
+            alertas.append({'tipo': 'rejeitada', 'id': tid,
+                            'texto': mensagem or 'rejeitada sem motivo informado'})
+        if status == 'fora_escopo' and transaction_id:
+            alertas.append({'tipo': 'expurgo', 'id': tid,
+                            'texto': 'saiu do escopo e a transacao continua viva na Verda'})
+
+        # Só conta o que está — ou vai estar — no inventário da Verda.
+        # `rejected` a Verda recusou e `fora_escopo` nós retiramos: somar
+        # qualquer um dos dois faz a tela declarar emissão que não existe lá.
+        # Ficavam somados até 11/09/2026, quando as 21 rejeitadas do primeiro
+        # lote de produção apareceram nos KPIs como se estivessem no inventário.
+        # `pendente` continua contando de propósito: é o que faz a tela servir
+        # de prévia do lote antes de mandar.
+        if status in ('rejected', 'fora_escopo'):
+            continue
+
         km, t, litros, co2 = _metricas(p)
         esc1 = str(p.get('IsScopeOne')) == '1'
         inbound = str(p.get('IsInbound')) == '1'
@@ -142,12 +161,6 @@ def painel(cur, desde, ate, ambiente):
         if status == 'enviado' and horas and horas > HORAS_PRESA:
             alertas.append({'tipo': 'presa', 'id': tid,
                             'texto': 'enviada ha %.0f h e ainda sem veredito da Verda' % horas})
-        if status == 'rejected':
-            alertas.append({'tipo': 'rejeitada', 'id': tid,
-                            'texto': mensagem or 'rejeitada sem detalhe (a Verda nao explica)'})
-        if status == 'fora_escopo' and transaction_id:
-            alertas.append({'tipo': 'expurgo', 'id': tid,
-                            'texto': 'saiu do escopo e a transacao continua viva na Verda'})
 
         viagens.append({
             'id': tid, 'data': str(data), 'api': api, 'status': status,
