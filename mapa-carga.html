@@ -147,7 +147,7 @@
       <div class="legenda-row"><span style="font-size:14px;">📍</span> Destinos</div>
       <div class="legenda-row"><span style="font-size:14px;">🚚</span> Posição atual</div>
       <div class="legenda-row" id="legPosFech" style="display:none;"><span style="color:#fb923c;">┈┈</span> Depois do fechamento</div>
-      <div class="legenda-row" id="legSalto" style="display:none;"><span style="color:#fbbf24;">●</span> Salto impossível (linha quebrada)</div>
+      <div class="legenda-row" id="legSalto" style="display:none;" title="O veículo não pode ter feito o trecho no tempo registrado. A reta âmbar marca o que não foi medido — não é o caminho percorrido."><span style="color:#fbbf24;">┈</span> Salto impossível (trecho não medido)</div>
     </div>
   </div>
 
@@ -415,14 +415,29 @@
           addLayer(L.polyline(sg, { color: '#94a3b8', weight: 3, opacity: 0.9, dashArray: '6,6' }));
         }
       });
-      // Marca cada quebra, senao o vao fica indistinguivel de "nao passou por aqui".
+      // A LACUNA PRECISA SER UM OBJETO, NAO UMA AUSENCIA (10/09/2026).
+      //
+      // A primeira versao so parava de desenhar no salto — e isso e invisivel: a rota
+      // planejada (azul, weight 4) e desenhada ANTES do trajeto, no MESMO corredor de
+      // estrada, entao o buraco no tracejado apenas revelava o azul por baixo e o olho
+      // lia "linha continua". Foi a primeira coisa que o Gabriel perguntou ao ver na tela.
+      //
+      // Entao o vao ganha traco proprio: ambar, pontilhado ralo, visivelmente diferente do
+      // cinza do trajeto (6,6) e do azul da rota. Ele liga os dois pontos em RETA de
+      // proposito — reta e a forma de dizer "nao sabemos o caminho aqui", que e diferente
+      // de "foi por esta estrada". Sem inventar percurso, e sem sumir.
+      const popSalto = '<strong>Salto impossível</strong><br>O veículo não pode ter feito '
+                     + 'este trecho no tempo registrado — uma das duas posições é falsa.<br>'
+                     + 'A reta âmbar marca o que <em>não</em> foi medido: não é o caminho '
+                     + 'percorrido, e o km dela não entra no total.';
       cortes.forEach(i => {
         if (!pts[i] || !pts[i + 1]) return;
+        addLayer(L.polyline([pts[i], pts[i + 1]], {
+          color: '#fbbf24', weight: 2, opacity: 0.85, dashArray: '1,9'
+        }).bindPopup(popSalto));
         [pts[i], pts[i + 1]].forEach(pp => addLayer(
           L.circleMarker(pp, { radius: 4, color: '#fbbf24', weight: 2, fillOpacity: 0.9 })
-            .bindPopup('<strong>Salto impossível</strong><br>A linha quebra aqui: o veículo '
-                     + 'não pode ter feito este trecho no tempo registrado.<br>'
-                     + 'O km deste trecho não entra no total.')));
+            .bindPopup(popSalto)));
       });
       if (cortes.size) {
         const leg = document.getElementById('legSalto');
