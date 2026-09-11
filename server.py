@@ -1096,6 +1096,52 @@ def _anexar_ancoragem(token, data):
     return data
 
 
+def _anexar_proprietarios(token, data):
+    """Acrescenta (ADITIVO — não altera nenhum campo existente) a cada linha:
+      - 'prop_cavalo'  = dono da placa_cavalo;
+      - 'prop_carreta' = dono da placa_carreta.
+
+    'Auditoria Receita' não carrega o dono: quem tem é o cadastro `veiculos_045`, pela placa.
+    Resolve com a MESMA régua da aba Veículos (_cadastro_veiculos), que já normaliza em
+    Mercosul e desempata a colisão antiga×Mercosul — usar outra régua aqui faria a mesma
+    placa ter dois donos em duas telas.
+
+    FROTA mostra o proprietário real (a aba Veículos esconde, mas lá a coluna serve para
+    identificar terceiro; aqui a leitura é linha a linha e célula vazia leria como dado faltando).
+
+    Degrada com segurança: cadastro indisponível → campos vazios, a tabela não quebra.
+    Placa sem dono NÃO é esperada (não se emite documento sem cadastrar o veículo), então é
+    sintoma de normalização, não de veículo ausente — vai para o log em vez de sumir calada."""
+    try:
+        cadastro = _cadastro_veiculos(token)
+    except Exception as e:
+        print(f'[auditoria] cadastro de veiculos indisponivel, proprietario em branco: {e}')
+        for r in data:
+            r['prop_cavalo'] = ''
+            r['prop_carreta'] = ''
+        return data
+
+    sem_dono = set()
+
+    def dono(placa):
+        if placa in (None, '') or not str(placa).strip():
+            return ''
+        p = _placa_mercosul(str(placa))
+        nome = (cadastro.get(p, {}).get('proprietario') or '').strip()
+        if not nome:
+            sem_dono.add(p)
+        return nome
+
+    for r in data:
+        r['prop_cavalo'] = dono(r.get('placa_cavalo'))
+        r['prop_carreta'] = dono(r.get('placa_carreta'))
+
+    if sem_dono:
+        print(f'[auditoria] {len(sem_dono)} placa(s) sem dono no cadastro veiculos_045: '
+              + ', '.join(sorted(sem_dono)[:10]))
+    return data
+
+
 @app.route('/api/auditoria')
 @login_required
 def auditoria():
@@ -1116,6 +1162,9 @@ def auditoria():
 
         # Aditivo: data_efetiva (fallback p/ órfãos) + rótulo de ancoragem.
         data = _anexar_ancoragem(token, data)
+
+        # Aditivo: proprietário do cavalo e da carreta (resolvidos pelo cadastro, via placa).
+        data = _anexar_proprietarios(token, data)
 
         return jsonify({'ok': True, 'data': data, 'count': len(data)})
 
@@ -2469,7 +2518,13 @@ def _cadastro_veiculos(token):
     Colisão de grafia: a conversão antiga→Mercosul (LLL+4díg → troca o 5º char) pode gerar
     uma string idêntica à placa Mercosul REAL de outro veículo (ex.: HOA0466→HOA0E66, que é a
     Mercosul real de outra carreta). Nesses casos, prefere a entrada cuja placa CRUA já está em
-    Mercosul (identidade atual) em vez da antiga convertida. Entre formatos iguais, mantém a 1ª."""
+    Mercosul (identidade atual) em vez da antiga convertida. Entre formatos iguais, mantém a 1ª.
+
+    Cacheado 5min (_cache_get/_cache_set): é um EVALUATE da tabela inteira (milhares de
+    veículos) e a Auditoria passou a consultá-lo a cada abertura para resolver o proprietário."""
+    cached = _cache_get('cadastro_veiculos')
+    if cached is not None:
+        return cached
     res = execute_dax(token, "EVALUATE 'public veiculos_045'")
     linhas = clean_rows(res.get('results', [{}])[0].get('tables', [{}])[0].get('rows', []))
     cad = {}
@@ -2485,6 +2540,7 @@ def _cadastro_veiculos(token):
         cad[p] = {'proprietario': r.get('proprietario'), 'tipo': r.get('tipo'),
                   'disponivel': r.get('disponivel'), 'modelo': r.get('modelo')}
         cad_merc[p] = eh_merc
+    _cache_set('cadastro_veiculos', cad)
     return cad
 
 
