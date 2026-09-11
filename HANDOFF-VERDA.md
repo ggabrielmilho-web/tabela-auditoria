@@ -1,20 +1,23 @@
 # HANDOFF — Integração Verda (emissões de CO₂e)
 
-**Estado: PRODUÇÃO ARMADA, PRIMEIRO ENVIO EM 11/09/2026.** O código está no ar no servidor, as
-credenciais de produção estão no serviço e o ensaio (`--so-montar`) rodou lá dentro: **119 viagens
-prontas, 6 bloqueadas, 1 sem CTRB**, ~154,40 t CO₂e previstos para a semana de 31/08 a 06/09.
-Falta só disparar o envio. Ver [seção 17](#17-produção-as-decisões-de-10092026) e
-[seção 18](#18-a-aba-verda-e-o-estado-do-deploy).
+**Estado: EM PRODUÇÃO E AUTOMÁTICO.** O primeiro envio real saiu em **11/09/2026** e o inventário
+de produção tem **99 viagens de setembro**. O robô semanal está ligado (`VERDA_AUTO=true`), rodando
+**sexta às 07:00 BRT** — a primeira rodada automática é **18/09/2026**. Ver
+[seção 20](#20-o-primeiro-envio-real-11092026) e [seção 21](#21-o-robô-semanal).
 
-Antes disso, agosto inteiro rodou em **homologação** — 597 viagens, 0 rejeitadas. As primeiras
-chamadas reais derrubaram **quatro** afirmações da documentação, três delas bugs que quebravam o
-robô em silêncio ([seção 5](#5-o-que-a-documentação-respondeu-não-perguntar-de-novo)).
+O dia do primeiro envio custou **21 rejeições em 119 viagens**, por duas causas que nada tinham a
+ver com o cálculo — e a investigação levou horas porque o motivo vinha num campo que o nosso parser
+não lia. É a leitura mais útil deste documento hoje: [seção 20](#20-o-primeiro-envio-real-11092026).
+
+Antes disso, agosto inteiro rodou em **homologação** — 597 viagens, 0 rejeitadas. As chamadas reais
+já derrubaram **cinco** afirmações da documentação, quatro delas bugs que quebravam o robô em
+silêncio ([seção 5](#5-o-que-a-documentação-respondeu-não-perguntar-de-novo)).
 
 > **Produção é OUTRA CONTA, não a mesma com chave nova** — provado por `GetTransaction` (§17.1). O
 > inventário de produção nasce limpo; as 574 viagens de homologação não contaminam nada.
 
-**Ainda aberto:** o agendamento semanal automático (hoje o disparo é manual) e as perguntas 4 e 6 da
-[seção 4](#4-o-que-está-travado).
+**Ainda aberto:** a pergunta 4 da [seção 4](#4-o-que-está-travado) (fator da `Weight`) e **que dia
+o mês fiscal fecha** — de que depende a cauda do mês (§21.3).
 
 ---
 
@@ -73,7 +76,9 @@ Em `c:\Phyton-Projetos\integracao_verda\`:
 |---|---|
 | `verda_client.py` | Token (cache + UTC), Fuel, Weight, GetTransaction, CancelTransaction. Retry com backoff em rede e 5xx; 4xx não repete, é erro nosso. **Modo simulado embutido.** |
 | `verda_estado.py` | tabela `verda_envios` — idempotência, o par de ids que o cancelamento exige, e o erro por campo |
-| `verda_job.py` | orquestra montar → enviar → conferir |
+| `verda_job.py` | orquestra montar → enviar → conferir (`rodada()`) |
+| `verda_auto.py` | o robô semanal: quando disparar, e o que alertar (§21) |
+| `verda_painel.py` | leitura e agregação da aba `/verda` |
 
 ### Ferramentas de apoio
 
@@ -95,7 +100,11 @@ python -X utf8 verda_job.py --data 2026-08-20 --so-montar        # não toca na 
 
 python -X utf8 _verda_valida.py --exemplos 3                     # antes de qualquer envio
 python -X utf8 _verda_demo.py UDI028044-5                        # o JSON de um manifesto
+
+python -X utf8 verda_auto.py --agora --sim-producao              # o que a sexta roda (§21)
 ```
+
+> `--conferir` **não** exige `--sim-producao`: ele só lê (§20.7).
 
 **Resultado atual: 4.327 de 4.528 viagens (95,6%) passam limpas.** Os 4,4% restantes são
 pendência de cadastro, listada na seção 7.
@@ -139,12 +148,12 @@ Quatro decisões que não são óbvias:
 - **Recusa com `TransactionId` vira `enviado`, não `erro`.** Se a Verda devolveu um id, há o que
   conferir; o veredito real vem na `GetTransaction`.
 
-### O que ainda falta
+### ~~O que ainda falta~~ — o agendamento FOI FEITO em 11/09/2026
 
-**O agendamento automático.** Hoje o disparo é manual. O desenho combinado é uma thread no
-`server.py`, no padrão do robô de embarques (flag `VERDA_AUTO` para desligar pelo Portainer sem
-deploy), rodando **sexta-feira sobre a semana fechada anterior** (segunda a domingo) — 5 dias de
-folga para o CTRB consolidar. Precisa estar de pé antes de 18/09/2026.
+O robô semanal existe e está ligado: `verda_auto.py` + thread no `server.py`, sexta às 07:00 BRT.
+A janela **não** é a semana fechada anterior e sim os últimos 14 dias até o domingo fechado — a
+razão está na [seção 21](#21-o-robô-semanal), e não é detalhe: com uma semana exata, viagem
+bloqueada por cadastro nunca mais seria montada.
 
 > A **tela de acompanhamento** que constava aqui como pendência já existe: é a aba `/verda`
 > ([seção 18](#18-a-aba-verda-e-o-estado-do-deploy)).
@@ -414,7 +423,22 @@ O fluxo assíncrono está confirmado: o POST devolve `TransactionId` e a viagem 
 `primary`/`processing` antes de virar `executed`, em ~1 a 2 minutos. **O dashboard consolida
 depois disso** — ver a nota no fim da seção 5.
 
-**6. Retroatividade.** Qual janela é aceita para carga histórica?
+### ~~6. Retroatividade~~ — RESPONDIDO em 11/09/2026
+
+**O que bloqueia não é a idade da viagem, é o MÊS FISCAL estar fechado na conta.** A recusa vem
+como `Fiscal month isn't open.`
+
+Prova, sem precisar perguntar: a rodada de estreia levou agosto e setembro **juntos** — as 18 de
+31/08 foram rejeitadas e as 101 de setembro passaram na mesma leva. Se o problema fosse lote
+atravessando a virada, teria derrubado tudo.
+
+E retroatividade em si é normal: o Rafael cita, por WhatsApp, cliente que manda as viagens
+**20 dias depois** do fechamento no TMS, justamente para o consumo de combustível já estar
+atualizado. O fluxo é escolha nossa — o que ele pede é que a viagem só suba com informação
+definitiva, porque **"o sistema não permite o ajuste de dados"**.
+
+**O que continua sem resposta: que DIA o mês fecha.** Disso depende a cauda do mês (§21.3), e é a
+pergunta que vale fazer ao Rafael quando ela aparecer naturalmente.
 
 ### Duas coisas que se **afirma**, não se pergunta
 
@@ -456,10 +480,21 @@ trazendo `FieldName` + `ErrorDescription`. A lista de status (pg. 76) inclui `pr
 Não tem `VehicleTypeKey` e exige `FuelConsumption` obrigatório (pg. 56). Viagem vazia de agregado não
 tem como ser reportada — é o desenho da API, não adianta perguntar.
 
-### O que a API real fez, contra o que a doc dizia (01/09/2026)
+### O que a API real fez, contra o que a doc dizia (01/09 e 11/09/2026)
 
-As primeiras chamadas reais derrubaram **quatro** afirmações da documentação. **Três quebravam o robô
+As chamadas reais derrubaram **cinco** afirmações da documentação. **Quatro quebravam o robô
 em silêncio** — nenhuma aparecia no simulador, porque ele imitava a doc.
+
+> **A quinta veio em 11/09**, no primeiro lote de produção, e está na íntegra na
+> [seção 20](#20-o-primeiro-envio-real-11092026): a razão da rejeição vem em **`ErrorMessage`**, no
+> objeto da transação — não em `Message` (pg. 73) nem na lista `ErrorDetail` (pgs. 73-74), que
+> **não existem** na resposta real. Resultado: 21 viagens rejeitadas, todas mudas, e horas de caça
+> a padrão em peso, ritmo e horário enquanto a plataforma dizia o motivo em texto claro.
+>
+> E o simulador tinha sido "realinhado à API real" em 01/09 — mas só nos quatro pontos então
+> conhecidos. Ele continuou emitindo `ErrorDetail`, campo que a API nunca devolveu. **Realinhar
+> simulador não é corrigir os campos que você descobriu; é parar de inventar campo que você nunca
+> viu a API mandar.**
 
 | # | A doc diz | A API faz | Consequência |
 |---|---|---|---|
@@ -610,13 +645,25 @@ local aponta para `localhost` e a base local está meses atrás.
 > Verda recusa tudo por `TransportationId` com transação viva, **sem dizer o motivo** (§13). Os
 > comandos de servidor estão na [seção 18](#18-a-aba-verda-e-o-estado-do-deploy).
 
-1. Abrir a aba **`/verda`** — é a leitura mais rápida do estado (§18).
+> **O robô roda sozinho desde 11/09/2026** (sexta, 07:00 BRT, §21). Não há mais disparo manual
+> semanal — o que sobra para o humano é olhar o que travou.
+
+1. Abrir a aba **`/verda`** — é a leitura mais rápida do estado (§18). Se o card **Travadas**
+   aparecer, é ali que está o trabalho: viagem `rejected` **não volta sozinha** para a fila (§20.5).
 2. `verda_job.py --resumo` — o mesmo no terminal, por ambiente. Atenção: `executed` em ambiente
    `teste` **não** está no inventário de produção; são contas diferentes.
-3. `_verda_valida.py` — conferir que ainda aprova ~95,7% das que qualificam.
-4. `verda_job.py --desde X --ate Y --so-montar` — monta sem tocar na rede. **Funciona em produção**
-   sem `--sim-producao`, de propósito (§18.2).
-5. Ver o que continua aberto: o agendamento semanal (§2) e as perguntas 4 e 6 da seção 4.
+3. Confirmar que o robô está de pé:
+   `docker logs --since 10m $(docker ps -q -f name=rizza-auditoria) 2>&1 | grep "da Verda"`
+4. `_verda_valida.py` — conferir que ainda aprova ~95,7% das que qualificam.
+5. `verda_job.py --desde X --ate Y --so-montar` — monta sem tocar na rede. **Funciona em produção**
+   sem `--sim-producao`, de propósito (§18.2). ⚠ Mas ele **grava estado**: marca fora de escopo o
+   que não qualifica, sem cancelar nada. Ver §20.4, que é o estrago que isso causou uma vez.
+6. Ver o que continua aberto: a pergunta 4 da seção 4, o dia em que o mês fiscal fecha (§21.3) e o
+   aviso ativo (§21.4).
+
+**Se uma rejeição aparecer, a PRIMEIRA coisa é ler o motivo** — ele agora vem escrito, na aba e no
+`--resumo`. Se por algum motivo vier vazio, imprima o corpo cru da `GetTransaction` antes de
+formular qualquer hipótese (§20.1).
 
 **Números de referência**, para perceber se algo mudou de forma estranha. Estes são os de HOJE, sob
 a regra do CTRB (§16) e a classificação por carga útil (§17) — os antigos, de quando a viagem era o
@@ -626,9 +673,16 @@ CTe e a faixa era PBT, não servem de comparação:
 viagens com CTe .......... 4.754      sem CTRB (não sobem) ..... 200
 aprovadas ................ 4.358      = 95,7% das que qualificam
 articulado_35 ............ 4.310      articulado_330 ....... 64 (9 carretas)
-rigido_75 ................   157      rigido_170 ........... 16
+rígido_75 ................   157      rígido_170 ........... 16
 km/l: 3,00 / 2,80 / 2,50 / 2,20 por idade  |  rígido 3,70  |  ponderado 2,55
 inventário anual estimado ~3,7 mil t CO2e  (era ~5,9 mil na escala antiga, §19)
+```
+
+E os do inventário que está no ar, para comparar com a aba:
+
+```
+producao, setembro/2026: 99 viagens no inventario (primeiro lote, 11/09)
+agosto: ZERO — o inventario comeca em 01/09 (DATA_INICIO_INVENTARIO)
 ```
 
 ---
@@ -646,7 +700,13 @@ VERDA_SECRET_KEY=...
 VERDA_VEHICLE_TYPE_KEY=veiculo_teste   # APAGAR em produção (ver abaixo)
 ```
 
-### O que falta para produção
+### ~~O que falta para produção~~ — TUDO FEITO (10 e 11/09/2026)
+
+> **Esta lista está cumprida e fica só como histórico.** Os quatro passos foram executados: a URL e
+> as chaves estão no service spec (§17.1), os cinco tipos estão cadastrados — **com o acento nos
+> rígidos, que é o que o passo 2 abaixo mandava conferir e eu conferi mal** (§20.3) —, o lote de
+> homologação rodou (597 viagens, §11) e produção estreou em 11/09 (§20). O backfill do passo 4
+> **não** vale mais: o inventário começa em 01/09 e mês fechado recusa (§20.2).
 
 **1. Pedir a URL de produção ao Rafael.** Ele informou só que as credenciais mudam. Sem ela o
 cliente se recusa a subir, com a mensagem certa. Chegando, vai em `VERDA_URL_PRODUCAO`.
@@ -1223,9 +1283,18 @@ homologação resolve `executed` com a chave antiga e volta **vazio** com a nova
 de produção nasce limpo — as 574 viagens de agosto que estão em homologação **não** contaminam
 produção, e não há nada para reconciliar antes de começar.
 
-Os cinco `VehicleTypeKey` **já estão cadastrados** na conta de produção, com os nomes que o código
-gera (`articulado_35`, `articulado_330`, `rigido_35`, `rigido_75`, `rigido_170`). Some a pendência da
-§10: `VERDA_VEHICLE_TYPE_KEY` sai do `.env`.
+Os cinco `VehicleTypeKey` **já estão cadastrados** na conta de produção. Some a pendência da §10:
+`VERDA_VEHICLE_TYPE_KEY` sai do `.env`.
+
+> ⚠ **A parte seguinte desta afirmação estava ERRADA, e custou 3 viagens em 11/09.** Eu escrevi
+> aqui que estavam cadastrados "com os nomes que o código gera". Estavam os cinco, mas **os três
+> de rígido têm ACENTO na conta**: `rígido_35`, `rígido_75`, `rígido_170`. Mandar `rigido_75`
+> devolve `Invalid 'VehicleTypeKey'.`
+>
+> O acento não aparece quando se bate o olho na tela de cadastro, e os articulados não têm acento
+> nenhum — por isso `articulado_35` passou 113 vezes e só os rígidos caíram. **Conferir nome de
+> chave é comparar caractere a caractere, não reconhecer a palavra.** Corrigido em
+> `FAIXAS_RIGIDO` ([§20](#20-o-primeiro-envio-real-11092026)).
 
 ### 17.2 A faixa é CARGA ÚTIL, não peso bruto
 
@@ -1330,6 +1399,12 @@ distancia  111.323 km     peso     1.915,6 t      diesel   67.592 L
 EMISSAO      154,40 t CO2e          escopo 1  22 viagens   IsInbound  32
 tipos: articulado_35 113 | articulado_330 3 | rigido_75 3
 ```
+
+> ⚠ **`diesel` e `EMISSAO` acima estão na escala de consumo ANTIGA** — o ensaio rodou antes de a
+> §19 entrar no código. Com a escala vigente os mesmos 119 payloads dão **43.062 L** e
+> **98,37 t CO₂e** (−36,3%). Distância, peso, CTes, tipos e contagens continuam valendo: a razão
+> entre as duas emissões é exatamente a razão dos consumos, 1,5696. Ao comparar qualquer rodada
+> com este bloco, comparar **km e peso**, não litros nem CO₂e.
 
 As 6 bloqueadas são 4 placas sem ano: `HDI9E22` (3 viagens), `DTE1F36`, `IJJ4D59`, `DBM5I14`.
 
@@ -1451,8 +1526,8 @@ para trazer a imagem de volta ao `latest`.
 | código no servidor | ✅ imagem construída e serviço convergido |
 | credenciais de produção | ✅ no service spec, `VERDA_VEHICLE_TYPE_KEY` ausente |
 | ensaio no servidor | ✅ **119 novas · 6 bloqueadas · 1 sem CTRB** |
-| envio real | ⬜ **combinado para 11/09/2026** |
-| agendamento semanal | ⬜ pendente, precisa estar de pé antes de 18/09 |
+| envio real | ✅ **feito em 11/09/2026** — ver §20 |
+| agendamento semanal | ✅ **ligado em 11/09/2026** (`VERDA_AUTO=true`) — ver §21 |
 
 As 6 bloqueadas são 4 placas sem ano no cadastro: `HDI9E22` (3 viagens), `DTE1F36`, `IJJ4D59`,
 `DBM5I14`. Preenchido o ano no 045, elas entram sozinhas na rodada seguinte — a aba lista e copia.
@@ -1530,3 +1605,186 @@ valores são premissa e não contradizem nada.
 > **Ao reler a §3.3 e a §17.5:** elas descrevem o raciocínio da escala ANTIGA e
 > continuam válidas como histórico, mas os números que citam (2,20/1,80/1,50 e o
 > efeito do rígido) não são mais os que estão no código.
+
+---
+
+## 20. O primeiro envio real (11/09/2026)
+
+**119 viagens enviadas, 98 aceitas de primeira, 21 rejeitadas.** As 21 se explicam por duas causas,
+nenhuma no cálculo de emissão. A investigação levou horas — e não precisava ter levado.
+
+### 20.1 O bug que cegou tudo: `ErrorMessage`
+
+As 21 rejeições chegaram **mudas**: `mensagem` vazia, `erro_detalhe` vazio. O motivo estava na
+resposta o tempo inteiro, num campo que o parser não lia.
+
+```json
+{ "TransactionKey": "…", "StatusKey": "rejected",
+  "ErrorMessage": "Fiscal month isn't open." }
+```
+
+A doc promete `Message` (pg. 73) e uma lista `ErrorDetail` com `FieldName` + `ErrorDescription`
+(pgs. 73-74). **Nenhum dos dois existe na resposta real.** Corrigido em `verda_client.conferir()`,
+que agora lê `ErrorMessage`, e no simulador, que passou a emiti-lo.
+
+> **A lição de método, que é a parte cara.** Diante de resposta sem explicação eu formulei
+> hipóteses — peso, número de itens, tipo de veículo, id repetido entre contas, ritmo de envio,
+> horário — e derrubei cinco delas com consultas caras, inclusive uma em que o próprio bloco de
+> 18 rejeições seguidas me convenceu de rajada de rede (era só a ordem `ORDER BY data_viagem`).
+> **O primeiro comando deveria ter sido imprimir o corpo cru.** `_chamar()` devolve o dict
+> inteiro; um `json.dumps` resolvia em dois minutos.
+
+### 20.2 Causa 1 — mês fiscal fechado (18 viagens)
+
+Todas de **31/08**. Agosto nunca foi aberto na conta, porque o inventário da Rizza começa em
+01/09 por decisão da diretoria. Ver a resposta da pergunta 6 na [seção 4](#4-o-que-está-travado).
+
+Conserto estrutural: **`DATA_INICIO_INVENTARIO = '2026-09-01'`** no `verda_job.py`. A trava fica na
+**montagem**, não na janela do comando — a janela semanal atravessa a virada de mês uma vez por mês,
+e barrar por janela deixaria o buraco aberto. Viagem anterior ao início sai do escopo e, se já tiver
+subido, vai para o EXPURGO ser cancelada.
+
+### 20.3 Causa 2 — o acento no `VehicleTypeKey` (3 viagens)
+
+`Invalid 'VehicleTypeKey'.` nas 3 viagens de rígido do lote. A conta tem **`rígido_75`**, com
+acento; o código gerava `rigido_75`. Os articulados não têm acento, por isso `articulado_35` passou
+113 vezes e só os rígidos caíram — e é o que torna o erro invisível numa conferência visual.
+
+Provado por experimento: as mesmas 3 viagens, mesmo payload em tudo menos o acento, voltaram
+`executed`. Corrigido em `FAIXAS_RIGIDO`; a §17.1 recebeu o aviso.
+
+> O mapa `DESCRICAO_VERDA` do painel guarda **as duas grafias** de propósito: a antiga está gravada
+> no payload das viagens enviadas antes de 11/09, e tirá-la faria a tela perder a descrição das
+> linhas históricas.
+
+### 20.4 Três defeitos de estado que apareceram junto
+
+Todos da mesma família — **o sistema sabia e não contava**:
+
+| onde | o que estava errado | consequência |
+|---|---|---|
+| `verda_painel.painel()` | só `bloqueado` saía dos KPIs | a aba somava `rejected` e `fora_escopo` como se fossem inventário |
+| `fora_de_escopo()` | guardava o `transaction_id` de transação **morta** | alerta "a transação continua viva" em 18 viagens, **sem ação capaz de resolvê-lo** |
+| expurgo | só alcançava o que mudou de status **na rodada** | um `--so-montar` antes do envio marcava `fora_escopo` sem cancelar, e nenhuma rodada futura pegava aquilo — transação viva contando emissão para sempre |
+
+O terceiro é o mais traiçoeiro e aconteceu de verdade: o ensaio da manhã marcou as 21 de 31/08 como
+`fora_escopo`, e com isso o job real **já não cancelaria** as 2 que estavam `executed`. Hoje toda
+rodada varre `estado.escopo_com_vinculo()` e se cura sozinha.
+
+E o `enviar()` ganhou `_transacao_viva()`: **transação rejeitada não ocupa o `TransportationId`.**
+Sem isso, corrigir o acento e reenviar falharia em silêncio — as 3 voltam à fila com o id da
+transação morta, o `CancelTransaction` falha, e a trava da §13 pula a viagem para sempre. Resposta
+vazia conta como id livre, pelo que a §17.1 provou: perguntar por transação de outra conta devolve
+vazio, e o que não existe naquela conta não ocupa id naquela conta.
+
+### 20.5 A aba ganhou o card **Travadas**
+
+`rejected` **nunca reentra na fila** do `a_enviar` — é proteção contra retry cego, e está certo.
+O preço é que, sem alguém olhar, a viagem fica fora do inventário **para sempre e em silêncio**.
+
+O card lista o que travou (ignorando o filtro de data: travada velha continua travada), com seleção,
+botão **Reenviar** e **Conferir agora**. Endpoints `/api/verda/travadas`, `/api/verda/reenviar` e
+`/api/verda/conferir`, todos sob a permissão `verda`, com teto de 30 viagens por requisição.
+
+> **O botão manda o payload JÁ MONTADO.** Serve para o que travou do outro lado — mês fiscal que
+> abre, tipo de veículo que passa a existir na conta. **Não serve para conserto de regra nossa:** aí
+> o payload gravado ainda é o antigo e reenviar repete o mesmo erro. Nesse caso o caminho é o job na
+> janela, que remonta antes de mandar. Foi exatamente a diferença entre as 3 do acento (job) e o que
+> vier de mês fiscal (botão).
+
+### 20.6 O resultado
+
+```
+enviadas 119 | executed 98 | rejeitadas 21 -> resolvidas
+agosto: 18 rejeitadas + 2 executed CANCELADAS + 1 bloqueada = 21 fora do escopo
+setembro: 99 viagens no inventario de producao
+orfas: nenhuma | duplicadas: nenhuma
+```
+
+A contagem da Verda bateu com a nossa nos dois sentidos: 21 rejeitadas hoje segundo eles, 21 no
+nosso banco.
+
+### 20.7 A trava do `--conferir`
+
+A trava de `--sim-producao` barrava o `--conferir`, que **só lê** (`GetTransaction`) e é justamente
+o comando que se roda DEPOIS de um envio para saber como ele terminou. Mesma inversão que a §18.2 já
+tinha corrigido para o `--so-montar`: a trava existe para que **enviar** em produção seja ato
+deliberado, não para obrigar a digitar a flag de envio só para olhar o resultado — o que acostuma a
+mão a usá-la sem pensar. Corrigido.
+
+---
+
+## 21. O robô semanal
+
+Ligado em 11/09/2026. `verda_auto.py` + uma thread no `server.py`, no padrão do robô de embarques.
+
+```ini
+VERDA_AUTO=true              # liga. SEM isto, não roda
+VERDA_AUTO_DIA=sex           # padrão: sexta
+VERDA_AUTO_HORA_BRT=07:00    # padrão
+VERDA_AUTO_DIAS_RETRO=14     # padrão
+```
+
+Desligar é virar `VERDA_AUTO` no Portainer — sem deploy. **Use `docker service update --env-add`,
+nunca o editor de stack** (§18.3: editar a stack faz o serviço voltar para a imagem antiga).
+
+> **Não vem ligado por padrão**, ao contrário dos outros robôs do sistema. Este manda dado para
+> FORA, para a conta de um fornecedor, e no plano gratuito só fica o consolidado mensal. Subir a
+> imagem não pode significar começar a publicar inventário.
+
+### 21.1 A janela é de 14 dias, não de uma semana
+
+Termina no **domingo fechado** e recua 14 dias — não "a semana passada". A diferença resolve três
+coisas, todas vistas na prática:
+
+- **viagem BLOQUEADA por cadastro só volta a ser montada se a janela passar por cima dela de novo.**
+  Com uma semana exata, o que a §18.4 promete — *"preenchido o ano no 045, elas entram sozinhas na
+  rodada seguinte"* — **simplesmente não aconteceria**: a rodada seguinte olha outra semana.
+- CTRB que consolidou atrasado entra sozinho na rodada de depois.
+- rodada que falhou no meio é recuperada pela próxima.
+
+Custa só tempo de montagem: o que já subiu volta `inalterada` e não sai de novo. A idempotência é
+por (viagem, ambiente) e o hash ignora o `LocalDateTime`.
+
+### 21.2 A orquestração é uma só
+
+`verda_job.rodada()` faz montar → expurgar → enviar → conferir, e **o robô e a linha de comando
+passam pela mesma função**. Uma cópia paralela no agendador seria a forma mais fácil de perder uma
+trava — o teto de lote, o freio de anomalia e o expurgo são exatamente o que não pode faltar quando
+ninguém está olhando.
+
+Para ver o robô rodar sem esperar sexta, com a mesma trava de produção da linha de comando:
+
+```bash
+docker exec $(docker ps -q -f name=rizza-auditoria) \
+  python -X utf8 verda_auto.py --agora --sim-producao
+```
+
+### 21.3 ⚠ A cauda do mês — a exposição que fica
+
+A janela termina no domingo fechado, então **os últimos dias de um mês só sobem na sexta seguinte**:
+
+| sexta | janela | |
+|---|---|---|
+| 02/10 | 14/09 → 27/09 | tudo setembro |
+| **09/10** | 21/09 → 04/10 | **é aqui que 28, 29 e 30/09 sobem** |
+| 16/10 | 28/09 → 11/10 | segunda chance da mesma cauda |
+
+Se a Verda fechar setembro antes de 09/10, essas viagens são recusadas com `Fiscal month isn't
+open.` — o mesmo que derrubou as 18 de 31/08.
+
+**Não dá para consertar sem saber que dia o mês fecha.** Antecipar significaria enviar com menos
+folga de CTRB, trocando um problema conhecido por outro. O que existe hoje é **detecção**:
+`verda_auto._alertas()` reconhece a mensagem e dá linha própria a ela, dizendo que as viagens não
+voltam sozinhas e que o reenvio é pela aba. Quando a data do fechamento for conhecida, o conserto é
+estender `ate` até o fim do mês na primeira rodada do mês seguinte.
+
+### 21.4 O que ainda não existe: aviso ativo
+
+O robô fala no **log do container** e na **aba `/verda`**. Não há e-mail nem WhatsApp — não existe
+helper de notificação neste projeto, e criar um significaria SMTP ou instância nova.
+
+É a fraqueza conhecida deste desenho, e o dia 11/09 mostrou por quê: o inimigo é o silêncio. O card
+**Travadas** mitiga (aparece sozinho e ignora o filtro de data), mas depende de alguém abrir a aba.
+Ligar um aviso semanal na instância de WhatsApp que a Rizza já usa é trabalho curto, e é a próxima
+melhoria natural.
