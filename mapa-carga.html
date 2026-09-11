@@ -147,7 +147,7 @@
       <div class="legenda-row"><span style="font-size:14px;">📍</span> Destinos</div>
       <div class="legenda-row"><span style="font-size:14px;">🚚</span> Posição atual</div>
       <div class="legenda-row" id="legPosFech" style="display:none;"><span style="color:#fb923c;">┈┈</span> Depois do fechamento</div>
-      <div class="legenda-row" id="legSalto" style="display:none;" title="O veículo não pode ter feito o trecho no tempo registrado. A reta âmbar marca o que não foi medido — não é o caminho percorrido."><span style="color:#fbbf24;">┈</span> Salto impossível (trecho não medido)</div>
+      <div class="legenda-row" id="legSalto" style="display:none;" title="Uma das duas posições é falsa — o veículo não pode ter feito o trecho no tempo registrado. A linha do GPS não atravessa; o KM RASTREADOR (odômetro) mede."><span style="color:#fbbf24;">●</span> Salto impossível (linha quebrada)</div>
     </div>
   </div>
 
@@ -415,29 +415,30 @@
           addLayer(L.polyline(sg, { color: '#94a3b8', weight: 3, opacity: 0.9, dashArray: '6,6' }));
         }
       });
-      // A LACUNA PRECISA SER UM OBJETO, NAO UMA AUSENCIA (10/09/2026).
+      // As duas bolinhas de cada corte sao as PONTAS do buraco: o ultimo ponto confiavel
+      // e o primeiro depois do salto. Entre elas nao se desenha nada — antes o tracejado
+      // ligava os dois em reta, e aquela reta afirmava um percurso que nao existiu.
       //
-      // A primeira versao so parava de desenhar no salto — e isso e invisivel: a rota
-      // planejada (azul, weight 4) e desenhada ANTES do trajeto, no MESMO corredor de
-      // estrada, entao o buraco no tracejado apenas revelava o azul por baixo e o olho
-      // lia "linha continua". Foi a primeira coisa que o Gabriel perguntou ao ver na tela.
-      //
-      // Entao o vao ganha traco proprio: ambar, pontilhado ralo, visivelmente diferente do
-      // cinza do trajeto (6,6) e do azul da rota. Ele liga os dois pontos em RETA de
-      // proposito — reta e a forma de dizer "nao sabemos o caminho aqui", que e diferente
-      // de "foi por esta estrada". Sem inventar percurso, e sem sumir.
-      const popSalto = '<strong>Salto impossível</strong><br>O veículo não pode ter feito '
-                     + 'este trecho no tempo registrado — uma das duas posições é falsa.<br>'
-                     + 'A reta âmbar marca o que <em>não</em> foi medido: não é o caminho '
-                     + 'percorrido, e o km dela não entra no total.';
+      // O TEXTO DIZ QUAL INSTRUMENTO AINDA MEDE, e isso importa: a primeira versao dizia
+      // "o km deste trecho nao entra no total", o que e falso quando ha odometro. O
+      // odometro e cumulativo NO APARELHO e nao depende da posicao — numa posicao falsa
+      // ele marca ~0 km, que e a verdade (o veiculo nao se moveu). Quem perde o trecho e
+      // so o haversine do GPS. Sem odometro nos dois lados, ai sim ninguem sabe.
       cortes.forEach(i => {
+        const a = trajPrinc[i], b = trajPrinc[i + 1];
         if (!pts[i] || !pts[i + 1]) return;
-        addLayer(L.polyline([pts[i], pts[i + 1]], {
-          color: '#fbbf24', weight: 2, opacity: 0.85, dashArray: '1,9'
-        }).bindPopup(popSalto));
+        const temOdo = a && b && a.odometer != null && b.odometer != null;
+        const pop = '<strong>Salto impossível</strong><br>'
+          + 'Uma das duas posições é falsa: o veículo não pode ter feito este trecho no '
+          + 'tempo registrado. Por isso a linha do GPS não atravessa aqui.<br>'
+          + (temOdo
+              ? 'O <strong>KM RASTREADOR</strong> mede este trecho — o odômetro é '
+                + 'cumulativo no aparelho e não depende da posição.'
+              : 'Sem odômetro nos dois pontos, este trecho não é medido por nenhum '
+                + 'instrumento.');
         [pts[i], pts[i + 1]].forEach(pp => addLayer(
           L.circleMarker(pp, { radius: 4, color: '#fbbf24', weight: 2, fillOpacity: 0.9 })
-            .bindPopup(popSalto)));
+            .bindPopup(pop)));
       });
       if (cortes.size) {
         const leg = document.getElementById('legSalto');
