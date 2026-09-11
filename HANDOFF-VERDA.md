@@ -1704,6 +1704,25 @@ orfas: nenhuma | duplicadas: nenhuma
 A contagem da Verda bateu com a nossa nos dois sentidos: 21 rejeitadas hoje segundo eles, 21 no
 nosso banco.
 
+### 20.6.1 O painel deles mostrou 101, e por quê
+
+Horas depois do envio, o cabeçalho do painel da Verda mostrava **101 viagens / 83,53 t**, contra
+**99 / 82,79 t** na nossa aba. A diferença era exatamente as 2 viagens de 31/08 canceladas — peso
+(37,3 t) e itens (3) batem na casa decimal com `UDI029048-3` + `UDI029059-9`.
+
+A lista de transações da API (`GetTransaction` por data) explica: no dia havia **101 `executed`**
+= 99 viagens + **2 transações de cancelamento** (o `CancelTransaction` cria uma transação própria,
+§11), mais 2 `canceled` (as originais) e 21 `rejected`. **O cabeçalho conta transações executadas;
+a aba Consolidado conta viagens — e ela mostra 99.** O número que vale é o do Consolidado, e ele
+bate com a nossa aba.
+
+É a lição de [[rizza_verda_aba_do_painel]] pela segunda vez: reconciliação perfeita diz *qual
+recorte* um número é, nunca que seja o único. Antes de acusar diferença, procurar a aba.
+
+> **O plano gratuito de produção NÃO exporta Excel.** O relatório que a §11 descreve foi tirado na
+> conta de homologação. Em produção o único dado por viagem que existe é o da nossa aba `/verda` —
+> mais uma razão para ela recalcular o CO₂e localmente.
+
 ### 20.7 A trava do `--conferir`
 
 A trava de `--sim-producao` barrava o `--conferir`, que **só lê** (`GetTransaction`) e é justamente
