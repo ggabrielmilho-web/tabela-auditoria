@@ -425,13 +425,15 @@ def main():
         # transação errada lá suja um número que ninguém consegue inspecionar
         # depois para conferir se o CancelTransaction limpou de verdade.
         #
-        # `--so-montar` e `--resumo` NÃO passam por aqui: nenhum dos dois fala com
-        # a Verda. O `--so-montar` lê o Power BI e grava pendente no nosso banco,
-        # e o expurgo é pulado. Barrá-lo tirava justamente a conferência que a
-        # trava quer incentivar — dava para ver o lote antes de mandar, e a trava
-        # obrigava a usar a flag de envio real só para poder olhar.
+        # `--so-montar`, `--resumo` e `--conferir` NÃO passam por aqui: nenhum
+        # dos três põe viagem no inventário. O `--so-montar` lê o Power BI e grava
+        # pendente no nosso banco, e o `--conferir` só faz `GetTransaction`, que é
+        # leitura pura — ele é, aliás, o comando que se precisa rodar DEPOIS de um
+        # envio para saber como ele terminou. Barrar qualquer um deles inverte o
+        # propósito da trava: ela existe para que ir a produção seja ato
+        # deliberado, não para obrigar a usar a flag de envio real só para olhar.
         if (cliente.ambiente == 'producao' and not args.sim_producao
-                and not args.resumo and not args.so_montar):
+                and not args.resumo and not args.so_montar and not args.conferir):
             print('!! PRODUÇÃO exige --sim-producao. Valide em homologação primeiro.')
             con.close()
             return 1
