@@ -84,7 +84,13 @@ BASE_FAIXA = 'carga_util'
 
 # Faixas da Verda: (limite superior em t, código). O último é o teto aberto.
 FAIXAS_ARTICULADO = [(33.0, 'articulado_35'), (float('inf'), 'articulado_330')]
-FAIXAS_RIGIDO = [(7.5, 'rigido_35'), (17.0, 'rigido_75'), (float('inf'), 'rigido_170')]
+# ATENÇÃO ao acento: as chaves dos rígidos estão cadastradas na conta da Verda
+# COM acento (`rígido_75`), e a chave é o que vai no `VehicleTypeKey`. Mandar
+# `rigido_75` devolve "Invalid 'VehicleTypeKey'" — foi o que derrubou as 3
+# viagens de rígido do primeiro lote de produção (11/09/2026), enquanto as 113
+# de `articulado_35` passaram, porque "articulado" não tem acento e a diferença
+# não aparece quando se bate o olho na tela de cadastro.
+FAIXAS_RIGIDO = [(7.5, 'rígido_35'), (17.0, 'rígido_75'), (float('inf'), 'rígido_170')]
 
 # Evidência observada
 MIN_VIAGENS_OBS = 5     # viagens mínimas para o peso observado valer como fonte

@@ -38,12 +38,20 @@ FATOR_CO2E = 2.28429
 # faixa de PESO (7,5 a 17 t) e "truck" é configuração de eixos — coisas
 # diferentes com o mesmo nome. Quem lê a tela precisa poder procurar o código na
 # conta da Verda e achar.
+#
+# As duas grafias dos rígidos convivem de propósito: a acentuada é a chave real
+# da conta (e a que o código passa a gerar), e a sem acento é o que ficou
+# gravado no payload das viagens enviadas antes de 11/09/2026. Tirar a antiga
+# faria a tela perder a descrição justamente das linhas históricas.
 DESCRICAO_VERDA = {
     'articulado_35': 'Caminhão articulado - 3,5 a 33 ton',
     'articulado_330': 'Caminhão articulado - acima de 33',
-    'rigido_35': 'Caminhão rígido - 3,5 a 7,5 ton',
-    'rigido_75': 'Caminhão rígido - 7,5 a 17 ton',
-    'rigido_170': 'Caminhão rígido - acima de 17 ton',
+    'rígido_35': 'Caminhão rígido - 3,5 a 7,5 ton',
+    'rígido_75': 'Caminhão rígido - 7,5 a 17 ton',
+    'rígido_170': 'Caminhão rígido - acima de 17 ton',
+    'rigido_35': 'Caminhão rígido - 3,5 a 7,5 ton (grafia antiga)',
+    'rigido_75': 'Caminhão rígido - 7,5 a 17 ton (grafia antiga)',
+    'rigido_170': 'Caminhão rígido - acima de 17 ton (grafia antiga)',
 }
 
 # Uma viagem parada em `enviado` por mais que isto sem veredito é sintoma, não

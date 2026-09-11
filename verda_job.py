@@ -55,6 +55,18 @@ DESVIO_MAXIMO = 0.25
 # dia sem movimento. Sair com "sucesso" nesse caso esconde o problema.
 AVISAR_JANELA_VAZIA = True
 
+# Data em que o inventário da Rizza começa, por decisão da diretoria: nada
+# anterior a 01/09/2026 entra em produção. Não é preferência — é o que a
+# plataforma impõe. Mês fiscal fechado na conta recusa a viagem com
+# "Fiscal month isn't open", e agosto nunca foi aberto: foi assim que as 18
+# viagens de 31/08 do primeiro lote (11/09/2026) foram rejeitadas, enquanto as
+# 101 de setembro passaram na mesma leva — o que prova que o problema é o mês
+# fechado, não lote atravessando a virada.
+#
+# A trava é aqui, na montagem, e não na janela do comando, porque a janela
+# semanal (segunda a domingo) atravessa a virada de mês uma vez por mês.
+DATA_INICIO_INVENTARIO = '2026-09-01'
+
 
 # ════════════════════════════════════════
 # 1. MONTAR
@@ -98,6 +110,17 @@ def montar(con, desde, ate, ambiente='simulado', dados=None):
         aud_ref = (dados['auditoria'].get('%s%s' % (viagem['sigla'], viagem['numero'])) or {})
         d = str(aud_ref.get('dt') or viagem.get('data_emissao') or '')[:10]
         if not (desde <= d <= ate):
+            continue
+
+        # Anterior ao início do inventário: não sobe, e se por acaso já subiu
+        # tem de sair de lá. O `_sair_do_escopo` devolve o transaction_id para
+        # o EXPURGO cancelar — marcar só no nosso banco não tira emissão nenhuma
+        # do inventário deles.
+        if DATA_INICIO_INVENTARIO and d < DATA_INICIO_INVENTARIO:
+            contagem['antes do início'] = contagem.get('antes do início', 0) + 1
+            _sair_do_escopo(con, tid_de(viagem),
+                            'anterior ao início do inventário (%s)' % DATA_INICIO_INVENTARIO,
+                            ambiente, expurgar)
             continue
 
         v, itens, aud = fonte.preparar(viagem, dados)
@@ -187,7 +210,35 @@ def freio_de_anomalia(con, fila, ambiente='simulado'):
     return None
 
 
-def enviar(con, cliente, limite=None, forcar_lote=False, ignorar_freio=False):
+def _transacao_viva(cliente, transaction_id):
+    """A transação ainda ocupa o `TransportationId`?
+
+    Só transação VIVA bloqueia o id (§13). Uma `rejected` já está morta, e
+    tentar cancelá-la devolve `Success: false` — que a trava de segurança lia
+    como "não consegui liberar" e usava para pular a viagem **para sempre**. Foi
+    o que aconteceria com as 3 viagens de rígido rejeitadas por
+    `Invalid 'VehicleTypeKey'` em 11/09/2026: corrigida a chave, elas voltariam
+    à fila e seriam puladas em silêncio, sem nunca entrar no inventário.
+
+    Na dúvida devolve True. Errar para "viva" custa uma viagem pulada, com
+    aviso; errar para "morta" cria uma segunda transação viva no mesmo id e
+    conta a emissão duas vezes — e isso o cliente só descobre numa auditoria.
+    """
+    try:
+        r = cliente.conferir(transaction_id=transaction_id)
+    except verda_client.VerdaErro:
+        return True      # não deu para perguntar: não se decide no escuro
+    if not r:
+        # A Verda não conhece esta transação — e o §17.1 já mostrou o que isso
+        # significa: perguntar por uma transação de homologação com a chave de
+        # produção devolve vazio. Ou seja, "vazio" é "não existe NESTA conta", e
+        # uma transação que não existe aqui não pode estar ocupando o
+        # `TransportationId` aqui. É o caso do id herdado de outro ambiente.
+        return False
+    return r[0]['status'] not in verda_client.STATUS_FINAL_RUIM
+
+
+def enviar(con, cliente, limite=None, forcar_lote=False, ignorar_freio=False, ids=None):
     """Envia os pendentes, cancelando antes o que ainda tem transação viva.
 
     O cancelamento acontece num lugar só: no laço de envio, para qualquer viagem
@@ -198,7 +249,7 @@ def enviar(con, cliente, limite=None, forcar_lote=False, ignorar_freio=False):
     canceladas e nunca reenviadas (01/09/2026).
     """
     ambiente = cliente.rotulo
-    fila = estado.a_enviar(con, limite=limite, ambiente=ambiente)
+    fila = estado.a_enviar(con, limite=limite, ambiente=ambiente, ids=ids)
 
     if len(fila) > TETO_LOTE and not forcar_lote:
         return {}, ('%d viagens na fila, acima do teto de %d por rodada. Rode em janelas '
@@ -219,6 +270,15 @@ def enviar(con, cliente, limite=None, forcar_lote=False, ignorar_freio=False):
         # marcadas 'alterada': a viagem pode ter sido montada numa execucao e
         # enviada em outra, chegando aqui 'inalterada' com a transacao antiga
         # ainda viva. Foi assim que 61 viagens voltaram 'rejected' em 01/09/2026.
+        if linha.get('transaction_id'):
+            # Transação já morta (rejected/canceled) não ocupa o id: não há o que
+            # cancelar, só o vínculo a apagar. Chamar o CancelTransaction aqui
+            # falharia e a viagem seria pulada.
+            if not _transacao_viva(cliente, linha['transaction_id']):
+                estado.limpar_cancelada(con, tid, ambiente)
+                con.commit()
+                contagem['id ja estava livre'] = contagem.get('id ja estava livre', 0) + 1
+                linha['transaction_id'] = None
         if linha.get('transaction_id'):
             try:
                 ok, msg = cliente.cancelar(linha['transaction_id'], tid)
@@ -255,6 +315,31 @@ def enviar(con, cliente, limite=None, forcar_lote=False, ignorar_freio=False):
                     contagem['recusada'] += 1
         con.commit()
     return contagem, None
+
+
+def reenviar(con, cliente, ids):
+    """Devolve à fila e reenvia viagens que travaram, com o payload já montado.
+
+    É o caminho para o travamento que se resolve do OUTRO lado: mês fiscal que
+    abre, tipo de veículo que passa a existir na conta, instabilidade da
+    plataforma. Nesses casos o payload que temos já está certo e remontar seria
+    trabalho à toa — a única coisa errada era o momento.
+
+    **Não serve para conserto de regra nossa.** Se o que mudou foi a montagem
+    (uma chave, uma constante, o cálculo de distância), o payload gravado ainda
+    é o antigo e reenviar repete o mesmo erro: aí o caminho é rodar o job na
+    janela, que remonta, detecta 'alterada' e reenvia com o conteúdo novo.
+    """
+    devolvidas = estado.devolver_a_fila(con, ids, cliente.rotulo)
+    con.commit()
+    if not devolvidas:
+        return {}, ('nenhuma das viagens indicadas está travada — só `rejected` e `erro` '
+                    'voltam para a fila')
+    envio, parada = enviar(con, cliente, ids=devolvidas)
+    if parada:
+        return {}, parada
+    envio['devolvidas a fila'] = len(devolvidas)
+    return envio, None
 
 
 # ════════════════════════════════════════
@@ -379,8 +464,11 @@ def main():
     if alteradas:
         print('   (%d viagens mudaram de conteúdo e serão canceladas e reenviadas)' % len(alteradas))
 
-    if AVISAR_JANELA_VAZIA and not any(contagem[k] for k in
-                                       ('nova', 'alterada', 'inalterada', 'BLOQUEADA')):
+    # 'antes do início' entra na conta para não disparar alarme falso: janela
+    # inteiramente anterior a DATA_INICIO_INVENTARIO não é ETL parado.
+    if AVISAR_JANELA_VAZIA and not any(contagem.get(k) for k in
+                                       ('nova', 'alterada', 'inalterada', 'BLOQUEADA',
+                                        'antes do início')):
         print('\n!! NENHUMA viagem na janela %s a %s. Se era dia útil, suspeite do ETL '
               'de manifestos, não de falta de movimento.' % (desde, ate))
 

@@ -229,7 +229,16 @@ class Verda:
                 'transaction_id': t.get('TransactionKey') or t.get('TransactionId'),
                 'status': (t.get('StatusKey') or '').strip().lower(),
                 'utc': t.get('UTCDate'),
-                'mensagem': t.get('Message') or '',
+                # QUINTA divergência doc × API, e a mais cara até agora: a razão da
+                # rejeição vem em `ErrorMessage`, no próprio objeto da transação —
+                # não em `Message` (pg. 73) nem na lista `ErrorDetail` (pgs. 73-74),
+                # que simplesmente não existem na resposta real. Sem este campo toda
+                # rejeição chega muda, e foi o que aconteceu em 11/09/2026: as 21
+                # recusadas do primeiro lote de produção vieram sem motivo aparente e
+                # a causa ("Fiscal month isn't open" e "Invalid 'VehicleTypeKey'")
+                # levou horas de caça a padrão em peso, ritmo e horário — enquanto a
+                # plataforma dizia o motivo em texto claro.
+                'mensagem': t.get('ErrorMessage') or t.get('Message') or '',
                 'erros': [(e.get('FieldName'), e.get('ErrorDescription'))
                           for e in erros if isinstance(e, dict)],
             })
@@ -365,7 +374,12 @@ def _simular(api, payload):
         'UTCDate': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
         'StatusKey': 'rejected' if erros else 'executed',
         'Message': 'rejeitada na simulação' if erros else 'processada',
-        'ErrorDetail': erros,
+        # A API real devolve a razão em `ErrorMessage`, uma string só — nunca se
+        # viu a `ErrorDetail` da doc preenchida, nem em homologação nem nas 21
+        # rejeições de produção de 11/09/2026. O simulador emite o que a API
+        # emite: espelhar a doc aqui foi o que escondeu quatro bugs em 01/09.
+        'ErrorMessage': '; '.join('%s: %s' % (e['FieldName'], e['ErrorDescription'])
+                                  for e in erros),
     }
     return {'Success': not erros, 'Message': _SIMULADAS[tid]['Message'],
             'TransactionId': tid}

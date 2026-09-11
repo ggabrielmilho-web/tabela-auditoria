@@ -281,20 +281,71 @@ def media_litros_enviados(con, ambiente='simulado'):
         return (float(media), n) if media and n >= 30 else (None, n or 0)
 
 
-def a_enviar(con, limite=None, max_tentativas=5, ambiente='simulado'):
+def a_enviar(con, limite=None, max_tentativas=5, ambiente='simulado', ids=None):
     """Pendentes e as que erraram e ainda têm tentativa sobrando, deste ambiente.
 
     Traz o `transaction_id` junto porque uma viagem na fila pode ainda ter
     transação VIVA na Verda — acontece sempre que a montagem e o envio ocorrem em
     execuções diferentes (`--so-montar` e depois o envio). Enviar por cima é
     recusado: a Verda não aceita `TransportationId` que já tenha transação ativa.
+
+    Com `ids`, restringe a essas viagens — é o que faz o reenvio pela tela mandar
+    só o que foi pedido, em vez de arrastar junto tudo que estiver pendente.
     """
+    where, args = ['status IN (%s, %s)', 'tentativas < %s', 'ambiente = %s'], \
+                  [STATUS_PENDENTE, STATUS_ERRO, max_tentativas, ambiente]
+    if ids is not None:
+        where.append('transportation_id = ANY(%s)')
+        args.append(list(ids))
     with con.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("""SELECT transportation_id, api, payload, transaction_id FROM verda_envios
-                       WHERE status IN (%s, %s) AND tentativas < %s AND ambiente = %s
+                       WHERE {onde}
                        ORDER BY data_viagem, transportation_id {limite}""".format(
-                        limite='LIMIT %d' % limite if limite else ''),
-                    (STATUS_PENDENTE, STATUS_ERRO, max_tentativas, ambiente))
+                        onde=' AND '.join(where),
+                        limite='LIMIT %d' % limite if limite else ''), args)
+        return cur.fetchall()
+
+
+def devolver_a_fila(con, ids, ambiente='simulado'):
+    """Viagem travada volta a `pendente`, com o payload que já estava montado.
+
+    Só mexe no que travou (`rejected` / `erro`). Não toca em `fora_escopo` — de
+    lá se sai por decisão de negócio, e reenviar seria desfazer a decisão sem
+    ninguém pedir — nem em `executed`, que já está no inventário e cujo reenvio
+    contaria a emissão duas vezes.
+
+    O `tentativas = 0` importa: sem ele, uma viagem que já gastou as 5 tentativas
+    voltaria para a fila e o `a_enviar` a ignoraria em silêncio.
+    """
+    with con.cursor() as cur:
+        cur.execute("""UPDATE verda_envios
+                          SET status = %s, tentativas = 0, mensagem = NULL,
+                              erro_detalhe = NULL, atualizado_em = NOW()
+                        WHERE ambiente = %s AND transportation_id = ANY(%s)
+                          AND status IN (%s, %s)
+                    RETURNING transportation_id""",
+                    (STATUS_PENDENTE, ambiente, list(ids), 'rejected', STATUS_ERRO))
+        return [r[0] for r in cur.fetchall()]
+
+
+def travadas(con, ambiente='simulado', desde=None, ate=None):
+    """As que travaram e não voltam sozinhas: `rejected` e `erro`.
+
+    `rejected` nunca reentra na fila do `a_enviar` — é proteção contra retry
+    cego, mas significa que sem ação humana a viagem fica fora do inventário
+    para sempre e ninguém é avisado. Esta lista é o que a tela oferece para
+    reenviar.
+    """
+    where, args = ['ambiente = %s', 'status IN (%s, %s)'], [ambiente, 'rejected', STATUS_ERRO]
+    if desde and ate:
+        where.append('data_viagem BETWEEN %s AND %s')
+        args += [desde, ate]
+    with con.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("""SELECT transportation_id, data_viagem, status, mensagem,
+                              payload->>'VehicleTypeKey' AS tipo
+                         FROM verda_envios WHERE {onde}
+                        ORDER BY data_viagem, transportation_id""".format(
+                            onde=' AND '.join(where)), args)
         return cur.fetchall()
 
 

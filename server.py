@@ -545,6 +545,99 @@ def api_verda():
     return jsonify({'ok': True, **dados})
 
 
+# Reenvio pela tela: quantas viagens uma requisição HTTP aguenta em pé. Cada uma
+# custa ~0,5 s no POST e mais uma chamada para checar se a transação anterior
+# morreu — perto de 1 s por viagem. Acima disto o caminho é o job no terminal,
+# que não tem timeout de navegador.
+TETO_REENVIO_TELA = 30
+
+
+@app.route('/api/verda/travadas')
+@page_required('verda')
+def api_verda_travadas():
+    """As viagens que travaram e NÃO voltam sozinhas para a fila.
+
+    `rejected` nunca reentra no `a_enviar` — proteção contra retry cego. O preço
+    é que, sem alguém olhar, a viagem fica fora do inventário para sempre e em
+    silêncio. Esta lista existe para que o silêncio não seja a única opção.
+    """
+    import verda_estado
+    desde, ate = _janela_verda()
+    ambiente = request.args.get('ambiente') or os.getenv('VERDA_AMBIENTE', 'producao')
+    if request.args.get('tudo'):      # ignora a janela: travada velha continua travada
+        desde = ate = None
+    conn = get_db()
+    try:
+        linhas = verda_estado.travadas(conn, ambiente, desde, ate)
+    except psycopg2.errors.UndefinedTable:
+        conn.rollback()
+        linhas = []
+    finally:
+        conn.close()
+    return jsonify({'ok': True, 'ambiente': ambiente,
+                    'travadas': [dict(r, data_viagem=str(r['data_viagem'])) for r in linhas]})
+
+
+@app.route('/api/verda/reenviar', methods=['POST'])
+@page_required('verda')
+def api_verda_reenviar():
+    """Devolve à fila e reenvia viagens travadas, com o payload já montado.
+
+    Serve para o travamento que se resolve do outro lado — mês fiscal que abre,
+    tipo de veículo que passa a existir na conta. NÃO serve para conserto de
+    regra nossa: aí o payload gravado ainda é o antigo, e o caminho é rodar o job
+    na janela, que remonta antes de mandar.
+    """
+    # Import tardio de propósito: o `verda_job` faz `from server import get_token`,
+    # e importar aqui no topo fecharia o ciclo.
+    import verda_job
+    import verda_client
+    ids = (request.get_json() or {}).get('ids') or []
+    if not ids:
+        return jsonify({'ok': False, 'error': 'nenhuma viagem indicada'}), 400
+    if len(ids) > TETO_REENVIO_TELA:
+        return jsonify({'ok': False, 'error':
+                        '%d viagens de uma vez — o teto da tela é %d. Acima disso use o '
+                        'job no terminal.' % (len(ids), TETO_REENVIO_TELA)}), 400
+    conn = get_db()
+    try:
+        cliente = verda_client.Verda()
+        contagem, parada = verda_job.reenviar(conn, cliente, ids)
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'ok': False, 'error': str(e)}), 500
+    finally:
+        conn.close()
+    if parada:
+        return jsonify({'ok': False, 'error': parada}), 400
+    return jsonify({'ok': True, 'ambiente': cliente.rotulo, 'contagem': contagem})
+
+
+@app.route('/api/verda/conferir', methods=['POST'])
+@page_required('verda')
+def api_verda_conferir():
+    """Pergunta à Verda o veredito das que estão em `enviado`.
+
+    O POST de envio só devolve `TransactionId`; o veredito real vem 1 a 2 minutos
+    depois, e uma viagem pode ser aceita no envio e rejeitada no processamento.
+    Sem este passo a tela mostraria `enviado` para sempre.
+    """
+    import verda_job
+    import verda_client
+    conn = get_db()
+    try:
+        cliente = verda_client.Verda()
+        contagem = verda_job.conferir(conn, cliente)
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'ok': False, 'error': str(e)}), 500
+    finally:
+        conn.close()
+    return jsonify({'ok': True, 'ambiente': cliente.rotulo, 'contagem': contagem})
+
+
 # ── PGR — excesso de velocidade ──────────────────────────────────────
 #
 # Acesso duplo, de propósito: o time interno abre pelo app com o login normal

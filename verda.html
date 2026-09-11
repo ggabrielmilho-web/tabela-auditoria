@@ -184,6 +184,31 @@
     </div>
   </div>
 
+  <!-- Travadas: `rejected` nunca reentra na fila do robô (proteção contra retry
+       cego). Sem este card, a viagem fica fora do inventário para sempre e em
+       silêncio — foi o que quase aconteceu com 21 viagens em 11/09/2026. -->
+  <div class="card" id="cardTravadas" style="margin-bottom:14px;display:none">
+    <h3 id="travTitulo"></h3>
+    <div class="scroll">
+      <table>
+        <thead><tr>
+          <th style="width:34px"><input type="checkbox" id="chkTodas"></th>
+          <th>Viagem</th><th>Data</th><th>Status</th><th>Tipo</th><th>Motivo</th>
+        </tr></thead>
+        <tbody id="tbTravadas"></tbody>
+      </table>
+    </div>
+    <div style="margin-top:11px;display:flex;gap:9px;align-items:center;flex-wrap:wrap">
+      <button class="btn-sm" id="btnReenviar">Reenviar selecionadas</button>
+      <button class="btn-sm" id="btnConferir">Conferir agora</button>
+      <span id="msgTrav" style="font-size:0.76rem;color:var(--text-dim)">
+        reenvia o payload que já está montado — serve para o que travou do lado da Verda
+        (mês fiscal fechado, tipo de veículo ausente). Se a correção foi na nossa regra de
+        montagem, rode o job da janela, que remonta antes de mandar.
+      </span>
+    </div>
+  </div>
+
   <div class="card">
     <h3 style="display:flex;justify-content:space-between;align-items:center">
       <span>Viagens <span class="hint">— clique na linha para ver os CTes</span></span>
@@ -235,6 +260,67 @@ async function carregar(desde, ate) {
   document.getElementById('dash').style.display = 'block';
   if (window.NavPerms) window.NavPerms.montar();
   render();
+  carregarTravadas(desde, ate);
+}
+
+// ── Travadas ──────────────────────────────────────────────────────────────
+// Lista à parte, e não dentro do /api/verda, porque `tudo=1` ignora a janela:
+// travada de semana passada continua travada, e some da tela se o recorte de
+// data mandar. Quem trava tem de aparecer mesmo quando não se está olhando
+// para o dia dela.
+let TRAVADAS = [];
+
+async function carregarTravadas(desde, ate) {
+  try {
+    const r = await fetch(`/api/verda/travadas?desde=${desde}&ate=${ate}&tudo=1`);
+    const d = await r.json();
+    TRAVADAS = (d && d.ok && d.travadas) || [];
+  } catch (e) { TRAVADAS = []; }
+  desenharTravadas();
+}
+
+function desenharTravadas() {
+  const card = document.getElementById('cardTravadas');
+  if (!TRAVADAS.length) { card.style.display = 'none'; return; }
+  card.style.display = 'block';
+  document.getElementById('travTitulo').textContent =
+    `Travadas — ${TRAVADAS.length} viagem(ns) fora do inventário, e não voltam sozinhas`;
+  document.getElementById('tbTravadas').innerHTML = TRAVADAS.map(t => `
+    <tr>
+      <td><input type="checkbox" class="chkTrav" value="${t.transportation_id}"></td>
+      <td><b>${t.transportation_id}</b></td>
+      <td>${t.data_viagem}</td>
+      <td>${t.status}</td>
+      <td>${t.tipo || '—'}</td>
+      <td>${t.mensagem || '(sem motivo registrado)'}</td>
+    </tr>`).join('');
+  document.getElementById('chkTodas').checked = false;
+}
+
+function selecionadas() {
+  return [...document.querySelectorAll('.chkTrav:checked')].map(c => c.value);
+}
+
+async function acaoTravadas(url, corpo, botao, rotulo) {
+  const b = document.getElementById(botao), msg = document.getElementById('msgTrav');
+  const antes = b.textContent;
+  b.disabled = true; b.textContent = 'aguarde…';
+  msg.textContent = 'falando com a Verda — cada viagem leva cerca de 1 s';
+  try {
+    const r = await fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'},
+                               body: JSON.stringify(corpo || {})});
+    const d = await r.json();
+    if (!d.ok) { msg.textContent = '✗ ' + (d.error || 'falhou'); return; }
+    const c = Object.entries(d.contagem || {}).map(([k, v]) => `${k}: ${v}`).join(' · ');
+    // O veredito não vem no envio: o POST devolve só o TransactionId e a Verda
+    // leva 1 a 2 min para decidir. Prometer "enviado ✓" aqui seria mentira.
+    msg.textContent = `${rotulo} — ${c || 'nada a fazer'}. O veredito leva 1 a 2 min; use "Conferir agora".`;
+    aplicar(document.getElementById('dDesde').value, document.getElementById('dAte').value);
+  } catch (e) {
+    msg.textContent = '✗ ' + e.message;
+  } finally {
+    b.disabled = false; b.textContent = antes;
+  }
 }
 
 function render() {
@@ -403,6 +489,26 @@ document.getElementById('btnAplicar').onclick = () =>
   aplicar(document.getElementById('dDesde').value, document.getElementById('dAte').value);
 document.getElementById('btnCsv').onclick = baixarCsv;
 document.getElementById('busca').oninput = desenharTabela;
+document.getElementById('chkTodas').onclick = e =>
+  document.querySelectorAll('.chkTrav').forEach(c => c.checked = e.target.checked);
+
+document.getElementById('btnReenviar').onclick = () => {
+  const ids = selecionadas();
+  if (!ids.length) {
+    document.getElementById('msgTrav').textContent = 'selecione ao menos uma viagem';
+    return;
+  }
+  // Confirmação explícita: é envio para o inventário de verdade, e no plano
+  // gratuito a Verda guarda só o consolidado do mês — transação errada lá suja
+  // um número que ninguém consegue inspecionar depois.
+  const amb = (DADOS && DADOS.ambiente) || '?';
+  if (!confirm(`Reenviar ${ids.length} viagem(ns) para o ambiente "${amb}"?`)) return;
+  acaoTravadas('/api/verda/reenviar', {ids}, 'btnReenviar', 'reenviadas');
+};
+
+document.getElementById('btnConferir').onclick = () =>
+  acaoTravadas('/api/verda/conferir', {}, 'btnConferir', 'conferidas');
+
 document.getElementById('btnCopiar').onclick = () => {
   navigator.clipboard.writeText(DADOS.bloqueadas.map(b => b.placa).join('\n'));
   document.getElementById('btnCopiar').textContent = 'copiado ✓';
