@@ -6,6 +6,7 @@
     python -X utf8 _snapshot_embarques.py diff     snap_20260912_1500  # o que mudou desde o snapshot
     python -X utf8 _snapshot_embarques.py restaurar snap_20260912_1500 --ids 709,731    (--aplicar)
     python -X utf8 _snapshot_embarques.py restaurar snap_20260912_1500 --desde-log '2026-09-12 15:00' (--aplicar)
+    python -X utf8 _snapshot_embarques.py restaurar snap_20260912_1500 --chave  (--aplicar)   # so o que a §24 tocou
 
 O que entra: embarques_cargas, _destinos, _rota, _log, _rastreio_kpi. O que NUNCA entra:
 embarques_posicoes_* e embarques_rastreio_dia — posição é fato bruto (§23.2) e restaurar
@@ -86,6 +87,15 @@ def diff(cur, snap):
     return [r[0] for r in rows]
 
 
+def ids_tocados_pela_chave(cur):
+    """Exatamente o raio de acao da EMBARQUES_CONTINUACAO (§24): carga que ganhou ligacao,
+    local de desengate ou o status Continuada. Nao pega o que o worker/robo fizeram de
+    legitimo no meio-tempo (chegada, saida, carga nova)."""
+    cur.execute("SELECT id FROM embarques_cargas WHERE continua_em IS NOT NULL OR desengate_local IS NOT NULL "
+                "OR status = 'Continuada' ORDER BY id")
+    return [r[0] for r in cur.fetchall()]
+
+
 def ids_do_log(cur, desde):
     cur.execute("SELECT DISTINCT carga_id FROM embarques_cargas_log WHERE editado_em >= %s ORDER BY 1", (desde,))
     return [r[0] for r in cur.fetchall()]
@@ -129,6 +139,7 @@ if __name__ == '__main__':
     ap.add_argument('--nome')
     ap.add_argument('--ids', help='ids separados por vírgula')
     ap.add_argument('--desde-log', help="instante (UTC) a partir do qual o log identifica as cargas tocadas")
+    ap.add_argument('--chave', action='store_true', help='so as cargas tocadas pela EMBARQUES_CONTINUACAO (continua_em / desengate_local / Continuada)')
     ap.add_argument('--aplicar', action='store_true')
     a = ap.parse_args()
     cn = conectar(); cur = cn.cursor()
@@ -140,7 +151,8 @@ if __name__ == '__main__':
         elif a.acao == 'diff':
             diff(cur, a.snap)
         elif a.acao == 'restaurar':
-            ids = [int(x) for x in a.ids.split(',')] if a.ids else ids_do_log(cur, a.desde_log) if a.desde_log else diff(cur, a.snap)
+            ids = ([int(x) for x in a.ids.split(',')] if a.ids else ids_tocados_pela_chave(cur) if a.chave
+                   else ids_do_log(cur, a.desde_log) if a.desde_log else diff(cur, a.snap))
             restaurar(cur, a.snap, ids, a.aplicar)
             if a.aplicar:
                 cn.commit()
