@@ -21,6 +21,15 @@ ARMADILHAS DO ARQUIVO (medidas, não supostas)
 • As 4 flags antigas vêm VERDADEIRO/FALSO (pandas lê como bool).
 • As 2 novas vêm SIM / NÃO / PARCIAL, em texto.
 • `Grupo de Importação` vem vazio na maioria (NaN).
+• Versão de 14/09/2026 ("… - contas.xlsx"): ganhou a coluna `CONTA`, em CÓDIGO
+  REDUZIDO (778), e a tabela guarda CLASSIFICAÇÃO (4.2.2.04.0019) — a tradução
+  é pelo plano, com a MESMA trava da tela (existe + analítica). Conta que não
+  passa fica em branco com o motivo na observação; nunca entra torta.
+• Essa versão também tem 24 sub-linhas de contas POR CONTRATO (consórcio,
+  financiamento) com `Evento` vazio ou em texto ("contas de consórcios do
+  balancete"). Não são eventos: são ignoradas aqui e listadas no fim.
+• `CONTA = "não há"` (5321 SIMPLES) é decisão dela, não erro: fica em branco
+  com observação.
 ═══════════════════════════════════════════════════════════════════════════════
 """
 
@@ -42,8 +51,8 @@ load_dotenv()
 #   servidor   docker exec $CT python importar_eventos_planilha.py /app/eventos.json
 
 PADRAO = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                      '..', 'Rizza', 'EVENTOS COM INFORMAÇÕES.xlsx')
-AUTOR = 'importação da planilha da contadora'
+                      '..', 'Rizza', 'EVENTOS COM INFORMAÇÕES - contas.xlsx')
+AUTOR = 'importação da planilha da contadora (14/09/2026)'
 MINIMO = 50
 
 
@@ -99,9 +108,16 @@ def ler_excel(caminho):
         raise ValueError(f'Colunas ausentes: {faltando}\n'
                          f'   colunas do arquivo: {list(d.columns)}')
 
-    d = d.dropna(subset=['EVENTO'])
+    # Só linha com evento NUMÉRICO é evento. As sub-linhas de contrato têm
+    # `Evento` vazio ou em texto — vão para `extras`, não para a tabela.
+    ev_num = d['EVENTO'].map(lambda v: str(v).strip().replace('.0', '').isdigit()
+                             if not _vazio(v) else False)
+    extras = [(_texto(r.get('DESCRICAO')), _texto(r.get('CONTA')))
+              for _, r in d[~ev_num].iterrows() if not _vazio(r.get('CONTA'))]
+    d = d[ev_num]
     return [{
-        'evento': str(int(r['EVENTO'])).strip(),
+        'evento': str(int(float(r['EVENTO']))).strip(),
+        'conta_reduzida': _texto(r.get('CONTA')),
         'descricao': _texto(r.get('DESCRICAO')),
         'tem_nota': _bool(r.get('TEM NOTA?')),
         'contabiliza_despesa': _enum(r.get('CONTABILIZA DESPESA POR IMPORTACAO SSW')),
@@ -110,7 +126,28 @@ def ler_excel(caminho):
         'importar_fiscal': _bool(r.get('IMPORTAR PARA FISCAL?')),
         'validar_simples': _bool(r.get('VALIDAR SIMPLES?')),
         'grupo_importacao': _texto(r.get('GRUPO DE IMPORTACAO')),
-    } for _, r in d.iterrows()]
+    } for _, r in d.iterrows()], extras
+
+
+def traduzir_conta(cur, reduzida):
+    """Código reduzido da planilha -> classificação da tabela, ou (None, motivo).
+
+    Mesma trava de `/api/contabil/eventos`: existe no plano E é analítica."""
+    if reduzida is None:
+        return None, None
+    t = str(reduzida).strip()
+    if t.endswith('.0'):
+        t = t[:-2]
+    if not t.isdigit():
+        return None, f'planilha: CONTA = "{t}"'
+    cur.execute("SELECT classificacao, analitica FROM contabil_plano_contas "
+                "WHERE codigo_reduzido = %s", (int(t),))
+    r = cur.fetchone()
+    if not r:
+        return None, f'planilha: conta reduzida {t} não existe no plano carregado'
+    if not r[1]:
+        return None, f'planilha: conta reduzida {t} ({r[0]}) é sintética'
+    return r[0], None
 
 
 def main():
@@ -126,11 +163,12 @@ def main():
               '[--exportar saida.json] [--force]')
         sys.exit(1)
 
+    extras = []
     if caminho.lower().endswith('.json'):
         with open(caminho, encoding='utf-8') as f:
             eventos = json.load(f)
     else:
-        eventos = ler_excel(caminho)
+        eventos, extras = ler_excel(caminho)
 
     if len(eventos) < MINIMO:
         print(f'❌ Só {len(eventos)} eventos lidos (mínimo {MINIMO}). Abortando.')
@@ -158,19 +196,28 @@ def main():
         cur.close(); conn.close()
         sys.exit(0)
 
-    linhas = [(
-        e['evento'], e['descricao'],
-        None, None,                                   # contas: ela preenche na tela
-        e['tem_nota'], e['contabiliza_despesa'], e['contabiliza_provisao'],
-        e['aproveita_credito'], e['importar_fiscal'], e['validar_simples'],
-        e['grupo_importacao'], AUTOR,
-    ) for e in eventos]
+    # A conta da planilha é UMA por evento e vai em `conta_debito`: é "a conta
+    # do evento" da mecânica (despesa quando DESPESA=SIM; o que o pagamento
+    # debita quando PROVISÃO=NÃO). A contrapartida é conta fixa, não vem daqui.
+    linhas, recusadas = [], []
+    for e in eventos:
+        conta, motivo = traduzir_conta(cur, e.get('conta_reduzida'))
+        if motivo:
+            recusadas.append((e['evento'], e['descricao'], e.get('conta_reduzida'), motivo))
+        linhas.append((
+            e['evento'], e['descricao'],
+            conta, None,
+            e['tem_nota'], e['contabiliza_despesa'], e['contabiliza_provisao'],
+            e['aproveita_credito'], e['importar_fiscal'], e['validar_simples'],
+            e['grupo_importacao'], motivo, AUTOR,
+        ))
 
     execute_values(cur, """
         INSERT INTO contabil_evento_conta
             (evento, descricao, conta_debito, conta_credito, tem_nota,
              contabiliza_despesa, contabiliza_provisao, aproveita_credito,
-             importar_fiscal, validar_simples, grupo_importacao, usuario_nome)
+             importar_fiscal, validar_simples, grupo_importacao, observacao,
+             usuario_nome)
         VALUES %s
     """, linhas)
     conn.commit()
@@ -186,7 +233,15 @@ def main():
         prov[l[6]] = prov.get(l[6], 0) + 1
     print('   CONTABILIZA PROVISÃO: ' + ', '.join(f'{k or "(vazio)"}={v}'
                                                   for k, v in sorted(prov.items(), key=lambda x: -x[1])))
-    print('   contas ficam em branco — é o que ela vai preencher na tela.')
+    com_conta = sum(1 for l in linhas if l[2])
+    print(f'   conta_debito preenchida: {com_conta} · em branco: {len(linhas) - com_conta}')
+    for ev, desc, red, motivo in recusadas:
+        print(f'   ⚠ {ev} {desc[:40]:40} CONTA={red!s:8} -> {motivo}')
+    if extras:
+        print(f'   {len(extras)} sub-linhas de conta POR CONTRATO ignoradas '
+              '(não há tabela para elas ainda):')
+        for desc, conta in extras:
+            print(f'      {conta!s:>6}  {desc}')
 
     cur.close()
     conn.close()

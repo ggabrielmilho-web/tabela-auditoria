@@ -1,7 +1,7 @@
 # Handoff — Módulo Contábil
 
-Estado em **20/08/2026**. Documento de retomada: quem pegar o projeto daqui deve
-conseguir continuar sem reler conversa.
+Estado em **15/09/2026** (números de base de 20/08/2026; §11 é a rodada de 15/09). Documento
+de retomada: quem pegar o projeto daqui deve conseguir continuar sem reler conversa.
 
 > Todos os números deste documento foram **remedidos contra a fonte em 20/08/2026**. A base é
 > viva: o que não muda são as identidades e as armadilhas do §5; o que muda são os valores.
@@ -147,8 +147,8 @@ R$ 25,5 mi é tudo que o teto exclui. Ver `server.py:filtro_ref_477()`.
 ⚠ **A trava `LEN = 7` não pega o REF malformado da base.** O valor é `'20ES/6 '`, **com espaço
 à direita** — tem exatamente 7 caracteres e passa. Quem o barra é o **teto**, porque na
 comparação de texto `20E…` fica acima de `2026/08`. A trava de `LEN` segue valendo contra
-outras deformações, mas não é ela que resolve este caso — a docstring de `filtro_ref_477()`
-ainda diz que é, e está errada.
+outras deformações, mas não é ela que resolve este caso (a docstring de `filtro_ref_477()`
+diz isso corretamente).
 
 **5.3 · Analítica é FOLHA da árvore, não "tem N níveis".** O plano mistura profundidades:
 `1.1.1.02.003` e `4.1.6.01.0013` têm 5 níveis, mas `4.1.6.01` tem 4 e é sintética. Contar
@@ -215,6 +215,7 @@ carga parcial o global derruba a conta que faltou e o saldo dela some calado, e 
 ```
 contabil_plano_contas    312 contas · 218 analíticas · 65 destino de despesa/receita
 contabil_evento_conta     97 eventos · APPEND-ONLY · valor corrente = linha mais nova
+                          2 cargas (18/08 sem conta; 15/09 com conta — §11) · 88/97 com conta
 contabil_conta_fixa       14 linhas · 12 preenchidas · 2 pendentes
 ```
 
@@ -232,7 +233,7 @@ a ordem de grandeza.
 441   4.296 faturas · 9.568 CTRCs · pago R$ 42.202.382,50
 571   503 ACNIs em 533 linhas · em aberto R$ 272.556,31
 477   escopo 2026/01–2026/08: R$ 46.481.697,18 · 90 eventos · 17.492 lançamentos
-      precisam de conta: 60 eventos · R$ 13.807.339,84 · preenchidos: 0
+      precisam de conta: 60 eventos · R$ 13.807.339,84 · preenchidos: 51 (§11)
 pontes  456×477 = 100% · 441×455 = 99,9% · 479×477 = 0 divergências · evento×cadastro 90/90
 ```
 
@@ -249,16 +250,20 @@ a tabela crua dá R$ -8.685.893,62, que é o mesmo número visto três vezes.
 
 | Pendência | Peso |
 |---|---|
-| Preencher a conta contábil dos 60 eventos em `/contabil/eventos` — **nenhum preenchido até agora** | R$ 13,8 mi |
-| **`2.1.3.01.001` tem 2 códigos reduzidos** — 166 FORNECEDOR SC × 506 FORNECEDORES DIVERSOS. O arquivo referencia por código, então é escolha obrigatória. O `seed_plano_contas.py` hoje **fica com o maior (506) e avisa** no carregamento; confirmar 506 ou mudar a regra do seed | contrapartida de **90% dos lançamentos** (76% do valor) |
+| ~~Preencher a conta dos 60 eventos~~ — **51 vieram na planilha de 14/09 (§11)**; faltam 3 com conta fora do plano e 5 de contrato | R$ 2,45 mi |
+| ~~`2.1.3.01.001` 166 × 506~~ — **resolvido por uso**: ela escreveu 506 nas 37 linhas de fornecedores | — |
+| **Plano atualizado**: as contas 664 (5099), 773 (5217) e 352 (5501) não existem no `rizza para teste.xls` — padrão de conta criada depois; pedido em 15/09 | R$ 0,39 mi |
+| **Contas dos 12 contratos sem correspondência** — planilha `Contratos 2026 - consorcios e financiamentos.xlsx` enviada em 15/09 (§11.3) | R$ 0,45 mi |
 | Criar **TRIBANCO** e **CAIXA PAMBANK** no plano — hoje não existe gaveta | trava o pagamento dessas contas |
-| As regras dos **6 eventos PARCIAL** — ela disse que vai passar | R$ 1,75 mi (3,8%) |
+| ~~As regras dos 6 eventos PARCIAL~~ — **decisão de 15/09: considerar o que está na planilha** (506, ver §11.2) | R$ 1,81 mi |
 
 ### Depende de nós
 
 | Item | Nota |
 |---|---|
-| **Gerador do arquivo `Z;...`** | as 3 entradas existem; falta o de-para preenchido |
+| **Tabela de de-para POR CONTRATO** `(evento, numlancto) → conta`, append-only, com `nfiscal`/fornecedor de apoio — hoje as 24 contas de contrato dela não têm onde morar (§11.3) | esperar a planilha voltar preenchida |
+| **Gerador do arquivo `Z;...`** | resolve conta em 2 níveis: contrato primeiro, evento depois; 95% do valor já tem conta |
+| **Carga da planilha de 14/09 em produção** — feita só no banco local (`importar_eventos_planilha.py`, autor `…(14/09/2026)`) | `--exportar eventos.json` → `docker exec` |
 | **Regras de classificação do 456 → tabela** | hoje é `_SWITCH_REGRA_456` no código, e **já mudou uma vez** (a regra do `CREDITO VIA RET BCO` estava presa à origem `BCO` e deixava R$ 2,7 mi fora). Formato: ordem · origem · padrão no histórico · classificação, primeira que casar ganha |
 | **Modelo do histórico do lançamento** | o `2` e o texto do complemento são convenção dela |
 | Rotação de log da `logs_contabil\` no servidor de automação | pasta nova |
@@ -309,7 +314,9 @@ ssw_relatorio {456,441,571,479}.py + ssw_*_postgres.py
 ### Arquivos da contadora (fora do git)
 
 ```
-Rizza/EVENTOS COM INFORMAÇÕES.xlsx   97 eventos × 9 colunas — a especificação
+Rizza/EVENTOS COM INFORMAÇÕES.xlsx            97 eventos × 9 colunas — a especificação (17/08)
+Rizza/EVENTOS COM INFORMAÇÕES - contas.xlsx   + coluna CONTA (reduzido) + 24 contas por contrato (14/09)
+Rizza/Contratos 2026 - consorcios e financiamentos.xlsx   os 25 contratos do 477, enviada a ela em 15/09
 Rizza/rizza para teste.xls           o plano de contas (312 contas)
 Rizza/PARA GABRIEL.xlsx              regras de classificação do 456 e das datas
 Rizza/PARA GABRIEL - MODELO IMPORTAÇÃO.txt   layout do Z;... (exemplo, códigos fictícios)
@@ -350,3 +357,73 @@ Travas que devem devolver **400**: conta que não existe no plano; conta sintét
 
 **Permissão:** usuário com `paginas_permitidas = ['contabil']` deve ver só esta aba — a
 contadora é externa e não pode enxergar Auditoria, DRE, Veículos nem PGR.
+
+---
+
+## 11. Rodada de 15/09/2026 — a planilha de contas chegou
+
+Em 14/09 ela devolveu `EVENTOS COM INFORMAÇÕES - contas.xlsx`: **mesmos 97 eventos, nenhuma
+flag mudou** (conferido coluna a coluna), + coluna `CONTA` em **código reduzido** + 24 sub-linhas
+de conta **por contrato**. Junto veio a mensagem: empréstimo/parcelamento são eventos unificados
+no SSW mas cada contrato tem conta própria na contabilidade; ela quer ver com o Camilo se criam
+mais eventos. **Não afirmamos nada sobre isso** — ela é a contadora; mandamos o que os dados
+mostram (§11.3) e esperamos.
+
+Medido contra o 477 no escopo 2026/01→09 (base local de 14/08: R$ 47,26 mi, 90 eventos):
+
+```
+37 eventos que não precisavam de conta  -> todos 506               R$ 32,39 mi   68,5%
+51 dos 60 que precisavam                -> analítica válida         R$ 12,42 mi   26,3%
+ 4 com conta fora do plano que temos    -> 664, 773, 352, "não há"  R$  0,39 mi
+ 5 de contrato                          -> vazias (é por contrato)  R$  2,06 mi
+```
+
+Zero sintética, zero digitação torta, zero regressão. **95% do valor resolvido em nível de evento.**
+
+### 11.1 · O que a coluna CONTA significa
+
+Uma conta por evento serve os três casos da mecânica (§4): com `DESPESA = SIM` é a conta de
+despesa (grupo 4); com `PROVISÃO = NÃO` é **o que o pagamento debita** — e ela deu passivo/ativo,
+não despesa: 5108 ICMS → `ICMS A RECOLHER`, 5148 → `SALÁRIOS A PAGAR`, 5147 → `ADIANTAMENTO DE
+SALÁRIO`, 5517 → `VEÍCULOS`, 5503 → conta-corrente do sócio. Coerente: a provisão nasce na folha
+ou no fiscal por outra via; o SSW só baixa. Vai em `conta_debito`; a contrapartida é conta fixa.
+
+### 11.2 · Decisões desta rodada
+
+- **PARCIAL = 506, considerar como está.** Os 6 PARCIAL vieram com 506; na mecânica isso equivale
+  a NÃO (a competência daria `D 506 / C 506`). Decisão do Gabriel em 15/09: seguir a planilha, não
+  perguntar. Se a regra dos PARCIAL vier um dia, é linha nova na tabela.
+- **Conta fora do plano fica em branco com o motivo na observação**, nunca entra torta. O
+  importador aplica a mesma trava da tela (existe + analítica). Provável que o `rizza para teste.xls`
+  esteja velho (o plano tem 661/662 e pula 664; tem 774 e não 773; 350 → 353 sintética) — pedimos
+  o plano atualizado em vez de corrigir na mão.
+- **5321 SIMPLES = "não há"** é decisão dela (Rizza não é Simples, zero no escopo), não erro.
+- **5228 DIÁRIAS** veio `DESPESA = NÃO`, `PROVISÃO = NÃO`, conta 506: ninguém credita fornecedores
+  e o pagamento debita 506 (R$ 307 mil). É dedução nossa de partida dobrada, **não foi perguntado**
+  — deixar a prévia do arquivo mostrar; ela corrige vendo o lançamento.
+
+### 11.3 · Contratos: a chave já existe no 477
+
+Para 5512 consórcio, 5313 empréstimos, 5513 FINAME, 5515 CDC e 5518 capital de giro a conta é
+**do contrato**. No 477, o contrato é o **`numlancto`** (parcelas 01..N) e **`nfiscal` carrega o
+número do contrato/cota** — o mesmo número que ela escreveu na descrição das contas
+(`5525366` → "CONSORCIO BB AMAROK … 5525366" = 1367). `historico_da_despesa` vem vazio.
+
+25 contratos no escopo (R$ 2,06 mi): **7 casam exato** pelo número (R$ 0,51 mi), **6 prováveis**
+(3 por 1 dígito de diferença — `179139546` × "CDC **1790**139546", `20469` × "ITAU **0**2469"; 3 por
+fornecedor único — MAGGI, RANDON, capital de giro BB), **12 sem pista** (4 cotas BB, ARACOOP,
+FINAME BB e ITAU, ITAUCARD, SAFRA ×2, ADAUTO PIRES pessoa física). 17 das 24 contas dela não
+têm uso em 2026 — contratos antigos do balancete, não erro.
+
+Enviada a ela em 15/09 a planilha `Contratos 2026 - consorcios e financiamentos.xlsx` com os 25
+(fornecedor, nº lançamento, nº contrato, parcelas, valor; 7 "casou", 6 "a confirmar", coluna em
+branco para ela). Quando voltar: criar a tabela `(evento, numlancto) → conta` e o gerador resolve
+em dois níveis (contrato → evento). ⚠ Não decidir por ela se cria evento no SSW ou não.
+
+### 11.4 · O que mudou no código
+
+`importar_eventos_planilha.py`: lê `CONTA`, traduz reduzido → classificação pelo plano com a trava
+da tela, ignora as sub-linhas de contrato (evento vazio ou em texto) e lista tudo no fim. Autor da
+carga: `importação da planilha da contadora (14/09/2026)` — o check de "já importou" é por autor,
+então a carga nova entra sem `--force` e a de agosto fica no histórico. **Rodado só no banco
+local**; em produção falta `--exportar` + `docker exec`. Testes: 17 ok.
