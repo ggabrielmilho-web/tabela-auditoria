@@ -18,7 +18,8 @@ ARMADILHAS DO ARQUIVO (medidas, não supostas)
 • A coluna da provisão vem como  " CONTABILIZA PROVISÃO"  — com aspas E espaço
   à esquerda no próprio nome. Sem limpar, o KeyError é na hora.
 • `Evento` vem numérico (2000) e a chave do cruzamento é texto ('2000').
-• As 4 flags antigas vêm VERDADEIRO/FALSO (pandas lê como bool).
+• As 4 flags antigas vêm VERDADEIRO/FALSO (pandas lê como bool) — na versão de
+  14/09 vêm 0.0 / 1.0 (float). `_bool` aceita os dois.
 • As 2 novas vêm SIM / NÃO / PARCIAL, em texto.
 • `Grupo de Importação` vem vazio na maioria (NaN).
 • Versão de 14/09/2026 ("… - contas.xlsx"): ganhou a coluna `CONTA`, em CÓDIGO
@@ -83,6 +84,8 @@ def _bool(v):
         return None
     if isinstance(v, bool):
         return v
+    if isinstance(v, (int, float)):        # planilha de 14/09: 0.0 / 1.0
+        return bool(v)
     t = _sem_acento(v).strip().upper()
     return True if t in ('VERDADEIRO', 'TRUE', 'SIM', '1') else \
         (False if t in ('FALSO', 'FALSE', 'NAO', '0') else None)
