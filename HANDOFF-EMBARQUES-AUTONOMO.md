@@ -1,6 +1,14 @@
 # Handoff — Painel de Embarques autônomo
 
-**Estado em 14/09/2026 (noite) — ⚠ COMECE PELA §25.** Sessão só de leitura e teste: **nenhum
+**Estado em 15/09/2026 (noite) — ⚠ COMECE PELA §26.** Laboratório de um dia inteiro (banco
+`rizza_lab` = cópia de produção das 09:16) e **deploy em produção às 17:07** do pacote provado
+lá (`e9a2be2`, tag de volta `pre-lab-2026-09-15`): guarda da §25.3, posição falsa fora da
+evidência, janela do atemporal 28 d, pernas curtas, e dois módulos novos **desligados**
+(`EMBARQUES_RECONCILIACAO`, `EMBARQUES_COLETA`). Comparação carga a carga com a rodada de
+produção das 16:30: 98 comparáveis, **0 regressões** (§26.6). O que ligar em seguida e como
+está na §26.8.
+
+**Antes disso — 14/09/2026 (noite), §25.** Sessão só de leitura e teste: **nenhum
 código nem variável foi alterado** por ela. O que mudou em produção foi a **extração do SSW, que
 passou a rodar 8×/dia** (feito em outro chat); o robô segue com defasagem de 1 dia e a geração de
 cargas não mudou (§25.1). A conferência do dump de produção (§25.2) achou **um defeito real** —
@@ -3937,3 +3945,151 @@ e ajustar o caminho `SP` no topo. Os `conferencia_prod*` leem só o dump.
 3. Decidir sobre **§25.4** (`EMBARQUES_ATEMPORAL_DIAS=28`).
 4. Confirmar com o time se `coletas_0157` acumula ou é janela móvel (define se a fita precisa guardá-la).
 5. A validação das cargas pendente continua valendo: aferidor e `diff` depois de cada rodada diária.
+
+
+---
+
+## 26. O laboratório de 15/09/2026 e o deploy do pacote
+
+> **Comece por aqui se está retomando.** Um dia inteiro num banco local que é cópia de
+> produção (`rizza_lab`), servidor local em :5000 com disparo manual, e no fim o pacote
+> **subiu para produção às 17:07 BRT** (`e9a2be2`, tag de volta `pre-lab-2026-09-15`). A
+> memória `rizza_embarques_lab_20260915` tem o mesmo conteúdo em forma de lista; aqui fica o
+> que importa para continuar.
+
+### 26.1 O laboratório — como foi montado e como reproduzir
+
+```bash
+# no servidor: dump restaurável de tudo que é embarques_* + IBGE (25 MB, sem backfill na 3S)
+docker exec $PG pg_dump -U postgres -d rizza_auditoria -Fc --no-owner --no-privileges \
+    -t 'embarques_*' -t 'municipios_ibge' -f /tmp/emb_A.dump
+# local: banco novo por template (usuários e tabelas auxiliares vêm do banco local)
+psql -c "CREATE DATABASE rizza_lab TEMPLATE postgres"
+pg_restore -d rizza_lab --clean --if-exists --no-owner emb_A.dump    # 2 FKs (clientes/users) falham: ok
+# servidor do lab — só eu disparo
+DB_NAME=rizza_lab START_WORKER=false EMBARQUES_AUTO=false EMBARQUES_ATEMPORAL=false \
+  EMBARQUES_CONTINUACAO=true EMBARQUES_RECONCILIACAO=true EMBARQUES_COLETA=true python -X utf8 server.py
+```
+
+Pasta `lab_20260915/` (gitignorada por `lab_*/` — tem dado de cliente e o `env_A.txt` traz a
+senha da 3S): dumps A/B, `local/` com todas as rodadas (`auditoria_r0..r3c`, `atemporal_*`,
+`fita_r3..r5`, `diario_r3/r5`, `remessa_locais.csv`) e `refresh_atuais.sql` (repovoa
+`embarques_posicoes_atuais` depois de cada `backfill_historico.py` — sem isso o card "posição
+atual" mente no lab, §12.11).
+
+**Armadilhas do lab que custaram rodada:** `_snapshot_embarques.py restaurar --desde-log`
+espera hora **local** (o log grava `NOW()` local); `diff` sem `--ids` tem um bug de WHERE
+vazio; matar um `server.py` pelo PID derruba os irmãos; o `print` da thread fica no buffer com
+stdout redirecionado (e isso vale para o container — daí `PYTHONUNBUFFERED=1`).
+
+### 26.2 O que foi provado e SUBIU (sem chave — vale desde o próximo ciclo)
+
+| item | prova |
+|---|---|
+| **guarda §25.3** — `Desengatada` só anda para `Entregue` | briga reproduzida com escrita (diário desengata, atemporal devolve, 4 rodadas); com a guarda, par diário×atemporal em 0 → 0; C-883 `Desengatada → Entregue` continua passando |
+| **`R1`** no aferidor (status regrediu por robô, pelo log) | acende 3 na base de produção (13–14/09); ignora "manifesto voltou" |
+| **posição falsa fora da evidência** — `embarques_regua.sem_posicao_falsa` no atemporal e no aferidor | C-902: rastreador ressuscitado mandou "Uberlândia" e 3 min depois "Bom Jesus do Amparo" (513 km, odômetro parado) → saída fabricada; a `perna_impossivel` (§23.3) **só era usada pelo mapa**. Com o filtro: 17 chegadas recalculadas, 0 status, converge em 2 |
+| **relógio UTC** no atemporal/aferidor | `datetime.now()` era BRT no Windows contra posições UTC → 3 h cegas no lab (C-908 "não abria"); no container é idêntico |
+| **`EMBARQUES_ATEMPORAL_DIAS=28`** | a §25.4 reproduzida ao vivo: o ciclo automático empurrou V-026/073/109 de 14/08 para 15–16/08 (janela 40 d > retenção 30 d) |
+| **pernas curtas** — `MIN_KM=0` no gerador | amostra de 6 carretas: onde a perna existe o encadeamento fecha exato (6/6, GPS confirma); os "buracos" eram reposicionamentos < 50 km descartados. Decisão do Gabriel: viagem vazia curta é viagem vazia, sem rótulo. `HIG4A80` ficou contígua (V-144..147, GPS 40–54 km) |
+| badge "Concluída" → **"Viagem vazia"** | pedido da diretoria; rótulo, status intacto |
+| `PYTHONUNBUFFERED=1` | `CMD ["python","server.py"]` sem `-u`: os `✅ Embarques auto` nunca chegavam ao `docker logs` (§24.8 "a prova veio do banco") |
+
+### 26.3 O que subiu DESLIGADO (ligar um por dia, §26.8)
+
+**`EMBARQUES_RECONCILIACAO`** — `embarques_reconciliacao.py`, hook em `executar()` logo após
+`garantir_colunas`. Manifesto que sumiu do 916 (cancelado — **o 916 não traz cancelado, o
+Gabriel testou à mão**) → carga do robô vira `Cancelada (manifesto_cancelado)`; voltou → status
+anterior lido do log. Guardas: só robô, nunca editada à mão, sem `continua_em`, mês corrente,
+**teto 3 por rodada** (extração truncada aborta com aviso). Simulado no lab: cancela, pós-diário
+converge, reabre sem duplicata, 6 sumiços de uma vez → abortado, chave off → byte a byte.
+Medido: 0 manifestos sumiram desde 01/08 com defasagem 1 (cancelamento é intradiário); a fita
+pegou o **primeiro sumiço real** às 16:39 — o CTe `UDI416208-1` (Nestlé, sem manifesto).
+Contador próprio `resumo['reconciliacao']` (`fechadas` é sobrescrito por `fechar_pendentes`).
+
+**`EMBARQUES_COLETA`** — `embarques_coleta.py`, depois de criar, só preenche campo vazio de
+carga do robô: `coleta_origem`, `coleta_via` (`cte` = `ctrc_gerado → primeiro_manifesto`,
+exata; `placa` = cavalo **e** carreta + janela, reserva), `embarcador` (`comandada_por` /
+`cadastrada_por` — renato · pablo · rafael; **`solicitante` é o cliente**), `origem_cnpj` /
+`destino_cnpj` / `*_endereco` (texto, do cadastro `locais`), `coleta_conferencia`
+(divergências carreta/cavalo/motorista → classe **`L1`** do aferidor). A coluna "Embarcador" do
+relatório mostra a pessoa quando há ordem ligada.
+
+Regra de local validada em 40 cargas contra o GPS (`remessa_locais.csv`):
+```
+origem  = coleta.reme_cnpj  ∨  cte.cnpj_expedidor  SE perna == primeiro_manifesto E cidade == CTRB
+destino = cte.cnpj_recebedor SE perna == ultimo_manifesto E cidade_entrega == CTRB
+          (destino da COLETA NÃO é o da perna: GPS parou onde o CTRB dizia em 12 de 13)
+```
+O SSW **copia** remetente→expedidor (93%) e destinatário→recebedor (54%) quando não informados;
+a guarda de cidade separa "copiado e físico" (indústria: a fábrica é o remetente) de "copiado e
+fiscal" (**Martins**: 147 de 149 CTes com `UBERLANDIA → UBERLANDIA`; o ponto físico só existe na
+coleta — filiais `…001003` Hidrolândia, `…000175` GO, `…001936` Serra).
+`ctrc_gerado` aparece **exatamente** quando a filial executa a coleta pela ordem (100 com / 0
+sem `coletada_em`); CAR quase nunca executa (5 de 22) → liga só por placa.
+
+### 26.4 Ferramentas novas (no repo, não agendadas)
+
+| arquivo | papel |
+|---|---|
+| `_fita_documentos.py` | retrato do BI por refresh → `fita_documentos` (manifesto/coleta/CTRB/CTe) + diff entre rodadas; hash ignora `data_importacao`, `periodo_*`, `emitido_em`, `observacao` (ruído). `--locais` só reconstrói o cadastro. **É o Passo 0 da §25.8; falta agendá-la** (thread no servidor vigiando `data_importacao`, atrás de `EMBARQUES_FITA`, ou 5º passo do `.bat` da Rizza) |
+| `_locais.py` | `locais_fontes` (CNPJ 14 dígitos × fonte) + view `locais` (rua > CEP > fonte > recente). Expedidor com rua 99,4% dos CTes; recebedor 65,8% — o buraco é **um** CNPJ (MERIO, cross-dock do Rio, 947 CTes) → cadastro `manual`. Coordenada NULL; **nenhuma régua lê** (§21.4) |
+| `_programacao.py` + `/embarques/ordens` (`embarques-ordens.html`, `/api/embarques/ordens`) | ordens de coleta com **estado derivado** (`carga` · `documento emitido` · `aguardando manifesto` · `vencida sem documento` · `sem veículo` · `cancelada`) — a `situacao` do SSW não fecha sozinha (57 COMANDADAS vencidas). N ordens → 1 carga via manifesto. Página vazia sem a tabela |
+
+### 26.5 O ciclo automático testado pelo agendador
+
+`EMBARQUES_AUTO_HORA_BRT=14:15`, defasagem 0, atemporal ligado: a thread disparou às 14:22:53
+(checa de 10 em 10 min), diário → 4 subprocessos → dry-run 0 nos dois motores. Nenhum `⚠`.
+Duas decisões certas (C-866 `Entregue` por 24 h a 9 km; C-878 `No destino` por metrópole) e
+três erradas **pela janela de 40 d** (as pernas de agosto acima) — que é o que virou o `=28`.
+
+### 26.6 A comparação com produção (16:30 de 15/09) — o gate "zero regressão"
+
+98 cargas comparáveis pelo `manifesto_origem`, criação idêntica (14 = 14), 0 manual tocada.
+90 iguais; as 8 diferentes, uma a uma:
+
+| classe | cargas | quem está certo |
+|---|---|---|
+| densidade de dado (backfill 100% × polling 81%) | C-840 (20 min), C-864, C-910, C-911 | lab, com o ponto parado na mão |
+| defasagem 0 (lab viu manifesto de hoje) | C-848 `Entregue (manifesto_novo)`, C-865 `Desengatada` | os dois — produção faz o mesmo amanhã |
+| worker ao vivo × atemporal (§21.2) | C-876, C-884 (worker concluiu ao sair dos 5 km; motor espera 30 km) | produção converge para o valor do lab na rodada seguinte |
+
+### 26.7 O que o dia mediu e NÃO aplicou (candidatas, com número)
+
+- **Exclusividade do cavalo por documento**: quando o sensor é o cavalo, posições dentro da
+  janela de outra carga do mesmo cavalo com outra carreta não são evidência — **desde que essa
+  janela seja provada por GPS** (a C-441 ficou aberta 19 d sem prova e cegaria 3 cargas boas).
+  Alcance: 8 cargas (C-913 ← C-852 é o caso limpo: a ida a Brasília estava documentada).
+- **"Afastamento definitivo"** (parada sustentada ≥ 2 h de volta no raio da origem invalida a
+  saída): 11 cargas — mas **8 são carreta carregando na doca dentro do anel de 30 km**, que o
+  endereço resolve sem regra nova; 3 são cavalo. Gabriel: não mexer na régua de saída agora
+  (move perna, piso da chegada e km de uma vez).
+- **Pré-janela 36 h** em vez de 12 h: ganha 1 carga em 341 (C-909, rastreador 33 h mudo); falsa
+  só a partir de 120 h. Não vale a régua.
+- Geocodificar os endereços do cadastro (Nominatim para o teste, ORS/geocode tem cota própria):
+  aguardando ok; depois medir parada real × endereço × centroide e só então âncora **aditiva**.
+- `QXG2G51` (C-906): GPS "parada em Santa Juliana desde 13/09" enquanto a coleta e o manifesto
+  a põem em Serra→Caratinga e uma nova ordem em Manhuaçu — tudo aponta para **rastreador
+  cadastrado na placa errada na 3S** (5 cargas, 0 pernas, 3 janelas degeneradas). Perguntar à 3S.
+- `_testar_regras_fechamento.py` dá **14/15 com `EMBARQUES_CONTINUACAO=true`** (o bloco 0 espera
+  o comportamento antigo, que a §24.4 mudou) e 15/15 com `false` — pré-existente, atualizar o teste.
+
+### 26.8 Produção agora, e a ordem para retomar
+
+Imagem `e9a2be2` no ar desde 17:07 (conferida dentro do container: guarda, `sem_posicao_falsa`,
+`MIN_KM = 0`, os dois módulos). Env: `EMBARQUES_AUTO=true · JANELA_DIAS=5 · CONTINUACAO=true ·
+ATEMPORAL_DIAS=28 · PYTHONUNBUFFERED=1`; **sem** `RECONCILIACAO`/`COLETA`. Snapshot
+`snap_20260915_2007`. Tag de volta `pre-lab-2026-09-15` (código); envs pela CLI; restore por id.
+O `service update` caiu na janela 16:30–19:30 → o diário disparou de novo com o pacote (esperado:
+`criadas 0`, ~30 pernas curtas criadas e roteadas, chegadas de agosto paradas, nenhum `⚠`).
+
+1. **Ler o log do primeiro ciclo com o pacote** (agora aparece): `docker logs $CT --since 2h |
+   grep -E "Embarques auto|atemporal|⚠"`; `_snapshot_embarques.py diff snap_20260915_2007 --chave`;
+   aferidor 15/08→hoje contra `lab_20260915/auditoria_B.txt` (alta 42).
+2. **Amanhã 16:30**: rodada com a camada A ativa → `diff` + aferidor → limpo? `docker service
+   update --env-add EMBARQUES_RECONCILIACAO=true rizza-auditoria_app` (CLI, nunca pelo stack).
+3. Dia seguinte, mesma régua → `EMBARQUES_COLETA=true`.
+4. Escrever e testar o **agendador da fita** (`EMBARQUES_FITA`) — sem ele a aba de ordens fica
+   vazia em produção; com ele, `locais` e `embarques_programacao` passam a viver lá.
+5. Só então: geocodificação → medição → âncora aditiva (Fase 3) e a `Programada` (Fase 2/B).
+6. Defasagem 0 (`EMBARQUES_AUTO_DEFASAGEM=0` + disparo pós-refresh) fica por último, como a §25.8.
