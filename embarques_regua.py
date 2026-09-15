@@ -271,3 +271,19 @@ def segmentos(pontos, teto_kmh=None, salto_min_km=None):
         atual.append(pontos[i + 1])
     out.append(atual)
     return out
+
+
+def sem_posicao_falsa(linhas, teto_kmh=None, salto_min_km=None):
+    """Tira da serie as DUAS pontas de todo trecho impossivel (§23.3): nao se sabe qual das
+    duas posicoes e a falsa, entao nenhuma serve de EVIDENCIA de saida/chegada. Descoberto em
+    15/09/26 na C-2026-000902: o rastreador acordou mandando "Uberlandia" e 3 min depois
+    "Bom Jesus do Amparo" (513 km, odometro parado) — o motor tomou o ping falso como
+    "visto na origem" e fabricou a saida, que ele nunca apaga.
+
+    `linhas` = tuplas (data, lat, lng, velocidade, odometer). Devolve (data, lat, lng, vel)."""
+    pts = [{'data': d, 'lat': la, 'lng': ln, 'vel': v, 'odometer': o} for d, la, ln, v, o in linhas]
+    fora = set()
+    for i in range(1, len(pts)):
+        if perna_impossivel(pts[i - 1], pts[i], teto_kmh, salto_min_km):
+            fora.add(i - 1); fora.add(i)
+    return [(p['data'], p['lat'], p['lng'], p['vel']) for i, p in enumerate(pts) if i not in fora]

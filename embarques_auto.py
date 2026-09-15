@@ -563,6 +563,10 @@ def garantir_colunas(cur):
     import embarques_continuacao as _ec
     if _ec.ligado():
         _ec.garantir_colunas(cur)
+    # Ordem de coleta / embarcador / local (15/09/26): colunas aditivas, só com a chave ligada.
+    import embarques_coleta as _co
+    if _co.ligado():
+        _co.garantir_colunas(cur)
 
 
 def _ja_lancada(cur, carga):
@@ -1194,13 +1198,21 @@ def executar(dia=None, dry_run=False, token=None, conn=None):
     resumo = {'ok': True, 'janela': [ini.isoformat(), fim.isoformat()],
               'manifestos': len(manifestos), 'candidatas': len(cargas),
               'criadas': 0, 'puladas': Counter(), 'descartes': descartes,
-              'fechadas': Counter(), 'reconciliadas': 0, 'dry_run': dry_run,
+              'fechadas': Counter(), 'reconciliadas': 0, 'reconciliacao': Counter(), 'dry_run': dry_run,
               'detalhe': []}
     try:
         # Roda até no dry-run: a checagem de duplicata lê `manifesto_origem`, que
         # precisa existir. DDL no Postgres é transacional, então o rollback do
         # dry-run desfaz.
         garantir_colunas(cur)
+
+        # §25.8 Passo 1 — reconciliação de DOCUMENTO: manifesto que sumiu do relatório
+        # (cancelado no SSW) cancela a carga do robô; manifesto que voltou reabre. Antes do
+        # fechamento, para que carga cancelada não sirva de A nem de B para regra nenhuma.
+        # Atrás de EMBARQUES_RECONCILIACAO (nasce desligada).
+        import embarques_reconciliacao as _rc
+        if not dry_run and _rc.ligado():
+            resumo['reconciliacao'] = _rc.executar(cur, manifestos, ini, fim)
 
         # `cargas` (as candidatas ja montadas) entra para o fechamento saber o destino do
         # manifesto novo -- e o que sustenta a excecao do reforco no meio da rota.
@@ -1236,6 +1248,15 @@ def executar(dia=None, dry_run=False, token=None, conn=None):
             resumo['detalhe'].append(f"{numero} <- {c['manifesto']}")
 
         if not dry_run:
+            # Ordem de coleta → embarcador e ponto físico (Fase A da Programada). Depois de
+            # criar, só preenche campo vazio de carga do robô; nenhuma régua lê o que grava.
+            import embarques_coleta as _co
+            if _co.ligado():
+                try:
+                    resumo['coleta'] = _co.ligar(cur, token, ini, fim)
+                except Exception as e_co:
+                    _logger.warning(f'ligação de coleta falhou (segue sem): {e_co}')
+                    resumo['coleta'] = Counter({'ERRO': 1})
             # §24 — o CTe diz que a mercadoria seguiu em outro manifesto: liga A → B com o
             # terminal certo. Depois de criar, porque precisa do id de B.
             if _ec.ligado() and fechamento_ligado():
@@ -1294,6 +1315,14 @@ def _imprimir(r):
         print("encerradas:")
         for k, v in r['fechadas'].most_common():
             print(f"   {k:<34} {v}")
+    if r.get('coleta'):
+        print('ordem de coleta / local:')
+        for k, v in r['coleta'].most_common():
+            print(f'   {k:<45} {v}')
+    if r.get('reconciliacao'):
+        print('reconciliação de documento:')
+        for k, v in r['reconciliacao'].most_common():
+            print(f'   {k:<45} {v}')
     if r['reconciliadas']:
         print(f"reconciliadas ........ {r['reconciliadas']}")
     if r.get('rotas_tracadas') or r.get('rotas_falhas'):

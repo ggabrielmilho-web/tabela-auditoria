@@ -23,7 +23,7 @@ Nao grava nada no banco.
 """
 import os, sys, csv, argparse
 from collections import defaultdict, Counter
-from datetime import datetime, timedelta, time as _time
+from datetime import datetime, timedelta, time as _time, timezone
 # A pasta do proprio arquivo, nao um caminho cravado: estes scripts precisam rodar
 # TAMBEM dentro do container (Linux), que e de onde o robo atemporal corrige os dados
 # de producao. O `c:/Phyton-Projetos/...` que estava aqui quebrava com FileNotFoundError.
@@ -34,7 +34,8 @@ sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 import psycopg2
 from dotenv import load_dotenv
 load_dotenv('.env')
-import geocoding, placas as pl
+import geocoding
+import embarques_regua as regua, placas as pl
 
 # A REGUA E IMPORTADA, nao copiada: aferidor e motor tem de decidir chegada do MESMO jeito.
 # Enquanto cada um tinha a sua, o placar F1 oscilou 13 -> 32 -> 17 -> 38 (secao 20.6).
@@ -52,7 +53,7 @@ ap.add_argument('--desde', default='2026-08-01')
 ap.add_argument('--ate', default='2026-09-08')
 ap.add_argument('--csv', default='_auditoria_geral.csv')
 A = ap.parse_args()
-HOJE = datetime.now()
+HOJE = datetime.now(timezone.utc).replace(tzinfo=None)   # as posicoes sao UTC (§10); now() local abria um buraco de 3 h no lab (Windows/BRT)
 
 cn = psycopg2.connect(host=os.getenv('DB_HOST'), port=os.getenv('DB_PORT'), dbname=os.getenv('DB_NAME'),
                       user=os.getenv('DB_USER'), password=os.getenv('DB_PASSWORD'))
@@ -95,13 +96,16 @@ def pontos(placa, ini, fim):
     k = (pl.mercosul(placa), ini, fim)
     if k in _cache:
         return _cache[k]
-    cur.execute("""SELECT data_posicao,latitude,longitude,velocidade
+    cur.execute("""SELECT data_posicao,latitude,longitude,velocidade,odometer
                      FROM embarques_posicoes_historico
                     WHERE placa=ANY(%s) AND data_posicao>=%s AND data_posicao<%s
                     ORDER BY data_posicao""",
                 (pl.grafias(str(placa).strip().upper()), ini, fim))
-    v = [(d, float(la), float(ln), vel) for d, la, ln, vel in cur.fetchall()
-         if la is not None and ln is not None]
+    # posicao falsa nao e evidencia (§23.3) — mesma regua do mapa e do KPI
+    _brutos = [(d, float(la), float(ln), v, o) for d, la, ln, v, o in cur.fetchall() if la is not None and ln is not None]
+    _limpos = regua.sem_posicao_falsa(_brutos)
+    cur_rows = _limpos
+    v = cur_rows
     _cache[k] = v
     return v
 
@@ -407,6 +411,46 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
     if ativo and idade_d > HORIZONTE_D:
         add(num, 'F6', 'media', f'aberta ha {idade_d} dias — passou do horizonte de {HORIZONTE_D}')
 
+# ── L1: a ORDEM DE COLETA discorda do manifesto (carreta/cavalo/motorista). Registro feito pelo
+# passo de coleta (embarques_coleta); aqui so vira luz. Quem decide qual placa rodou e o GPS —
+# e a decisao ainda nao esta automatizada (15/09/26).
+cur.execute("SELECT 1 FROM information_schema.columns WHERE table_name='embarques_cargas' AND column_name='coleta_conferencia'")
+if cur.fetchone():
+    cur.execute("SELECT numero, coleta_origem, coleta_conferencia FROM embarques_cargas WHERE coleta_conferencia IS NOT NULL AND id = ANY(%s)",
+                ([r[0] for r in CARGAS],))
+    for num, col, conf in cur.fetchall():
+        add(num, 'L1', 'media', f'ORDEM DE COLETA {col} discorda do manifesto: {conf}')
+
+# ── R1: STATUS QUE REGREDIU POR ROBO. Le o log, nao o estado: o estado de hoje pode estar
+# certo e a carga ter ido e voltado no meio (C-864 oscilou 3 dias entre Desengatada e No
+# destino sem nenhuma invariante de estado acusar). Regressao = robo escrevendo um status
+# de ordem menor do que o anterior. O worker nao loga (§21.13), entao so pega diario e
+# atemporal — que sao exatamente os dois que brigam.
+ORDEM_STATUS = {'Aberta': 0, 'Em rota': 1, 'No destino': 2, 'Desengatada': 3, 'Continuada': 3,
+                'Entregue': 4, 'Cancelada': 4}
+def _st(v):
+    return str(v or '').split(' (')[0].strip()
+cur.execute("""SELECT c.numero, l.usuario_nome, l.valor_anterior, l.valor_novo, l.editado_em
+                 FROM embarques_cargas_log l JOIN embarques_cargas c ON c.id = l.carga_id
+                WHERE l.campo = 'status' AND c.id = ANY(%s)
+                  AND (l.usuario_nome ILIKE 'rob%%')
+                ORDER BY l.editado_em""", ([r[0] for r in CARGAS],))
+_regr = Counter()
+for num, quem, de, para, quando in cur.fetchall():
+    a, b = ORDEM_STATUS.get(_st(de)), ORDEM_STATUS.get(_st(para))
+    if 'manifesto voltou' in str(para or ''):     # retratacao deliberada da reconciliacao, nao briga
+        continue
+    if a is not None and b is not None and b < a:
+        _regr[num] += 1
+        if _regr[num] == 1:
+            add(num, 'R1', 'alta', f'STATUS REGREDIU por robo: {_st(de)} -> {_st(para)} '
+                f'({quem}, {str(quando)[:16]}) — dois escritores brigando pelo mesmo campo', '')
+for num, n in _regr.items():
+    if n > 1:
+        for a_ in achados:
+            if a_['carga'] == num and a_['codigo'] == 'R1':
+                a_['achado'] += f' · {n}x no periodo'
+
 # ── relatorio
 por_cod = Counter(a['codigo'] for a in achados)
 por_grav = Counter(a['gravidade'] for a in achados)
@@ -426,6 +470,7 @@ NOMES = {
     'C5': 'saida digitada a mao, sem lastro',
     'C6': 'chegada gravada com o veiculo EM MOVIMENTO (borda de raio)',
     'C7': 'saida fabricada — a placa passou pela origem sem parar',
+    'R1': 'STATUS REGREDIU por robo (log)', 'L1': 'ordem de coleta discorda do manifesto (placa/motorista)',
     'P1': 'perna vazia sem deslocamento (a carreta ja estava la)', 'D1': 'sem rota planejada', 'D2': 'sem manifesto_origem', 'D3': 'destino sem coordenada',
 }
 print(f'AUDITORIA GERAL — {len(CARGAS)} cargas entre {A.desde} e {A.ate}')

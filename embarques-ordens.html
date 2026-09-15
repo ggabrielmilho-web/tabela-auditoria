@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ordens de coleta — Rizza Log</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%2338bdf8'/%3E%3Ctext x='50' y='72' font-family='Arial,sans-serif' font-size='68' font-weight='900' text-anchor='middle' fill='%230a0e17'%3ER%3C/text%3E%3C/svg%3E">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0e17; --surface: #111827; --surface2: #1a2235; --border: #1e293b;
+    --text: #e2e8f0; --text-dim: #94a3b8; --accent: #38bdf8; --accent2: #818cf8;
+    --green: #34d399; --red: #f87171; --orange: #fb923c; --yellow: #fbbf24;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+  .dashboard { padding: 20px; max-width: 1700px; margin: 0 auto; animation: fadeUp 0.4s ease; }
+  .top-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; flex-wrap: wrap; gap: 12px; }
+  .top-bar h1 { font-size: 1.35rem; font-weight: 700; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .meta { font-size: 0.78rem; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; }
+  .btn-sm { padding: 8px 18px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); font-family: 'DM Sans', sans-serif; font-weight: 500; font-size: 0.82rem; border-radius: 8px; cursor: pointer; text-decoration: none; display: inline-block; }
+  .btn-sm:hover { border-color: var(--accent); color: var(--accent); }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 16px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; cursor: pointer; transition: border-color .15s; }
+  .card:hover, .card.on { border-color: var(--accent); }
+  .card .k { font-size: 0.66rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-dim); font-weight: 600; }
+  .card .v { font-size: 1.5rem; font-weight: 700; font-family: 'JetBrains Mono', monospace; margin-top: 4px; }
+  .card.vencida .v { color: var(--red); } .card.aguardando .v { color: var(--orange); } .card.semveic .v { color: var(--yellow); }
+  .card.documento .v { color: var(--accent2); } .card.carga .v { color: var(--green); } .card.total .v { color: var(--text-dim); }
+
+  .filtros-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; margin-bottom: 16px; }
+  .filtros-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px 12px; align-items: end; }
+  .ff label { display: block; font-size: 0.7rem; color: var(--text-dim); margin-bottom: 4px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em; }
+  .ff input, .ff select { width: 100%; padding: 7px 10px; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 0.8rem; }
+  .ff input[type="date"] { color-scheme: dark; }
+
+  .table-wrapper { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .table-scroll { overflow-x: auto; max-height: calc(100vh - 360px); overflow-y: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.78rem; white-space: nowrap; }
+  thead th { position: sticky; top: 0; background: var(--surface2); padding: 10px 12px; text-align: left; font-weight: 600; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); border-bottom: 1px solid var(--border); z-index: 2; }
+  tbody tr:hover { background: rgba(56,189,248,0.04); }
+  tbody tr:nth-child(even) { background: rgba(255,255,255,0.012); }
+  td { padding: 8px 12px; border-bottom: 1px solid var(--border); color: var(--text); max-width: 280px; overflow: hidden; text-overflow: ellipsis; }
+  .mono { font-family: 'JetBrains Mono', monospace; font-size: 0.74rem; }
+  .dim { color: var(--text-dim); }
+  .badge { padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; white-space: nowrap; }
+  .e-vencida { background: rgba(248,113,113,0.15); color: var(--red); }
+  .e-aguardando { background: rgba(251,146,60,0.15); color: var(--orange); }
+  .e-semveic { background: rgba(251,191,36,0.15); color: var(--yellow); }
+  .e-documento { background: rgba(129,140,248,0.15); color: var(--accent2); }
+  .e-carga { background: rgba(52,211,153,0.15); color: var(--green); }
+  .e-cancelada { background: rgba(148,163,184,0.15); color: var(--text-dim); }
+  .lig { color: var(--accent); text-decoration: none; } .lig:hover { text-decoration: underline; }
+  .atraso { color: var(--red); font-weight: 600; }
+  .info-vazio { padding: 40px; text-align: center; color: var(--text-dim); }
+  .nota { font-size: 0.72rem; color: var(--text-dim); margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="dashboard">
+  <div class="top-bar">
+    <div>
+      <h1>📦 Ordens de coleta</h1>
+      <div class="meta" id="meta">carregando…</div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <a href="/embarques" class="btn-sm">← Painel</a>
+      <a href="/embarques/relatorio" class="btn-sm">📋 Cargas</a>
+    </div>
+  </div>
+
+  <div class="cards" id="cards"></div>
+
+  <div class="filtros-card">
+    <div class="filtros-grid">
+      <div class="ff"><label>Dia (limite de coleta)</label><input type="date" id="f-dia"></div>
+      <div class="ff"><label>Embarcador</label><select id="f-emb"><option value="">todos</option></select></div>
+      <div class="ff"><label>Estado</label>
+        <select id="f-estado">
+          <option value="">todos</option>
+          <option>vencida sem documento</option><option>aguardando manifesto</option><option>sem veículo</option>
+          <option>documento emitido</option><option>carga</option><option>cancelada</option>
+        </select></div>
+      <div class="ff"><label>&nbsp;</label><button class="btn-sm" onclick="carregar()">Aplicar</button></div>
+      <div class="ff"><label>&nbsp;</label><button class="btn-sm" onclick="limpar()">Todas as abertas</button></div>
+    </div>
+    <div class="nota">O estado é <b>derivado do documento</b> (CTe / manifesto / carga), não da situação do SSW — a situação "COMANDADA" não fecha sozinha. "Vencida" = limite de coleta passou e nenhum documento apareceu.</div>
+  </div>
+
+  <div class="table-wrapper">
+    <div class="table-scroll">
+      <table>
+        <thead><tr>
+          <th>Ordem</th><th>Estado</th><th>Limite</th><th>Atraso</th><th>Embarcador</th><th>Cliente</th>
+          <th>Conjunto</th><th>Motorista</th><th>De</th><th>Para</th><th>Documento</th><th>Carga</th><th>Comandada</th>
+        </tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+      <div class="info-vazio" id="vazio" style="display:none;">Nenhuma ordem para o filtro.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const CLS = {'vencida sem documento':'e-vencida','aguardando manifesto':'e-aguardando','sem veículo':'e-semveic',
+             'documento emitido':'e-documento','carga':'e-carga','cancelada':'e-cancelada'};
+const CARD = {'vencida sem documento':'vencida','aguardando manifesto':'aguardando','sem veículo':'semveic',
+              'documento emitido':'documento','carga':'carga','cancelada':'total'};
+function fmt(iso){ if(!iso) return '—'; const d=new Date(iso); return isNaN(d)?'—':d.toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}); }
+function horasAtraso(o){
+  if(!o.limite_em || o.estado==='carga' || o.estado==='cancelada' || o.estado==='documento emitido') return null;
+  const h=(Date.now()-new Date(o.limite_em))/36e5; return h>0?h:null;
+}
+function hoje(){ const d=new Date(); return d.toISOString().slice(0,10); }
+function limpar(){ document.getElementById('f-dia').value=''; document.getElementById('f-estado').value=''; carregar(); }
+async function carregar(){
+  const dia=document.getElementById('f-dia').value, emb=document.getElementById('f-emb').value, est=document.getElementById('f-estado').value;
+  const q=new URLSearchParams(); if(dia)q.set('dia',dia); if(emb)q.set('embarcador',emb); if(est)q.set('estado',est);
+  const r=await fetch('/api/embarques/ordens?'+q); const d=await r.json();
+  const sel=document.getElementById('f-emb');
+  if(sel.options.length<=1) d.embarcadores.forEach(e=>{const o=document.createElement('option');o.value=e;o.textContent=e;sel.appendChild(o);});
+  document.getElementById('meta').textContent = `${d.ordens.length} ordem(ns) · fita atualizada ${fmt(d.atualizado_em)}`;
+  const ordem=['vencida sem documento','aguardando manifesto','sem veículo','documento emitido','carga','cancelada'];
+  let cards='';
+  ordem.forEach(k=>{ if(d.cards[k]!==undefined) cards+=`<div class="card ${CARD[k]} ${est===k?'on':''}" onclick="document.getElementById('f-estado').value='${est===k?'':k}';carregar()"><div class="k">${k}</div><div class="v">${d.cards[k]}</div></div>`; });
+  if(dia) cards+=`<div class="card vencida" title="todas as ordens abertas com limite vencido, em qualquer dia" onclick="document.getElementById('f-dia').value='';document.getElementById('f-estado').value='vencida sem documento';carregar()"><div class="k">vencidas (total)</div><div class="v">${d.cards.vencidas_total??0}</div></div>`;
+  document.getElementById('cards').innerHTML=cards;
+  const tb=document.getElementById('tbody'); tb.innerHTML='';
+  document.getElementById('vazio').style.display=d.ordens.length?'none':'block';
+  d.ordens.forEach(o=>{
+    const h=horasAtraso(o);
+    const doc = [o.ctrc_gerado ? `CTe ${o.ctrc_gerado}` : null, o.manifesto ? `man ${o.manifesto}` : null].filter(Boolean).join(' · ') || '—';
+    const carga = o.carga_numero ? `<a class="lig" href="/embarques/cargas/${o.carga_id}/mapa" target="_blank" title="ligada pela ${o.carga_via==='cte'?'chave do CTe (exata)':'placa do conjunto + data (reserva)'}">${o.carga_numero}</a> <span class="dim">${o.carga_status||''}${o.carga_via==='placa'?' · por placa':''}</span>` : '—';
+    tb.innerHTML += `<tr>
+      <td class="mono">${o.coleta_origem}</td>
+      <td><span class="badge ${CLS[o.estado]||''}">${o.estado}</span></td>
+      <td class="mono">${fmt(o.limite_em)}</td>
+      <td class="mono ${h?'atraso':''}">${h? (h>=48? Math.round(h/24)+' d' : Math.round(h)+' h') : ''}</td>
+      <td>${o.embarcador||'—'}</td>
+      <td title="${o.solicitante||''}">${o.solicitante||'—'}</td>
+      <td class="mono">${o.cavalo||'—'}/${o.carreta||'—'}</td>
+      <td title="${o.motorista||''}">${(o.motorista||'—').split(' ').slice(0,2).join(' ')}</td>
+      <td title="${o.reme_nome||''} · ${o.reme_endereco||''}">${o.reme_cidade||'—'} <span class="dim">${o.reme_nome?('· '+o.reme_nome.slice(0,18)):''}</span></td>
+      <td title="${o.dest_nome||''}">${o.dest_cidade||'—'}/${o.dest_uf||''}</td>
+      <td class="mono">${doc}</td>
+      <td>${carga}</td>
+      <td class="mono dim">${fmt(o.comandada_em)}</td>
+    </tr>`;
+  });
+}
+document.getElementById('f-dia').value = hoje();
+carregar();
+</script>
+</body>
+</html>

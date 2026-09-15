@@ -34,7 +34,7 @@ O QUE ELE NAO FAZ:
 """
 import os, sys, csv, argparse
 from collections import Counter, defaultdict
-from datetime import datetime, timedelta, time as _time
+from datetime import datetime, timedelta, time as _time, timezone
 # A pasta do proprio arquivo, nao um caminho cravado: estes scripts precisam rodar
 # TAMBEM dentro do container (Linux), que e de onde o robo atemporal corrige os dados
 # de producao. O `c:/Phyton-Projetos/...` que estava aqui quebrava com FileNotFoundError.
@@ -46,6 +46,7 @@ import psycopg2
 from dotenv import load_dotenv
 load_dotenv('.env')
 import geocoding, placas as pl
+import embarques_regua as regua
 from embarques_regua import (perto_com_parada, RAIO_CHEGADA, RAIO_METRO,
                              RAIO_ORIGEM, RAIO_SAIDA_DESTINO, PARADA_MIN_H, PARADO_KMH,
                              parado, JANELA_EVIDENCIA_D)
@@ -63,7 +64,7 @@ ap.add_argument('--aplicar', action='store_true')
 ap.add_argument('--tudo', action='store_true', help='inclui carga lancada a mao')
 ap.add_argument('--csv', default='_robo_atemporal.csv')
 A = ap.parse_args()
-HOJE = datetime.now()
+HOJE = datetime.now(timezone.utc).replace(tzinfo=None)   # as posicoes sao UTC (§10); now() local abria um buraco de 3 h no lab (Windows/BRT)
 
 cn = psycopg2.connect(host=os.getenv('DB_HOST'), port=os.getenv('DB_PORT'), dbname=os.getenv('DB_NAME'),
                       user=os.getenv('DB_USER'), password=os.getenv('DB_PASSWORD'))
@@ -116,12 +117,16 @@ for k in prox:
 def serie(placa, ini, fim):
     if not placa:
         return []
-    cur.execute("""SELECT data_posicao,latitude,longitude,velocidade
+    cur.execute("""SELECT data_posicao,latitude,longitude,velocidade,odometer
                      FROM embarques_posicoes_historico
                     WHERE placa=ANY(%s) AND data_posicao>=%s AND data_posicao<%s
                     ORDER BY data_posicao""",
                 (pl.grafias(str(placa).strip().upper()), ini, fim))
-    return [(d, float(la), float(ln), v) for d, la, ln, v in cur.fetchall() if la is not None]
+    # posicao falsa nao e evidencia (§23.3) — mesma regua do mapa e do KPI
+    _brutos = [(d, float(la), float(ln), v, o) for d, la, ln, v, o in cur.fetchall() if la is not None and ln is not None]
+    _limpos = regua.sem_posicao_falsa(_brutos)
+    cur_rows = _limpos
+    return cur_rows
 
 
 mudancas, resumo, detalhe = [], Counter(), []
@@ -287,6 +292,13 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
         n_status = 'Entregue'
         if not n_cheg and not motivo:
             n_motivo = 'sem_prova_revisar'              # sinaliza p/ humano, nao reabre
+    # §25.3 — DESENGATADA (no destino) e afirmacao DOCUMENTAL: o cavalo ja saiu com outra
+    # carreta. O GPS da carreta pode LEVAR a Entregue (24 h no destino, ou saiu de la), mas
+    # nunca DEVOLVER a No destino/Em rota — senao o diario, que filtra por No destino, ve o
+    # mesmo manifesto amanha e desengata de novo, e o par oscila (C-864: 13, 14 e 15/09).
+    # No patio a carga nem chega aqui (SQL_NAO_ATIVA). Status so anda para a frente.
+    if status == 'Desengatada' and n_status != 'Entregue':
+        n_status = 'Desengatada'
 
     campos = {}
     if n_saida and not dsaida:

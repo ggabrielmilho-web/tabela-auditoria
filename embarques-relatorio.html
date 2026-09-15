@@ -393,7 +393,7 @@
     // A perna vazia nao entrega nada — ela termina. O status interno segue 'Entregue'
     // (a coluna Cliente ja diz "Vazia"; aqui o badge responde em que pe esta).
     let html = (c.viagem_vazia && c.status === 'Entregue')
-      ? '<span class="badge badge-Vazia" title="Viagem vazia concluída (status interno: Entregue)">Concluída</span>'
+      ? '<span class="badge badge-Vazia" title="Viagem vazia concluída (status interno: Entregue)">Viagem vazia</span>'
       : badge(c.status);
     if (c.no_local_desde && c.status === 'Em rota') {
       html += ` <span style="cursor:help;" title="Na cidade da descarga há ${tempoCurto(c.no_local_desde)}">📦</span>`;
@@ -629,7 +629,7 @@
         <td>${c.cavalo_placa || '—'} <span style="color:var(--text-dim);font-size:0.72rem;">(${c.cavalo_tipo || '?'})</span></td>
         <td>${carretas}</td>
         <td>${colunaAgendamento(c)}</td>
-        <td>${c.criado_por_nome || '—'}</td>
+        <td title="${c.coleta_origem ? 'ordem de coleta ' + c.coleta_origem + ' (' + c.coleta_via + ')' : 'sem ordem de coleta ligada'}">${c.embarcador ? c.embarcador : (c.criado_por_nome || '—')}${c.embarcador ? '' : ''}</td>
         <td class="acoes">
           ${btnEditar}
           ${btnDesengate}

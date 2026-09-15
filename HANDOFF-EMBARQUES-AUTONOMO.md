@@ -1,6 +1,15 @@
 # Handoff — Painel de Embarques autônomo
 
-**Estado em 11/09/2026 (noite) — ⚠ COMECE PELA §24.** Continuação e desengate de pátio: a C-677
+**Estado em 14/09/2026 (noite) — ⚠ COMECE PELA §25.** Sessão só de leitura e teste: **nenhum
+código nem variável foi alterado** por ela. O que mudou em produção foi a **extração do SSW, que
+passou a rodar 8×/dia** (feito em outro chat); o robô segue com defasagem de 1 dia e a geração de
+cargas não mudou (§25.1). A conferência do dump de produção (§25.2) achou **um defeito real** —
+`Desengatada` no destino × robô atemporal brigando pelo status, 5 cargas (§25.3) — e um ajuste
+menor de janela (§25.4). Ambos **aguardando o "pode fazer"**. Também ficou registrado o estudo da
+ordem de embarque (`coletas_0157`, §25.6), o levantamento de melhorias (§25.7) e o plano de
+implantação sem regressão (§25.8).
+
+**Antes disso — 11/09/2026 (noite), §24.** Continuação e desengate de pátio: a C-677
 provou que "trocou o cavalo = desengate, e só a carga seguinte entrega". Implementado atrás de
 `EMBARQUES_CONTINUACAO`, testado com o robô real dia a dia na base local (achou 2 bugs que os
 simuladores não viam) e **LIGADO EM PRODUÇÃO às 16:4x de 11/09** — 14 cargas ligadas na primeira
@@ -3731,3 +3740,200 @@ segue como está (ligar exige `executar(dia=...)` para trás — decisão adiada
 **Estado exato de produção ao fim do dia:** chave `true`; imagem `b2bf48b` no ar (card, mapa e
 docs — nada pendente de deploy); snapshot `snap_20260911_1944` guardado; a próxima rodada natural
 é a das 16:30 de 12/09 — vale um `diff` depois dela, só para ver o dia a dia com a chave.
+
+---
+
+## 25. Extração intradiária, conferência de produção e o que vem a seguir (14/09/2026)
+
+> **Comece por aqui se está retomando.** Sessão **só de leitura**: consultas DAX ao Power BI,
+> leitura da base local e análise de um dump de produção. Nenhum arquivo do app, nenhuma variável
+> e nada em produção foi alterado por ela. Os dois consertos propostos (§25.3 e §25.4) **esperam o
+> "pode fazer" do Gabriel**. Scripts da sessão em `_estudo_2026-09-14/`; dump em
+> `C:\Phyton-Projetos\_dump_prod_20260914\conf_emb` (fora do repo — dado de cliente).
+
+### 25.1 A extração do SSW passou a rodar 8×/dia — e por que o robô não sentiu
+
+Feito pelo Gabriel em outro chat: os scripts `ssw_*_postgres.py` rodam 8×/dia em sincronia com o
+refresh do Power BI, trazendo o **dia corrente** (antes era D-1). Conferido no dump:
+**`EMBARQUES_AUTO_DEFASAGEM` não está definida → vale 1**. O robô continua lendo manifesto só até
+ontem.
+
+Por que a geração de cargas não muda (lido no código):
+
+| leitura do robô | limite de data | efeito do dado intradiário |
+|---|---|---|
+| manifestos (`coletar`) | `data_emissao` **até ontem** (`executar`, linha 1179) | nenhum — todo criar/fechar/desengatar parte desta lista |
+| CTRB (`ctrbs_oss`) | **sem teto** | só enriquece/desempata cargas que já existem |
+| CTe (`conhecimentos_emitidos`) | **sem teto** | tomador preenchido antes; `continua_manifesto` exige B na lista de ontem; `ligar_continuacoes` exige a carga B existir — mesmo resultado, no máximo um dia antes |
+
+Como os scripts gravam (lido em `C:\Phyton-Projetos\Rizza`):
+
+| script | tabela | escrita | leitor no meio da carga |
+|---|---|---|---|
+| `ssw_916_postgres.py` | manifestos | `DELETE` do período + `INSERT`, **uma transação** | vê a versão velha OU a nova, inteira |
+| `ssw_455_postgres.py` | CTe | idem | idem |
+| `ssw_073_postgres.py` | CTRB | `INSERT … ON CONFLICT DO UPDATE`, **nunca apaga** | idem |
+
+Consequências para o desenho (§25.8):
+
+* manifesto/CTe cancelado **some** na carga seguinte — é o sinal que a reconciliação de documento
+  vai usar (**falta provar** que o relatório do SSW não traz o cancelado — é o que a fita do Passo 0 mede);
+* **CTRB cancelado fica para sempre** — não serve como prova de que a viagem existe;
+* as tabelas chegam em **instantes diferentes** (manifesto antes do CTe/CTRB dele): documento que
+  ainda não chegou **não é** documento cancelado.
+
+**O que o atemporal NÃO trata:** ele só relê GPS. Cancelamento, reemissão sem par, placa ou destino
+corrigidos no documento depois de a carga nascer — nada disso é dele. Com D-1 a maior parte já
+chega assentada; com defasagem 0 vira carga fantasma (prende placa, recebe GPS de outra viagem,
+fecha `Entregue` pelo manifesto seguinte). **Por isso a defasagem só vai a 0 no Passo 3.**
+
+### 25.2 Conferência do dump de produção (14/09, 17:43 no relógio do servidor)
+
+Mesma receita da §22.7/§24.7, só leitura. Placar:
+
+| checagem | resultado |
+|---|---|
+| cargas criadas desde o snapshot de 11/09 | **28, todas pelo robô**, criadas 43,7 h após o dia de carregamento (= 16:30 de D+1); nenhuma com data do dia |
+| escrita de robô em carga **manual** | **0 em toda a história** (400 manuais, nenhuma ativa) — §0 íntegra |
+| rodada diária de 14/09 | rodou (última escrita 19:30 UTC) |
+| continuação | **15 ligadas** (as 14 de 11/09 + `C-870 → C-882`); 0 `Desengatada` no pátio sem ligação |
+| atemporal dry-run (15/08 → 14/09) | **3 alterações em 420**; C-830 e C-852 = evidência nova (saíram do destino 19:57 e 20:07 UTC, depois da rodada). C-820 não conferida ponto a ponto — a carreta está gravada como `HKE0480` (placa antiga) |
+| aferidor (15/08 → 14/09) | 456 achados, **alta 42** (V1 26 · S1 7 · F5 4 · F1 3 · C7 2). **Só 2 altos em cargas de 11/09+** |
+| escritas por autor desde 11/09 | Robo atemporal 465 · Robô SSW 43 · Rederivação 9 |
+
+Os 2 altos novos não vêm da mudança: **C-875** está `Aberta` e **cega** (nenhuma posição nas duas
+placas desde 11/09 — `Aberta` é o correto, silêncio não é evento); **V-132** herdou o destino da
+C-797, um dos "placa longe" da §22.10 (classe antiga).
+
+### 25.3 DEFEITO — `Desengatada` no DESTINO × robô atemporal (aguarda aprovação)
+
+Visto em **5 cargas desde 13/09**: C-828, C-829, C-849, C-850, C-864.
+
+```
+13/09 19:39:42  Robô SSW     No destino -> Desengatada (cavalo saiu com outra carreta; destino)
+13/09 19:39:52  Robo atemp.  Desengatada -> No destino          <- 10 s depois
+14/09 19:30:31  Robô SSW     No destino -> Desengatada           <- dispara de novo
+14/09 19:30:33  Robo atemp.  Desengatada -> Entregue (gps_dwell_destino)
+```
+
+**Causa:** `SQL_NAO_ATIVA` (`embarques_continuacao.py:70-71`) tira do atemporal a carga ligada, a
+`Continuada` e a `Desengatada` **no pátio** — mas **não a `Desengatada` no destino**. O atemporal
+relê o GPS e regrava o status. No dia seguinte `desengatar_por_cavalo` vê o mesmo manifesto (janela
+de 5 dias) e, como a carga voltou a `No destino` (status do filtro dele), desengata de novo. Para
+quando o atemporal chega a `Entregue`. **C-864 está em `No destino` agora e deve repetir.**
+
+**Efeito:** o final (`Entregue` por 24 h no destino) é plausível, mas no caminho a carga passa até um
+dia como `No destino` em vez de `Desengatada` (some do card, oscila entre dias). §20.6: oscilação é bug.
+
+**Conserto proposto (NÃO aplicado):** o atemporal pode levar `Desengatada` (destino) a `Entregue`
+quando o GPS provar, mas **nunca devolvê-la** a `No destino`/`Em rota`. Mais uma invariante no
+aferidor: *status que regrediu por robô*. Gate: `_rodar_diario_local.py` (robô real, dia a dia, base
+local), convergência conjunta 0, zero manual tocada.
+
+### 25.4 Ajuste menor — janela do atemporal (40 d) × retenção de posições (30 d)
+
+`rodar_pos_diario` passa `EMBARQUES_ATEMPORAL_DIAS=40` (`server.py:7484`); `_purgar_posicoes_antigas`
+apaga posição > 30 dias de carga já `Entregue`/`Cancelada` (`rastreamento_worker.py:907-918`). Entre
+30 e 40 dias o motor re-deriva com evidência sumindo: a V-026 teve `no_local_desde` empurrado
+12/08 → 13/08 → 14/08 → 14/08 20:12 em quatro rodadas. **Medido: pequeno** — desde 11/09 só 2
+escritas em carga com > 27 dias (V-114, retratação). Proposta: `EMBARQUES_ATEMPORAL_DIAS=28` pela CLI
+(`--env-add`, nunca pelo stack do Portainer). **Aguarda aprovação.**
+
+### 25.5 Armadilha de método — pandas e datas com formato misto
+
+O CSV do dump mistura `2026-09-13 14:49:02` com `2026-09-13 14:49:55.435314`. `pd.to_datetime(...,
+errors='coerce')` infere o formato do primeiro valor e **zera o resto sem avisar**: 663 `no_local_desde`
+viravam 290. Isso produziu um falso "490 campos gravados sem log" que quase virou achado. **Ler datas
+do dump com `dtype=str` e `format='mixed'`** (`conferencia_prod4.py`). As 33 divergências de status que
+sobram são do **worker**, que por desenho não loga (§21.13).
+
+### 25.6 Estudo — ordem de embarque (`coletas_0157` + `_ocorrencias`)
+
+Os embarcadores passaram a usar a **ordem de coleta do SSW (opção 157)**. As duas tabelas estão no
+dataset (`'public coletas_0157'`, `'public coletas_0157_ocorrencias'`) e são importadas **quase em
+tempo real** (importadas 14:13 com coleta cadastrada até 14:01).
+
+* **195 coletas** (cadastradas 01/09 → 14/09; `periodo_ini/fim` fixos na extração — **confirmar se
+  acumula ou é janela móvel**) · 540 ocorrências · chave `unidade+numero` liga **100%**,
+  `qtd_ocorrencias` bate em todas. Em `_ocorrencias`, **`ordem` é DECRESCENTE** (1 = mais recente, 186/186).
+* situação: 93 COLETADA · 75 COMANDADA · 17 CADASTRADA · 9 PRE-CADAST · 1 CANCELADA. Cadastram/comandam:
+  renato, pablo, rafael; marcam coletada: andre, stenio (filial).
+* **Serve:** `veiculo` (cavalo, 168) · `veiculo_2` (carreta, 145) · motorista · cadastrada/comandada/
+  coletada/cancelada_em · `limite_em` · remetente com **endereço+CEP+CNPJ em 100%** (sem UF) · CEP do
+  destinatário 135/195 · `ctrc_gerado` 88. **Não serve:** peso (sempre 20), volume (1), valor (0),
+  mercadoria (`DIVERSOS`), NF (vazia) — preenchimento.
+
+Ligações testadas:
+
+| ligação | resultado |
+|---|---|
+| coleta → CTe por `ctrc_gerado` | **87/88** (a coluna `coleta` do CTe vem sempre 0 — inútil) |
+| coleta → manifesto via CTe `primeiro_manifesto` | 84 |
+| coleta → manifesto por placa (−1..+5 d) | 142 — **10 discordam do CTe** (mesmo veículo fez coleta + transferência curta no dia): **CTe é a chave, placa é reserva** |
+| COLETADA com manifesto | **89/93** |
+| coleta → carga do painel (base local) | 81 (65 Agregado, 16 Frota) |
+
+**Antecedência** sobre o robô (carga nasce 16:30 de D+1 do manifesto): **mediana 32 h** a partir da
+COMANDADA (p25 29 · p75 48); 25 h a partir do `limite_em`. **Cobertura** dos manifestos de 01–13/09:
+Agregado 75% · Frota 56% · Carreteiro 53% (47 coletas de carreteiro, todas do solicitante RAFAEL).
+O "coletada" da filial é clique administrativo: mediana 6 h **antes** da saída real pelo GPS
+(−47 h a +25 h, amostra de 22). Os números da base local de `criado_em` **não valem** (base de replay).
+
+Uso proposto: **carga nasce na COMANDADA** em status aditivo `Programada` e o manifesto é **ligado** a
+ela depois (ataca a §22.10 na raiz); origem por endereço; prazo de coleta (`limite_em` × chegada GPS);
+linha do tempo das ocorrências no mapa; visibilidade de carreteiro sem GPS.
+
+### 25.7 Melhorias mapeadas (levantamento para o Gabriel)
+
+* **Localização de carreteiro:** depende da equipe. Dado: 181 de 560 viagens do mês (**32%**) são de
+  carreteiro e hoje não têm rastreio. Reabre a decisão de 09/09 (§8 nº 2).
+* **Roteirizar pelo endereço do cliente (Google):** volume real 14/08–13/09 = 560 viagens (Frota 105 ·
+  Agregado 274 · Carreteiro 181; 18,1/dia, pico 31), 1.545 geocodificações sem cache (602 endereços
+  distintos), 571 rotas (20 Pro — distribuição > 10 paradas). **Tudo dentro da franquia grátis: R$ 0/mês**
+  (preço cheio seria ~R$ 55). O que pesa não é o preço: (1) **termos proíbem usar Geocoding/Routes em
+  mapa não-Google** — o app usa Leaflet/CARTO, então exigiria trocar o mapa (Dynamic Maps: 10 mil
+  carregamentos grátis/mês ≈ 330 aberturas/dia; zoom/arrastar não cobra); (2) **rota de caminhão da
+  Routes API só existe nos EUA/Japão** — o ORS atual já é `driving-hgv`; (3) **lat/lng só pode ficar em
+  cache 30 dias** (Place ID pode para sempre) — viagem antiga pediria a rota de novo. Alternativa sem
+  licença: geocodificar pelo ORS (mesma chave) e manter ORS+Leaflet; **testar nos 602 endereços antes de decidir**.
+* **Campos da 3S que chegam e são descartados:** `Numero`, `CEP`, `Satelite`, `Hourmeter` (posição);
+  `Chassis`, `Renavam`, `NumSerie`, `idCliente` (cadastro). Direção, bairro e bloqueio só ficam na posição atual.
+
+### 25.8 O plano de implantação sem regressão (acordado em conversa, nada iniciado)
+
+Regra: **preparar e validar tudo local de uma vez, mas LIGAR em produção uma coisa por vez**, cada uma
+atrás da própria chave, com 3–5 dias úteis de observação entre elas.
+
+| passo | o quê | por que nesta ordem |
+|---|---|---|
+| **0** | **fita documental**: script só-leitura que, a cada refresh do Power BI, guarda retrato de manifestos, CTe, CTRB e coletas com instante | sem ela não há como reproduzir cancelamento/correção intradiária localmente; a `coletas_0157` só guarda 14 dias. **É o próximo passo — Gabriel ainda não deu o ok para criar o arquivo** |
+| **1** | **reconciliação de documento** ("atemporal do papel"): carga do robô nunca editada à mão → manifesto sumiu/CTe denuncia → `Cancelada`; origem/destino/placas mudaram → atualiza e loga | é a rede dos passos 2 e 3; liga ainda com defasagem 1 |
+| **2** | **ordem de embarque** → status `Programada` | depende da fita das coletas |
+| **3** | **`EMBARQUES_AUTO_DEFASAGEM=0`** + agendador disparando depois de cada refresh (hoje é 1×/dia na janela 16:30–19:30 com "já rodei hoje" em memória, `server.py:7593-7626`) | liga por último |
+
+Travas de cada passo: (1) com todas as chaves `false` o replay dá **byte a byte** o de hoje (bloco 0);
+(2) convergência conjunta motor+janela+reconciliação = 0 em duas passadas; (3) zero carga manual
+tocada; (4) nenhuma classe do aferidor sobe sem explicação caso a caso; (5) receita §24.7 (deploy
+inerte, conserto conferido DENTRO do container, snapshot, chave pela CLI, `diff`, restore por id).
+
+### 25.9 Arquivos desta sessão
+
+| arquivo | papel |
+|---|---|
+| `_estudo_2026-09-14/conferencia_prod.py` … `conferencia_prod5.py` | conferência do dump (a 4 tem o parse de data correto; a 5 mede a briga §25.3) |
+| `_estudo_2026-09-14/coletas_colunas.py`, `coletas_perfil.py` | schema, amostra e perfil das duas tabelas 0157 |
+| `_estudo_2026-09-14/coletas_juncao.py`, `coletas_ganho.py` | ligações coleta→CTe→manifesto→carga→GPS, antecedência e cobertura |
+| `_estudo_2026-09-14/volume_google.py`, `sanidade_enderecos.py` | volume do mês e endereços para a simulação Google |
+
+Os `coletas_*` e `volume_google.py` leem o Power BI (só `EVALUATE`) e dependem de arquivos JSON
+intermediários do scratchpad — reexecutar `coletas_perfil.py` antes de `coletas_juncao.py`/`coletas_ganho.py`
+e ajustar o caminho `SP` no topo. Os `conferencia_prod*` leem só o dump.
+
+### 25.10 Ordem para retomar
+
+1. Ok do Gabriel para o **Passo 0** (fita documental) — criar e deixar rodando local.
+2. Decidir sobre **§25.3** (guarda de status no atemporal) — conferir antes se a C-864 repetiu a briga
+   na rodada de 15/09 (é a prova viva do defeito).
+3. Decidir sobre **§25.4** (`EMBARQUES_ATEMPORAL_DIAS=28`).
+4. Confirmar com o time se `coletas_0157` acumula ou é janela móvel (define se a fita precisa guardá-la).
+5. A validação das cargas pendente continua valendo: aferidor e `diff` depois de cada rodada diária.

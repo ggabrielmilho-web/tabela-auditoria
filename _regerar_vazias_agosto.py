@@ -35,7 +35,11 @@ import placas
 from dotenv import load_dotenv
 
 load_dotenv(os.path.join(_AQUI, '.env'))
-MIN_KM = 50
+# 15/09/26 (Gabriel): viagem vazia curta e viagem vazia — segue o processo normal, sem rotulo.
+# O corte de 50 km (agosto) deixava furo no encadeamento da carreta onde o DOCUMENTO nao tem
+# furo (Guarulhos->Suzano, Jundiai->Jarinu...). 'Recarregou no mesmo lugar' continua tratado
+# a parte, pela cidade, entao zero aqui nao cria perna de nada.
+MIN_KM = 0
 
 ap = argparse.ArgumentParser()
 ap.add_argument('--desde', default='2026-08-01')

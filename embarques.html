@@ -192,7 +192,7 @@
   function badgeStatus(c) {
     const s = (c && c.status) || '';
     if (c && c.viagem_vazia && s === 'Entregue') {
-      return '<span class="badge-status badge-Vazia" title="Viagem vazia concluída (status interno: Entregue)">Concluída</span>';
+      return '<span class="badge-status badge-Vazia" title="Viagem vazia concluída (status interno: Entregue)">Viagem vazia</span>';
     }
     const cls = 'badge-' + s.replace(' ', '-');
     // §24 — carga com ligacao: o status e terminal e a mercadoria seguiu em `continua_em`

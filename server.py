@@ -952,6 +952,69 @@ def embarques_relatorio_page():
     return send_from_directory('.', 'embarques-relatorio.html')
 
 
+# ── Ordens de coleta (programação) — aba própria, só leitura (15/09/26) ─────────────────
+# A ordem NÃO entra no painel de cargas (decisão do Gabriel): vive em `embarques_programacao`,
+# alimentada pela fita documental, com estado DERIVADO do documento (a `situacao` do SSW não
+# fecha sozinha). Sem a tabela, a página abre vazia — nada mais depende dela.
+@app.route('/embarques/ordens')
+@page_required('embarques')
+def embarques_ordens_page():
+    return send_from_directory('.', 'embarques-ordens.html')
+
+
+@app.route('/api/embarques/ordens')
+@login_required
+def api_embarques_ordens():
+    dia = (request.args.get('dia') or '').strip() or None
+    embarcador = (request.args.get('embarcador') or '').strip() or None
+    estado = (request.args.get('estado') or '').strip() or None
+    conn = get_db(); cur = conn.cursor()
+    try:
+        cur.execute("SELECT to_regclass('embarques_programacao') IS NOT NULL")
+        if not cur.fetchone()[0]:
+            return jsonify({'ordens': [], 'cards': {}, 'embarcadores': [], 'atualizado_em': None})
+        where, args = ['sumiu_em IS NULL'], []
+        if dia:
+            # o "dia" da ordem: limite de coleta; sem limite, o dia em que foi comandada/cadastrada
+            where.append("COALESCE(limite_em, comandada_em, cadastrada_em)::date = %s"); args.append(dia)
+        if embarcador:
+            where.append("embarcador = %s"); args.append(embarcador)
+        if estado:
+            where.append("estado = %s"); args.append(estado)
+        cur.execute(f"""
+            SELECT coleta_origem, unidade, numero, tipo, situacao_ssw, situacao_em, limite_em,
+                   cadastrada_em, cadastrada_por, comandada_em, comandada_por, coletada_em, coletada_por,
+                   cancelada_em, solicitante, motorista, cavalo, carreta,
+                   reme_nome, reme_endereco, reme_cidade, dest_nome, dest_cidade, dest_uf,
+                   ctrc_gerado, manifesto, carga_id, carga_numero, carga_status, carga_via, embarcador, estado,
+                   primeira_vez, ultima_vez
+              FROM embarques_programacao
+             WHERE {' AND '.join(where)}
+             ORDER BY CASE estado WHEN 'vencida sem documento' THEN 0 WHEN 'aguardando manifesto' THEN 1
+                                  WHEN 'sem veículo' THEN 2 WHEN 'documento emitido' THEN 3
+                                  WHEN 'carga' THEN 4 ELSE 5 END,
+                      limite_em NULLS LAST, comandada_em
+        """, args)
+        cols = [d[0] for d in cur.description]
+        ordens = [dict(zip(cols, r)) for r in cur.fetchall()]
+        # cards: contagem por estado do MESMO dia/embarcador, ignorando o filtro de estado — senão
+        # clicar num card faz os outros sumirem e o total repetir o número (15/09/26)
+        where_c = [w for w in where if not w.startswith('estado')]
+        args_c = [a for w, a in zip([w for w in where if '%s' in w], args) if not w.startswith('estado')]
+        cur.execute(f"SELECT estado, count(*) FROM embarques_programacao WHERE {' AND '.join(where_c)} GROUP BY 1", args_c)
+        cards = {e: n for e, n in cur.fetchall()}
+        cur.execute("SELECT count(*) FROM embarques_programacao WHERE sumiu_em IS NULL AND estado='vencida sem documento'")
+        cards['vencidas_total'] = cur.fetchone()[0]
+        cur.execute("SELECT DISTINCT embarcador FROM embarques_programacao WHERE embarcador IS NOT NULL ORDER BY 1")
+        embs = [r[0] for r in cur.fetchall()]
+        cur.execute("SELECT max(ultima_vez) FROM embarques_programacao")
+        atual = cur.fetchone()[0]
+        return jsonify({'ordens': ordens, 'cards': cards, 'embarcadores': embs,
+                        'atualizado_em': atual.isoformat() if atual else None})
+    finally:
+        cur.close(); conn.close()
+
+
 @app.route('/embarques/<int:carga_id>/editar')
 @page_required('embarques')
 def embarques_editar_page(carga_id):
@@ -5571,6 +5634,14 @@ def api_embarques_cargas_list():
                if _lig else """
                NULL::int AS continua_em, NULL::text AS desengate_local, NULL::text AS continua_em_numero,
                NULL::text AS continuacao_de, NULL::int AS continuacao_de_id,""")
+    # Ordem de coleta / embarcador / local (15/09/26): idem — só cita as colunas quando existem.
+    import embarques_coleta as _co
+    _c15 = get_db(); _cur15 = _c15.cursor(); _col = _co.colunas_existem(_cur15); _cur15.close(); _c15.close()
+    _cols24 += (""" c.coleta_origem, c.coleta_via, c.embarcador, c.origem_cnpj, c.destino_cnpj,
+               c.origem_endereco, c.destino_endereco,""" if _col else """
+               NULL::text AS coleta_origem, NULL::text AS coleta_via, NULL::text AS embarcador,
+               NULL::text AS origem_cnpj, NULL::text AS destino_cnpj, NULL::text AS origem_endereco,
+               NULL::text AS destino_endereco,""")
 
     sql = f"""
         SELECT c.id, c.numero, c.status, c.tipo_operacao, c.viagem_vazia,
