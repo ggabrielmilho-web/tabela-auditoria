@@ -589,6 +589,7 @@ def _jornada_dados(ini, fim):
              and str(v.get('tipo') or '').upper() != 'CARRETA' and p not in PLACAS_VENDIDAS}
 
     lista, parados, comps, provisao = _jornada_folha(token, ini, fim)
+    ate_lim = min(fim, date.today())
 
     de = ini - timedelta(days=jornada.LOOKBACK_DIAS)
     dax_de = f'DATE({de.year},{de.month},{de.day})'
@@ -679,11 +680,15 @@ def _jornada_dados(ini, fim):
                         'fonte': 'valecard', 'ref': str(r.get('prod') or '').strip()[:28],
                         'detalhe': f"{local} · {litros:.0f} L"})
 
+    # Embarques: quando cada viagem saiu e acabou (GPS) + km por placa/dia.
+    chave_por_cpf = {re.sub(r'[^0-9]', '', c): a for a, c in casa_cpf.items()}
+    viagens, gps_dia, erro_emb = _jornada_embarques(ini, ate_lim, de, frota, chave_por_cpf)
+
     # Ciclo em curso: dia que ainda não aconteceu não recebe placa — nem por
     # carregamento, nem como "sem registro".
-    ate = min(fim, date.today())
-    esc = jornada.montar(ini, ate, lista, eventos) if ate >= ini else {'motoristas': [dict(
-        m, segmentos=[], sem_prova=[], alertas=[], cpf=m.get('cpf') or '') for m in lista], 'compartilhadas': []}
+    ate = ate_lim
+    esc = jornada.montar(ini, ate, lista, eventos, viagens, gps_dia) if ate >= ini else {'motoristas': [dict(
+        m, segmentos=[], sem_prova=[], alertas=[], linha=[], cpf=m.get('cpf') or '') for m in lista], 'compartilhadas': []}
     for m in esc['motoristas']:
         if fora_frota.get(m['chave']):
             m['alertas'].append({'tipo': 'fora_frota',
@@ -708,11 +713,110 @@ def _jornada_dados(ini, fim):
         'motoristas': esc['motoristas'], 'compartilhadas': esc['compartilhadas'],
         'fora_lista': fora_lista, 'parados': parados,
         'folha_competencias': comps, 'folha_provisao': provisao,
+        'embarques': not erro_emb, 'embarques_erro': erro_emb,
+        'viagens': len(viagens),
         'carry_max_dias': jornada.CARRY_MAX_DIAS,
         'gerado_em': time.strftime('%d/%m/%Y %H:%M'),
     }
     _cache_set(chave_cache, dados)
     return dados
+
+
+def _jornada_embarques(ini, fim, de, frota, chave_por_cpf):
+    """Viagens do Embarques e km por placa/dia — o que o GPS mediu em cima do manifesto.
+
+    A carga e a perna vazia nascem do MESMO manifesto que alimenta a escala, então
+    não são uma segunda prova de quem dirigia. O que elas acrescentam é o relógio:
+    quando a viagem saiu e quando acabou. É isso que impede um abastecimento em
+    nome de outra pessoa (cartão de quem já saiu da empresa, ou nome digitado na
+    bomba do CAIS) de tirar o motorista da placa no meio da própria viagem.
+
+    A perna vazia não tem CPF (o robô a deriva do GPS entre dois manifestos), então
+    só recebe dono quando a carga de antes e a de depois na mesma placa são do
+    mesmo motorista. Empatou em pessoas diferentes, fica sem dono.
+
+    Devolve (viagens, gps_dia, erro)."""
+    from collections import defaultdict
+    from datetime import datetime, time, timedelta
+
+    def _brt(ts):
+        # O worker grava em UTC (utcnow/NOW() no container). Hora exatamente 00:00
+        # é marcação de data, não horário medido: essa não se desloca.
+        if ts is None:
+            return None
+        if ts.time() == time(0, 0):
+            return ts
+        return ts - timedelta(hours=3)
+
+    def _hm(ts, cru):
+        if ts is None:
+            return ''
+        return f'{ts:%d/%m}' if cru is not None and cru.time() == time(0, 0) else f'{ts:%d/%m %H:%M}'
+
+    viagens, gps_dia = [], {}
+    conn = None
+    try:
+        conn = get_db()
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT c.numero, c.viagem_vazia, c.cavalo_placa, c.motorista_cpf, c.status,
+                       c.data_carregamento, COALESCE(c.inicio_viagem, c.data_saida_real),
+                       c.no_local_desde, c.data_conclusao, c.desengatada_em,
+                       c.origem_cidade, c.origem_uf,
+                       (SELECT string_agg(d.cidade || '/' || d.uf, ', ' ORDER BY d.ordem)
+                          FROM embarques_cargas_destinos d WHERE d.carga_id = c.id)
+                  FROM embarques_cargas c
+                 WHERE c.data_carregamento BETWEEN %s AND %s AND c.status <> 'Cancelada'
+                 ORDER BY c.cavalo_placa, COALESCE(c.inicio_viagem, c.data_saida_real,
+                          c.data_carregamento::timestamp), c.numero
+            """, (de, fim))
+            brutas = cur.fetchall()
+            cur.execute("""SELECT placa, dia, COALESCE(km_odo, km_gps::int)
+                             FROM embarques_rastreio_dia WHERE dia BETWEEN %s AND %s""", (ini, fim))
+            for placa, dia, km in cur.fetchall():
+                p = _placa_mercosul(placa)
+                if p:
+                    gps_dia[(p, dia)] = int(km or 0)
+    except Exception as e:
+        return [], {}, str(e)
+    finally:
+        if conn:
+            conn.close()
+
+    fim_aberto = datetime.combine(fim, time(23, 59))
+    por_placa = defaultdict(list)
+    for r in brutas:
+        p = _placa_mercosul(r[2])
+        if not p or p not in frota:
+            continue
+        cru_ini, cru_fim = r[6], (r[8] or r[9])
+        saida = _brt(cru_ini) or datetime.combine(r[5], time())
+        encerrada = _brt(cru_fim) or fim_aberto
+        if encerrada < saida:
+            encerrada = saida
+        rota = f"{r[10] or '?'}/{r[11] or '?'} → {r[12] or '?'}"
+        por_placa[p].append({
+            'numero': r[0], 'vazia': bool(r[1]), 'placa': p, 'cpf': re.sub(r'[^0-9]', '', r[3] or ''),
+            'status': r[4], 'rota': rota, 'ord': saida,
+            'd_ini': max(saida.date(), de), 'd_fim': min(encerrada.date(), fim),
+            'saida': _hm(saida, cru_ini), 'chegada': _hm(_brt(r[7]), r[7]),
+            'encerrada': _hm(encerrada, cru_fim) if cru_fim else '',
+        })
+
+    for p, lista in por_placa.items():
+        for i, v in enumerate(lista):
+            if not v['vazia']:
+                cpf = v['cpf']
+            else:
+                ant = next((x['cpf'] for x in reversed(lista[:i]) if not x['vazia'] and x['cpf']), None)
+                pro = next((x['cpf'] for x in lista[i + 1:] if not x['vazia'] and x['cpf']), None)
+                # Vazia entre duas cargas do mesmo motorista é dele; entre pessoas
+                # diferentes (ou sem a seguinte ainda) fica sem dono.
+                cpf = ant if (ant and (pro is None or ant == pro)) else None
+            v['chave'] = chave_por_cpf.get(cpf) if cpf else None
+            if v['d_fim'] >= v['d_ini']:
+                viagens.append(v)
+    return viagens, gps_dia, None
 
 
 @app.route('/api/jornada')

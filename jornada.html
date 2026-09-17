@@ -82,12 +82,18 @@
   .tl span.p3 { background: #f472b6; } .tl span.p4 { background: #a3e635; }
   .tl span.vc { outline: 1px solid var(--yellow); outline-offset: -1px; }
   .tl span.x { background: repeating-linear-gradient(45deg, #334155 0 2px, #1a2235 2px 4px); }
+  /* situação medida no dia: vazio é listrado, parado é apagado, andou sem viagem é âmbar */
+  .tl span.s-vazia { background-image: repeating-linear-gradient(45deg, rgba(10,14,23,.55) 0 2px, transparent 2px 4px); }
+  .tl span.s-parado { opacity: .32; }
+  .tl span.s-rodou { box-shadow: inset 0 0 0 1px var(--orange); }
+  .tl span.s-sem_gps { opacity: .55; }
 
   .drill td { background: #0d1320; padding: 12px 16px 16px; }
   .alerta { font-size: 0.78rem; line-height: 1.5; padding: 7px 10px; border-radius: 7px; margin-bottom: 6px; }
   .alerta.sem_prova, .alerta.sem_prova_periodo { background: rgba(148,163,184,0.08); border-left: 3px solid #64748b; }
   .alerta.so_valecard { background: rgba(251,191,36,0.07); border-left: 3px solid var(--yellow); }
-  .alerta.compartilhada, .alerta.fora_frota { background: rgba(251,146,60,0.07); border-left: 3px solid var(--orange); }
+  .alerta.compartilhada, .alerta.fora_frota, .alerta.vc_descartado, .alerta.vc_outro_nome,
+  .alerta.rodou_sem_viagem, .alerta.so_viagem { background: rgba(251,146,60,0.07); border-left: 3px solid var(--orange); }
   .seg { margin-top: 12px; }
   .seg h4 { font-size: 0.78rem; margin-bottom: 5px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .seg h4 .per { font-family: 'JetBrains Mono', monospace; color: var(--text-dim); font-weight: 500; }
@@ -97,6 +103,12 @@
   .fonte.manifesto { background: rgba(56,189,248,0.14); color: var(--accent); }
   .fonte.valecard { background: rgba(251,191,36,0.14); color: var(--yellow); }
   .ancora { font-size: 0.72rem; color: var(--text-dim); margin-bottom: 4px; }
+  .viagens { list-style: none; margin: 4px 0 8px; font-size: 0.75rem; }
+  .viagens li { padding: 3px 0 3px 10px; border-left: 2px solid rgba(56,189,248,0.35); margin-bottom: 3px; line-height: 1.45; }
+  .viagens li.vz { border-left-color: rgba(148,163,184,0.5); color: var(--text-dim); }
+  .viagens .num { font-family: 'JetBrains Mono', monospace; color: var(--accent); }
+  .viagens li.vz .num { color: var(--text-dim); }
+  .viagens .h { font-family: 'JetBrains Mono', monospace; color: var(--text-dim); }
 
   .legenda { display: flex; gap: 14px; flex-wrap: wrap; font-size: 0.72rem; color: var(--text-dim); margin-top: 8px; }
   .legenda i { display: inline-block; width: 12px; height: 8px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
@@ -133,6 +145,8 @@
     <b>ValeCard</b>. Entre duas viagens o motorista segue na placa da última, até outro motorista assumi-la ou
     passar <b id="carryMax">15</b> dias sem registro. Períodos marcados em <b style="color:var(--yellow)">amarelo</b>
     vêm só do abastecimento — <b>confira à mão</b>. Clique no motorista para ver os documentos de cada período.
+    O <b>Embarques</b> entra como relógio: a viagem dele (saída e chegada medidas pelo GPS) segura a placa
+    e impede que um abastecimento em nome de outra pessoa o tire do caminhão no meio da viagem.
     Achou algo errado? Avise o time para ajustarmos a regra.
   </div>
 
@@ -144,6 +158,7 @@
     <div class="kpi"><div class="l">Para conferir</div><div class="v warn" id="kConf">—</div><div class="s">dias sem registro ou aviso</div></div>
     <div class="kpi"><div class="l">Só pelo ValeCard</div><div class="v warn" id="kVc">—</div><div class="s">períodos para validar à mão</div></div>
     <div class="kpi"><div class="l">Placa dividida</div><div class="v bad" id="kDup">—</div><div class="s">2 motoristas no mesmo dia</div></div>
+    <div class="kpi"><div class="l">Dias em viagem</div><div class="v" id="kViagem">—</div><div class="s" id="kViagemSub">medido pelo Embarques</div></div>
   </div>
 
   <div class="card">
@@ -155,6 +170,9 @@
     <div class="legenda">
       <span><i style="background:#38bdf8"></i>placa (uma cor por placa)</span>
       <span><i style="background:#1a2235;outline:1px solid var(--yellow)"></i>só pelo ValeCard</span>
+      <span><i style="background:#38bdf8;background-image:repeating-linear-gradient(45deg,rgba(10,14,23,.55) 0 2px,transparent 2px 4px)"></i>viagem vazia</span>
+      <span><i style="background:#38bdf8;opacity:.32"></i>placa parada</span>
+      <span><i style="background:#38bdf8;box-shadow:inset 0 0 0 1px #fb923c"></i>andou sem viagem</span>
       <span><i style="background:repeating-linear-gradient(45deg,#334155 0 2px,#1a2235 2px 4px)"></i>sem registro</span>
     </div>
     <div class="scroll" style="margin-top:10px">
@@ -253,6 +271,10 @@
     var n = Math.round((fim - ini) / 864e5) + 1;
     var cores = {}, k = 0;
     m.segmentos.forEach(function (s) { if (!(s.placa in cores)) cores[s.placa] = k++ % 5; });
+    var porDia = {};
+    (m.linha || []).forEach(function (x) { porDia[x.dia] = x; });
+    var SIT = { viagem: 'em viagem', vazia: 'viagem vazia', parado: 'placa parada',
+                rodou: 'andou sem viagem no Embarques', sem_gps: 'sem GPS no dia' };
     var cel = [];
     for (var i = 0; i < n; i++) {
       var d = iso(new Date(ini.getFullYear(), ini.getMonth(), ini.getDate() + i));
@@ -260,8 +282,10 @@
       if (d > dados.ate) { cel.push('<span title="' + dm(d) + ' — ainda não aconteceu"></span>'); continue; }
       if (!seg.length) { cel.push('<span class="x" title="' + dm(d) + ' — sem registro"></span>'); continue; }
       var s = seg[seg.length - 1];
-      cel.push('<span class="p' + cores[s.placa] + (s.so_valecard ? ' vc' : '') + '" title="' + dm(d) + ' — '
-        + esc(seg.map(function (x) { return x.placa; }).join(' + ')) + '"></span>');
+      var st = (porDia[d] || {}).status;
+      var tit = dm(d) + ' — ' + seg.map(function (x) { return x.placa; }).join(' + ') + (st ? ' · ' + (SIT[st] || st) : '');
+      cel.push('<span class="p' + cores[s.placa] + (s.so_valecard ? ' vc' : '') + (st ? ' s-' + st : '')
+        + '" title="' + esc(tit) + '"></span>');
     }
     return '<div class="tl" style="grid-template-columns:repeat(' + n + ',1fr)">' + cel.join('') + '</div>';
   }
@@ -273,10 +297,20 @@
     m.segmentos.forEach(function (s) {
       h += '<div class="seg"><h4><span class="mono">' + esc(s.placa) + '</span><span class="per">' + faixa(s.ini, s.fim)
         + ' · ' + s.dias + (s.dias === 1 ? ' dia' : ' dias') + '</span>'
-        + (s.so_valecard ? '<span class="pill warn">validar à mão</span>' : '') + '</h4>';
+        + (s.so_valecard ? '<span class="pill warn">validar à mão</span>' : '')
+        + (s.so_viagem ? '<span class="pill warn">só pela viagem</span>' : '') + '</h4>';
       if (s.ancora) {
         h += '<div class="ancora">vem de ' + (s.ancora.fonte === 'manifesto' ? 'manifesto' : 'abastecimento')
           + ' de ' + dm(s.ancora.dia) + ' (' + esc(s.ancora.ref) + '), antes do período</div>';
+      }
+      if ((s.viagens || []).length) {
+        h += '<ul class="viagens">' + s.viagens.map(function (v) {
+          var hora = [v.saida ? 'saiu ' + v.saida : '', v.chegada ? 'chegou ' + v.chegada : '',
+                      v.encerrada ? 'encerrou ' + v.encerrada : ''].filter(Boolean).join(' · ');
+          return '<li class="' + (v.vazia ? 'vz' : '') + '"><span class="num">' + esc(v.numero) + '</span>'
+            + (v.vazia ? ' <span class="pill dim">vazia</span>' : '') + ' ' + esc(v.rota || '')
+            + (hora ? '<br><span class="h">' + esc(hora) + '</span>' : '') + '</li>';
+        }).join('') + '</ul>';
       }
       if (s.provas.length) {
         h += '<table class="provas"><tbody>' + s.provas.map(function (p) {
@@ -299,6 +333,7 @@
       + dados.fim.slice(0, 4) + ' · folha ' + dados.folha_competencias.join(', ')
       + (dados.folha_provisao.length ? ' (mês sem folha usa o anterior: ' + dados.folha_provisao.join(', ') + ')' : '')
       + (dados.ate < dados.fim ? ' · ciclo em curso, dados até ' + dm(dados.ate) : '')
+      + (dados.embarques ? '' : ' · SEM os dados do Embarques (' + dados.embarques_erro + ')')
       + ' · montado em ' + dados.gerado_em;
     $('carryMax').textContent = dados.carry_max_dias;
     var nVc = 0, nDup = {};
@@ -311,6 +346,17 @@
     $('kConf').textContent = ms.filter(pendencias).length;
     $('kVc').textContent = nVc;
     $('kDup').textContent = Object.keys(nDup).length;
+    var emViagem = 0, vazios = 0;
+    ms.forEach(function (m) {
+      (m.linha || []).forEach(function (x) {
+        if (x.status === 'viagem') emViagem++;
+        if (x.status === 'vazia') vazios++;
+      });
+    });
+    $('kViagem').textContent = dados.embarques ? emViagem : '—';
+    $('kViagemSub').textContent = dados.embarques
+      ? vazios + ' dias em viagem vazia · ' + dados.viagens + ' viagens lidas'
+      : 'Embarques indisponível';
 
     var q = $('busca').value.trim().toUpperCase().replace(/[-\s]/g, '');
     var so = $('soPend').checked;

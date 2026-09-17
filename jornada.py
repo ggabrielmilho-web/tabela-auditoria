@@ -95,7 +95,7 @@ def casar_grafias(alvos, candidatos, parecido, corte):
     return feito
 
 
-def montar(ini, fim, motoristas, eventos, carry_max=CARRY_MAX_DIAS):
+def montar(ini, fim, motoristas, eventos, viagens=None, gps_dia=None, carry_max=CARRY_MAX_DIAS):
     """Escala do período.
 
     motoristas: lista de {'chave', 'nome', 'funcao'} — a lista do RH (folha).
@@ -103,30 +103,81 @@ def montar(ini, fim, motoristas, eventos, carry_max=CARRY_MAX_DIAS):
              'fonte' ('manifesto'|'valecard'), 'ref', 'detalhe'} — só placas
              da frota, já em Mercosul. `chave=None` é motorista fora da lista,
              que ainda assim "ocupa" a placa.
+    viagens: viagens do Embarques (opcional) — {'chave', 'placa', 'd_ini', 'd_fim',
+             'vazia', ...}. Nascem do mesmo manifesto, então não dizem QUEM dirigia;
+             dizem QUANDO a viagem começou e acabou, medido pelo GPS. É isso que
+             arbitra o abastecimento: o nome do ValeCard é o do cartão ou o digitado
+             no CAIS, e já tirou motorista da placa no meio da própria viagem
+             (Daniel 05–12/09, Gaspar 12–14/09, com cartão de quem saiu da empresa).
+    gps_dia: {(placa, dia): km} da consolidação diária (opcional) — status do dia.
 
     Retorna {'motoristas': [...], 'compartilhadas': [...]}.
     """
-    # Quem usou cada placa em cada dia (prova, não carregamento).
-    uso = defaultdict(lambda: defaultdict(set))          # placa -> dia -> {nome}
-    por_mot = defaultdict(list)
+    viagens = viagens or []
+    gps_dia = gps_dia or {}
+
+    # Motorista -> dia -> placa -> [viagens em andamento naquele dia].
+    em_viagem = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+    for v in viagens:
+        if v.get('chave'):
+            for d in _dias(v['d_ini'], v['d_fim']):
+                em_viagem[v['chave']][d][v['placa']].append(v)
+
+    # Abastecimento em nome do motorista em OUTRA placa, durante viagem dele:
+    # nome ou cartão trocado. Não vira placa nem ocupa a placa de ninguém.
+    descartados = defaultdict(list)
+    validos = []
     for e in eventos:
-        uso[e['placa']][e['dia']].add(e['chave'] or ('~' + e['nome_fonte']))
+        if e['fonte'] == 'valecard' and e['chave']:
+            vd = em_viagem[e['chave']].get(e['dia'])
+            if vd and e['placa'] not in vd:
+                descartados[e['chave']].append((e, sorted(vd)[0]))
+                continue
+        validos.append(e)
+
+    # Quem usou cada placa em cada dia, e por qual fonte.
+    uso = defaultdict(lambda: defaultdict(lambda: defaultdict(set)))   # placa -> dia -> quem -> {fonte}
+    por_mot = defaultdict(list)
+    for e in validos:
+        uso[e['placa']][e['dia']][e['chave'] or ('~' + e['nome_fonte'])].add(e['fonte'])
         if e['chave']:
             por_mot[e['chave']].append(e)
 
     nomes = {m['chave']: m['nome'] for m in motoristas}
+
+    def _quem(q):
+        return nomes.get(q, q.lstrip('~'))
+
     saida, compartilhadas = [], []
 
     for m in motoristas:
-        evs = sorted(por_mot.get(m['chave'], []), key=lambda e: (e['dia'], e['fonte'] != 'manifesto', e['ref']))
+        ch = m['chave']
+        evs = sorted(por_mot.get(ch, []), key=lambda e: (e['dia'], e['fonte'] != 'manifesto', e['ref']))
         prova_dia = defaultdict(list)                      # dia -> [eventos]
         for e in evs:
             prova_dia[e['dia']].append(e)
+        minhas = em_viagem.get(ch, {})
+
+        def _outros(placa, d):
+            """Outro motorista na placa no dia. Abastecimento em nome de outra
+            pessoa não conta quando a viagem dele próprio nessa placa está em
+            andamento — é o cartão, não o motorista."""
+            fora, so_cartao = [], []
+            for q, fontes in uso[placa].get(d, {}).items():
+                if q == ch:
+                    continue
+                if fontes == {'valecard'} and placa in minhas.get(d, {}):
+                    so_cartao.append(q)
+                else:
+                    fora.append(q)
+            return sorted(fora), sorted(so_cartao)
 
         dia_placas = {}                                    # dia -> {placa: 'prova'|'carry'}
         motivo = {}                                        # dia sem placa -> por que o carregamento parou
-        atual, desde_prova, parou = None, None, None
-        inicio_leitura = min([ini] + [e['dia'] for e in evs])
+        ultima_placa = {}                                  # dia em que parou -> placa que ele largou
+        cartao_alheio = []                                 # (dia, placa, quem)
+        atual, desde_prova, parou, ultimo_mf = None, None, None, None
+        inicio_leitura = min([ini] + [e['dia'] for e in evs] + list(minhas))
         for d in _dias(inicio_leitura, fim):
             hoje = prova_dia.get(d)
             if hoje:
@@ -140,23 +191,51 @@ def montar(ini, fim, motoristas, eventos, carry_max=CARRY_MAX_DIAS):
                         placas.append(e['placa'])
                 dia_placas[d] = {p: 'prova' for p in placas}
                 atual, desde_prova, parou = placas[-1], d, None
+                if mfs:
+                    ultimo_mf = placas[-1]
                 continue
+            vd = minhas.get(d, {})
+            # Viagem dele em andamento (GPS) segura a placa mesmo depois de dias
+            # sem documento. Mas quem manda é o MANIFESTO: carga que o robô abriu
+            # antes e fechou tarde não pode devolver o motorista para a placa
+            # velha depois de ele já ter manifesto novo em outra (Daniel, 25–28/07).
+            if ultimo_mf and ultimo_mf not in vd:
+                vd = {}
+            if vd and (atual is None or atual in vd):
+                cand = atual if atual in vd else sorted(vd)[0]
+                fora, so_cartao = _outros(cand, d)
+                if not fora:
+                    atual = cand
+                    cartao_alheio.extend((d, atual, q) for q in so_cartao)
+                    dia_placas[d] = {atual: 'carry'}
+                    desde_prova, parou = d, None
+                    continue
             if atual is None:
                 if parou:
                     motivo[d] = parou
                 continue
-            outros = sorted(q for q in uso[atual].get(d, ()) if q != m['chave'])
-            if outros:
-                parou = f"{atual} com {nomes.get(outros[0], outros[0].lstrip('~'))} em {d:%d/%m}"
+            fora, _ = _outros(atual, d)
+            if fora:
+                parou = f"{atual} com {_quem(fora[0])} em {d:%d/%m}"
             elif (d - desde_prova).days > carry_max:
                 parou = f"sem prova desde {desde_prova:%d/%m}"
-            if outros or (d - desde_prova).days > carry_max:
+            if fora or (d - desde_prova).days > carry_max:
+                ultima_placa[d] = atual
                 atual = None
                 motivo[d] = parou
                 continue
             dia_placas[d] = {atual: 'carry'}
 
         dias_periodo = list(_dias(ini, fim))
+
+        def _status(p, d):
+            vs = minhas.get(d, {}).get(p)
+            if vs:
+                return 'vazia' if all(v['vazia'] for v in vs) else 'viagem'
+            km = gps_dia.get((p, d))
+            if km is None:
+                return 'sem_gps'
+            return 'rodou' if km >= 30 else 'parado'
 
         # Segmentos: faixas contínuas por placa, dentro do período.
         segs = []
@@ -171,22 +250,56 @@ def montar(ini, fim, motoristas, eventos, carry_max=CARRY_MAX_DIAS):
                     ancora = ant[-1] if ant else None
                 n_mf = len({e['ref'] for e in ev if e['fonte'] == 'manifesto'})
                 n_vc = sum(1 for e in ev if e['fonte'] == 'valecard')
-                tem_mf = n_mf > 0 or (ancora is not None and ancora['fonte'] == 'manifesto')
+                vgs = {}
+                for d in _dias(a, b):
+                    for v in minhas.get(d, {}).get(p, []):
+                        vgs[v['numero']] = v
+                vgs = sorted(vgs.values(), key=lambda v: (v['ord'], v['numero']))
+                tem_mf = (n_mf > 0 or (ancora is not None and ancora['fonte'] == 'manifesto')
+                          or any(not v['vazia'] for v in vgs))
+                # Período sustentado SÓ pela viagem do Embarques: nenhum documento
+                # dentro dele. Acontece quando o robô fecha a viagem tarde e ela
+                # cobre dias em que o motorista já aparece em outra placa.
+                so_viagem = not ev and bool(vgs) and not (ancora is not None and ancora['fonte'] == 'manifesto')
                 segs.append({
                     'placa': p, 'ini': a.isoformat(), 'fim': b.isoformat(),
                     'dias': (b - a).days + 1,
                     'manifestos': n_mf, 'abastecimentos': n_vc,
                     'so_valecard': not tem_mf,
+                    'so_viagem': so_viagem,
                     'ancora': ({'dia': ancora['dia'].isoformat(), 'fonte': ancora['fonte'],
                                 'ref': ancora['ref']} if ancora else None),
                     'provas': [{'dia': e['dia'].isoformat(), 'fonte': e['fonte'], 'ref': e['ref'],
                                 'detalhe': e.get('detalhe') or ''} for e in ev],
+                    'viagens': [{k: v.get(k) for k in ('numero', 'vazia', 'rota', 'saida', 'chegada', 'encerrada', 'status')}
+                                for v in vgs],
                 })
         segs.sort(key=lambda s: (s['ini'], s['fim'], s['placa']))
 
-        sem_prova = [{'ini': a.isoformat(), 'fim': b.isoformat(), 'dias': (b - a).days + 1,
-                      'motivo': motivo.get(a, '')}
-                     for a, b in _faixas([d for d in dias_periodo if d not in dia_placas])]
+        # Linha do tempo: um item por dia, com a situação medida.
+        linha = []
+        for d in dias_periodo:
+            ps = dia_placas.get(d)
+            if ps:
+                p = list(ps)[-1]
+                linha.append({'dia': d.isoformat(), 'placas': list(ps), 'tipo': ps[p], 'status': _status(p, d)})
+            else:
+                linha.append({'dia': d.isoformat(), 'placas': [], 'tipo': None, 'status': None})
+
+        sem_prova = []
+        for a, b in _faixas([d for d in dias_periodo if d not in dia_placas]):
+            txt = motivo.get(a, '')
+            antes = [x for x in ultima_placa if x <= a]
+            ultima = ultima_placa[max(antes)] if antes else None
+            if ultima and gps_dia:
+                st = [_status(ultima, d) for d in _dias(a, b)]
+                parados = sum(1 for x in st if x == 'parado')
+                if parados == len(st):
+                    txt += f"; {ultima} parada no período"
+                elif parados:
+                    txt += f"; {ultima} parada em {parados} dia(s)"
+            sem_prova.append({'ini': a.isoformat(), 'fim': b.isoformat(), 'dias': (b - a).days + 1,
+                              'motivo': txt.lstrip('; ')})
 
         # Placa com dois motoristas no mesmo dia — só prova contra prova.
         dup = []
@@ -194,10 +307,10 @@ def montar(ini, fim, motoristas, eventos, carry_max=CARRY_MAX_DIAS):
             for p, tipo in dia_placas.get(d, {}).items():
                 if tipo != 'prova':
                     continue
-                outros = sorted(q for q in uso[p].get(d, ()) if q != m['chave'])
-                if outros:
-                    dup.append({'dia': d.isoformat(), 'placa': p,
-                                'com': [nomes.get(q, q.lstrip('~')) for q in outros]})
+                fora, so_cartao = _outros(p, d)
+                cartao_alheio.extend((d, p, q) for q in so_cartao)
+                if fora:
+                    dup.append({'dia': d.isoformat(), 'placa': p, 'com': [_quem(q) for q in fora]})
         compartilhadas.extend(dict(x, motorista=m['nome']) for x in dup)
 
         alertas = []
@@ -210,6 +323,11 @@ def montar(ini, fim, motoristas, eventos, carry_max=CARRY_MAX_DIAS):
                                 _fmt_faixa(x) + (f" ({x['motivo']})" if x['motivo'] else '') for x in sem_prova)
                                      + ' — folga, férias, atestado ou admissão?'})
         for s in segs:
+            if s.get('so_viagem'):
+                alertas.append({'tipo': 'so_viagem',
+                                'texto': f"{s['placa']} {_fmt_faixa(s)} vem só da viagem "
+                                         f"{', '.join(v['numero'] for v in s['viagens'][:3])} do Embarques, "
+                                         f"sem documento no período — conferir."})
             if s['so_valecard']:
                 alertas.append({'tipo': 'so_valecard',
                                  'texto': f"{s['placa']} {_fmt_faixa(s)} só por abastecimento (ValeCard) — validar manualmente."})
@@ -217,11 +335,30 @@ def montar(ini, fim, motoristas, eventos, carry_max=CARRY_MAX_DIAS):
             alertas.append({'tipo': 'compartilhada',
                             'texto': 'Placa com outro motorista no mesmo dia: '
                                      + '; '.join(f"{_dm(x['dia'])} {x['placa']} ({', '.join(x['com'])})" for x in dup)})
+        desc = [(e, pv) for e, pv in descartados.get(ch, []) if ini <= e['dia'] <= fim]
+        if desc:
+            alertas.append({'tipo': 'vc_descartado',
+                            'texto': 'Abastecimento em nome dele em outra placa durante a própria viagem '
+                                     '(não entrou na escala — nome ou cartão trocado?): '
+                                     + '; '.join(f"{e['dia']:%d/%m} {e['placa']} ({e.get('detalhe') or ''}) — viagem no {pv}"
+                                                 for e, pv in desc)})
+        alheio = sorted({(d, p, _quem(q)) for d, p, q in cartao_alheio if ini <= d <= fim})
+        if alheio:
+            alertas.append({'tipo': 'vc_outro_nome',
+                            'texto': 'Abastecimento em nome de outra pessoa na placa dele durante a viagem (cartão de outro?): '
+                                     + '; '.join(f"{d:%d/%m} {p} ({q})" for d, p, q in alheio)})
+        rodou = [x for x in linha if x['tipo'] == 'carry' and x['status'] == 'rodou']
+        if rodou and viagens:
+            alertas.append({'tipo': 'rodou_sem_viagem',
+                            'texto': 'Placa andou sem viagem no Embarques: '
+                                     + ', '.join(f"{_dm(x['dia'])} {x['placas'][-1]} "
+                                                 f"({gps_dia.get((x['placas'][-1], date.fromisoformat(x['dia'])))} km)"
+                                                 for x in rodou)})
 
         saida.append({
-            'chave': m['chave'], 'nome': m['nome'], 'funcao': m.get('funcao') or '',
+            'chave': ch, 'nome': m['nome'], 'funcao': m.get('funcao') or '',
             'cpf': m.get('cpf') or '', 'segmentos': segs, 'sem_prova': sem_prova,
-            'alertas': alertas,
+            'alertas': alertas, 'linha': linha,
         })
 
     saida.sort(key=lambda x: x['nome'].upper())
