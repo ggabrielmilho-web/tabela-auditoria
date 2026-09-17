@@ -598,12 +598,24 @@ def _jornada_dados(ini, fim):
         f"EVALUATE SELECTCOLUMNS(FILTER({M}, {M}[data_emissao] >= {dax_de} && {M}[data_emissao] <= {dax_ate}), "
         f"\"d\", {M}[data_emissao], \"mf\", {M}[CHAVE_MANIFESTO], \"cav\", {M}[placa_cavalo], "
         f"\"car\", {M}[placa_carreta], \"cpf\", {M}[cpf_motorista], \"nome\", {M}[nome_motorista], "
-        f"\"ori\", {M}[unidade_origem], \"dst\", {M}[unidade_destino])"))
+        f"\"ori\", {M}[unidade_origem], \"dst\", {M}[unidade_destino], \"ctrb\", {M}[CHAVE_CTRB], "
+        f"\"ctrb_n\", {M}[numero_ctrb_os])"))
+    # Cidade/UF de origem e destino vêm do CTRB (a perna de transporte), como no
+    # robô de embarques; o manifesto só traz a sigla da filial.
+    OS_ = "'public ctrbs_oss'"
+    de_ctrb = de - timedelta(days=10)
+    cidade_ctrb = {}
+    for r in _dax_rows(token, (
+            f"EVALUATE SELECTCOLUMNS(FILTER({OS_}, {OS_}[emissao] >= DATE({de_ctrb.year},{de_ctrb.month},{de_ctrb.day})), "
+            f"\"ctrb\", {OS_}[ctrb], \"o\", {OS_}[cidade_uf_origem], \"d\", {OS_}[cidade_uf_destino])")):
+        k = str(r.get('ctrb') or '').rsplit('-', 1)[0].strip()
+        if k:
+            cidade_ctrb[k] = (str(r.get('o') or '').strip(), str(r.get('d') or '').strip())
     VC = "'public abastecimentos_valecard'"
     vcs = _dax_rows(token, (
         f"EVALUATE SELECTCOLUMNS(FILTER({VC}, {VC}[dch_data] >= {dax_de} && {VC}[dch_data] <= {dax_ate}), "
         f"\"d\", {VC}[dch_data], \"placa\", {VC}[placa], \"mot\", {VC}[motorista], "
-        f"\"prod\", {VC}[produto], \"l\", {VC}[ncd_quantidade], \"cid\", {VC}[cidade])"))
+        f"\"prod\", {VC}[produto], \"l\", {VC}[ncd_quantidade], \"cid\", {VC}[cidade], \"uf\", {VC}[uf], \"cartao\", {VC}[numero_cartao])"))
 
     def _dia(v):
         try:
@@ -638,18 +650,34 @@ def _jornada_dados(ini, fim):
                 fora_frota[chave].append(f"{d:%d/%m} {p}")
             continue
         car = _placa_mercosul(r.get('car'))
+        k_ctrb = str(r.get('ctrb') or '').strip()
+        o, dst = ('', '')
+        if k_ctrb and str(r.get('ctrb_n') or '').strip() != '000000':
+            o, dst = cidade_ctrb.get(k_ctrb, ('', ''))
+        # Sem CTRB ainda: a sigla da filial, marcada, em vez de nada.
+        o = o or f"filial {r.get('ori') or '?'}"
+        dst = dst or f"filial {r.get('dst') or '?'}"
         eventos.append({'chave': chave, 'nome_fonte': str(r.get('nome') or ''), 'dia': d, 'placa': p,
                         'fonte': 'manifesto', 'ref': r.get('mf') or '',
-                        'detalhe': f"{r.get('ori') or '?'} → {r.get('dst') or '?'}" + (f" · carreta {car}" if car else '')})
+                        'detalhe': f"{o} → {dst}" + (f" · carreta {car}" if car else '')})
     for r in vcs:
         d, p = _dia(r.get('d')), _placa_mercosul(r.get('placa'))
         if not d or not p or p not in frota:
             continue
         nome = str(r.get('mot') or '').strip()
         litros = float(r.get('l') or 0)
+        cid, uf = str(r.get('cid') or '').strip(), str(r.get('uf') or '').strip()
+        # Sem cidade e sem cartão é a bomba do CAIS, em Uberlândia (regra da Rizza):
+        # esse lote chega sem posto, cartão nem hodômetro.
+        if cid:
+            local = f"{cid}/{uf}" if uf else cid
+        elif not str(r.get('cartao') or '').strip():
+            local = 'CAIS – UBERLANDIA/MG'
+        else:
+            local = 'cidade não informada no ValeCard'
         eventos.append({'chave': chave_do_vc.get(nome), 'nome_fonte': nome, 'dia': d, 'placa': p,
                         'fonte': 'valecard', 'ref': str(r.get('prod') or '').strip()[:28],
-                        'detalhe': f"{litros:.0f} L" + (f" · {r.get('cid')}" if r.get('cid') else '')})
+                        'detalhe': f"{local} · {litros:.0f} L"})
 
     # Ciclo em curso: dia que ainda não aconteceu não recebe placa — nem por
     # carregamento, nem como "sem registro".
