@@ -952,6 +952,11 @@ def _hora_resumo():
         return 8 * 60
 
 
+_CARENCIA_SQL = ("""(primeiro_visto <= %(corte_utc)s
+    OR (tipo <> 'manifesto_sem_ctrb' AND emissao <= %(corte_brt)s)
+    OR (tipo = 'manifesto_sem_ctrb' AND emissao < %(hoje_brt)s))""")
+
+
 def resumo_devido(cur, agora_brt, refresh_fim=None):
     """Já passou da hora do resumo, o dado é de um refresh concluído DEPOIS dela, e o resumo
     ainda não saiu hoje?
@@ -989,7 +994,14 @@ def avisar(cur, agora, forcar_resumo=False, so_mostrar=False, refresh_fim=None):
     agora_brt = agora - timedelta(hours=3)
     if not (so_mostrar or forcar_resumo or _no_horario(agora_brt)):
         return None, 0
-    corte = agora - timedelta(hours=CARENCIA_H)
+    # Carência pela IDADE DO DOCUMENTO, não por quando o robô o viu: pela data de
+    # "visto", no primeiro boot tudo era recém-visto e o resumo saiu "nada em aberto"
+    # com 48 pendências na tabela (17/09/2026). Entra o que foi visto há mais de 2 h OU
+    # cujo documento é mais velho que isso: CTRB pela hora de emissão; o manifesto (916)
+    # só tem a data, então o de hoje segue a regra do "visto há 2 h".
+    carencia = (_CARENCIA_SQL, {'corte_utc': agora - timedelta(hours=CARENCIA_H),
+                                'corte_brt': agora_brt - timedelta(hours=CARENCIA_H),
+                                'hoje_brt': agora_brt.date()})
 
     link = link_leitura(cur)
     cur.execute("SELECT COUNT(*) FROM ciot_pendencias WHERE resolvido_em IS NULL")
@@ -999,12 +1011,12 @@ def avisar(cur, agora, forcar_resumo=False, so_mostrar=False, refresh_fim=None):
     resolvidas = cur.fetchone()[0]
     if forcar_resumo or resumo_devido(cur, agora_brt, refresh_fim):
         tipo = 'resumo'
-        pend = _pendentes(cur, 'resolvido_em IS NULL AND primeiro_visto <= %s', (corte,))
+        pend = _pendentes(cur, f'resolvido_em IS NULL AND {carencia[0]}', carencia[1])
         texto = montar_resumo(pend, resolvidas, agora_brt, link)
     else:
         tipo = 'novas'
-        pend = _pendentes(cur, 'resolvido_em IS NULL AND avisado_em IS NULL AND primeiro_visto <= %s',
-                          (corte,))
+        pend = _pendentes(cur, f'resolvido_em IS NULL AND avisado_em IS NULL AND {carencia[0]}',
+                          carencia[1])
         if not pend:
             return None, 0
         texto = montar_mensagem(pend, total, agora_brt, link)
@@ -1100,13 +1112,21 @@ def loop():
     ultima_exec = None
     ultimo_ref = None
     falhou_em = None
+    no_boot = True
     while True:
         try:
             agora = datetime.utcnow()
             # Depois de uma falha, espera 30 min antes de tentar de novo o mesmo refresh
             if falhou_em is None or agora - falhou_em >= timedelta(minutes=30):
                 fim, rodando = estado_refresh(get_token(), CONFIG['group_id'], CONFIG['dataset_id'])
-                if deve_rodar(agora, fim, rodando, ultima_exec, ultimo_ref):
+                if no_boot and fim is not None:
+                    # Ligar o robô (ou reiniciar o container) não dispara nada: o refresh
+                    # que já tinha terminado fica como visto e a primeira rodada é a do
+                    # próximo refresh.
+                    ultimo_ref, ultima_exec, no_boot = fim, agora, False
+                    print(f'ℹ️  CIOT: aguardando o próximo refresh do BI (último terminou '
+                          f'{(fim - timedelta(hours=3)):%d/%m %H:%M} BRT)')
+                elif deve_rodar(agora, fim, rodando, ultima_exec, ultimo_ref):
                     executar()
                     ultima_exec, ultimo_ref, falhou_em = agora, fim, None
         except Exception as e:
