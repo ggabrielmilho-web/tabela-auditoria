@@ -197,6 +197,18 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
                                           exigir_parada=True)
                          if d_dst_validos else (None, None))
 
+    # CARRETA DORMIDA — regua compartilhada com o aferidor (embarques_regua.chegada_emprestada)
+    if sensor and sensor.startswith('carreta') and cav and dla is not None:
+        _pcav = serie(cav, ini, fim)
+        if _pcav:
+            _dcav = [(d, geocoding.km_entre(la_, ln_, float(dla), float(dln)), v) for d, la_, ln_, v in _pcav]
+            _dcav = [(d, k, v) for d, k, v in _dcav if k is not None
+                     and (piso is None or d >= piso) and (teto is None or d <= teto)]
+            _c2, _como2 = regua.chegada_emprestada(n_cheg, como_cheg, d_dst, _dcav)
+            if _c2 != n_cheg:
+                n_cheg, como_cheg = _c2, _como2
+                resumo['chegada emprestada do cavalo (carreta dormida)'] += 1
+
     # GUARDA DE VELOCIDADE: o par saida/chegada tem de ser fisicamente possivel. Se implicar
     # mais de VEL_MAX_CRIVEL km/h medios, esses dois instantes nao descrevem a mesma viagem —
     # tenta a proxima chegada candidata e, se nenhuma servir, nao afirma chegada nenhuma.
@@ -234,12 +246,16 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
     if n_cheg:
         depois = [(d, k) for d, k, v in d_dst_validos if d > n_cheg]
         saiu_dst = next((d for d, k in depois if k > RAIO_SAIDA_DESTINO), None)
-        if saiu_dst:
+        ultima = depois[-1][0] if depois else n_cheg
+        # §4.3: "sai do destino OU fica 24 h nele" — o que vier PRIMEIRO. Ate 17/09/26 a saida
+        # vencia sempre: carreta que descarregou e ficou 5 dias estacionada no patio (ou no
+        # cliente esperando retorno) so concluia no dia em que saiu. Medido: 16 de 18 conclusoes
+        # com mais de 30 h apos a chegada eram exatamente o instante da saida do raio (Brasilia,
+        # Serra, Vila Velha, Uberlandia...), inflando duracao de viagem e a janela da jornada.
+        if saiu_dst and (saiu_dst - n_cheg).total_seconds()/3600 <= DWELL_H:
             n_conc, n_motivo = saiu_dst, 'gps_saiu_do_destino'
-        else:
-            ultima = depois[-1][0] if depois else n_cheg
-            if (ultima - n_cheg).total_seconds()/3600 >= DWELL_H:
-                n_conc, n_motivo = n_cheg + timedelta(hours=DWELL_H), 'gps_dwell_destino'
+        elif (ultima - n_cheg).total_seconds()/3600 >= DWELL_H:
+            n_conc, n_motivo = n_cheg + timedelta(hours=DWELL_H), 'gps_dwell_destino'
 
     # ── manifesto novo da MESMA CARRETA encerra a anterior
     #
@@ -414,7 +430,9 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
             campos['no_local_fonte'] = _f
     if n_status != status:
         campos['status'] = n_status
-    if n_motivo and not motivo:
+    # O rotulo acompanha a conclusao: se o instante foi reescrito, o motivo antigo mentia
+    # (havia 'gps_dwell_destino' em conclusoes que eram a saida do raio, 17/09/26).
+    if n_motivo and (not motivo or ('data_conclusao' in campos and n_motivo != motivo)):
         campos['encerrada_motivo'] = n_motivo
 
     # ── DONO DA JANELA. A perna vazia NAO tem evento proprio: a janela dela e, por

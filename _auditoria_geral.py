@@ -288,6 +288,14 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
     dd_validos = [(d, k, v) for d, k, v in dd
                   if (piso is None or d >= piso) and (teto is None or d <= teto)]
     cheg, como = chegada(dd_validos) if dd_validos else (None, None)
+    # carreta dormida em cima da chegada: o instante e o do cavalo (mesma regua do motor)
+    if papel != 'cavalo' and pc:
+        # o piso da carreta dormida e o proprio ponto em que ela acorda (11/09 no patio, na
+        # C-632) — para o cavalo vale a saida GRAVADA, como no motor (max(saida gps, gravada))
+        piso_c = min(piso, dsaida) if (piso and dsaida) else (dsaida or piso)
+        dd_cav = [(d, k, v) for d, k, v in dists(pc, float(dla), float(dln))
+                  if (piso_c is None or d >= piso_c) and (teto is None or d <= teto)]
+        cheg, como = regua.chegada_emprestada(cheg, como, dd, dd_cav)
     mind = min(k for _, k, v in dd)
 
     # ── CICLO: chegada

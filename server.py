@@ -789,7 +789,12 @@ def _jornada_embarques(ini, fim, de, frota, chave_por_cpf):
         p = _placa_mercosul(r[2])
         if not p or p not in frota:
             continue
-        cru_ini, cru_fim = r[6], (r[8] or r[9])
+        cru_ini = r[6]
+        # O cavalo e liberado no que vier PRIMEIRO: conclusao da carga ou desengate. A carga e
+        # da carreta (a janela dela segue enquanto a carreta espera no patio); a escala e do
+        # cavalo. Ate 17/09/26 era `conclusao OR desengate`, e a carreta parada na base por
+        # dias segurava a placa do motorista que ja tinha saido com outra.
+        cru_fim = min((x for x in (r[8], r[9]) if x is not None), default=None)
         saida = _brt(cru_ini) or datetime.combine(r[5], time())
         encerrada = _brt(cru_fim) or fim_aberto
         if encerrada < saida:
@@ -801,9 +806,25 @@ def _jornada_embarques(ini, fim, de, frota, chave_por_cpf):
             'd_ini': max(saida.date(), de), 'd_fim': min(encerrada.date(), fim),
             'saida': _hm(saida, cru_ini), 'chegada': _hm(_brt(r[7]), r[7]),
             'encerrada': _hm(encerrada, cru_fim) if cru_fim else '',
+            '_fim': encerrada, '_cru_fim': cru_fim,
         })
 
     for p, lista in por_placa.items():
+        # A mesma placa nao esta em duas viagens: se a seguinte ja saiu, esta acabou para o
+        # cavalo naquele instante (a carreta pode continuar na carga; a escala nao).
+        for i, v in enumerate(lista):
+            nxt = lista[i + 1] if i + 1 < len(lista) else None
+            if nxt and nxt['ord'] > v['ord'] and v['_fim'] > nxt['ord']:
+                if nxt['ord'].time() == time(0, 0):
+                    # saida da seguinte so tem DATA (manifesto sem hora): corta o dia, nao a hora
+                    if v['_fim'].date() > nxt['ord'].date():
+                        v['d_fim'] = min(nxt['ord'].date(), fim)
+                        v['encerrada'] = f"{nxt['ord']:%d/%m} ↦"
+                else:
+                    v['_fim'] = nxt['ord']
+                    v['d_fim'] = min(nxt['ord'].date(), fim)
+                    v['encerrada'] = f"{nxt['ord']:%d/%m %H:%M} ↦"
+            v.pop('_fim', None); v.pop('_cru_fim', None)
         for i, v in enumerate(lista):
             if not v['vazia']:
                 cpf = v['cpf']

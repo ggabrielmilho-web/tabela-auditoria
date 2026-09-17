@@ -164,6 +164,35 @@ def chegada(dd):
     return perto_com_parada(dd, RAIO_CHEGADA, RAIO_METRO, exigir_parada=True)
 
 
+SONO_CARRETA_H = 48.0
+
+
+def chegada_emprestada(cheg, como, dd_carreta, dd_cavalo, sono_h=SONO_CARRETA_H):
+    """CARRETA DORMIDA (17/09/26). A carreta e a identidade e continua sendo o sensor; mas se a
+    serie dela nao tem ponto NENHUM nas `sono_h` seguintes a chegada que o cavalo mostra (o
+    cavalo anda junto ate o desengate), o INSTANTE da chegada e o do cavalo. So empresta quando
+    e anterior ao da carreta — nunca atrasa.
+
+    Caso-tipo C-2026-000632: a carreta HMV3D38 deu 6 pontos em 10 dias, todos ao acordar no
+    patio 9 dias depois (odometro +455 km = a mesma viagem, reportada tarde); o cavalo tinha
+    6.745 pontos e a chegada em 02/09. Sem esta regra o motor gravou 11/09.
+    Carreta que TRANSMITE nas 48 h e nao para no destino nao e sono: e documento/desengate
+    (licao da C-913) — e ai a regra nao se aplica.
+
+    `dd_carreta` = triplas (instante, km, vel) da carreta na janela inteira (sem piso/teto);
+    `dd_cavalo` = idem do cavalo, JA recortado pelo mesmo piso/teto da carreta."""
+    from datetime import timedelta
+    if not dd_cavalo:
+        return cheg, como
+    ccav, ccomo = chegada(dd_cavalo)
+    if not ccav or (cheg is not None and ccav >= cheg):
+        return cheg, como
+    a, b = ccav - timedelta(hours=1), ccav + timedelta(hours=sono_h)
+    if any(a <= d <= b for d, _, _ in dd_carreta):
+        return cheg, como
+    return ccav, (ccomo or 'estrita') + '+cavalo'
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # POSICAO FALSA — a regua do que o veiculo NAO pode ter feito (10/09/2026)
 # ══════════════════════════════════════════════════════════════════════════════
