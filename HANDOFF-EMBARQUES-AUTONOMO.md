@@ -1,6 +1,14 @@
 # Handoff — Painel de Embarques autônomo
 
-**Estado em 15/09/2026 (noite) — ⚠ COMECE PELA §26.** Laboratório de um dia inteiro (banco
+**Estado em 17/09/2026 (noite) — ⚠ COMECE PELA §26.10.** Dois deploys hoje (`0b88f9d` e
+`aedf89d`), os dois **confirmados na rodada das 16:30 de produção**: conclusão = o que vier
+primeiro (saiu ou 24 h), chegada emprestada do cavalo quando a carreta dormiu, jornada corta a
+janela do cavalo na viagem seguinte e só mostra perna que ele puxou, `L2` no aferidor. Primeira
+rodada com a régua nova: motor 97 → 14 → 0, ponto fixo conjunto, zero regressão de status.
+`EMBARQUES_RECONCILIACAO` **ligada em 17/09 à noite** (efeito em 18/09 16:30). Plano dos
+próximos dias na §26.10.
+
+**Antes disso — 15/09/2026 (noite), §26.** Laboratório de um dia inteiro (banco
 `rizza_lab` = cópia de produção das 09:16) e **deploy em produção às 17:07** do pacote provado
 lá (`e9a2be2`, tag de volta `pre-lab-2026-09-15`): guarda da §25.3, posição falsa fora da
 evidência, janela do atemporal 28 d, pernas curtas, e dois módulos novos **desligados**
@@ -4134,3 +4142,35 @@ marcada "(carreta)"; (3) **`L2`** no aferidor: carga sem chegada coberta por per
 cavalo com outra carreta = carreta errada no manifesto (C-662: dizia `HMV3G86`, a viagem foi com a
 `QXF1I45` — o gerador fabricou a `V-130` em cima da viagem carregada; C-848 idem, a conferir).
 Fica para o gerador: carimbar o cavalo só quando A e B têm o mesmo (hoje `cavalo_placa` é NOT NULL).
+
+
+### 26.10 Produção em 17/09 e o plano da semana
+
+**Rodada das 16:30 de 17/09 (primeira com `0b88f9d`+`aedf89d`), lida no `lab_20260917/`:**
+diário 16 criadas / 6 encerradas → motor r1 **97** (57 conclusões recuadas, 58 rótulos, 38 chegadas —
+a régua convergindo de uma vez) → pernas 15 → rotas 15 → janela 23 → motor r2 14 → janela 0 → motor
+r3 0: **ponto fixo conjunto na rodada 2**. Status: 20 pelo atemporal (5 `No destino→Entregue`, 1
+`Desengatada→Entregue`, 14 cargas de ontem nascendo em viagem), 6 pelo diário. Casos-teste iguais ao
+lab: C-632 chegada 02/09 18:27 `estrita+cavalo` / conclusão 03/09 18:27; C-673/679/804 = chegada + 24 h;
+C-864 saiu em 13:09 (< 24 h); C-662 e C-848 = os 2 `L2`. Dry-run depois do ciclo = 2 (GPS novo do
+worker, não oscilação; o r3 do ciclo foi 0). Sobram 16 conclusões na faixa 30–48 h (tolerância de 24 h
+do motor) e 2 acima de 48 h na borda da janela de 28 d (C-444/C-448, posições já em purga).
+Aferidor: alta 52 = V1 33 · F5 4 · F1 3 · R1 3 · L2 2 · S1 2 · C7 2.
+
+**Ligado em 17/09 à noite:** `EMBARQUES_RECONCILIACAO=true` (CLI; snapshot antes). Prova de ação
+não vem do log (`✅ Embarques auto` não imprime o contador) — vem do `embarques_cargas_log`:
+`valor_novo LIKE '%manifesto_cancelado%' OR '%manifesto voltou%'`. Esperado nos primeiros dias: zero.
+
+**Plano (o que ainda não existe em código está marcado):**
+
+| dia | faz | gate |
+|---|---|---|
+| 18/09 | rodada com reconciliação → `diff` + aferidor → **`EMBARQUES_COLETA=true`** | 0 manual tocada; nenhuma classe sobe sem explicação |
+| 19/09 | rodada com coleta (Embarcador na coluna, `L1`, `origem/destino_cnpj`) · **escrever e testar no lab o agendador da fita** (`EMBARQUES_FITA`, thread vigiando `data_importacao`) → deploy inerte → chave | aba de ordens viva em produção; `locais` e `L2` calibrados |
+| 22/09+ | **escrever e testar o disparo do diário após cada refresh** + `EMBARQUES_AUTO_DEFASAGEM=0` ("lançamentos do dia") — só depois da fita, porque é ela que dá o dado real de cancelamento intradiário para o replay | replay dia a dia no lab; uma chave, um dia de observação |
+| depois | observação; `Programada` (Fase 2) e endereço como âncora (Fase 3), cada uma medida antes | |
+
+**Dívidas registradas hoje:** gerador de pernas carimbar o cavalo só quando A e B têm o mesmo
+(`cavalo_placa` é NOT NULL — precisa de decisão); C-848 conferir como a C-662; os 38 `no_local_desde`
+reescritos por segundos na primeira rodada são o filtro de posição falsa reassentando o primeiro ponto
+parado (uma vez só).
