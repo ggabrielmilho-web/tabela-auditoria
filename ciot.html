@@ -28,6 +28,11 @@
   .toggle { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
   .toggle button { padding: 8px 14px; background: var(--surface2); border: none; color: var(--text-dim); font-family: 'DM Sans', sans-serif; font-weight: 600; font-size: 0.82rem; cursor: pointer; }
   .toggle button.active { background: var(--accent); color: var(--bg); }
+  .datas { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .datas .rot { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); font-weight: 700; }
+  input[type=date] { padding: 7px 9px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+                     color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 0.76rem; color-scheme: dark; }
+  .toggle.mini button { padding: 7px 10px; font-size: 0.76rem; }
   .busca { padding: 7px 12px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 0.8rem; min-width: 240px; }
 
   .kpis { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
@@ -95,6 +100,18 @@
       <button data-s="abertas" class="active">Em aberto</button>
       <button data-s="resolvidas">Resolvidas</button>
       <button data-s="todas">Todas</button>
+    </div>
+    <div class="datas">
+      <span class="rot">Emissão</span>
+      <input type="date" id="dataDe" onchange="mudouData()" title="Emitidos a partir de">
+      <span class="dim">a</span>
+      <input type="date" id="dataAte" onchange="mudouData()" title="Emitidos até">
+      <div class="toggle mini" id="atalhos">
+        <button data-d="0">Hoje</button>
+        <button data-d="7">7 dias</button>
+        <button data-d="mes">Mês</button>
+        <button data-d="" class="active">Tudo</button>
+      </div>
     </div>
     <input class="busca" id="busca" placeholder="Buscar documento, placa, motorista, filial…" oninput="render()">
   </div>
@@ -195,30 +212,66 @@ async function novoLink() {
   else alert('Não consegui gerar: ' + (j.error || r.status));
 }
 
+// Filtro por data de EMISSÃO do documento (a mesma data da coluna Emissão). Vale para
+// os cartões, a tabela e o CSV; o cartão de "CIOT válido" é da rodada inteira e some.
+function isoDia(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function periodo() {
+  return { de: document.getElementById('dataDe').value, ate: document.getElementById('dataAte').value };
+}
+
+function porData(l) {
+  const { de, ate } = periodo();
+  if (!de && !ate) return true;
+  const dia = (l.emissao || '').slice(0, 10);
+  if (!dia) return false;
+  return (!de || dia >= de) && (!ate || dia <= ate);
+}
+
+function baseData() { return DADOS.linhas.filter(porData); }
+
+function mudouData(atalho) {
+  document.querySelectorAll('#atalhos button').forEach(b =>
+    b.classList.toggle('active', atalho !== undefined && b.dataset.d === atalho));
+  kpis(); render();
+}
+
+document.querySelectorAll('#atalhos button').forEach(b => b.onclick = () => {
+  const hoje = new Date();
+  let de = '';
+  if (b.dataset.d === 'mes') de = isoDia(new Date(hoje.getFullYear(), hoje.getMonth(), 1));
+  else if (b.dataset.d !== '') {
+    const d = new Date(hoje); d.setDate(d.getDate() - Number(b.dataset.d)); de = isoDia(d);
+  }
+  document.getElementById('dataDe').value = de;
+  document.getElementById('dataAte').value = b.dataset.d === '' ? '' : isoDia(hoje);
+  mudouData(b.dataset.d);
+});
+
 function kpis() {
   const r = (DADOS.rodada && DADOS.rodada.resumo) || {};
-  const cont = {};
-  for (const l of DADOS.linhas) cont[l.tipo] = (cont[l.tipo] || 0) + 1;
-  const docs = new Set(DADOS.linhas.map(l => l.documento)).size;
+  const linhas = baseData();
+  const { de, ate } = periodo();
+  const docs = new Set(linhas.map(l => l.documento)).size;
   let html = `<div class="kpi ${TIPO ? '' : 'sel'}" onclick="filtrarTipo('')">
       <div class="l">${STATUS === 'abertas' ? 'Documentos com pendência' : 'Documentos'}</div>
       <div class="v ${docs ? 'bad' : 'ok'}">${docs}</div></div>`;
-  if (STATUS === 'abertas' && r.ctrbs != null) {
+  if (STATUS === 'abertas' && r.ctrbs != null && !de && !ate) {
     html += `<div class="kpi" style="cursor:default"><div class="l">CTRBs com CIOT válido</div>
       <div class="v ok">${r.ciot_ok || 0} <span class="dim" style="font-size:.8rem">de ${r.ctrbs - (r.nao_viagem || 0) - (r.reemitidos || 0)}</span></div></div>`;
   }
-  const grupos = porDocumento(DADOS.linhas);
-  for (const k of DADOS.ordem) {
-    const label = DADOS.tipos[k];
-    const n = cont[k] || 0;
-    let sub = '';
-    if (k === 'ctrb_sem_manifesto' && n) {
-      const g = grupos.filter(ps => ps.some(x => x.tipo === k));
-      const com = g.filter(temCiot).length;
-      sub = `<div class="s"><b style="color:var(--red)">${g.length - com} sem CIOT</b> · ${com} com CIOT</div>`;
-    }
+  // Mesmas categorias da mensagem do WhatsApp: uma por documento, somam o total.
+  const porCat = {};
+  for (const ps of porDocumento(linhas)) {
+    const c = categoria(ps);
+    porCat[c] = (porCat[c] || 0) + 1;
+  }
+  for (const [k, label, grave] of CATEGORIAS) {
+    const n = porCat[k] || 0;
     html += `<div class="kpi ${TIPO === k ? 'sel' : ''}" onclick="filtrarTipo('${k}')">
-      <div class="l">${esc(label)}</div><div class="v ${n ? (PILL[k] === 'bad' ? 'bad' : 'warn') : 'ok'}">${n}</div>${sub}</div>`;
+      <div class="l">${esc(label)}</div><div class="v ${n ? (grave ? 'bad' : 'warn') : 'ok'}">${n}</div></div>`;
   }
   document.getElementById('kpis').innerHTML = html;
 }
@@ -229,6 +282,25 @@ function temCiot(ps) {
   const tipos = new Set(ps.map(x => x.tipo));
   return (tipos.has('ctrb_sem_manifesto') || tipos.has('vinculo_divergente'))
     && !tipos.has('sem_ciot') && !tipos.has('ciot_erro');
+}
+
+// Espelho de ciot_conferencia.categoria(): a aba e a mensagem contam igual.
+const CATEGORIAS = [
+  ['sem_ciot_sem_manifesto', 'Sem CIOT e sem manifesto', true],
+  ['sem_ciot', 'Sem CIOT (tem manifesto)', true],
+  ['mdf_sem_ctrb', 'MDF sem CTRB', true],
+  ['sem_manifesto', 'Sem manifesto (tem CIOT)', false],
+  ['dados_diferentes', 'Dados diferentes (tem CIOT)', false],
+];
+
+function categoria(ps) {
+  const t = new Set(ps.map(x => x.tipo));
+  const semCiot = t.has('sem_ciot') || t.has('ciot_erro');
+  if (t.has('manifesto_sem_ctrb')) return 'mdf_sem_ctrb';
+  if (semCiot && t.has('ctrb_sem_manifesto')) return 'sem_ciot_sem_manifesto';
+  if (semCiot) return 'sem_ciot';
+  if (t.has('ctrb_sem_manifesto')) return 'sem_manifesto';
+  return 'dados_diferentes';
 }
 
 function porDocumento(linhas) {
@@ -242,7 +314,9 @@ function filtrarTipo(t) { TIPO = TIPO === t ? '' : t; kpis(); render(); }
 function linhasFiltradas() {
   // O filtro escolhe DOCUMENTOS; o documento escolhido vem com todas as pendências dele.
   const q = document.getElementById('busca').value.trim().toUpperCase();
-  const casa = l => (!TIPO || l.tipo === TIPO) && (!q ||
+  const cat = {};
+  if (TIPO) for (const ps of porDocumento(DADOS.linhas)) cat[ps[0].documento] = categoria(ps);
+  const casa = l => porData(l) && (!TIPO || cat[l.documento] === TIPO) && (!q ||
     [l.documento, l.ctrb, l.manifesto, l.placa, l.motorista, l.filial, l.tipo_operacao, l.detalhe, l.tipo_label]
       .some(v => String(v || '').toUpperCase().includes(q)));
   const docs = new Set(DADOS.linhas.filter(casa).map(l => l.documento));
@@ -253,7 +327,8 @@ function render() {
   if (!DADOS) return;
   const ls = linhasFiltradas();
   if (!ls.length) {
-    const semFiltro = !TIPO && !document.getElementById('busca').value;
+    const { de, ate } = periodo();
+    const semFiltro = !TIPO && !document.getElementById('busca').value && !de && !ate;
     const vazio = { abertas: '✅ Nenhuma pendência em aberto.', resolvidas: 'Nenhuma pendência resolvida ainda.',
                     todas: 'Nenhuma pendência registrada ainda.' }[STATUS];
     document.getElementById('tabela').innerHTML =
@@ -327,7 +402,9 @@ function exportar() {
   const blob = new Blob(['﻿' + linhas.join('\r\n')], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `ciot_${STATUS}_${new Date().toISOString().slice(0, 10)}.csv`;
+  const { de, ate } = periodo();
+  const faixa = (de || ate) ? `_${de || 'inicio'}_a_${ate || 'hoje'}` : '';
+  a.download = `ciot_${STATUS}${faixa}_${new Date().toISOString().slice(0, 10)}.csv`;
   a.click();
 }
 
