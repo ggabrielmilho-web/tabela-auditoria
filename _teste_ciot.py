@@ -145,7 +145,7 @@ def main():
                               dict(base, tipo='sem_ciot', manifesto='UDI000100-1')],
                              3, datetime(2026, 9, 17, 14, 5))
     assert '*UDI000001-1* · Agregado · AAA1B23 · MDF UDI000100-1 — sem CIOT, sem manifesto' in txt, txt
-    assert '1 documento(s)' in txt and '3 pendência(s) em aberto' in txt, txt
+    assert '1 documento(s)' in txt and '3 documento(s) em aberto' in txt, txt
 
     from datetime import datetime as _dt
     res = cc.montar_resumo([dict(base, tipo='sem_ciot', manifesto='', emissao=_dt(2026, 9, 15, 10), avisado_em=None),
@@ -154,6 +154,8 @@ def main():
                            2, datetime(2026, 9, 17, 8, 5))
     linhas = res.split('\n')
     assert '2 documento(s) · 2 pendência(s) resolvida(s)' in res, res
+    # CIOT com erro também é "sem CIOT": as duas somam na mesma categoria
+    assert 'sem CIOT (tem manifesto): *2*' in res and 'sem CIOT e sem manifesto' not in res, res
     i1 = next(i for i, l in enumerate(linhas) if 'UDI000002-9' in l)
     i2 = next(i for i, l in enumerate(linhas) if 'UDI000001-1' in l)
     assert i1 < i2, 'resumo: mais antigo primeiro'
@@ -175,12 +177,22 @@ def main():
                 dict(base, chave='x3', documento='UDI000002-9', tipo='ctrb_sem_manifesto', manifesto='',
                      emissao=_dt(2026, 9, 16, 9), avisado_em=None, detalhe='tem CIOT · C/MG → D/SP · nenhum')]
     dados = cc.dados_aviso('resumo', pend_img, 3, 0, datetime(2026, 9, 17, 8, 5))
-    assert '2 sem manifesto (1 também sem CIOT)' in dados['legenda'], dados['legenda']
+    assert '• 1 sem CIOT e sem manifesto' in dados['legenda'], dados['legenda']
+    assert '• 1 sem manifesto (tem CIOT)' in dados['legenda'], dados['legenda']
+    # categorias exclusivas somam o número de documentos
+    assert sum(n for _, n, _ in dados['contadores']) == 2, dados['contadores']
     docs_img = {d['documento']: d for d in dados['documentos']}
     assert docs_img['UDI000002-9']['tem_ciot'] and not docs_img['UDI000001-1']['tem_ciot']
     assert docs_img['UDI000001-1']['detalhes'] == ['A/MG → B/SP'], docs_img
     assert ciot_imagem.gerar_png(dados)[:8] == b'\x89PNG\r\n\x1a\n'
     assert cc.dados_aviso('resumo', [], 0, 0, datetime(2026, 9, 17, 8, 5))['legenda'].startswith('✅')
+    # cada mensagem diz qual é: resumo = tudo em aberto no período; novas = só a diferença
+    assert 'Tudo que segue em aberto (emitidos de 01/09 a 17/09): *2 documento(s)*' in dados['legenda'], dados['legenda']
+    assert 'emitidos de 01/09 a 17/09' in dados['subtitulo'], dados['subtitulo']
+    nv = cc.dados_aviso('novas', pend_img[:1], 5, 0, datetime(2026, 9, 17, 10, 15), None,
+                        datetime(2026, 9, 17, 8, 15))
+    assert 'Só o que apareceu desde o último aviso (17/09 08:15): *1 documento(s)*' in nv['legenda'], nv['legenda']
+    assert 'Em aberto no total: 5 documento(s)' in nv['legenda'] and 'resumo das' in nv['rodape'], nv
 
     # agendamento: folga depois do refresh e nunca durante
     from datetime import timedelta as _td

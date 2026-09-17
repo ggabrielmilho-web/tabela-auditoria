@@ -58,7 +58,7 @@ def main():
         # o resumo mostra o que existe (não "Tudo em dia")
         p = cc._pendentes(cur, f'resolvido_em IS NULL AND {carencia[0]}', carencia[1])
         d = cc.dados_aviso('resumo', p, len(lote), 0, brt)
-        confere('resumo não sai em branco', d['titulo'] == 'Em aberto' and d['contadores'], d['titulo'])
+        confere('resumo não sai em branco', d['titulo'] == 'Resumo do dia · tudo em aberto' and d['contadores'], d['titulo'])
 
         # prévia do avisar (não envia nem marca)
         import os, tempfile                              # a prévia grava o PNG na pasta atual

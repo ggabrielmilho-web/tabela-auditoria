@@ -735,9 +735,9 @@ def montar_mensagem(novas, total_abertas, agora_brt, link=None):
     por_doc = _por_documento(novas)
 
     linhas = [f'⚠️ *Conferência CIOT · {agora_brt:%d/%m %H:%M}*',
-              f'{len(por_doc)} documento(s) com pendência nova · {total_abertas} pendência(s) em aberto',
+              f'{len(por_doc)} documento(s) com pendência nova · {total_abertas} documento(s) em aberto',
               '']
-    linhas += [f'{TIPOS[t]}: *{cont[t]}*' for t in ORDEM_TIPOS if cont[t]]
+    linhas += [f'{rot}: *{n}*' for rot, n, _ in contagem(novas)]
     linhas.append('')
     for i, (doc, ps) in enumerate(por_doc.items()):
         if i >= MAX_LINHAS_AVISO:
@@ -799,7 +799,7 @@ def montar_resumo(abertas, resolvidas_24h, agora_brt, link=None):
     antigos = len(por_doc) - len(recentes)
     linhas = [f'📋 *CIOT · em aberto em {agora_brt:%d/%m %H:%M}*',
               f'{len(por_doc)} documento(s) · {resolvidas_24h} pendência(s) resolvida(s) nas últimas 24 h', '']
-    linhas += [f'{TIPOS[t]}: *{cont[t]}*' for t in ORDEM_TIPOS if cont[t]]
+    linhas += [f'{rot}: *{n}*' for rot, n, _ in contagem(abertas)]
     linhas.append('')
     linhas.append(f'_Emitidos nos últimos {RESUMO_DIAS} dias ({len(recentes)}):_' if recentes
                   else f'_Nada emitido nos últimos {RESUMO_DIAS} dias._')
@@ -820,27 +820,56 @@ def montar_resumo(abertas, resolvidas_24h, agora_brt, link=None):
     return '\n'.join(linhas) + link
 
 
-def dados_aviso(tipo, pend, total_abertas, resolvidas_24h, agora_brt, link=None):
-    """Conteúdo da imagem (ciot_imagem) e da legenda, a partir das mesmas pendências do texto."""
-    por_doc = _por_documento(pend)
-    cont = defaultdict(int)
-    for p in pend:
-        cont[p['tipo']] += 1
+# Uma categoria por DOCUMENTO, para os números somarem o total. Contar por pendência
+# confundia: "22 sem CIOT · 20 sem manifesto (17 sem CIOT)" — os 17 estão dentro dos 22.
+CATEGORIAS = [
+    ('sem_ciot_sem_manifesto', 'sem CIOT e sem manifesto', '#f87171'),
+    ('sem_ciot', 'sem CIOT (tem manifesto)', '#f87171'),
+    ('mdf_sem_ctrb', 'MDF sem CTRB', '#f87171'),
+    ('sem_manifesto', 'sem manifesto (tem CIOT)', '#fb923c'),
+    ('dados_diferentes', 'dados diferentes (tem CIOT)', '#fb923c'),
+]
 
-    # CTRB sem manifesto: quantos também estão sem CIOT — é o número que importa
-    sm = [ps for ps in por_doc.values() if any(x['tipo'] == 'ctrb_sem_manifesto' for x in ps)]
-    sm_sem = sum(1 for ps in sm if {x['tipo'] for x in ps} & {'sem_ciot', 'ciot_erro'})
-    rotulos = {'sem_ciot': ('sem CIOT', '#f87171'), 'ciot_erro': ('CIOT com erro', '#f87171'),
-               'ctrb_sem_manifesto': ('sem manifesto', '#fb923c'),
-               'manifesto_sem_ctrb': ('MDF sem CTRB', '#f87171'),
-               'vinculo_divergente': ('dados diferentes', '#fb923c')}
-    contadores = []
-    for t in ORDEM_TIPOS:
-        if cont[t]:
-            rot, cor = rotulos[t]
-            if t == 'ctrb_sem_manifesto':
-                rot += f' ({sm_sem} também sem CIOT)'
-            contadores.append((rot, cont[t], cor))
+
+def categoria(tipos):
+    tipos = set(tipos)
+    sem_ciot = bool(tipos & {'sem_ciot', 'ciot_erro'})
+    if 'manifesto_sem_ctrb' in tipos:
+        return 'mdf_sem_ctrb'
+    if sem_ciot and 'ctrb_sem_manifesto' in tipos:
+        return 'sem_ciot_sem_manifesto'
+    if sem_ciot:
+        return 'sem_ciot'
+    if 'ctrb_sem_manifesto' in tipos:
+        return 'sem_manifesto'
+    return 'dados_diferentes'
+
+
+def contagem(pend):
+    """[(rótulo, n, cor)] por documento, categorias exclusivas, na ordem de gravidade."""
+    n = defaultdict(int)
+    for ps in _por_documento(pend).values():
+        n[categoria(x['tipo'] for x in ps)] += 1
+    return [(rot, n[k], cor) for k, rot, cor in CATEGORIAS if n[k]]
+
+
+def _periodo(agora_brt):
+    try:
+        ini = date.fromisoformat(DESDE)
+        return f'{ini:%d/%m} a {agora_brt:%d/%m}'
+    except ValueError:
+        return f'até {agora_brt:%d/%m}'
+
+
+def dados_aviso(tipo, pend, total_abertas, resolvidas_24h, agora_brt, link=None, ultimo_aviso=None):
+    """Conteúdo da imagem (ciot_imagem) e da legenda, a partir das mesmas pendências do texto.
+
+    `total_abertas` = documentos em aberto; `ultimo_aviso` = BRT do último envio (novas)."""
+    por_doc = _por_documento(pend)
+    contadores = contagem(pend)
+    periodo = _periodo(agora_brt)
+    desde_aviso = (f'desde o último aviso ({ultimo_aviso:%d/%m %H:%M})' if ultimo_aviso
+                   else 'desde o início da conferência')
 
     def doc(d, ps):
         tipos = [x['tipo'] for x in ps]
@@ -877,8 +906,8 @@ def dados_aviso(tipo, pend, total_abertas, resolvidas_24h, agora_brt, link=None)
                     if not hasattr(ps[0].get('emissao'), 'date') or ps[0]['emissao'].date() >= corte]
         antigos = len(por_doc) - len(recentes)
         mostrar = recentes[:MAX_LINHAS_RESUMO]
-        titulo = 'Em aberto' if por_doc else 'Tudo em dia'
-        subtitulo = (f'{agora_brt:%d/%m/%Y %H:%M} · {len(por_doc)} documento(s) · '
+        titulo = 'Resumo do dia · tudo em aberto' if por_doc else 'Resumo do dia · tudo em dia'
+        subtitulo = (f'{agora_brt:%d/%m/%Y %H:%M} · emitidos de {periodo} · {len(por_doc)} documento(s) · '
                      f'{resolvidas_24h} pendência(s) resolvida(s) em 24 h')
         legenda_lista = (f'Emitidos nos últimos {RESUMO_DIAS} dias ({len(recentes)})' if recentes
                          else (f'Nada emitido nos últimos {RESUMO_DIAS} dias' if por_doc else ''))
@@ -894,21 +923,34 @@ def dados_aviso(tipo, pend, total_abertas, resolvidas_24h, agora_brt, link=None)
     else:
         itens = list(por_doc.items())
         mostrar = itens[:MAX_LINHAS_AVISO]
-        titulo = f'{len(por_doc)} documento(s) com pendência nova'
-        subtitulo = f'{agora_brt:%d/%m/%Y %H:%M} · {total_abertas} pendência(s) em aberto no total'
+        titulo = f'Novas · {len(por_doc)} documento(s)'
+        subtitulo = (f'{agora_brt:%d/%m/%Y %H:%M} · só o que apareceu {desde_aviso} · '
+                     f'{total_abertas} documento(s) em aberto no total')
         legenda_lista = ''
+        extra = []
         if len(itens) > len(mostrar):
-            rodape = f'+{len(itens) - len(mostrar)} documento(s) · lista completa na aba CIOT'
+            extra.append(f'+{len(itens) - len(mostrar)} documento(s) na aba CIOT')
+        extra.append(f'o resumo das {RESUMO_HORA} traz tudo que segue em aberto')
+        rodape = ' · '.join(extra)
 
-    # legenda: curta, só o que dá para ler sem abrir a imagem
+    # legenda: curta, só o que dá para ler sem abrir a imagem. Diz qual das duas
+    # mensagens é — o resumo traz TUDO em aberto; as novas, só a diferença.
     if tipo != 'resumo':
-        cab = f'⚠️ *CIOT · {agora_brt:%d/%m %H:%M}* — {len(por_doc)} documento(s) com pendência nova'
+        cab = (f'⚠️ *CIOT · novas · {agora_brt:%d/%m %H:%M}*\n'
+               f'Só o que apareceu {desde_aviso}: *{len(por_doc)} documento(s)*')
+        rodape_txt = (f'\n_Em aberto no total: {total_abertas} documento(s) — '
+                      f'o resumo das {RESUMO_HORA} traz todos._')
     elif por_doc:
-        cab = f'📋 *CIOT · {agora_brt:%d/%m %H:%M}* — {len(por_doc)} documento(s) em aberto'
+        cab = (f'📋 *CIOT · resumo do dia · {agora_brt:%d/%m %H:%M}*\n'
+               f'Tudo que segue em aberto (emitidos de {periodo}): *{len(por_doc)} documento(s)*')
+        rodape_txt = ''
     else:
-        cab = f'✅ *CIOT · {agora_brt:%d/%m %H:%M}* — nada em aberto'
-    resumo_txt = ' · '.join(f'{n} {rot}' for rot, n, _ in contadores)
-    legenda = cab + (f'\n{resumo_txt}' if resumo_txt else '') + (f'\n\n🔗 {link or BASE_URL + "/ciot"}' if (link or BASE_URL) else '')
+        cab = (f'✅ *CIOT · resumo do dia · {agora_brt:%d/%m %H:%M}*\n'
+               f'Nada em aberto (emitidos de {periodo})')
+        rodape_txt = ''
+    resumo_txt = '\n'.join(f'• {n} {rot}' for rot, n, _ in contadores)
+    legenda = (cab + (f'\n{resumo_txt}' if resumo_txt else '') + rodape_txt
+               + (f'\n\n🔗 {link or BASE_URL + "/ciot"}' if (link or BASE_URL) else ''))
 
     return {'titulo': titulo, 'subtitulo': subtitulo, 'contadores': contadores,
             'legenda_lista': legenda_lista, 'rodape': rodape, 'legenda': legenda,
@@ -931,13 +973,13 @@ def _enviar_para_todos(texto, png=None):
     return ok
 
 
-def _renderizar(tipo, pend, total, resolvidas, agora_brt, link=None):
+def _renderizar(tipo, pend, total, resolvidas, agora_brt, link=None, ultimo_aviso=None):
     """(png, legenda) ou (None, None) se a imagem não sair — aí vai o texto."""
     if FORMATO != 'imagem':
         return None, None
     try:
         import ciot_imagem
-        dados = dados_aviso(tipo, pend, total, resolvidas, agora_brt, link)
+        dados = dados_aviso(tipo, pend, total, resolvidas, agora_brt, link, ultimo_aviso)
         return ciot_imagem.gerar_png(dados), dados['legenda']
     except Exception as e:
         _logger.warning(f'CIOT: imagem falhou, vai em texto: {e}')
@@ -1004,8 +1046,12 @@ def avisar(cur, agora, forcar_resumo=False, so_mostrar=False, refresh_fim=None):
                                 'hoje_brt': agora_brt.date()})
 
     link = link_leitura(cur)
-    cur.execute("SELECT COUNT(*) FROM ciot_pendencias WHERE resolvido_em IS NULL")
+    # documentos (não pendências): é o mesmo número que o resumo e a tela mostram
+    cur.execute("SELECT COUNT(DISTINCT documento) FROM ciot_pendencias WHERE resolvido_em IS NULL")
     total = cur.fetchone()[0]
+    cur.execute("SELECT MAX(enviado_em) FROM ciot_envios")
+    ultimo = cur.fetchone()[0]
+    ultimo_aviso = ultimo - timedelta(hours=3) if ultimo else None
     cur.execute("SELECT COUNT(*) FROM ciot_pendencias WHERE resolvido_em >= %s",
                 (agora - timedelta(hours=24),))
     resolvidas = cur.fetchone()[0]
@@ -1022,7 +1068,7 @@ def avisar(cur, agora, forcar_resumo=False, so_mostrar=False, refresh_fim=None):
         texto = montar_mensagem(pend, total, agora_brt, link)
 
     docs = len({p['documento'] for p in pend})
-    png, legenda = _renderizar(tipo, pend, total, resolvidas, agora_brt, link)
+    png, legenda = _renderizar(tipo, pend, total, resolvidas, agora_brt, link, ultimo_aviso)
     if so_mostrar:
         if png is not None:
             destino = os.path.join(os.getcwd(), f'ciot_previa_{tipo}.png')

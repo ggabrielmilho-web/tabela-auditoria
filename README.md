@@ -1045,8 +1045,11 @@ sem CIOT e sem manifesto):
 
 **Formato:** imagem + legenda curta (`CIOT_FORMATO=imagem`, padrão), no mesmo molde do PGR
 (`ciot_imagem.py`, `fitz.Story`): vermelho = falta CIOT, laranja = falta amarrar, verde = "tem
-CIOT". A legenda traz os contadores (incluindo quantos "sem manifesto" também estão sem CIOT) e o
-link. Se a imagem não renderizar, vai o texto. Na imagem o número não se copia — para operar, a aba.
+CIOT". A legenda diz **qual das duas é** — resumo = *tudo que segue em aberto, emitido de 01/09 até
+hoje*; novas = *só o que apareceu desde o último aviso (hora)* — e conta **por documento**, em
+categorias que não se sobrepõem e somam o total: sem CIOT e sem manifesto · sem CIOT (tem
+manifesto) · MDF sem CTRB · sem manifesto (tem CIOT) · dados diferentes (tem CIOT). Contar por
+pendência confundia ("22 sem CIOT · 20 sem manifesto": os 17 estavam dentro dos 22). Se a imagem não renderizar, vai o texto. Na imagem o número não se copia — para operar, a aba.
 
 **Link sem login (como o do PGR, mas sem expirar):** a mensagem leva `/ciot?t=<token>`. É um
 token só (`ciot_tokens`), o mesmo em todas as mensagens até um admin clicar em **Gerar novo link**

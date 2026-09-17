@@ -60,7 +60,8 @@ def montar_html(dados):
                  f'{_esc(dados.get("rodape") or "")}</div>')
         return _envelope(cab + corpo)
 
-    kpi = ' &#183; '.join(f'<b style="color:{cor}">{n}</b> {_esc(rot)}' for rot, n, cor in dados['contadores'])
+    # um por linha: são categorias exclusivas por documento e somam o total
+    kpi = '<br>'.join(f'<b style="color:{cor}">{n:>2}</b> {_esc(rot)}' for rot, n, cor in dados['contadores'])
     kpi = f'<div class="mono" style="color:{CINZA};font-size:8.5pt;margin-top:6pt;line-height:1.5">{kpi}</div>'
 
     lista = ''
