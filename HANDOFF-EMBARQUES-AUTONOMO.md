@@ -4093,3 +4093,35 @@ O `service update` caiu na janela 16:30–19:30 → o diário disparou de novo c
    vazia em produção; com ele, `locais` e `embarques_programacao` passam a viver lá.
 5. Só então: geocodificação → medição → âncora aditiva (Fase 3) e a `Programada` (Fase 2/B).
 6. Defasagem 0 (`EMBARQUES_AUTO_DEFASAGEM=0` + disparo pós-refresh) fica por último, como a §25.8.
+
+
+### 26.9 O furo da jornada (17/09/2026) — três coisas, nenhuma era "destino = base"
+
+Uma tela nova de jornada (por cavalo/motorista) mostrou a C-2026-000632 com 9,4 dias "em viagem"
+enquanto o caminhão fazia Japeri, Jundiaí e Brasília. O outro chat leu como "quando o destino é a
+base o GPS não distingue chegar de passar". Medido no `rizza_lab` (19/08→15/09), não era:
+
+1. **A conclusão tomava a saída do destino mesmo dias depois.** A §4.3 diz "sai OU 24 h — o que
+   vier primeiro"; o código só caía nas 24 h se a carreta nunca saísse. 16 de 18 conclusões com
+   > 30 h após a chegada eram o instante exato da saída do raio (Brasília, Serra, Vila Velha,
+   Uberlândia…). No pátio é sistemático. **Corrigido** (`0b88f9d`): saída só se ≤ 24 h; senão
+   chegada + 24 h; o `encerrada_motivo` acompanha. Lab: 49 conclusões recuaram, F3 35→31.
+2. **Carreta dormida vence o cavalo.** O motor escolhe a carreta se a série não for vazia: a
+   `HMV3D38` deu 6 pontos em 10 dias (acordou no pátio 9 dias depois; odômetro +455 km = a mesma
+   viagem reportada tarde) e sobrescreveu a chegada certa do cavalo (6.745 pontos). **Corrigido**:
+   `embarques_regua.chegada_emprestada` — se a carreta não tem ponto nas 48 h seguintes à chegada
+   que o cavalo mostra, o instante é o do cavalo (só o instante; só se anterior). Motor e aferidor
+   usam a mesma (no aferidor o piso do cavalo é a saída gravada). Alcance: 2 no mês.
+3. **Régua da jornada.** As 16 sobreposições da base eram todas "carreta trocou" no pátio: a carga
+   (carreta) segue, o cavalo já saiu. **Corrigido** em `_jornada_embarques`: janela do cavalo =
+   min(conclusão, desengate, saída da próxima viagem do mesmo cavalo); saída só com data corta o
+   dia. Frota: 441 viagens, 56 cortadas, 0 negativa.
+
+O que o feedback acertou: base correlaciona (carreta dorme e é trocada lá). O que errou: o GPS
+distingue chegada (C-478 na base: estrita, certinha); "chegou = encerrou" é o piso de coerência,
+não chegada falsa; C-468/C-552 são documento/rastreador na placa errada.
+
+Aferidor classe a classe: nada subiu (alta 48→48, F3 −4, F4 −1, F1d −1). Sobram 14 cargas na faixa
+30–48 h (tolerância de 24 h do motor) e 7 pernas vazias (conclusão é da rederivação). Testes 15/15.
+**Não deployado** — subir pela receita da §24.7; muda instante de conclusão em ~50 cargas de uma
+vez na primeira rodada (esperado, é a régua nova convergindo).
