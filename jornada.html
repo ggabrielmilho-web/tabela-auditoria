@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Jornada — Escala de Motoristas — Rizza Log</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%2338bdf8'/%3E%3Ctext x='50' y='72' font-family='Arial,sans-serif' font-size='68' font-weight='900' text-anchor='middle' fill='%230a0e17'%3ER%3C/text%3E%3C/svg%3E">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0e17; --surface: #111827; --surface2: #1a2235; --border: #1e293b;
+    --text: #e2e8f0; --text-dim: #94a3b8; --accent: #38bdf8; --accent2: #818cf8;
+    --green: #34d399; --red: #f87171; --orange: #fb923c; --yellow: #fbbf24;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .dashboard { padding: 22px; max-width: 1500px; margin: 0 auto; }
+  .top-bar { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; flex-wrap: wrap; gap: 14px; }
+  .top-bar h1 { font-size: 1.4rem; font-weight: 700; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .meta { font-size: 0.78rem; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; margin-top: 4px; }
+  .btn-sm { padding: 8px 16px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); font-weight: 500; font-size: 0.82rem; border-radius: 8px; cursor: pointer; transition: all 0.15s; text-decoration: none; display: inline-block; font-family: 'DM Sans', sans-serif; }
+  .btn-sm:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-sm.primary { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 700; }
+  .btn-sm.primary:hover { color: var(--bg); filter: brightness(1.1); }
+  .btn-sm:disabled { opacity: .5; cursor: wait; }
+
+  .controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+  .field-label { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); font-weight: 700; }
+  select, input[type=date], .busca { padding: 7px 10px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; color-scheme: dark; }
+  .busca { font-family: 'DM Sans', sans-serif; min-width: 230px; }
+  label.chk { font-size: 0.8rem; color: var(--text-dim); display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+
+  .aviso { padding: 11px 14px; border-radius: 10px; font-size: 0.8rem; margin-bottom: 14px; line-height: 1.55;
+           background: rgba(56,189,248,0.06); border: 1px solid rgba(56,189,248,0.22); color: var(--text-dim); }
+  .aviso b { color: var(--text); }
+  .erro { padding: 12px 14px; border-radius: 10px; font-size: 0.82rem; margin-bottom: 14px;
+          background: rgba(248,113,113,0.08); border: 1px solid rgba(248,113,113,0.28); color: #fecaca; }
+
+  .kpis { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+  .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 18px; min-width: 150px; flex: 1; }
+  .kpi .l { font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); font-weight: 600; }
+  .kpi .v { font-size: 1.35rem; font-weight: 700; font-family: 'JetBrains Mono', monospace; margin-top: 4px; }
+  .kpi .s { font-size: 0.68rem; color: var(--text-dim); margin-top: 2px; }
+  .kpi .v.ok { color: var(--green); } .kpi .v.warn { color: var(--yellow); } .kpi .v.bad { color: var(--orange); }
+
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; margin-bottom: 14px; }
+  .card h3 { font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-dim); font-weight: 700; margin-bottom: 10px; }
+  .card h3 .hint { text-transform: none; letter-spacing: 0; font-weight: 500; opacity: 0.8; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+  thead th { text-align: left; padding: 8px 10px; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em;
+             color: var(--text-dim); font-weight: 700; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  tbody td { padding: 9px 10px; border-bottom: 1px solid rgba(30,41,59,0.55); vertical-align: top; }
+  tr.linha { cursor: pointer; }
+  tr.linha:hover { background: var(--surface2); }
+  tr.linha.aberta { background: var(--surface2); }
+  .nome { font-weight: 600; }
+  .funcao { font-size: 0.7rem; color: var(--text-dim); margin-top: 2px; }
+  .mono { font-family: 'JetBrains Mono', monospace; }
+  .scroll { overflow-x: auto; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { display: inline-flex; gap: 6px; align-items: baseline; padding: 3px 9px; border-radius: 6px; font-size: 0.74rem;
+          background: rgba(56,189,248,0.10); border: 1px solid rgba(56,189,248,0.28); white-space: nowrap; }
+  .chip b { font-family: 'JetBrains Mono', monospace; }
+  .chip .per { font-family: 'JetBrains Mono', monospace; color: var(--text-dim); font-size: 0.7rem; }
+  .chip.vc { background: rgba(251,191,36,0.10); border-color: rgba(251,191,36,0.40); }
+  .vazio { color: var(--text-dim); font-style: italic; font-size: 0.78rem; }
+
+  .pill { padding: 2px 8px; border-radius: 5px; font-size: 0.68rem; font-weight: 600; white-space: nowrap; }
+  .pill.ok { background: rgba(52,211,153,0.13); color: var(--green); }
+  .pill.warn { background: rgba(251,191,36,0.13); color: var(--yellow); }
+  .pill.bad { background: rgba(251,146,60,0.13); color: var(--orange); }
+
+  /* linha do tempo: um bloco por dia */
+  .tl { display: grid; gap: 1px; margin-top: 7px; max-width: 520px; }
+  .tl span { height: 8px; border-radius: 1px; background: var(--surface2); }
+  .tl span.p0 { background: #38bdf8; } .tl span.p1 { background: #818cf8; } .tl span.p2 { background: #34d399; }
+  .tl span.p3 { background: #f472b6; } .tl span.p4 { background: #a3e635; }
+  .tl span.vc { outline: 1px solid var(--yellow); outline-offset: -1px; }
+  .tl span.x { background: repeating-linear-gradient(45deg, #334155 0 2px, #1a2235 2px 4px); }
+
+  .drill td { background: #0d1320; padding: 12px 16px 16px; }
+  .alerta { font-size: 0.78rem; line-height: 1.5; padding: 7px 10px; border-radius: 7px; margin-bottom: 6px; }
+  .alerta.sem_prova, .alerta.sem_prova_periodo { background: rgba(148,163,184,0.08); border-left: 3px solid #64748b; }
+  .alerta.so_valecard { background: rgba(251,191,36,0.07); border-left: 3px solid var(--yellow); }
+  .alerta.compartilhada, .alerta.fora_frota { background: rgba(251,146,60,0.07); border-left: 3px solid var(--orange); }
+  .seg { margin-top: 12px; }
+  .seg h4 { font-size: 0.78rem; margin-bottom: 5px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .seg h4 .per { font-family: 'JetBrains Mono', monospace; color: var(--text-dim); font-weight: 500; }
+  .provas { width: auto; min-width: 560px; font-size: 0.74rem; }
+  .provas td { padding: 4px 10px; border-bottom: 1px solid rgba(30,41,59,0.45); }
+  .fonte { font-size: 0.64rem; font-weight: 700; padding: 1px 6px; border-radius: 4px; text-transform: uppercase; }
+  .fonte.manifesto { background: rgba(56,189,248,0.14); color: var(--accent); }
+  .fonte.valecard { background: rgba(251,191,36,0.14); color: var(--yellow); }
+  .ancora { font-size: 0.72rem; color: var(--text-dim); margin-bottom: 4px; }
+
+  .legenda { display: flex; gap: 14px; flex-wrap: wrap; font-size: 0.72rem; color: var(--text-dim); margin-top: 8px; }
+  .legenda i { display: inline-block; width: 12px; height: 8px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
+  .carregando { display: flex; gap: 12px; align-items: center; padding: 40px; justify-content: center; color: var(--text-dim); }
+  .spinner { width: 26px; height: 26px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; }
+  .lista-simples { font-size: 0.8rem; line-height: 1.7; }
+  .lista-simples .mono { font-size: 0.74rem; color: var(--text-dim); }
+</style>
+</head>
+<body>
+<div class="dashboard">
+
+  <div class="top-bar">
+    <div>
+      <h1>Jornada — escala de motoristas</h1>
+      <div class="meta" id="metaLinha">—</div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <span data-nav-menu data-nav-style="btn-anchor" data-nav-active="jornada"></span>
+    </div>
+  </div>
+
+  <div class="controls">
+    <span class="field-label">Ciclo do RH</span>
+    <select id="selCiclo"></select>
+    <span class="field-label" style="margin-left:6px">ou período</span>
+    <input type="date" id="dIni"><span style="color:var(--text-dim)">até</span><input type="date" id="dFim">
+    <button class="btn-sm" id="btnAplicar">Aplicar</button>
+    <button class="btn-sm primary" id="btnXlsx">⬇ Baixar planilha</button>
+  </div>
+
+  <div class="aviso">
+    Em que placa cada motorista esteve no período, montado a partir do <b>manifesto</b> e confirmado pelo
+    <b>ValeCard</b>. Entre duas viagens o motorista segue na placa da última, até outro motorista assumi-la ou
+    passar <b id="carryMax">15</b> dias sem registro. Períodos marcados em <b style="color:var(--yellow)">amarelo</b>
+    vêm só do abastecimento — <b>confira à mão</b>. Clique no motorista para ver os documentos de cada período.
+    Achou algo errado? Avise o time para ajustarmos a regra.
+  </div>
+
+  <div id="erro" class="erro" hidden></div>
+
+  <div class="kpis">
+    <div class="kpi"><div class="l">Motoristas na lista</div><div class="v" id="kTotal">—</div><div class="s">folha, com INSS/FGTS no mês</div></div>
+    <div class="kpi"><div class="l">Sem pendência</div><div class="v ok" id="kOk">—</div><div class="s">placa em todos os dias</div></div>
+    <div class="kpi"><div class="l">Para conferir</div><div class="v warn" id="kConf">—</div><div class="s">dias sem registro ou aviso</div></div>
+    <div class="kpi"><div class="l">Só pelo ValeCard</div><div class="v warn" id="kVc">—</div><div class="s">períodos para validar à mão</div></div>
+    <div class="kpi"><div class="l">Placa dividida</div><div class="v bad" id="kDup">—</div><div class="s">2 motoristas no mesmo dia</div></div>
+  </div>
+
+  <div class="card">
+    <h3>Escala do período <span class="hint" id="hintEscala"></span></h3>
+    <div class="controls" style="margin-bottom:8px">
+      <input class="busca" id="busca" placeholder="Buscar motorista ou placa…">
+      <label class="chk"><input type="checkbox" id="soPend"> Só quem tem pendência</label>
+    </div>
+    <div class="legenda">
+      <span><i style="background:#38bdf8"></i>placa (uma cor por placa)</span>
+      <span><i style="background:#1a2235;outline:1px solid var(--yellow)"></i>só pelo ValeCard</span>
+      <span><i style="background:repeating-linear-gradient(45deg,#334155 0 2px,#1a2235 2px 4px)"></i>sem registro</span>
+    </div>
+    <div class="scroll" style="margin-top:10px">
+      <table>
+        <thead><tr><th style="width:26%">Motorista</th><th>Placa × período</th><th style="width:130px">Situação</th></tr></thead>
+        <tbody id="tbEscala"><tr><td colspan="3"><div class="carregando"><div class="spinner"></div>Montando a escala…</div></td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card" id="cardFora" hidden>
+    <h3>Rodaram veículo da frota e não estão na lista <span class="hint">— não entram na planilha; só para conhecimento</span></h3>
+    <div class="lista-simples" id="listaFora"></div>
+  </div>
+
+  <div class="card" id="cardParados" hidden>
+    <h3>Na folha sem INSS/FGTS no mês <span class="hint">— parados (em geral afastados pelo INSS); fora da lista</span></h3>
+    <div class="lista-simples" id="listaParados"></div>
+  </div>
+</div>
+
+<script src="/nav-perms.js"></script>
+<script>
+(function () {
+  var dados = null, abertos = {};
+  var $ = function (id) { return document.getElementById(id); };
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function dm(iso) { return iso.slice(8, 10) + '/' + iso.slice(5, 7); }
+  function faixa(a, b) { return a === b ? dm(a) : dm(a) + ' – ' + dm(b); }
+  function iso(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+  function parse(s) { var p = s.split('-'); return new Date(+p[0], +p[1] - 1, +p[2]); }
+
+  // Ciclos do RH (dia 21 ao dia 20), de 21/07/2026 até o ciclo em curso.
+  function ciclos() {
+    var hoje = new Date(), out = [];
+    var ini = new Date(2026, 6, 21);
+    while (ini <= hoje) {
+      var fim = new Date(ini.getFullYear(), ini.getMonth() + 1, 20);
+      out.push({ ini: iso(ini), fim: iso(fim), emCurso: hoje <= fim });
+      ini = new Date(ini.getFullYear(), ini.getMonth() + 1, 21);
+    }
+    return out.reverse();
+  }
+  var CICLOS = ciclos();
+  $('selCiclo').innerHTML = CICLOS.map(function (c, i) {
+    return '<option value="' + i + '">' + dm(c.ini) + '/' + c.ini.slice(2, 4) + ' a ' + dm(c.fim) + '/' + c.fim.slice(2, 4)
+      + (c.emCurso ? ' (em curso)' : '') + '</option>';
+  }).join('') + '<option value="livre">Período livre</option>';
+
+  function usarCiclo(i) {
+    var c = CICLOS[i]; if (!c) return;
+    $('dIni').value = c.ini; $('dFim').value = c.fim;
+  }
+  $('selCiclo').addEventListener('change', function () {
+    if (this.value !== 'livre') { usarCiclo(+this.value); carregar(); }
+  });
+  ['dIni', 'dFim'].forEach(function (id) {
+    $(id).addEventListener('change', function () { $('selCiclo').value = 'livre'; });
+  });
+  $('btnAplicar').addEventListener('click', carregar);
+  $('busca').addEventListener('input', render);
+  $('soPend').addEventListener('change', render);
+  $('btnXlsx').addEventListener('click', function () {
+    if (!$('dIni').value || !$('dFim').value) return;
+    window.location = '/api/jornada/xlsx?inicio=' + $('dIni').value + '&fim=' + $('dFim').value;
+  });
+
+  function carregar() {
+    var ini = $('dIni').value, fim = $('dFim').value;
+    if (!ini || !fim) return;
+    $('erro').hidden = true;
+    $('btnAplicar').disabled = $('btnXlsx').disabled = true;
+    $('tbEscala').innerHTML = '<tr><td colspan="3"><div class="carregando"><div class="spinner"></div>Montando a escala…</div></td></tr>';
+    fetch('/api/jornada?inicio=' + ini + '&fim=' + fim, { credentials: 'same-origin' })
+      .then(function (r) {
+        if (r.status === 401) { window.location = '/login'; throw new Error('sessão expirada'); }
+        return r.json();
+      })
+      .then(function (j) {
+        if (!j.ok) throw new Error(j.error || 'erro ao montar a escala');
+        dados = j; abertos = {}; render();
+      })
+      .catch(function (e) {
+        $('erro').textContent = 'Não foi possível montar a escala: ' + e.message;
+        $('erro').hidden = false;
+        $('tbEscala').innerHTML = '';
+      })
+      .then(function () { $('btnAplicar').disabled = $('btnXlsx').disabled = false; });
+  }
+
+  function pendencias(m) { return m.alertas.length; }
+
+  function linhaDoTempo(m) {
+    var ini = parse(dados.inicio), fim = parse(dados.fim);
+    var n = Math.round((fim - ini) / 864e5) + 1;
+    var cores = {}, k = 0;
+    m.segmentos.forEach(function (s) { if (!(s.placa in cores)) cores[s.placa] = k++ % 5; });
+    var cel = [];
+    for (var i = 0; i < n; i++) {
+      var d = iso(new Date(ini.getFullYear(), ini.getMonth(), ini.getDate() + i));
+      var seg = m.segmentos.filter(function (s) { return s.ini <= d && d <= s.fim; });
+      if (d > dados.ate) { cel.push('<span title="' + dm(d) + ' — ainda não aconteceu"></span>'); continue; }
+      if (!seg.length) { cel.push('<span class="x" title="' + dm(d) + ' — sem registro"></span>'); continue; }
+      var s = seg[seg.length - 1];
+      cel.push('<span class="p' + cores[s.placa] + (s.so_valecard ? ' vc' : '') + '" title="' + dm(d) + ' — '
+        + esc(seg.map(function (x) { return x.placa; }).join(' + ')) + '"></span>');
+    }
+    return '<div class="tl" style="grid-template-columns:repeat(' + n + ',1fr)">' + cel.join('') + '</div>';
+  }
+
+  function detalhe(m) {
+    var h = '';
+    m.alertas.forEach(function (a) { h += '<div class="alerta ' + a.tipo + '">' + esc(a.texto) + '</div>'; });
+    if (!m.segmentos.length) return h || '<div class="vazio">Sem registros no período.</div>';
+    m.segmentos.forEach(function (s) {
+      h += '<div class="seg"><h4><span class="mono">' + esc(s.placa) + '</span><span class="per">' + faixa(s.ini, s.fim)
+        + ' · ' + s.dias + (s.dias === 1 ? ' dia' : ' dias') + '</span>'
+        + (s.so_valecard ? '<span class="pill warn">validar à mão</span>' : '') + '</h4>';
+      if (s.ancora) {
+        h += '<div class="ancora">vem de ' + (s.ancora.fonte === 'manifesto' ? 'manifesto' : 'abastecimento')
+          + ' de ' + dm(s.ancora.dia) + ' (' + esc(s.ancora.ref) + '), antes do período</div>';
+      }
+      if (s.provas.length) {
+        h += '<table class="provas"><tbody>' + s.provas.map(function (p) {
+          return '<tr><td class="mono">' + dm(p.dia) + '</td><td><span class="fonte ' + p.fonte + '">'
+            + (p.fonte === 'manifesto' ? 'manifesto' : 'valecard') + '</span></td><td class="mono">' + esc(p.ref)
+            + '</td><td>' + esc(p.detalhe) + '</td></tr>';
+        }).join('') + '</tbody></table>';
+      } else {
+        h += '<div class="ancora">sem documento dentro do período — continuação da viagem anterior</div>';
+      }
+      h += '</div>';
+    });
+    return h;
+  }
+
+  function render() {
+    if (!dados) return;
+    var ms = dados.motoristas;
+    $('metaLinha').textContent = 'período ' + dm(dados.inicio) + '/' + dados.inicio.slice(0, 4) + ' a ' + dm(dados.fim) + '/'
+      + dados.fim.slice(0, 4) + ' · folha ' + dados.folha_competencias.join(', ')
+      + (dados.folha_provisao.length ? ' (mês sem folha usa o anterior: ' + dados.folha_provisao.join(', ') + ')' : '')
+      + (dados.ate < dados.fim ? ' · ciclo em curso, dados até ' + dm(dados.ate) : '')
+      + ' · montado em ' + dados.gerado_em;
+    $('carryMax').textContent = dados.carry_max_dias;
+    var nVc = 0, nDup = {};
+    ms.forEach(function (m) {
+      m.segmentos.forEach(function (s) { if (s.so_valecard) nVc++; });
+      m.alertas.forEach(function (a) { if (a.tipo === 'compartilhada') nDup[m.chave] = 1; });
+    });
+    $('kTotal').textContent = ms.length;
+    $('kOk').textContent = ms.filter(function (m) { return !pendencias(m); }).length;
+    $('kConf').textContent = ms.filter(pendencias).length;
+    $('kVc').textContent = nVc;
+    $('kDup').textContent = Object.keys(nDup).length;
+
+    var q = $('busca').value.trim().toUpperCase().replace(/[-\s]/g, '');
+    var so = $('soPend').checked;
+    var vis = ms.filter(function (m) {
+      if (so && !pendencias(m)) return false;
+      if (!q) return true;
+      return m.nome.toUpperCase().replace(/\s/g, '').indexOf(q) !== -1
+        || m.segmentos.some(function (s) { return s.placa.indexOf(q) !== -1; });
+    });
+    $('hintEscala').textContent = '— ' + vis.length + ' de ' + ms.length + ' motoristas';
+
+    $('tbEscala').innerHTML = vis.length ? vis.map(function (m) {
+      var chips = m.segmentos.length ? '<div class="chips">' + m.segmentos.map(function (s) {
+        return '<span class="chip' + (s.so_valecard ? ' vc' : '') + '" title="' + s.manifestos + ' manifesto(s), '
+          + s.abastecimentos + ' abastecimento(s)"><b>' + esc(s.placa) + '</b><span class="per">' + faixa(s.ini, s.fim) + '</span></span>';
+      }).join('') + '</div>' : '<span class="vazio">sem registro no período</span>';
+      var np = pendencias(m);
+      var sit = !np ? '<span class="pill ok">ok</span>'
+        : '<span class="pill ' + (m.alertas.some(function (a) { return a.tipo === 'compartilhada' || a.tipo === 'fora_frota'; }) ? 'bad' : 'warn')
+          + '">' + np + (np === 1 ? ' aviso' : ' avisos') + '</span>';
+      var aberto = !!abertos[m.chave];
+      return '<tr class="linha' + (aberto ? ' aberta' : '') + '" data-k="' + esc(m.chave) + '"><td><div class="nome">' + esc(m.nome)
+        + '</div><div class="funcao">' + esc(m.funcao) + (m.cpf ? ' · CPF ' + esc(m.cpf) : '') + '</div></td><td>'
+        + chips + linhaDoTempo(m) + '</td><td>' + sit + '</td></tr>'
+        + (aberto ? '<tr class="drill"><td colspan="3">' + detalhe(m) + '</td></tr>' : '');
+    }).join('') : '<tr><td colspan="3" class="vazio" style="padding:24px">Nenhum motorista no filtro.</td></tr>';
+
+    $('cardFora').hidden = !dados.fora_lista.length;
+    $('listaFora').innerHTML = dados.fora_lista.map(function (f) {
+      return esc(f.nome) + ' <span class="mono">' + esc(f.placas.join(', ')) + ' · ' + f.dias + (f.dias === 1 ? ' dia' : ' dias')
+        + ' entre ' + faixa(f.primeiro, f.ultimo) + ' · ' + esc(f.fontes.join(' + ')) + '</span>';
+    }).join('<br>');
+    $('cardParados').hidden = !dados.parados.length;
+    $('listaParados').innerHTML = dados.parados.map(esc).join('<br>');
+  }
+
+  $('tbEscala').addEventListener('click', function (ev) {
+    var tr = ev.target.closest('tr.linha');
+    if (!tr) return;
+    var k = tr.getAttribute('data-k');
+    abertos[k] = !abertos[k];
+    render();
+  });
+
+  usarCiclo(0);
+  $('selCiclo').value = '0';
+  carregar();
+})();
+</script>
+</body>
+</html>

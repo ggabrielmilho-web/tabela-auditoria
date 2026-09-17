@@ -115,7 +115,7 @@ def admin_required(f):
 # Abas concedíveis por usuário (a aba Admin NÃO entra — é exclusiva de role=admin).
 PAGINAS_VALIDAS = {'auditoria', 'tarifas', 'embarques', 'reuniao', 'dre',
                    'despesas', 'conhecimentos', 'faturamento', 'contratos', 'veiculos',
-                   'pgr', 'contabil', 'verda'}
+                   'pgr', 'contabil', 'verda', 'jornada'}
 # O de-para aba → rota e a ordem de preferência viviam aqui para escolher em qual
 # aba o usuário caía no login. Não existem mais: quem escolhe é ele, na /inicio.
 # As rotas de cada aba são declaradas uma vez só, no `ABAS` do nav-perms.js.
@@ -493,6 +493,256 @@ def faturamento_page():
 @page_required('veiculos')
 def veiculos_page():
     return send_from_directory('.', 'veiculos.html')
+
+
+# ── Jornada — escala motorista × placa para a empresa de controle de jornada ──
+#
+# O RH digitava à mão, a partir do manifesto, em que placa cada motorista frota
+# esteve em cada período. A tela monta isso sozinha (manifesto + ValeCard) e ela
+# só confere; a lógica mora em jornada.py. Só leitura: correção é pedido ao time.
+
+@app.route('/jornada')
+@page_required('jornada')
+def jornada_page():
+    return send_from_directory('.', 'jornada.html')
+
+
+def _jornada_periodo():
+    """Período pedido, ou o ciclo do RH em curso (dia 21 ao dia 20)."""
+    from datetime import date, timedelta
+    try:
+        ini = date.fromisoformat(request.args.get('inicio') or '')
+        fim = date.fromisoformat(request.args.get('fim') or '')
+    except ValueError:
+        hoje = date.today()
+        ini = hoje.replace(day=21) if hoje.day >= 21 else (hoje.replace(day=1) - timedelta(days=1)).replace(day=21)
+        fim = (ini.replace(day=1) + timedelta(days=32)).replace(day=20)
+    if fim < ini:
+        raise ValueError('O fim do período é anterior ao início.')
+    if (fim - ini).days > 124:
+        raise ValueError('Período máximo de 4 meses.')
+    return ini, fim
+
+
+def _jornada_folha(token, ini, fim):
+    """Motoristas da folha nas competências que o período toca.
+
+    Competência ainda não lançada usa a anterior mais recente (mesma regra do
+    rateio de pessoal da aba Veículos). Quem não gera INSS nem FGTS no mês está
+    parado — afastado pelo INSS, com só o plano de saúde na folha — e fica fora
+    da lista, informado à parte. O `salario_fixo` não serve de régua: vem cheio
+    mesmo para o afastado."""
+    from datetime import timedelta
+    CP = "'public custo_pessoal'"
+    pedidas, d = [], ini.replace(day=1)
+    while d <= fim:
+        pedidas.append(d.strftime('%Y-%m'))
+        d = (d + timedelta(days=32)).replace(day=1)
+    disponiveis = sorted({str(r.get('competencia')) for r in _dax_rows(
+        token, f"EVALUATE DISTINCT(SELECTCOLUMNS({CP}, \"competencia\", {CP}[competencia]))")})
+    usadas, provisao = [], []
+    for c in pedidas:
+        if c in disponiveis:
+            usadas.append(c)
+        else:
+            ant = [x for x in disponiveis if x < c]
+            if ant:
+                usadas.append(ant[-1])
+                provisao.append(f'{c}<-{ant[-1]}')
+    usadas = sorted(set(usadas))
+    if not usadas:
+        return [], [], usadas, provisao
+    cset = '{' + ','.join(f'"{c}"' for c in usadas) + '}'
+    rows = _dax_rows(token, (
+        f"EVALUATE SUMMARIZE(FILTER({CP}, {CP}[competencia] IN {cset} && "
+        f"SEARCH(\"otorista\", {CP}[funcao], 1, 0) > 0), {CP}[competencia], {CP}[nome], {CP}[funcao], "
+        f"\"encargos\", SUM({CP}[inss]) + SUM({CP}[fgts]))"))
+    pessoas = {}
+    for r in sorted(rows, key=lambda r: str(r.get('competencia'))):
+        chave = ' '.join(_nome_tokens(r.get('nome')))
+        if not chave:
+            continue
+        p = pessoas.setdefault(chave, {'chave': chave, 'nome': str(r.get('nome') or '').strip(),
+                                       'funcao': '', 'ativo': False})
+        p['nome'] = str(r.get('nome') or '').strip()   # a competência mais recente dá o nome
+        p['funcao'] = str(r.get('funcao') or '')
+        if float(r.get('encargos') or 0) > 0:
+            p['ativo'] = True
+    lista = [p for p in pessoas.values() if p['ativo']]
+    parados = sorted(p['nome'] for p in pessoas.values() if not p['ativo'])
+    return lista, parados, usadas, provisao
+
+
+def _jornada_dados(ini, fim):
+    from collections import defaultdict
+    from datetime import date, timedelta
+    import jornada
+    chave_cache = f'jornada:{ini}:{fim}:{date.today()}'
+    cached = _cache_get(chave_cache)
+    if cached is not None:
+        return cached
+
+    token = get_token()
+    cad = _cadastro_veiculos(token)
+    frota = {p for p, v in cad.items()
+             if 'RIZZA' in str(v.get('proprietario') or '').upper()
+             and str(v.get('tipo') or '').upper() != 'CARRETA' and p not in PLACAS_VENDIDAS}
+
+    lista, parados, comps, provisao = _jornada_folha(token, ini, fim)
+
+    de = ini - timedelta(days=jornada.LOOKBACK_DIAS)
+    dax_de = f'DATE({de.year},{de.month},{de.day})'
+    dax_ate = f'DATE({fim.year},{fim.month},{fim.day})'
+    M = "'public manifestos'"
+    mfs = _dax_rows(token, (
+        f"EVALUATE SELECTCOLUMNS(FILTER({M}, {M}[data_emissao] >= {dax_de} && {M}[data_emissao] <= {dax_ate}), "
+        f"\"d\", {M}[data_emissao], \"mf\", {M}[CHAVE_MANIFESTO], \"cav\", {M}[placa_cavalo], "
+        f"\"car\", {M}[placa_carreta], \"cpf\", {M}[cpf_motorista], \"nome\", {M}[nome_motorista], "
+        f"\"ori\", {M}[unidade_origem], \"dst\", {M}[unidade_destino])"))
+    VC = "'public abastecimentos_valecard'"
+    vcs = _dax_rows(token, (
+        f"EVALUATE SELECTCOLUMNS(FILTER({VC}, {VC}[dch_data] >= {dax_de} && {VC}[dch_data] <= {dax_ate}), "
+        f"\"d\", {VC}[dch_data], \"placa\", {VC}[placa], \"mot\", {VC}[motorista], "
+        f"\"prod\", {VC}[produto], \"l\", {VC}[ncd_quantidade], \"cid\", {VC}[cidade])"))
+
+    def _dia(v):
+        try:
+            return date.fromisoformat(str(v)[:10])
+        except ValueError:
+            return None
+
+    folha_por_chave = {p['chave']: p for p in lista}
+
+    # Manifesto → CPF → motorista da folha (o nome do manifesto vem truncado e sem acento).
+    nome_cpf = defaultdict(lambda: defaultdict(int))
+    for r in mfs:
+        if r.get('cpf'):
+            nome_cpf[r['cpf']][str(r.get('nome') or '')] += 1
+    cpf_nome = {c: max(n, key=n.get) for c, n in nome_cpf.items()}
+    casa_cpf = jornada.casar_nomes(list(folha_por_chave), list(cpf_nome),
+                                   lambda a, c: _nome_parecido(a, cpf_nome[c]), _NOME_MATCH_MIN)
+    chave_do_cpf = {c: a for a, c in casa_cpf.items()}
+    for a, c in casa_cpf.items():
+        folha_por_chave[a]['cpf'] = c
+    nomes_vc = sorted({str(r.get('mot') or '').strip() for r in vcs if r.get('mot')})
+    chave_do_vc = jornada.casar_grafias(list(folha_por_chave), nomes_vc, _nome_parecido, _NOME_MATCH_MIN)
+
+    eventos, fora_frota = [], defaultdict(list)
+    for r in mfs:
+        d, p = _dia(r.get('d')), _placa_mercosul(r.get('cav'))
+        if not d or not p:
+            continue
+        chave = chave_do_cpf.get(r.get('cpf'))
+        if p not in frota:
+            if chave and ini <= d <= fim:
+                fora_frota[chave].append(f"{d:%d/%m} {p}")
+            continue
+        car = _placa_mercosul(r.get('car'))
+        eventos.append({'chave': chave, 'nome_fonte': str(r.get('nome') or ''), 'dia': d, 'placa': p,
+                        'fonte': 'manifesto', 'ref': r.get('mf') or '',
+                        'detalhe': f"{r.get('ori') or '?'} → {r.get('dst') or '?'}" + (f" · carreta {car}" if car else '')})
+    for r in vcs:
+        d, p = _dia(r.get('d')), _placa_mercosul(r.get('placa'))
+        if not d or not p or p not in frota:
+            continue
+        nome = str(r.get('mot') or '').strip()
+        litros = float(r.get('l') or 0)
+        eventos.append({'chave': chave_do_vc.get(nome), 'nome_fonte': nome, 'dia': d, 'placa': p,
+                        'fonte': 'valecard', 'ref': str(r.get('prod') or '').strip()[:28],
+                        'detalhe': f"{litros:.0f} L" + (f" · {r.get('cid')}" if r.get('cid') else '')})
+
+    # Ciclo em curso: dia que ainda não aconteceu não recebe placa — nem por
+    # carregamento, nem como "sem registro".
+    ate = min(fim, date.today())
+    esc = jornada.montar(ini, ate, lista, eventos) if ate >= ini else {'motoristas': [dict(
+        m, segmentos=[], sem_prova=[], alertas=[], cpf=m.get('cpf') or '') for m in lista], 'compartilhadas': []}
+    for m in esc['motoristas']:
+        if fora_frota.get(m['chave']):
+            m['alertas'].append({'tipo': 'fora_frota',
+                                 'texto': 'Manifesto em placa que não é da frota Rizza: ' + ', '.join(fora_frota[m['chave']])})
+
+    # Quem rodou veículo da frota no período e não está na lista da folha.
+    fora = defaultdict(lambda: {'placas': set(), 'dias': set(), 'fontes': set()})
+    for e in eventos:
+        if e['chave'] is None and ini <= e['dia'] <= fim and e['nome_fonte']:
+            f = fora[' '.join(_nome_tokens(e['nome_fonte']))]
+            f['nome'] = e['nome_fonte']
+            f['placas'].add(e['placa'])
+            f['dias'].add(e['dia'])
+            f['fontes'].add(e['fonte'])
+    fora_lista = sorted(({'nome': v['nome'], 'placas': sorted(v['placas']), 'dias': len(v['dias']),
+                          'primeiro': min(v['dias']).isoformat(), 'ultimo': max(v['dias']).isoformat(),
+                          'fontes': sorted(v['fontes'])} for v in fora.values()),
+                        key=lambda x: -x['dias'])
+
+    dados = {
+        'ok': True, 'inicio': ini.isoformat(), 'fim': fim.isoformat(), 'ate': ate.isoformat(),
+        'motoristas': esc['motoristas'], 'compartilhadas': esc['compartilhadas'],
+        'fora_lista': fora_lista, 'parados': parados,
+        'folha_competencias': comps, 'folha_provisao': provisao,
+        'carry_max_dias': jornada.CARRY_MAX_DIAS,
+        'gerado_em': time.strftime('%d/%m/%Y %H:%M'),
+    }
+    _cache_set(chave_cache, dados)
+    return dados
+
+
+@app.route('/api/jornada')
+@page_required('jornada')
+def api_jornada():
+    try:
+        ini, fim = _jornada_periodo()
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    try:
+        return jsonify(_jornada_dados(ini, fim))
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/jornada/xlsx')
+@page_required('jornada')
+def api_jornada_xlsx():
+    """A planilha no layout que o RH já envia (Plan1): nome e pares placa/período."""
+    import jornada
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font
+    from openpyxl.utils import get_column_letter
+    try:
+        ini, fim = _jornada_periodo()
+        dados = _jornada_dados(ini, fim)
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Plan1'
+    pares = max([len(m['segmentos']) for m in dados['motoristas']] + [1])
+    ws.cell(row=1, column=1, value=' COLABORADORES').font = Font(bold=True)
+    for i in range(pares):
+        # Mesclado sobre o par placa + período, como na planilha do RH.
+        cab = ws.cell(row=1, column=2 + 2 * i, value='Placa X Periodo')
+        cab.font = Font(bold=True)
+        cab.alignment = Alignment(horizontal='center')
+        ws.merge_cells(start_row=1, start_column=2 + 2 * i, end_row=1, end_column=3 + 2 * i)
+    for n, m in enumerate(dados['motoristas'], start=2):
+        ws.cell(row=n, column=1, value=m['nome'])
+        for i, s in enumerate(m['segmentos']):
+            ws.cell(row=n, column=2 + 2 * i, value=s['placa'])
+            ws.cell(row=n, column=3 + 2 * i, value=jornada.periodo_texto(s))
+    ws.column_dimensions['A'].width = 38
+    for i in range(pares):
+        ws.column_dimensions[get_column_letter(2 + 2 * i)].width = 12
+        ws.column_dimensions[get_column_letter(3 + 2 * i)].width = 17
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    nome = f"JORNADA DE {ini:%d-%m-%y} A {fim:%d-%m-%y}.xlsx"
+    return send_file(buf, as_attachment=True, download_name=nome,
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 
 # ── Verda — inventário de CO2e ───────────────────────────────────────
