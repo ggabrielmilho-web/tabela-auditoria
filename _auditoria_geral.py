@@ -429,6 +429,32 @@ if cur.fetchone():
     for num, col, conf in cur.fetchall():
         add(num, 'L1', 'media', f'ORDEM DE COLETA {col} discorda do manifesto: {conf}')
 
+# ── L2: PERNA VAZIA POR CIMA DE UMA CARGA SEM CHEGADA do mesmo cavalo, com outra carreta. Se
+# a perna da carreta Y (puxada de fato por este cavalo: a carga A dela e deste cavalo e termina
+# onde a perna comeca) cobre a janela da carga com carreta X que nunca chegou, a carga esta com
+# a carreta errada no documento e o gerador fabricou uma perna em cima da viagem carregada
+# (C-662 / V-130, 17/09/26: manifesto dizia HMV3G86 (em Goias), a viagem foi com a QXF1I45).
+# A 1a versao usava so o cavalo carimbado na perna (o de B) e acusava 44 — quase tudo perna de
+# outro cavalo ou LACUNA de 9 dias cobrindo cargas provadas.
+cur.execute("""
+    SELECT c.numero, c.carreta1_placa, v.numero, v.carreta1_placa
+      FROM embarques_cargas c
+      JOIN embarques_cargas v ON v.viagem_vazia AND COALESCE(v.criada_por_robo, FALSE)
+       AND v.cavalo_placa = c.cavalo_placa AND v.carreta1_placa <> c.carreta1_placa
+       AND v.data_saida_real IS NOT NULL AND v.data_conclusao IS NOT NULL
+      JOIN embarques_cargas a ON a.carreta1_placa = v.carreta1_placa AND COALESCE(a.viagem_vazia, FALSE) = FALSE
+       AND a.cavalo_placa = v.cavalo_placa AND a.data_conclusao = v.data_saida_real
+     WHERE c.id = ANY(%s) AND COALESCE(c.viagem_vazia, FALSE) = FALSE AND c.carreta1_placa IS NOT NULL
+       AND c.no_local_desde IS NULL
+       AND COALESCE(c.data_saida_real, c.data_carregamento::timestamp) < v.data_conclusao
+       AND COALESCE(c.data_conclusao, NOW()) > v.data_saida_real
+       AND LEAST(COALESCE(c.data_conclusao, NOW()), v.data_conclusao)
+         - GREATEST(COALESCE(c.data_saida_real, c.data_carregamento::timestamp), v.data_saida_real) >= interval '12 hours'
+""", ([r[0] for r in CARGAS],))
+for num, car_c, vnum, car_v in cur.fetchall():
+    add(num, 'L2', 'alta', f'sem chegada, e a perna {vnum} (carreta {car_v}) puxada por este cavalo cobre a '
+        f'janela desta carga (carreta {car_c} no documento) — carreta errada no manifesto: a perna e a viagem carregada')
+
 # ── R1: STATUS QUE REGREDIU POR ROBO. Le o log, nao o estado: o estado de hoje pode estar
 # certo e a carga ter ido e voltado no meio (C-864 oscilou 3 dias entre Desengatada e No
 # destino sem nenhuma invariante de estado acusar). Regressao = robo escrevendo um status
@@ -478,7 +504,7 @@ NOMES = {
     'C5': 'saida digitada a mao, sem lastro',
     'C6': 'chegada gravada com o veiculo EM MOVIMENTO (borda de raio)',
     'C7': 'saida fabricada — a placa passou pela origem sem parar',
-    'R1': 'STATUS REGREDIU por robo (log)', 'L1': 'ordem de coleta discorda do manifesto (placa/motorista)',
+    'R1': 'STATUS REGREDIU por robo (log)', 'L2': 'perna vazia por cima de carga do mesmo cavalo (carreta errada no documento?)', 'L1': 'ordem de coleta discorda do manifesto (placa/motorista)',
     'P1': 'perna vazia sem deslocamento (a carreta ja estava la)', 'D1': 'sem rota planejada', 'D2': 'sem manifesto_origem', 'D3': 'destino sem coordenada',
 }
 print(f'AUDITORIA GERAL — {len(CARGAS)} cargas entre {A.desde} e {A.ate}')

@@ -806,10 +806,24 @@ def _jornada_embarques(ini, fim, de, frota, chave_por_cpf):
             'd_ini': max(saida.date(), de), 'd_fim': min(encerrada.date(), fim),
             'saida': _hm(saida, cru_ini), 'chegada': _hm(_brt(r[7]), r[7]),
             'encerrada': _hm(encerrada, cru_fim) if cru_fim else '',
-            '_fim': encerrada, '_cru_fim': cru_fim,
+            '_fim': encerrada, '_fim_raw': encerrada, '_cru_fim': cru_fim, '_cheg': _brt(r[7]),
         })
 
     for p, lista in por_placa.items():
+        # A perna vazia e da CARRETA (o robo a deriva entre duas cargas da mesma carreta) e
+        # recebe o cavalo da carga B. Quando a carreta trocou de cavalo entre A e B (27% das
+        # pernas em 17/09/26) ela aparece na escala de um motorista que nao a puxou: "Japeri ->
+        # Uberlandia" num cavalo que estava em Uberlandia. A perna comeca, por construcao, na
+        # conclusao de A: se a carga anterior DESTE cavalo nao termina exatamente onde a perna
+        # comeca, a perna nao e dele e sai da escala (o "andou sem viagem" cobre o km).
+        mantidas = []
+        for i, v in enumerate(lista):
+            if v['vazia']:
+                ant = next((x for x in reversed(lista[:i]) if not x['vazia']), None)
+                if ant is not None and abs((v['ord'] - ant['_fim_raw']).total_seconds()) > 120:
+                    continue
+            mantidas.append(v)
+        lista[:] = mantidas
         # A mesma placa nao esta em duas viagens: se a seguinte ja saiu, esta acabou para o
         # cavalo naquele instante (a carreta pode continuar na carga; a escala nao).
         for i, v in enumerate(lista):
@@ -824,7 +838,12 @@ def _jornada_embarques(ini, fim, de, frota, chave_por_cpf):
                     v['_fim'] = nxt['ord']
                     v['d_fim'] = min(nxt['ord'].date(), fim)
                     v['encerrada'] = f"{nxt['ord']:%d/%m %H:%M} ↦"
-            v.pop('_fim', None); v.pop('_cru_fim', None)
+            # chegada da CARRETA depois de o cavalo ja ter saido com outra: e da carga, nao
+            # deste motorista — fica marcada para nao parecer "chegou depois de encerrar"
+            if v['_cheg'] and v['chegada'] and v['_cheg'] > v['_fim'] + timedelta(minutes=1):
+                v['chegada'] = f"{v['chegada']} (carreta)"
+            for k in ('_fim', '_fim_raw', '_cru_fim', '_cheg'):
+                v.pop(k, None)
         for i, v in enumerate(lista):
             if not v['vazia']:
                 cpf = v['cpf']
