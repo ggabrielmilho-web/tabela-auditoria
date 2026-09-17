@@ -68,6 +68,7 @@ a imagem antiga (21/08/2026).
 - **Análise por Veículo** (`/veiculos`) — Análise de receita/custo por **Cavalo / Carreta / Motorista / Proprietário**, sobre `Auditoria Receita` (receita **rateada**, nunca duplica). Filtros de **mês/competência** e **tipo** (Frota/Agregado/Carreteiro) como **dropdown (caixinhas + Aplicar)**. Na visão **Cavalo + só Frota**: custos reais por cavalo — **Pedágio** (Sem Parar), **Combustível/ARLA** (ValeCard, com **consumo km/L** via hodômetro), **Pessoal** (folha), **Manut. Cavalo / Seguro / Rastreador** e **Pneu** (eventos 5411/5412, split cavalo×carreta por nº de pneus) rateados → **Resultado Frota**; mostra **KM Rota** (manifesto) e **KM Abast.** (hodômetro) lado a lado. Na visão **Carreta**: **Manut. Carreta** + **Pneu** rateados entre as carretas Rizza (frota+agregado). **Coluna Proprietário** (dono do cavalo no recorte cavalo; donos dos cavalos no drawer da carreta). **Donut "Composição do Faturamento"** quando só um tipo está marcado (custos diluídos na receita + Resultado). **Painel lateral (drawer)** com cargas, abastecimentos, pedágios, manutenção real, relacionamentos e quebra por veículo. **Placas normalizadas para Mercosul** (funde grafia antiga + nova; trata colisão preferindo a Mercosul real)
 - **PGR — Excesso de velocidade** (`/pgr`) — Relatório diário das placas que passaram de 95 km/h, enviado por WhatsApp toda manhã (imagem-resumo + link). Detecção sobre o histórico de GPS **backfillado** da 3S, com **situação de carga provada por posição** (carregado / parcial / vazio / não confirmado), rodovia do pico e rodapé de **cobertura por placa**. Traz o **cavalo do par** nas linhas de carreta. **Filtros por cavalo, carreta e motorista** (digitáveis) e **seleção de mês** com múltipla escolha, mostrando só os meses já apurados. Acesso por sessão (aba `pgr`) **ou** por token de leitura no link — o token abre **um dia só**, sem período nem filtro. Ver Módulo PGR
 - **Jornada** (`/jornada`) — Escala **motorista × placa × período** que o RH envia à empresa de controle de jornada (que puxa a jornada pela telemetria da placa). Montada do **manifesto** (por CPF) e confirmada pelo **ValeCard** (o nome informado na bomba — é o que cobre o truck, que roda sem manifesto); entre duas provas o motorista segue na placa da última até outro motorista assumi-la ou passar 15 dias sem registro. Lista = motoristas da folha (`custo_pessoal`) **com INSS/FGTS no mês** (quem só tem plano de saúde está parado, informado à parte). Seleção de **ciclo do RH (21→20)** ou período livre; ciclo em curso só até hoje. **Modo auditoria**: clicar no motorista abre os manifestos e abastecimentos de cada período. Avisos: dias sem registro (com o motivo), período **só pelo ValeCard** (validar à mão), placa com dois motoristas no mesmo dia, manifesto fora da frota. **Baixa a planilha no layout `Plan1`** que o RH já usa. Só leitura — correção é pedido ao time. Lógica em `jornada.py`
+- **CIOT — Conferência** (`/ciot`) — Três cruzamentos sobre o 073 e o 916: **CTRB tem CIOT válido** (a mensagem de erro da ANTT/Pamcard gravada no campo não conta), **CTRB está no manifesto certo** (073 × 916, placas e motorista) e **todo manifesto tem CTRB**. Usa o mesmo vínculo manifesto → CTRB da Auditoria Receita, incluindo a fórmula que casa os órfãos (`CHAVE_CTRB`). Roda a cada hora e após cada refresh do BI, guarda as pendências com "vista desde" e "resolvida em", e avisa por WhatsApp o que é novo. Acesso pela aba `ciot`. Ver Módulo CIOT
 - **Contábil** (`/contabil`) — Base contábil do SSW para o fechamento: **posição por banco** (uma linha por conta, com a conta contábil do plano da PERSETO e o ✓ de conferência contra o rodapé do próprio extrato), drawer de composição por origem/regra, e os relatórios de **extrato (456)**, **faturamento (441, grão fatura e CTRC)**, **adiantamentos (571)** com AutoFilter e CSV. Traz ainda a **configuração**: `/contabil/eventos` (conta contábil por evento, as flags da contadora, histórico de edição e prévia do impacto) e `/contabil/contas-fixas`. É a aba concedida à contadora externa — ver Módulo Contábil e `HANDOFF-CONTABIL.md`
 - **Admin** (`/admin`) — Gerenciamento de usuários, papéis, **permissão de acesso por aba** (cada usuário recebe quais abas enxerga; admin vê todas por bypass) e permissões por tipo de operação
 
@@ -207,6 +208,12 @@ Tabela Auditoria/
 ├── placas.py                    # Normalização antiga ↔ Mercosul (server + pgr)
 ├── fonts/                       # JetBrains Mono embutida na imagem (+ OFL)
 │
+│   # ── Módulo CIOT (conferência CTRB × manifesto × CIOT) ──
+├── ciot_conferencia.py          # Régua (função pura), gravação em ciot_pendencias, WhatsApp e laço
+├── ciot.html                    # Página /ciot
+├── ciot_imagem.py               # Imagem do WhatsApp (fitz.Story, mesmo molde do pgr_imagem)
+├── _teste_ciot.py               # Regressão da régua (um caso por regra, sem rede nem banco)
+│
 │   # ── Módulo Contratos TAC ──
 ├── contratos_service.py         # Extração IA (visão) + pendências + render do template
 ├── contrato_tac_template.docx   # Template Word soberano (texto jurídico fixo + campos docxtpl)
@@ -321,6 +328,23 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 | `EMBARQUES_CONTINUACAO` | **Continuação/desengate de pátio (§24).** Manifesto novo do cavalo com outra carreta vira `Desengatada` (não `Entregue`); CTe com `primeiro_manifesto ≠ ultimo_manifesto` liga A → B (`continua_em`) com o terminal certo (`Desengatada`/`Continuada`/`Cancelada`); só B conta como entrega. Nasce desligada; desligar pela CLI, nunca pelo stack do Portainer | `false` |
 | `EMBARQUES_CONTINUACAO_RAIO_DESTINO` | Km do destino abaixo do qual o desengate é "no destino" (comportamento antigo); acima é "no pátio" (o worker não rastreia; só o documento encerra) | `25` |
 
+### Conferência CIOT
+| Variável | Descrição | Default |
+|---|---|---|
+| `CIOT_CONFERENCIA` | **Liga o laço** no servidor. Só lê o BI e grava `ciot_pendencias` | `false` |
+| `CIOT_DESDE` | Documentos emitidos a partir desta data (retroativo a 01/09, decisão de 17/09/2026) | `2026-09-01` |
+| `CIOT_INTERVALO_MIN` | `0` = roda **só depois de cada refresh do BI** (hoje 8×/dia). `>0` força rodada extra | `0` |
+| `CIOT_ESPERA_POS_REFRESH_MIN` | Folga depois do **fim** do refresh antes de ler; durante um refresh não roda | `10` |
+| `CIOT_CARENCIA_H` | Horas que a pendência espera antes de ir no aviso (o CTRB costuma sair depois do manifesto) | `2` |
+| `CIOT_ENVIO` | **Liga o WhatsApp** (chave separada da conferência) | `false` |
+| `CIOT_UAZAPI_TO` | Destinatário(s), separados por vírgula (usa `UAZAPI_URL`/`UAZAPI_TOKEN`) | — |
+| `CIOT_ENVIO_HORARIO` | Janela de envio em Brasília; fora dela o aviso espera | `06:00-22:00` |
+| `CIOT_RESUMO_HORA_BRT` | Resumo diário de tudo que segue aberto (1×/dia, na primeira rodada depois deste horário) | `08:00` |
+| `CIOT_RESUMO_DIAS` | O resumo lista só os emitidos nesses dias; os mais antigos aparecem contados e ficam na tela | `7` |
+| `CIOT_FORMATO` | `imagem` (imagem + legenda curta, como o PGR) ou `texto` | `imagem` |
+| `CIOT_INTERVALO_ENVIO_SEG` | Segundos entre um destinatário e o próximo | `75` |
+| `CIOT_BASE_URL` | Base do link da mensagem (cai no `PGR_BASE_URL`) | — |
+
 ### PGR (relatório de excesso de velocidade)
 | Variável | Descrição | Default |
 |---|---|---|
@@ -408,6 +432,12 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 ### Jornada (aba `jornada`)
 - `GET /api/jornada?inicio=&fim=` — escala do período (padrão: ciclo 21→20 em curso; máx. 4 meses). Cada motorista traz `segmentos` (placa, início, fim, nº de manifestos/abastecimentos, `so_valecard`, `provas`), `sem_prova` (com `motivo`) e `alertas`; mais `fora_lista` (rodou veículo da frota sem estar na folha) e `parados` (folha sem INSS/FGTS). Cache de 5 min
 - `GET /api/jornada/xlsx?inicio=&fim=` — a planilha no layout `Plan1` do RH (nome + pares placa/período), placa no formato do sistema
+
+### CIOT (aba `ciot`, ou link de leitura `?t=`)
+- `GET /ciot` — página. Sessão com a aba `ciot`, **ou** `?t=<token>` do link do WhatsApp (sem login, sem menu, sem ação). Token inválido/revogado → 410 com página explicativa
+- `GET /api/ciot/pendencias?status=abertas|resolvidas|todas[&t=]` — lê `ciot_pendencias` + a última rodada; devolve `modo` (`sessao`/`leitura`) e, só para admin, o `link` atual
+- `POST /api/ciot/rodar` — roda a conferência agora, **sem** enviar WhatsApp (só sessão com a aba)
+- `POST /api/ciot/link` — **admin**: revoga o link de leitura e gera outro
 
 ### Contábil
 - `GET /api/contabil/quadro` — 13 contas do 456 com conta contábil, saldo e `confere` (contagem carregada × rodapé do extrato), mais os totais **já com as guardas** (sem transferência interna, sem programado) e o contador de movimentos sem regra
@@ -956,6 +986,86 @@ de puxar a tabela.
 
 ---
 
+## Módulo CIOT (conferência CTRB × manifesto × CIOT)
+
+Pedido do diretor em 16/09/2026: *"check se todos os CTRBs/MDF estão com CIOT vinculados,
+a partir de agora, de hora em hora"*. Régua em `ciot_conferencia.py` (função pura
+`conferir`), fontes `public ctrbs_oss` (073) e `public manifestos` (916) pelo BI.
+
+### Três cruzamentos, cinco pendências
+| Pendência | Regra |
+|---|---|
+| CTRB sem CIOT | campo vazio |
+| CIOT com erro na geração | o SSW grava a mensagem da ANTT/Pamcard no lugar do código. CIOT válido = 12 dígitos, com ou sem código de verificação (`/4846`, `.7599`) |
+| CTRB sem manifesto | nenhum manifesto aponta para ele (916, inclusive pela fórmula) e ele não cita manifesto (073) |
+| Manifesto sem CTRB | nem o 916 nem o 073 ligam o manifesto a um CTRB existente — logo, sem CIOT. Também entra aqui o manifesto que **a fórmula** casou com um CTRB que já tem outro manifesto declarado: na prática é órfão (sugere o CTRB provável pela regra de órfãos: mesma placa, ±5 dias) |
+| CTRB e manifesto com dados diferentes | o vínculo existe, mas diverge: 073 e 916 apontam manifestos diferentes, ou placa de cavalo/carreta ou CPF diferentes. **Não é órfão** |
+
+Frota entra (50 de 51 CTRBs de frota já têm CIOT). **Diária não entra**: `tabela_antt = 0`,
+sem manifesto e origem = destino.
+
+### Armadilhas medidas em 01–16/09/2026
+- **Reemissão = mesma placa, mesma rota, até 24 h depois.** O antigo sai da conta e passa os
+  manifestos para o novo. Aparece de dois jeitos:
+  - *com aviso* — "BAIXADO PELA EMISSAO DE NOVO CTRB:X". Mas a mesma frase sai quando o CTRB é
+    só **encerrado** pela viagem seguinte do veículo (24 de 29 casos em set/26): aí o antigo é
+    viagem e responde por si, por isso o X tem de ser a mesma viagem;
+  - *sem aviso* — o CTRB ficou sem CIOT (ou com erro) e um irmão da mesma viagem saiu depois
+    **com** CIOT. Ex.: UDI027256-6 (erro Pamcard) → UDI027257-4 em 11 min; NOD004828-3 →
+    NOD004832-1 em 11 h, com o manifesto reemitido junto.
+- **O vínculo tem de ser lido nos dois sentidos.** O 916 extraído antes de o CTRB existir fica
+  `000000`; o 073 guarda o manifesto no CTRB e pode listar dois.
+- **`CHAVE_CTRB` é a fórmula de órfãos do modelo** (preenche mesmo com `000000`; nunca diverge
+  quando o SSW informa). É o vínculo da Auditoria Receita, então as duas telas concordam.
+- Padrão real encontrado: CTRBs de carreteiro RIO → Cordeirópolis sem MDF e sem CIOT, encerrados
+  pelo CTRB da volta emitido na NOD (que tem CIOT).
+
+### Frequência
+A conferência e o envio **seguem o refresh do BI**: hoje 8×/dia (workspace Pro — 02:00, 05:30,
+08:00, 10:00, 12:00, 14:00, 16:00 e 20:00 BRT). O laço consulta o histórico de refresh a cada
+5 min, **nunca roda durante um refresh** e só lê passados `CIOT_ESPERA_POS_REFRESH_MIN` do fim
+dele. O resumo das 08:00 espera o refresh das 08:00 terminar (se ele falhar, sai até as 10:00
+com o que houver). Hora em hora exige o refresh horário (PPU, ~US$ 10/usuário/mês a mais) —
+aí a conferência acompanha sozinha, sem mudar código.
+
+### Estado e aviso
+`ciot_pendencias` guarda uma linha por pendência (`primeiro_visto`, `ultimo_visto`,
+`resolvido_em`, `avisado_em`, em UTC). Sumiu da rodada = resolvida; voltou = nova de novo.
+Documento anterior ao `CIOT_DESDE` sai da tabela (não conta como resolvido).
+
+O WhatsApp tem **duas mensagens**, sempre **uma linha por documento** (o mesmo CTRB costuma estar
+sem CIOT e sem manifesto):
+
+- **Novas** — a cada rodada, o que apareceu desde o último aviso, vencida a carência. Cada
+  pendência vai uma vez só nesta mensagem.
+- **Resumo do dia** — na primeira rodada depois de `CIOT_RESUMO_HORA_BRT`, o que **continua
+  em aberto**: os contadores de tudo, a lista só dos emitidos nos últimos `CIOT_RESUMO_DIAS`
+  (mais antigo primeiro, 🆕 no que nunca foi avisado) e a contagem dos mais velhos, que ficam na
+  tela. Nesse horário ele substitui a de novas. Sai mesmo com nada em aberto — silêncio seria ambíguo.
+
+**Formato:** imagem + legenda curta (`CIOT_FORMATO=imagem`, padrão), no mesmo molde do PGR
+(`ciot_imagem.py`, `fitz.Story`): vermelho = falta CIOT, laranja = falta amarrar, verde = "tem
+CIOT". A legenda traz os contadores (incluindo quantos "sem manifesto" também estão sem CIOT) e o
+link. Se a imagem não renderizar, vai o texto. Na imagem o número não se copia — para operar, a aba.
+
+**Link sem login (como o do PGR, mas sem expirar):** a mensagem leva `/ciot?t=<token>`. É um
+token só (`ciot_tokens`), o mesmo em todas as mensagens até um admin clicar em **Gerar novo link**
+na tela — aí o antigo passa a abrir "este link não vale mais". Com o token só se abre a aba CIOT
+em leitura: a página não carrega o menu, esconde "Conferir agora", não cria sessão, e toda outra
+rota continua exigindo login. Regressão em `_teste_ciot_acesso.py` (**troca o link** — só roda
+em banco local).
+
+`ciot_envios` registra cada envio (é por ela que o resumo sabe que já saiu no dia). Mesma
+política da UazAPI do PGR: sem retry, nunca derruba a rodada.
+
+```bash
+python -X utf8 ciot_conferencia.py --dry-run --desde 2026-09-01   # só mostra
+python -X utf8 ciot_conferencia.py                                # grava, não envia
+python -X utf8 ciot_conferencia.py --previa                       # grava e mostra a mensagem da vez
+python -X utf8 ciot_conferencia.py --enviar --resumo              # teste: força o resumo e envia
+python -X utf8 _teste_ciot.py                                     # regressão da régua
+```
+
 ## Módulo PGR (excesso de velocidade)
 
 Relatório diário das placas que passaram de 95 km/h, por WhatsApp. Motor em
@@ -1189,6 +1299,7 @@ Resultado Final   = Pós Investimento - Retiradas
 - [ ] **Gerar o arquivo de importação contábil** (`Z;data;débito;crédito;valor;histórico`) — depende de ela preencher a conta dos 60 eventos e escolher entre 166 e 506 para a contrapartida de fornecedores
 - [ ] **Regras de classificação do 456 → tabela** — hoje `_SWITCH_REGRA_456` no código, e já mudou uma vez (R$ 2,7 mi ficavam fora)
 - [ ] **Criar no plano de contas** o TRIBANCO e o CAIXA PAMBANK (hoje sem conta na aba Contábil)
+- [x] **Conferência CIOT** (CTRB × manifesto × CIOT, aba `/ciot` + WhatsApp) — preparada, desligada (`CIOT_CONFERENCIA`/`CIOT_ENVIO`)
 - [ ] **PGR fase 2**: ranking por motorista, evolução mês a mês e CSV
 - [x] **Consolidação diária placa+dia** (`embarques_rastreio_dia`) — odômetro real, km vazio e dias parados sobrevivendo à retenção
 - [ ] **km/L pelo GPS do rastreamento** (substituir o hodômetro do ValeCard, que é sujo, na Análise por Veículo)

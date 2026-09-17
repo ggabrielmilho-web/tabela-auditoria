@@ -80,7 +80,7 @@
 // Aqui só ficam a apresentação: em que grupo cada aba cai e o texto do card.
 
 const GRUPOS = [
-  { nome: 'Operação',  abas: ['embarques', 'mapa', 'pgr', 'jornada', 'veiculos', 'verda'] },
+  { nome: 'Operação',  abas: ['embarques', 'mapa', 'pgr', 'jornada', 'ciot', 'veiculos', 'verda'] },
   { nome: 'Comercial', abas: ['tarifas', 'faturamento', 'contratos'] },
   { nome: 'Financeiro', abas: ['auditoria', 'dre', 'despesas', 'conhecimentos', 'contabil'] },
   { nome: 'Sistema',   abas: ['reuniao', 'admin'] },   // /uso fica fora: tela escondida
@@ -92,6 +92,7 @@ const INFO = {
   mapa:          { desc: 'Posição dos veículos em tempo real e trajeto de cada carga.' },
   pgr:           { desc: 'Excesso de velocidade: placas acima de 95 km/h, com situação de carga.' },
   jornada:       { desc: 'Em que placa cada motorista frota esteve no período, pronta para a empresa de controle de jornada.' },
+  ciot:          { desc: 'CTRB sem CIOT, CTRB sem manifesto e manifesto sem CTRB, conferidos a cada atualização.' },
   veiculos:      { desc: 'Receita e custo por cavalo, carreta, motorista ou proprietário.' },
   verda:         { desc: 'Inventário de CO₂e enviado à Verda: emissão por viagem, consumo aplicado e o que travou.' },
   tarifas:       { desc: 'Tabela de fretes em cascata e simulador, com comparativo de rotas.' },

@@ -115,7 +115,7 @@ def admin_required(f):
 # Abas concedíveis por usuário (a aba Admin NÃO entra — é exclusiva de role=admin).
 PAGINAS_VALIDAS = {'auditoria', 'tarifas', 'embarques', 'reuniao', 'dre',
                    'despesas', 'conhecimentos', 'faturamento', 'contratos', 'veiculos',
-                   'pgr', 'contabil', 'verda', 'jornada'}
+                   'pgr', 'contabil', 'verda', 'jornada', 'ciot'}
 # O de-para aba → rota e a ordem de preferência viviam aqui para escolher em qual
 # aba o usuário caía no login. Não existem mais: quem escolhe é ele, na /inicio.
 # As rotas de cada aba são declaradas uma vez só, no `ABAS` do nav-perms.js.
@@ -771,6 +771,121 @@ def api_jornada_xlsx():
     nome = f"JORNADA DE {ini:%d-%m-%y} A {fim:%d-%m-%y}.xlsx"
     return send_file(buf, as_attachment=True, download_name=nome,
                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
+# ── CIOT — conferência CTRB × manifesto × CIOT ──────────────────────
+#
+# A régua mora em ciot_conferencia.py. A tela só lê `ciot_pendencias`, que a
+# rodada grava; "Conferir agora" roda a mesma rodada, sem mandar WhatsApp.
+#
+# Duas portas, como o PGR: sessão com a aba `ciot`, ou o token de leitura do link
+# do WhatsApp. O token NÃO expira (é um só, até alguém gerar outro) e só abre esta
+# tela e a API de leitura dela: sem menu, sem "Conferir agora", sem outra aba.
+
+def _ciot_sessao_ok():
+    return 'user_id' in session and (
+        session.get('role') == 'admin' or 'ciot' in (session.get('paginas_permitidas') or []))
+
+
+def _ciot_token_ok(token):
+    import ciot_conferencia
+    if not token:
+        return False
+    conn = get_db()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                ciot_conferencia.garantir_tabelas(cur)
+                return ciot_conferencia.validar_token(cur, token)
+    finally:
+        conn.close()
+
+
+_CIOT_LINK_INVALIDO_HTML = """<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Conferência CIOT · link inválido</title><style>
+body{background:#0a0e17;color:#e2e8f0;font-family:'DM Sans',-apple-system,'Segoe UI',sans-serif;
+display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:24px}
+div{max-width:340px;text-align:center}
+h1{font-size:1.05rem;font-weight:700;margin-bottom:10px}
+p{font-size:.82rem;line-height:1.6;color:#94a3b8}
+</style></head><body><div>
+<h1>Este link não vale mais</h1>
+<p>O link da conferência de CIOT foi trocado. Use o da mensagem mais recente do
+WhatsApp, ou acesse pelo sistema.</p>
+</div></body></html>"""
+
+
+@app.route('/ciot')
+def ciot_page():
+    if _ciot_sessao_ok():
+        _registra_acesso('ciot')
+        return send_from_directory('.', 'ciot.html')
+    token = request.args.get('t')
+    if token:
+        if _ciot_token_ok(token):
+            return send_from_directory('.', 'ciot.html')
+        return Response(_CIOT_LINK_INVALIDO_HTML, status=410, mimetype='text/html')
+    if 'user_id' in session:
+        return redirect('/inicio')      # logado, mas sem a aba
+    return redirect('/login')
+
+
+@app.route('/api/ciot/pendencias')
+def api_ciot_pendencias():
+    import ciot_conferencia
+    if _ciot_sessao_ok():
+        modo = 'sessao'
+    elif _ciot_token_ok(request.args.get('t')):
+        modo = 'leitura'
+    elif request.args.get('t'):
+        return jsonify({'ok': False, 'error': 'Link inválido'}), 403
+    elif 'user_id' in session:
+        return jsonify({'ok': False, 'error': 'Acesso negado'}), 403
+    else:
+        return jsonify({'ok': False, 'error': 'Não autenticado'}), 401
+    status = request.args.get('status', 'abertas')
+    try:
+        conn = get_db()
+        try:
+            with conn:
+                with conn.cursor() as cur:
+                    ciot_conferencia.garantir_tabelas(cur)
+                    dados = ciot_conferencia.listar(cur, status)
+                    if modo == 'sessao' and session.get('role') == 'admin':
+                        dados['link'] = ciot_conferencia.info_link(cur)
+        finally:
+            conn.close()
+        return jsonify({'ok': True, 'modo': modo, **dados})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/ciot/link', methods=['POST'])
+@admin_required
+def api_ciot_link_novo():
+    """Revoga o link de leitura atual e cria outro. O antigo passa a abrir a página de link inválido."""
+    import ciot_conferencia
+    conn = get_db()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                ciot_conferencia.garantir_tabelas(cur)
+                ciot_conferencia.novo_token(cur, session.get('nome') or 'admin')
+                info = ciot_conferencia.info_link(cur)
+    finally:
+        conn.close()
+    return jsonify({'ok': True, 'link': info})
+
+
+@app.route('/api/ciot/rodar', methods=['POST'])
+@page_required('ciot')
+def api_ciot_rodar():
+    import ciot_conferencia
+    try:
+        return jsonify(ciot_conferencia.executar(enviar=False))
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
 
 
 # ── Verda — inventário de CO2e ───────────────────────────────────────
@@ -8009,6 +8124,21 @@ if __name__ == '__main__':
               f"janela de {verda_auto.verda_job.DIAS_RETRO} dias até o domingo fechado)")
     else:
         print("ℹ️  Robô da Verda desligado (VERDA_AUTO)")
+
+    # Conferência CIOT × CTRB × manifesto. Fica aqui pelo mesmo motivo dos outros:
+    # é este lado que fala Power BI. Só lê o BI e grava a própria tabela; o
+    # WhatsApp tem chave separada (CIOT_ENVIO), então ligar isto não manda nada.
+    import ciot_conferencia
+    if ciot_conferencia.ligado():
+        import threading as _th_c
+        _th_c.Thread(target=ciot_conferencia.loop, daemon=True, name='CiotConferencia').start()
+        _extra = (f" e a cada {ciot_conferencia.INTERVALO_MIN} min"
+                  if ciot_conferencia.INTERVALO_MIN > 0 else "")
+        print(f"✅ Conferência CIOT LIGADA (após cada refresh do BI + "
+              f"{ciot_conferencia.ESPERA_POS_REFRESH_MIN} min{_extra}; desde {ciot_conferencia.DESDE}; "
+              f"envio {'ligado para ' + str(len(ciot_conferencia._numeros())) + ' número(s)' if ciot_conferencia.ENVIO_ATIVO else 'desligado'})")
+    else:
+        print("ℹ️  Conferência CIOT desligada (CIOT_CONFERENCIA)")
 
     # Boot do worker de rastreamento
     if os.getenv('START_WORKER', '').lower() == 'true':

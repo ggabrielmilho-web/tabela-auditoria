@@ -20,6 +20,8 @@
     // Escala motorista × placa que o RH manda à empresa de controle de jornada.
     // ⏱ é bloco antigo (glifo no Windows 10), pela mesma razão do 🚛 abaixo.
     { id: 'jornada',       page: 'jornada',       href: '/jornada',           label: '⏱ Jornada' },
+    // Conferência CTRB × manifesto × CIOT (pedido do diretor). 📋 é bloco antigo.
+    { id: 'ciot',          page: 'ciot',          href: '/ciot',              label: '📋 CIOT' },
     { id: 'tarifas',       page: 'tarifas',       href: '/tarifas',           label: '🏷️ Tarifas' },
     { id: 'reuniao',       page: 'reuniao',       href: '/reuniao',           label: '🎙 Reunião' },
     { id: 'contratos',     page: 'contratos',     href: '/contratos',         label: '📝 Contratos' },
