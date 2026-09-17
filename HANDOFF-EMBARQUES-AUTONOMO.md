@@ -4125,3 +4125,12 @@ Aferidor classe a classe: nada subiu (alta 48→48, F3 −4, F4 −1, F1d −1).
 30–48 h (tolerância de 24 h do motor) e 7 pernas vazias (conclusão é da rederivação). Testes 15/15.
 **Não deployado** — subir pela receita da §24.7; muda instante de conclusão em ~50 cargas de uma
 vez na primeira rodada (esperado, é a régua nova convergindo).
+
+**Adendo (17/09, `jornada`):** seis prints depois do deploy → (1) o gerador carimba na perna o cavalo
+de B e em 27% das pernas a carreta trocou de cavalo entre A e B — a perna aparecia na escala de quem
+não a puxou; a jornada agora só mantém a perna cujo início coincide com a conclusão da carga anterior
+**desse** cavalo (441 → 410 viagens, cortes 56 → 40); (2) chegada da carreta depois do corte vem
+marcada "(carreta)"; (3) **`L2`** no aferidor: carga sem chegada coberta por perna genuína do mesmo
+cavalo com outra carreta = carreta errada no manifesto (C-662: dizia `HMV3G86`, a viagem foi com a
+`QXF1I45` — o gerador fabricou a `V-130` em cima da viagem carregada; C-848 idem, a conferir).
+Fica para o gerador: carimbar o cavalo só quando A e B têm o mesmo (hoje `cavalo_placa` é NOT NULL).
