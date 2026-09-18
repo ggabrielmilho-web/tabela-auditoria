@@ -9,9 +9,16 @@ URL de produção: **https://rizza.carvalhoia.com**
 
 ---
 
-## Estado atual do rastreamento e do robô (11/09/2026)
+## Estado atual do rastreamento e do robô (18/09/2026)
 
 **Antes de commitar ou subir qualquer coisa deste repositório, leia esta seção.**
+
+- **⚠ Aguardando deploy (18/09):** o desengate "no pátio" passou a exigir **prova de parada**
+  (`HANDOFF-EMBARQUES-AUTONOMO.md` §27). Sem prova, o status fica intacto e o caso vira
+  **rótulo** em `observacoes`; e a carga de pátio deixa de ser escondida do **documento**
+  (`fechar_pendentes`), que é quem a §24 sempre disse que a encerra. Em produção as 3
+  `Desengatada/patio` que existiam (C-832, C-874, C-946) estavam no lugar errado — ponto de
+  GPS velho ou em movimento — e ficariam congeladas para sempre.
 
 - **3S de volta desde 08/09/2026** (o corte comercial de 07/09 durou um dia). 93 veículos
   reportando; ficaram 5 carretas mudas desde 01–03/09 (`HANDOFF-EMBARQUES-AUTONOMO.md` §20.1).

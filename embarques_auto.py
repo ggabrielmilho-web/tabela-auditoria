@@ -824,7 +824,7 @@ def fechar_pendentes(cur, manifestos, candidatas=None, ctrcs=None):
                    AND c.status IN ('Aberta','Em rota','No destino','Desengatada')
                    AND c.data_carregamento < %s
                    AND COALESCE(c.criada_por_robo, FALSE) = TRUE
-                   """ + _ec.filtro_ativas(cur) + """
+                   """ + _ec.filtro_ativas(cur, documental=True) + """
             """, args + (dt,))
             cand = por_manifesto.get(_norm(man.get('CHAVE_MANIFESTO')))
             for (cid, origem_aberta, destino_aberto) in cur.fetchall():

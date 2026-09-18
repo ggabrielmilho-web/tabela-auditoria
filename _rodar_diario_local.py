@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Roda o robo diario REAL (embarques_auto.executar) dia a dia na base LOCAL com a chave ligada.
-NUNCA em producao: liga EMBARQUES_AUTO e GRAVA. E o gate da §24 — o gabarito e o _replay_producao.py.
+NUNCA em producao: liga EMBARQUES_AUTO e GRAVA. E o gate da §24 — o gabarito e o _replay_producao.py."""
 import os, sys, time
 from datetime import date, timedelta
 from collections import Counter

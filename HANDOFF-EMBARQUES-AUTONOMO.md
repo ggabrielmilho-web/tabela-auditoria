@@ -1,6 +1,14 @@
 # Handoff — Painel de Embarques autônomo
 
-**Estado em 17/09/2026 (noite) — ⚠ COMECE PELA §26.10.** Dois deploys hoje (`0b88f9d` e
+**Estado em 18/09/2026 — ⚠ COMECE PELA §27.** O desengate "no pátio" era declarado sem prova
+de parada: as 3 cargas que existiam em produção (C-832, C-874, C-946) estavam no lugar errado,
+e o estado ainda as congelava fora do alcance do documento que as encerraria. Consertado atrás
+da mesma chave (`prova_de_parada`, rótulo em vez de status quando não há prova, e o pátio
+deixando de esconder a carga de `fechar_pendentes`), medido com o robô REAL dia a dia: ligações
+idênticas, aferidor byte a byte, convergência estável. **Commitado — falta o deploy.** O que
+ficou aberto está na §27.7.
+
+**Antes disso — 17/09/2026 (noite), §26.10.** Dois deploys hoje (`0b88f9d` e
 `aedf89d`), os dois **confirmados na rodada das 16:30 de produção**: conclusão = o que vier
 primeiro (saiu ou 24 h), chegada emprestada do cavalo quando a carreta dormiu, jornada corta a
 janela do cavalo na viagem seguinte e só mostra perna que ele puxou, `L2` no aferidor. Primeira
@@ -4174,3 +4182,119 @@ não vem do log (`✅ Embarques auto` não imprime o contador) — vem do `embar
 (`cavalo_placa` é NOT NULL — precisa de decisão); C-848 conferir como a C-662; os 38 `no_local_desde`
 reescritos por segundos na primeira rodada são o filtro de posição falsa reassentando o primeiro ponto
 parado (uma vez só).
+
+
+---
+
+## 27. O desengate "no pátio" sem prova — a régua que faltava (18/09/2026)
+
+> **Comece por aqui se está retomando.** O Gabriel abriu dois mapas e disse que as
+> *"desengatadas sem referência de outro carregamento"* não tinham ficado boas. Estavam
+> erradas mesmo: **as 3 que existiam em produção, todas as 3**. A causa não é o modelo da §24
+> — é uma primitiva que promete parada e não exige nenhuma. Consertado atrás da mesma chave,
+> medido contra o robô REAL dia a dia. **Commitado, aguardando deploy.**
+
+### 27.1 São dois mecanismos com o mesmo nome, e só um erra
+
+| mecanismo | fonte | produção 01/08→17/09 | veredito |
+|---|---|---|---|
+| **ligação A → B** (`ligar_continuacoes`, CTe `pm→um`) | documento, exata | **15/15 corretas** | é o que funciona. Não foi tocado |
+| **gatilho do cavalo** (`desengatar_por_cavalo`, GPS) | posição da carreta | 16 disparos em 11 cargas | 12 em 8 cargas `destino` (as 8 viraram `Entregue` por GPS — rótulo transitório); **4 em 3 cargas `patio`, as três erradas** |
+
+As três, conferidas contra manifesto, CTRB e CTe no BI:
+
+```
+C-2026-000946  "pátio, Ribeirão Preto, 1015 km"  -> a carreta RODANDO sob outro manifesto
+                                                    (UDI029241-9, 87 CTes p/ o RJ, outro cavalo)
+C-2026-000874  "pátio, Goiatuba, 120 km"         -> último ping a 88 km/h INDO para o destino;
+                                                    o aparelho calou em movimento
+C-2026-000832  "pátio, Santana do Paraíso, 613 km" -> ponto de TRÊS DIAS antes do evento; o CTRB
+                                                    prova que a carreta chegou com o cavalo
+```
+
+### 27.2 A causa: `parada_carreta` nunca exigiu parada
+
+Ela devolve o último bloco de posições e o chamador tratava aquilo como "onde a carreta
+ficou". O bloco pode ser **um ponto só**, **a 88 km/h**, ou de **três dias atrás**. O
+`desengatada_em` herdava o mesmo carimbo. É a mesma armadilha da §21.18 (posição velha não é
+fato sobre hoje) e do anel da §21.1 (o instante marcado com o veículo em movimento), agora
+numa terceira peça.
+
+### 27.3 O agravante que não estava na tela: o pátio congela a carga
+
+`Desengatada + patio` sai do `filtro_ativas`, e com isso o **manifesto novo da própria
+carreta deixa de encerrar a carga**. Quando a mercadoria não segue (o CTe fica com
+`pm = um`), **nada** a encerra: ela fica parada para sempre, e só o `X1` reclama.
+
+Isso contradiz a §24.3, que é literal — *"só o documento encerra o pátio"*. O documento é
+exatamente quem estava excluído. A C-946 é o caso com número: o manifesto da carreta saiu em
+17/09, entra na janela do robô em 18/09 e **não** a fecharia.
+
+> O pátio existe para tirar a carga do **GPS** (ali o sinal é de outra viagem, medido par a
+> par na §24.3), não do **documento**. São coisas diferentes e estavam no mesmo filtro.
+
+### 27.4 O timing explica o padrão
+
+O manifesto novo do **cavalo** aparece ~1 dia antes do manifesto novo da **carreta**. O
+gatilho do cavalo antecipa uma decisão que o documento resolveria sozinho no dia seguinte — e
+quando antecipa errado, tira a carga do alcance de quem resolveria. Daí o congelamento.
+
+### 27.5 O que mudou
+
+| onde | o quê |
+|---|---|
+| `parada_carreta` | devolve a **velocidade** do último ponto junto (antes o chamador não tinha como saber que o "bloco parado" estava a 88 km/h) |
+| `prova_de_parada` (nova) | último ponto **parado** (régua única) + bloco ≥ `PARADA_MIN_H` (2 h, a mesma parada que prova presença na chegada) + aparelho falando **depois** do manifesto B |
+| `_local_do_desengate` | devolve `None` quando não há prova. Sem prova não se afirma pátio nenhum |
+| `desengatar_por_cavalo` | sem prova, **status intacto** + rótulo `CAVALO SEGUIU EM OUTRO MANIFESTO` em `observacoes` (rótulo, nunca status — §21.18), idempotente pela convenção da §22.9 |
+| `instante_do_desengate` (nova) | `desengatada_em` = início da parada provada; sem prova, a chegada registrada; senão o dia do manifesto B |
+| `filtro_ativas(documental=True)` | o pátio deixa de esconder a carga do **documento**; segue escondida do GPS. Quem continua protegida é a carga cuja mercadoria SEGUIU — o `continua_manifesto` de `fechar_pendentes` já a mantém aberta para a ligação gravar o verbo certo |
+
+### 27.6 Os testes — robô REAL dia a dia, mesmo ponto de partida nos dois lados
+
+> ⚠ **Armadilha do método, registrada porque custou duas rodadas:** `_snapshot_embarques.py
+> restaurar --chave` **não devolve a base ao ponto de partida** entre execuções — a carga que
+> o patch fechou por documento perde o `desengate_local` e some do critério `--chave`, então
+> fica fechada na rodada seguinte. Os primeiros números A×B mediram essa deriva, não o patch.
+> O reset certo é a **união**: `--desde-log <hoje>` **mais** `--chave`, e conferir contra o
+> snapshot antes de cada lado.
+
+| gate | hoje (A) | com o patch (B) |
+|---|---|---|
+| ligações `continua_em` | 21 `Desengatada→B` + 6 `Continuada` | **idênticas** |
+| desengate `patio` | 5 | 0 sem prova · 3 viram `destino` |
+| aferidor (451 cargas) | 636 achados · alta 60 | **CSV idêntico byte a byte** |
+| `_testar_regras_fechamento.py` | 15/15 (off) · 14/15 (on) | igual — a falha do bloco 0 com a chave ligada é a pré-existente da §26.7 |
+| chave **desligada** | — | estado **idêntico** (só o carimbo de relógio do `encerrar` difere) |
+| convergência | — | duas rodadas seguidas: **0 escritas novas** (o rótulo não se reescreve) |
+| atemporal dry-run (chave on) | 95 propostas | 98 · **0 divergentes** nas comuns |
+
+**As 6 cargas que mudam:** 3 deixam de ter pátio inventado (`C-582`, `C-587`, `C-676` — e a
+C-582 passa a ser fechada corretamente por `manifesto_novo`, que o congelamento bloqueava),
+2 eram pátio e são `destino` com chegada registrada (`C-632`, `C-678` — e o motor prova a
+entrega da C-678 por GPS), 1 só corrige o `desengatada_em` (`C-667`).
+
+**O teste decisivo da camada documental**, montando a própria pré-condição no `rizza_lab` com
+o caso real da C-946 (carga congelada + manifesto novo da carreta no dia seguinte):
+
+```
+só a prova de parada:      Desengatada/patio -> Desengatada/patio      (congela para sempre)
+prova + documento alcança: Desengatada/patio -> Entregue (manifesto_novo)
+```
+
+Na janela local essa camada não muda nada — com a prova, não sobra pátio sem ligação para o
+documento alcançar. Ela é a rede para o caso de produção.
+
+### 27.7 O que fica aberto
+
+1. **As 3 cargas já congeladas em produção** (C-832, C-874, C-946) o patch **não** desfaz — ele
+   só evita novas. Com a camada documental no ar, o manifesto novo da carreta as alcança na
+   próxima rodada em que ele estiver na janela (5 dias); passado isso, é correção de dado
+   (restore por id ou UPDATE), que é decisão do Gabriel.
+2. **Efeito colateral medido, 1 carga:** com as pátio descongeladas o motor enxerga 3 cargas a
+   mais, e na `C-2026-000602` ele propõe empurrar a `data_conclusao` de 02/09 para 05/09 —
+   porque o manifesto intermediário daquela carreta é uma `Continuada`, **invisível para o
+   índice de "próximo manifesto" do motor**. Não muda status e não move o aferidor. É fraqueza
+   pré-existente do motor que o patch expõe; consertar é mexer no motor e pede medição própria.
+3. **`_rodar_diario_local.py` estava commitado com a docstring não fechada** — não parseava, ou
+   seja, o gate da §24 não rodava desde que foi versionado. Corrigido junto (1 linha).
