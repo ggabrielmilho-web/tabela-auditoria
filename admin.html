@@ -317,6 +317,7 @@
           <label><input type="checkbox" class="pagina-check" value="conhecimentos"> Conhecimentos</label>
           <label><input type="checkbox" class="pagina-check" value="faturamento"> Faturamento</label>
           <label><input type="checkbox" class="pagina-check" value="veiculos"> Veículos</label>
+          <label><input type="checkbox" class="pagina-check" value="verda"> Verda (CO₂e)</label>
           <label><input type="checkbox" class="pagina-check" value="contratos"> Contratos TAC</label>
           <label><input type="checkbox" class="pagina-check" value="contabil"> Contábil</label>
         </div>
@@ -527,9 +528,13 @@ const TODAS_PAGINAS = [
   { key: 'conhecimentos', label: 'Conhecimentos' },
   { key: 'faturamento', label: 'Faturamento' },
   { key: 'veiculos', label: 'Veículos' },
+  { key: 'verda', label: 'Verda (CO₂e)' },
   { key: 'contratos', label: 'Contratos TAC' },
   { key: 'contabil', label: 'Contábil' },
 ];
+// Esta lista e a de checkboxes do formulário de criação têm de cobrir
+// PAGINAS_VALIDAS do server.py — aba que falta aqui vira aba que NINGUÉM consegue
+// receber, porque só o admin passa pelo bypass. A Verda ficou de fora assim.
 const PAGINA_LABEL = Object.fromEntries(TODAS_PAGINAS.map(p => [p.key, p.label]));
 
 function renderTable() {
