@@ -337,6 +337,7 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 | `CIOT_ESPERA_POS_REFRESH_MIN` | Folga depois do **fim** do refresh antes de ler; durante um refresh não roda | `10` |
 | `CIOT_CARENCIA_H` | Horas que a pendência espera antes de ir no aviso (o CTRB costuma sair depois do manifesto) | `2` |
 | `CIOT_ENVIO` | **Liga o WhatsApp** (chave separada da conferência) | `false` |
+| `CIOT_AVISO_SEM_NOVIDADE` | **Batimento**: avisa a cada rodada mesmo sem novidade (`✅ nada novo desde HH:MM`, em texto curto). Sem ela, rodada sem pendência nova é silêncio — e silêncio não separa "nada aconteceu" de "o robô parou" | `false` |
 | `CIOT_UAZAPI_TO` | Destinatário(s), separados por vírgula (usa `UAZAPI_URL`/`UAZAPI_TOKEN`) | — |
 | `CIOT_ENVIO_HORARIO` | Janela de envio em Brasília; fora dela o aviso espera | `06:00-22:00` |
 | `CIOT_RESUMO_HORA_BRT` | Resumo diário de tudo que segue aberto (1×/dia, na primeira rodada depois deste horário) | `08:00` |
@@ -1034,7 +1035,7 @@ aí a conferência acompanha sozinha, sem mudar código.
 `resolvido_em`, `avisado_em`, em UTC). Sumiu da rodada = resolvida; voltou = nova de novo.
 Documento anterior ao `CIOT_DESDE` sai da tabela (não conta como resolvido).
 
-O WhatsApp tem **duas mensagens**, sempre **uma linha por documento** (o mesmo CTRB costuma estar
+O WhatsApp tem **três mensagens**, sempre **uma linha por documento** (o mesmo CTRB costuma estar
 sem CIOT e sem manifesto):
 
 - **Novas** — a cada rodada, o que apareceu desde o último aviso, vencida a carência. Cada
@@ -1043,6 +1044,19 @@ sem CIOT e sem manifesto):
   em aberto**: os contadores de tudo, a lista só dos emitidos nos últimos `CIOT_RESUMO_DIAS`
   (mais antigo primeiro, 🆕 no que nunca foi avisado) e a contagem dos mais velhos, que ficam na
   tela. Nesse horário ele substitui a de novas. Sai mesmo com nada em aberto — silêncio seria ambíguo.
+- **Nada novo** (`CIOT_AVISO_SEM_NOVIDADE`, nasce desligada) — o **batimento**: rodada sem pendência
+  nova manda uma linha em **texto** (`✅ CIOT · 14:13 — nada novo desde 12:18`) com o que segue em
+  aberto e quantos estão **aguardando confirmação** (vistos, ainda dentro da carência — é o que sai na
+  rodada seguinte se o CTRB não aparecer). Nunca vira imagem: mensagem de "sem novidade" tem de ser
+  lida na notificação. Não marca nada como avisado, e grava em `ciot_envios` como `tipo='nada'`.
+
+> **A carência não atrasa o que mais importa.** Ela conta pela **emissão do CTRB** em tudo que é
+> pendência de CTRB (sem CIOT, CIOT com erro, sem manifesto, dados diferentes) — e o CTRB chega ao BI
+> 2–3 h depois de emitido, então quando o robô o vê ele já venceu a carência e sai na **mesma rodada**.
+> Só o `manifesto_sem_ctrb` do próprio dia espera (`primeiro_visto + CIOT_CARENCIA_H`), que é
+> justamente o caso que costuma se resolver sozinho: os carregadores do 073 e do 916 rodam em
+> horários diferentes (18/09/2026: CTRBs 09:30, manifestos 09:33), então um manifesto pode chegar
+> antes do CTRB dele.
 
 **Formato:** imagem + legenda curta (`CIOT_FORMATO=imagem`, padrão), no mesmo molde do PGR
 (`ciot_imagem.py`, `fitz.Story`): vermelho = falta CIOT, laranja = falta amarrar, verde = "tem

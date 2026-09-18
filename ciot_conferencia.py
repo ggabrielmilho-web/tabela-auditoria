@@ -117,6 +117,10 @@ FORMATO = os.getenv('CIOT_FORMATO', 'imagem').strip().lower()
 RESUMO_HORA = os.getenv('CIOT_RESUMO_HORA_BRT', '08:00')
 # O WhatsApp lista só os emitidos nos últimos N dias; o resto fica na tela
 RESUMO_DIAS = int(os.getenv('CIOT_RESUMO_DIAS', '7'))
+# Batimento: avisa a cada rodada MESMO sem novidade ("nada novo desde HH:MM"), em texto
+# curto. Sem isso, rodada sem pendência nova é silêncio — e silêncio não distingue
+# "nada aconteceu" de "o robô parou". Nasce desligada; ligar/desligar pela CLI.
+AVISO_SEM_NOVIDADE = os.getenv('CIOT_AVISO_SEM_NOVIDADE', 'false').strip().lower() == 'true'
 
 TIPOS = {
     'sem_ciot':            'CTRB sem CIOT',
@@ -499,7 +503,7 @@ CREATE TABLE IF NOT EXISTS ciot_rodadas (
 );
 CREATE TABLE IF NOT EXISTS ciot_envios (
     id                SERIAL PRIMARY KEY,
-    tipo              VARCHAR(10) NOT NULL,   -- novas | resumo
+    tipo              VARCHAR(10) NOT NULL,   -- novas | resumo | nada (batimento)
     dia_brt           DATE NOT NULL,
     enviado_em        TIMESTAMP NOT NULL,     -- UTC
     documentos        INT,
@@ -759,6 +763,23 @@ def montar_mensagem(novas, total_abertas, agora_brt, link=None):
     return '\n'.join(linhas)
 
 
+def montar_sem_novidade(total_abertas, em_carencia, agora_brt, ultimo_aviso=None, link=None):
+    """Batimento: nada novo nesta rodada. Texto curto, nunca imagem — mensagem que diz
+    'sem novidade' precisa ser lida na notificação, sem abrir nada.
+
+    Diz o que está em carência para não parecer que o robô não enxergou o documento:
+    ele viu, está esperando o CTRB sair, e avisa na rodada seguinte se não sair."""
+    desde = f' desde {ultimo_aviso:%H:%M}' if ultimo_aviso else ''
+    linhas = [f'✅ *CIOT · {agora_brt:%H:%M}* — nada novo{desde}']
+    rodape = [f'{total_abertas} documento(s) em aberto']
+    if em_carencia:
+        rodape.append(f'{em_carencia} aguardando confirmação')
+    linhas.append('_' + ' · '.join(rodape) + '_')
+    if link or BASE_URL:
+        linhas.append(f'\n🔗 {link or BASE_URL + "/ciot"}')
+    return '\n'.join(linhas)
+
+
 def _pendentes(cur, where, params=()):
     cur.execute(f"""SELECT chave, tipo, documento, manifesto, tipo_operacao, placa, detalhe, emissao,
                            avisado_em
@@ -975,8 +996,8 @@ def _enviar_para_todos(texto, png=None):
 
 def _renderizar(tipo, pend, total, resolvidas, agora_brt, link=None, ultimo_aviso=None):
     """(png, legenda) ou (None, None) se a imagem não sair — aí vai o texto."""
-    if FORMATO != 'imagem':
-        return None, None
+    if FORMATO != 'imagem' or tipo == 'nada':
+        return None, None      # batimento vai sempre em texto: é para ler na notificação
     try:
         import ciot_imagem
         dados = dados_aviso(tipo, pend, total, resolvidas, agora_brt, link, ultimo_aviso)
@@ -1064,8 +1085,18 @@ def avisar(cur, agora, forcar_resumo=False, so_mostrar=False, refresh_fim=None):
         pend = _pendentes(cur, f'resolvido_em IS NULL AND avisado_em IS NULL AND {carencia[0]}',
                           carencia[1])
         if not pend:
-            return None, 0
-        texto = montar_mensagem(pend, total, agora_brt, link)
+            if not (AVISO_SEM_NOVIDADE or so_mostrar):
+                return None, 0
+            # Batimento. Em carência = já visto, ainda não avisado, e a carência não venceu:
+            # é o que vai sair na próxima rodada se o CTRB não aparecer até lá.
+            cur.execute(f"""SELECT COUNT(DISTINCT documento) FROM ciot_pendencias
+                            WHERE resolvido_em IS NULL AND avisado_em IS NULL
+                              AND NOT COALESCE({carencia[0]}, FALSE)""", carencia[1])
+            em_carencia = cur.fetchone()[0]
+            tipo = 'nada'
+            texto = montar_sem_novidade(total, em_carencia, agora_brt, ultimo_aviso, link)
+        else:
+            texto = montar_mensagem(pend, total, agora_brt, link)
 
     docs = len({p['documento'] for p in pend})
     png, legenda = _renderizar(tipo, pend, total, resolvidas, agora_brt, link, ultimo_aviso)

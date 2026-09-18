@@ -217,6 +217,20 @@ def main():
     assert cc.resumo_devido(_Cur(), datetime(2026, 9, 17, 10, 5), antes), 'refresh falhou: sai assim mesmo'
     assert not cc.resumo_devido(_Cur(), datetime(2026, 9, 17, 7, 59), fim), 'antes da hora'
 
+    # ── Batimento "nada novo" (CIOT_AVISO_SEM_NOVIDADE) ──
+    agora_brt = datetime(2026, 9, 18, 12, 13)
+    m = cc.montar_sem_novidade(31, 1, agora_brt, datetime(2026, 9, 18, 10, 18), 'http://x/ciot?t=1')
+    assert 'nada novo' in m, 'diz que não houve novidade'
+    assert 'desde 10:18' in m, 'diz desde quando'
+    assert '31 documento(s) em aberto' in m, 'lembra o que segue aberto'
+    assert '1 aguardando confirmação' in m, 'mostra o que está em carência'
+    assert 'http://x/ciot?t=1' in m, 'leva o link'
+    m0 = cc.montar_sem_novidade(0, 0, agora_brt, None, 'http://x/ciot')
+    assert 'aguardando' not in m0, 'sem carência não inventa a linha'
+    assert 'desde' not in m0, 'primeiro aviso do dia não tem "desde"'
+    # o batimento NUNCA vira imagem: mensagem de "sem novidade" tem de ser lida na notificação
+    assert cc._renderizar('nada', [], 0, 0, agora_brt) == (None, None), 'batimento vai em texto'
+
     print(f'\n{sum(r)}/{len(r)} casos')
     return all(r)
 

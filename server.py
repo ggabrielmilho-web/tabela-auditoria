@@ -8278,9 +8278,11 @@ if __name__ == '__main__':
         _th_c.Thread(target=ciot_conferencia.loop, daemon=True, name='CiotConferencia').start()
         _extra = (f" e a cada {ciot_conferencia.INTERVALO_MIN} min"
                   if ciot_conferencia.INTERVALO_MIN > 0 else "")
+        _bat = ' + batimento sem novidade' if ciot_conferencia.AVISO_SEM_NOVIDADE else ''
         print(f"✅ Conferência CIOT LIGADA (após cada refresh do BI + "
               f"{ciot_conferencia.ESPERA_POS_REFRESH_MIN} min{_extra}; desde {ciot_conferencia.DESDE}; "
-              f"envio {'ligado para ' + str(len(ciot_conferencia._numeros())) + ' número(s)' if ciot_conferencia.ENVIO_ATIVO else 'desligado'})")
+              f"carência {ciot_conferencia.CARENCIA_H}h; "
+              f"envio {'ligado para ' + str(len(ciot_conferencia._numeros())) + ' número(s)' + _bat if ciot_conferencia.ENVIO_ATIVO else 'desligado'})")
     else:
         print("ℹ️  Conferência CIOT desligada (CIOT_CONFERENCIA)")
 
