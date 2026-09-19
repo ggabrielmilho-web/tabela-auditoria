@@ -37,6 +37,24 @@ def ligado():
     return os.getenv('EMBARQUES_CONTINUACAO', 'false').strip().lower() == 'true'
 
 
+def desengate_por_cavalo_ligado():
+    """Sub-chave do gatilho por GPS (`desengatar_por_cavalo`), **default DESLIGADO** desde
+    19/09/2026 (§27.9). A ligação A→B pelo CTe não depende dela e continua valendo.
+
+    Por que nasceu desligada: o gatilho nunca acertou em produção. Ele declarava `destino`
+    quando a carreta chegava e o cavalo saía depois — medido em 8 cargas: desengate carimbado
+    a 0,0 h da CHEGADA e `Entregue` 24,0 h depois, nenhuma com ligação, ou seja **descarga, o
+    fim normal de uma viagem**; e declarava `patio` em cima de ponto de GPS velho ou em
+    movimento (as 3 de produção, §27.1). Com a prova de parada exigida (§27.5), o ramo `patio`
+    passou a disparar **zero** vezes em 40 dias — o mecanismo, obrigado a provar, não tinha o
+    que dizer.
+
+    O que se perde ao desligar: o aviso intermediário de que a carreta está parada na filial
+    antes de o B nascer (85% dos casos, §24.5). Isso deve voltar como **rótulo, nunca status**
+    (§24.6 nº 1) — adiado por decisão do Gabriel em 19/09."""
+    return os.getenv('EMBARQUES_DESENGATE_CAVALO', 'false').strip().lower() == 'true'
+
+
 # ── DDL (idempotente, aditiva) ───────────────────────────────────────────
 
 def garantir_colunas(cur):

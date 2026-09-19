@@ -4337,3 +4337,54 @@ carretas emitiu manifesto novo — conferido no BI — então não há documento
 o GPS também não vem (a `MWP0769` está muda desde 11/09, é uma das 5 da §20.1). Elas não se
 resolvem sozinhas; destravar é correção de dado, devolvendo cada uma ao status que o log
 registra como anterior (C-832 `Aberta`, C-874 `Em rota`), e é decisão do Gabriel.
+
+### 27.9 O gatilho do cavalo sai de cena — só o CTe declara desengate (19/09/2026)
+
+O Gabriel olhou duas telas e disse a coisa certa: *"o desengate que tem continuidade está
+perfeito; o problema é esse outro"*. A C-963 aparecia `Desengatada · carregada ·
+cavalo+motorista liberados` **estando no destino**, e ele leu como o que era: **descarga**.
+
+**A medição que fecha o assunto** (8 cargas que passaram por `Desengatada (destino)` em
+produção, 13–15/09):
+
+```
+chegada -> desengate   :  0,0 h   em 7 de 7 mediveis — o desengate e carimbado NA chegada
+desengate -> conclusao : 24,0 h   a regra de permanencia (gps_dwell_destino)
+ligacao (continua_em)  : NENHUMA  — a mercadoria nao seguiu, foi entregue ali
+```
+
+Ou seja: "a carreta chegou ao destino e o cavalo saiu depois" é o **fim normal de uma
+viagem**. Chamar isso de desengate enchia o card "Carretas desengatadas" de entrega em
+descarga e escondia o desengate de verdade — a carreta parada LONGE do destino (C-677).
+
+E o outro ramo já tinha se provado vazio: com a prova de parada da §27.5, o `patio` disparou
+**zero** vezes em 40 dias. **Um mecanismo que, obrigado a provar, não dispara mais é um
+mecanismo que não tinha o que dizer** — e a proteção que o pátio dava (tirar a carga do
+worker) já não estava acontecendo desde o deploy de 18/09.
+
+**Decisão (Gabriel, 19/09):** desligar o gatilho por GPS; só a ligação A→B pelo CTe declara
+desengate. O aviso intermediário de "carreta parada na filial" fica para depois, e como
+**rótulo, nunca status** (§24.6 nº 1) — *"por enquanto não"*.
+
+Implementado como sub-chave `EMBARQUES_DESENGATE_CAVALO`, **default `false`**: a função
+continua no arquivo com o histórico da medição, e religar é uma env pela CLI.
+
+**A×D, robô REAL dia a dia, mesmo ponto de partida** (A = produção de hoje, D = desligado):
+
+| | A | D |
+|---|---|---|
+| ligações `continua_em` | 21 `Desengatada→B` + 6 `Continuada` | **idênticas** |
+| `Entregue` | 349 | **349** |
+| `Desengatada` **sem** ligação | 3 | **0** |
+| aferidor | 640 achados · alta 61 | **640 · alta 61** — o CSV difere em UMA linha, e só na palavra do status dentro do texto do `F4` |
+| atemporal (dry-run) | 98 propostas | 98, mesmas cargas, mesmos desfechos |
+| cargas diferentes | — | **3**: C-632, C-667, C-678, todas `Desengatada (destino)` → `No destino` |
+
+15 de 15 testes. A implementação final bate com o braço D em **0 diferenças**.
+
+**O que some da tela:** o estado transitório de 24 h que aparecia como desengate em toda
+entrega cujo cavalo saiu antes da descarga. **O que fica:** `Desengatada → C-B`, que é o
+desengate com continuidade, vindo do CTe — o que já funcionava.
+
+**Custo aceito:** o cavalo fica preso no conflito até a carga fechar (antes o desengate o
+liberava). Só afeta lançamento MANUAL, e como alerta amarelo, não bloqueio.

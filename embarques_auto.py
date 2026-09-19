@@ -1220,7 +1220,12 @@ def executar(dia=None, dry_run=False, token=None, conn=None):
             if not dry_run else Counter()
         # §24 — o cavalo saiu com outra carreta: a carga que ficou é DESENGATADA, não entregue.
         # Antes de criar, como o fechamento: libera cavalo/motorista para a viagem nova.
-        if not dry_run and _ec.ligado() and fechamento_ligado():
+        #
+        # §27.9 — atrás da sub-chave `EMBARQUES_DESENGATE_CAVALO`, default DESLIGADA: este
+        # gatilho chamava de desengate o FIM NORMAL de viagem (a carreta chega ao destino e o
+        # cavalo sai depois) e errava o `patio` em cima de GPS velho ou em movimento. Quem
+        # declara desengate é o CTe, em `ligar_continuacoes`, e isso não depende daqui.
+        if not dry_run and _ec.ligado() and _ec.desengate_por_cavalo_ligado() and fechamento_ligado():
             for k, v in _ec.desengatar_por_cavalo(cur, manifestos).items():
                 resumo['fechadas'][k] += v
 
