@@ -1,6 +1,13 @@
 # Handoff — Painel de Embarques autônomo
 
-**Estado em 18/09/2026 — ⚠ COMECE PELA §27.** O desengate "no pátio" era declarado sem prova
+**Estado em 19/09/2026 — ⚠ COMECE PELA §27.** Em 19/09 o desengate por GPS foi **desligado**
+(§27.9: ele chamava de desengate o fim normal de viagem — só o CTe declara agora), o
+`dedup_veiculo` passou a **exigir prova de chegada** (§27.11: fechava pela ordem da data, e em
+18/09 fechou carga a 715 km e a 1.345 km do destino) e a **fita documental entrou no ar**
+(§27.11), que é o que enche a aba `/embarques/ordens` e cria o cadastro `locais`. O estado de
+cada chave está no README, seção "O que está ligado em produção".
+
+**Antes disso — 18/09/2026.** O desengate "no pátio" era declarado sem prova
 de parada: as 3 cargas que existiam em produção (C-832, C-874, C-946) estavam no lugar errado,
 e o estado ainda as congelava fora do alcance do documento que as encerraria. Consertado atrás
 da mesma chave (`prova_de_parada`, rótulo em vez de status quando não há prova, e o pátio
@@ -4514,3 +4521,35 @@ docker service update --env-add EMBARQUES_FITA=true rizza-auditoria_app     # de
 
 Primeira rodada esperada: ~1.000 linhas, ~270 ordens, cadastro `locais` criado — e a aba
 `/embarques/ordens` deixa de abrir vazia. A partir daí, uma rodada por refresh (8×/dia).
+
+#### No ar — e a primeira rodada bateu com o laboratório (19/09, 20:35)
+
+```
+✅ Fita documental LIGADA (checa o refresh a cada 10 min; janela 7 d; retencao 21 d)
+✅ Fita: rodada 19/09 20:35 — 1013 linhas (manifesto 135 · coleta 269 · ctrb 143 · cte 466)
+                              · 340 locais · 269 ordens
+```
+
+1.013 linhas e 269 ordens, **os mesmos números do lab**; 340 locais é o esperado na primeira
+rodada (o cadastro acumula a cada retrato). Disco: 55 G livres, e a fita estabiliza em ~170 MB.
+
+E a prova que vale mais que a minha: **o operacional já estava usando a aba** no mesmo minuto,
+com filtro por estado e por dia, tudo em 200 —
+
+```
+GET /embarques/ordens                                    304
+GET /api/embarques/ordens?dia=2026-09-19                 200
+GET /api/embarques/ordens?estado=vencida+sem+documento   200
+GET /api/embarques/ordens?estado=documento+emitido       200
+```
+
+**O número para conferir amanhã é um só: quantas RODADAS a fita fez no dia.** Tem de ser ~8
+(uma por refresh). Se estiver perto de 144, o marcador voltou a comparar texto:
+
+```sql
+SELECT rodada::date, count(DISTINCT rodada) rodadas, count(*) linhas
+  FROM fita_documentos GROUP BY 1 ORDER BY 1 DESC;
+```
+
+A outra medição pendente é a **primeira rodada do dedup com prova**: procurar
+`mantida (sem prova de chegada)` no lugar de fechamento a centenas de km do destino.

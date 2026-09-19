@@ -9,26 +9,47 @@ URL de produção: **https://rizza.carvalhoia.com**
 
 ---
 
-## Estado atual do rastreamento e do robô (18/09/2026)
+## Estado atual do rastreamento e do robô (19/09/2026)
 
 **Antes de commitar ou subir qualquer coisa deste repositório, leia esta seção.**
+O detalhe de cada item está no `HANDOFF-EMBARQUES-AUTONOMO.md`, §27 em diante.
 
-- **⚠ Aguardando deploy (18/09):** o desengate "no pátio" passou a exigir **prova de parada**
-  (`HANDOFF-EMBARQUES-AUTONOMO.md` §27). Sem prova, o status fica intacto e o caso vira
-  **rótulo** em `observacoes`; e a carga de pátio deixa de ser escondida do **documento**
-  (`fechar_pendentes`), que é quem a §24 sempre disse que a encerra. Em produção as 3
-  `Desengatada/patio` que existiam (C-832, C-874, C-946) estavam no lugar errado — ponto de
-  GPS velho ou em movimento — e ficariam congeladas para sempre.
+### O que está ligado em produção
+
+| chave | estado | o que faz |
+|---|---|---|
+| `EMBARQUES_AUTO` | **true** | o robô abre a carga a partir do manifesto, 1×/dia, D-1 (`JANELA_DIAS=5`) |
+| `EMBARQUES_CONTINUACAO` | **true** desde 11/09 | a mercadoria que atravessa duas cargas liga A → B pelo CTe (§24) |
+| `EMBARQUES_RECONCILIACAO` | **true** desde 17/09 | manifesto que sumiu do 916 = cancelado → carga vira `Cancelada` (§26.3) |
+| `EMBARQUES_COLETA` | **true** desde 18/09 | a ordem de coleta preenche embarcador, CNPJ de origem/destino e `coleta_origem` |
+| `EMBARQUES_FITA` | **true** desde 19/09 | um retrato do BI por refresh → `fita_documentos`, `locais` e `embarques_programacao`, que é o que a aba `/embarques/ordens` lê (§27.11) |
+| `EMBARQUES_ATEMPORAL_DIAS` | **28** | janela do motor convergente; 40 era maior que a retenção de GPS (§25.4) |
+| `EMBARQUES_DESENGATE_CAVALO` | **ausente = false** | o gatilho de desengate por GPS, desligado em 19/09 — ver abaixo |
+| `EMBARQUES_MODELO_CARRETA` | **ausente = false** | Fase D, ainda não medido com dado novo |
+
+### O que mudou em 18–19/09, e por quê
+
+- **Só o CTe declara desengate** (§27.9). O gatilho por GPS chamava de desengate o **fim
+  normal de viagem** — a carreta chega ao destino e o cavalo sai depois: medido em 8 cargas,
+  o desengate era carimbado a 0,0 h da chegada e a carga virava `Entregue` 24 h depois,
+  nenhuma com ligação. Isso enchia o card "Carretas desengatadas" de entrega em descarga.
+  Desligado, as ligações A → B ficam idênticas e `Desengatada` volta a significar uma coisa só.
+- **O desengate "no pátio" exige prova de parada** (§27.5), quando a chave acima for religada:
+  último ponto parado, bloco de 2 h e aparelho falando depois do manifesto novo. As 3 cargas
+  que existiam em produção estavam no lugar errado — ponto velho ou em movimento.
+- **A carga de pátio deixou de ser escondida do documento** (§27.3): o manifesto novo da
+  carreta volta a encerrá-la. Antes ela congelava quando a mercadoria não seguia.
+- **O `dedup_veiculo` exige prova de chegada** (§27.11). Ele fechava pela **ordem da data**,
+  sem olhar GPS — em 18/09 fechou uma carga a 715 km do destino e outra a 1.345 km. A
+  exigência existia desde 07/09, mas atrás do `EMBARQUES_MODELO_CARRETA`, que está desligado.
+
+### O resto do quadro
 
 - **3S de volta desde 08/09/2026** (o corte comercial de 07/09 durou um dia). 93 veículos
-  reportando; ficaram 5 carretas mudas desde 01–03/09 (`HANDOFF-EMBARQUES-AUTONOMO.md` §20.1).
-- **O robô de embarques está em produção** (`EMBARQUES_AUTO=true`), sem `baixa_ctrb` e sem
-  `timeout`; o robô atemporal roda sozinho depois do diário (§22.10).
-- **Modelo carreta-cêntrico** (`EMBARQUES_MODELO_CARRETA`) está na `main` e **desligado** —
-  Fase D, ainda não medido com dado novo.
-- **Continuação / desengate de pátio** (`EMBARQUES_CONTINUACAO`) está na `main` e **LIGADA em
-  produção desde 11/09/2026** (§24). Primeira rodada ligou 14 cargas; snapshot de produção
-  `snap_20260911_1944` guardado para restore por id.
+  reportando; ficaram 5 carretas mudas desde 01–03/09 (§20.1).
+- **O robô atemporal** roda sozinho logo depois do diário, em quatro passos (§22.10).
+- **Snapshots de produção** guardados para restore por id: `snap_20260911_1944`,
+  `snap_20260915_2007`.
 
 ### O que fazer antes de qualquer deploy
 
@@ -49,7 +70,9 @@ gabarito do `_replay_producao.py`. Os simuladores não viram dois bugs que o rob
 | desligar o robô | `EMBARQUES_AUTO=false` |
 | desligar a continuação | `EMBARQUES_CONTINUACAO=false` |
 | desfazer o que a continuação gravou | `_snapshot_embarques.py restaurar snap_X --chave --aplicar` (por id; nunca as tabelas de posição) |
-| comparar código com o estado anterior | tags `modelo-manual-2026-09`, `estudo-embarques-2026-09-08`, `pre-continuacao-2026-09-11` |
+| desligar a fita documental | `EMBARQUES_FITA=false` (as tabelas ficam; só a aba de ordens as lê) |
+| religar o desengate por GPS | `EMBARQUES_DESENGATE_CAVALO=true` — **medido e reprovado em 19/09**, §27.9 |
+| comparar código com o estado anterior | tags `modelo-manual-2026-09`, `estudo-embarques-2026-09-08`, `pre-continuacao-2026-09-11`, `pre-lab-2026-09-15`, `pre-patio-2026-09-18` |
 
 Env sempre pela CLI (`docker service update --env-add`): editar pelo stack do Portainer devolve
 a imagem antiga (21/08/2026).
@@ -226,6 +249,14 @@ Tabela Auditoria/
 ├── contrato_tac_template.docx   # Template Word soberano (texto jurídico fixo + campos docxtpl)
 ├── _build_template.py           # Deriva o template a partir do contrato-origem (rodar 1x)
 │
+│   # ── Ordem de coleta, reconciliação de documento e fita (Fase A da Programada) ──
+├── embarques_coleta.py          # ordem de coleta (0157) → embarcador, CNPJ e ponto físico da carga
+├── embarques_reconciliacao.py   # manifesto que sumiu do 916 = cancelado → carga vira Cancelada
+├── _fita_documentos.py          # retrato do BI por refresh (`fita_documentos`) + agendador (EMBARQUES_FITA)
+├── _locais.py                   # `locais_fontes` + view `locais` (CNPJ → endereço), alimentada pela fita
+├── _programacao.py              # `embarques_programacao`: ordens com estado derivado
+├── embarques-ordens.html        # Página /embarques/ordens (ordens de coleta e seu estado)
+│
 │   # ── Módulo Rastreamento ──
 ├── rastreamento_worker.py       # Worker daemon (60s): posições, saída/entrega auto, recálculo de rota
 ├── embarques_continuacao.py     # §24: desengate de pátio + ligação A→B (continua_em), atrás de EMBARQUES_CONTINUACAO
@@ -334,6 +365,15 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 | `EMBARQUES_AUTO_DWELL_ENTREGA_H` | Horas paradas no destino que valem como entrega, quando não há saída | `24` |
 | `EMBARQUES_CONTINUACAO` | **Continuação/desengate de pátio (§24).** Manifesto novo do cavalo com outra carreta vira `Desengatada` (não `Entregue`); CTe com `primeiro_manifesto ≠ ultimo_manifesto` liga A → B (`continua_em`) com o terminal certo (`Desengatada`/`Continuada`/`Cancelada`); só B conta como entrega. Nasce desligada; desligar pela CLI, nunca pelo stack do Portainer | `false` |
 | `EMBARQUES_CONTINUACAO_RAIO_DESTINO` | Km do destino abaixo do qual o desengate é "no destino" (comportamento antigo); acima é "no pátio" (o worker não rastreia; só o documento encerra) | `25` |
+| `EMBARQUES_DESENGATE_CAVALO` | **Gatilho de desengate por GPS** (o cavalo saiu com outra carreta). **Desligado em 19/09**: medido, ele chamava de desengate o fim normal de viagem — a carreta chega e o cavalo sai depois — e errava o "pátio" em cima de posição velha ou em movimento. A ligação A → B pelo CTe **não depende dele** | `false` |
+| `EMBARQUES_ATEMPORAL` | Liga o robô atemporal depois do diário (motor → pernas → rotas → janela) | `true` |
+| `EMBARQUES_ATEMPORAL_DIAS` | Janela do motor convergente. 28, não 40: acima da retenção de GPS ele re-deriva com a evidência sumindo | `40` (em produção: **28**) |
+| `EMBARQUES_RECONCILIACAO` | **Reconciliação de documento**: manifesto que sumiu do 916 = cancelado → a carga do robô vira `Cancelada`; voltou → status anterior lido do log. Só carga do robô, nunca editada à mão, teto de 3 por rodada | `false` |
+| `EMBARQUES_COLETA` | **Ordem de coleta → carga**: preenche campo vazio de carga do robô (`coleta_origem`, `embarcador`, `origem_cnpj`/`destino_cnpj` e endereços). Nenhuma régua lê o que ela grava | `false` |
+| `EMBARQUES_FITA` | **Fita documental** (Passo 0): thread que vigia o `MAX(data_importacao)` do BI e, a cada refresh novo, tira um retrato completo em `fita_documentos` + cadastro `locais` + `embarques_programacao` — a tabela que a aba `/embarques/ordens` lê | `false` |
+| `EMBARQUES_FITA_INTERVALO_MIN` | De quanto em quanto a fita pergunta o marcador (1 consulta, ~1 s) | `10` |
+| `EMBARQUES_FITA_JANELA_DIAS` | Dias para trás em cada retrato | `7` |
+| `EMBARQUES_FITA_RETENCAO_DIAS` | Purga da fita. **Não é zelo, é dimensionamento**: cada rodada grava ~660 linhas e ~1 MB (retrato inteiro, não delta), e são 8 refreshes/dia | `21` |
 
 ### Conferência CIOT
 | Variável | Descrição | Default |
@@ -401,6 +441,7 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 - `GET /embarques/novo` — Formulário de lançamento
 - `GET /embarques/relatorio` — Relatório de cargas
 - `GET /embarques/<id>/editar` — Edição de carga
+- `GET /embarques/ordens` — Ordens de coleta (0157) com estado derivado
 - `GET /embarques/mapa` — Mapa geral de rastreamento
 - `GET /embarques/cargas/<id>/mapa` — Mapa de uma carga
 
@@ -480,6 +521,7 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 - `POST /api/embarques/cargas/<id>/desengatar` — desengate de carreta carregada: `status='Desengatada'`, libera cavalo+motorista do conflito (carreta segue comprometida), seta `no_local_desde` se nulo e registra substituto opcional + log. Requer status `Em rota`/`No destino` e permissão de edição
 - `GET /api/embarques/cargas/<id>/log` — histórico de edições
 - `GET /api/embarques/cargas/csv` — CSV streaming (mesmos filtros)
+- `GET /api/embarques/ordens?dia=&estado=&embarcador=` — ordens de coleta de `embarques_programacao`, com o **estado derivado** (`carga` · `documento emitido` · `aguardando manifesto` · `vencida sem documento` · `sem veículo` · `cancelada`) — a `situacao` do SSW não fecha sozinha. Alimentada pela fita; **sem `EMBARQUES_FITA` a tabela não existe e a aba abre vazia** (a API devolve 200 com lista vazia, não erro)
 - `GET /api/embarques/kpis` — 7 contadores (hoje, em rota, no destino, entregues no mês, abertas, desengatadas, **vazias no mês**). **`entregues_mes` não conta viagem vazia** — a perna de reposicionamento nasce `Entregue` porque já aconteceu, e inflava o número que o operacional lê como entrega ao cliente (35 de 130 na medição de 10/09/26) — **nem carga com `continua_em`** (a perna 1 de um desengate/continuação; 7–12% a mais, §24). **`desengatadas` conta todo status `Desengatada`**, esperando ou já ligada: é o mesmo conjunto que o clique no card lista
 
 ### Rastreamento (todos sob `@login_required`)
@@ -643,6 +685,13 @@ Registra carregamentos de carga e centraliza o que antes era lançado manualment
 - **Exclusão**: não há DELETE — cancelamento via mudança de status para `Cancelada`.
 - **Auditoria**: toda edição grava diff por campo em `embarques_cargas_log`, visível no modal "🕐 Histórico".
 - **Desengate de carreta carregada** (`status='Desengatada'`): na fila de descarga, o cavalo+motorista são desengatados e seguem para outra viagem; a **carreta carregada permanece no destino**. O botão "🔌 Desengatar" (relatório) **libera cavalo+motorista** do conflito (podem entrar em carga nova) mantendo a **carreta ainda comprometida**, registra `desengatada_em`/responsável e o **substituto opcional** (cavalo/motorista que vai terminar a descarga) no histórico. A carga **finaliza automaticamente** quando a carreta sai do destino (worker), ou manualmente em "🏁 Finalizar descarga". Visibilidade: card de KPI "Carretas desengatadas", filtro/badge no relatório e filtro 🔌 no mapa geral.
+- **Quem declara desengate automaticamente** (desde 19/09/2026): **só o CTe**, em
+  `ligar_continuacoes` — quando `primeiro_manifesto ≠ ultimo_manifesto` prova que a mercadoria
+  atravessou duas cargas, a primeira recebe `continua_em` e o terminal certo. O gatilho que
+  olhava o GPS (o cavalo saiu com outra carreta) está **desligado** por medição: ele chamava de
+  desengate o fim normal de viagem — a carreta chega ao destino e o cavalo sai depois, que é
+  **descarga** — e errava o "pátio" em cima de posição velha ou em movimento. Ver §27.9 do
+  handoff; religar é `EMBARQUES_DESENGATE_CAVALO=true`.
 
 Detalhes da Fase 1 estão em [`PLANO-EMBARQUES.md`](PLANO-EMBARQUES.md).
 
@@ -1304,7 +1353,15 @@ Resultado Final   = Pós Investimento - Retiradas
 - [x] Viagem vazia + cidades de rota/passagem (rota planejada multi-ponto)
 - [x] Desengate de carreta carregada (status `Desengatada`: libera cavalo+motorista, carreta segue no destino, finaliza automático na saída da carreta)
 - [x] **Continuação / desengate de pátio** (`EMBARQUES_CONTINUACAO`, §24): a mercadoria que atravessa duas cargas liga a primeira à segunda; só a segunda conta como entrega — em produção desde 11/09/26
+- [x] **Só o CTe declara desengate** (§27.9) — o gatilho por GPS chamava de desengate a descarga; desligado em 19/09 com ligações A → B idênticas
+- [x] **Desengate no pátio exige prova de parada** (§27.5) e a carga de pátio voltou a ser alcançada pelo documento (§27.3)
+- [x] **`dedup_veiculo` exige prova de chegada** (§27.11) — ele fechava pela ordem da data, e em 18/09 fechou carga a 715 km e a 1.345 km do destino
+- [x] **Fita documental agendada** (`EMBARQUES_FITA`, §27.11) — um retrato do BI por refresh; é ela que cria `locais` e `embarques_programacao`, e sem ela a aba de ordens abre vazia
+- [x] **Ordem de coleta ligada à carga** (`EMBARQUES_COLETA`) — embarcador, CNPJ de origem/destino e a classe `L1` do aferidor
+- [x] **Reconciliação de documento** (`EMBARQUES_RECONCILIACAO`) — manifesto que sumiu do 916 vira `Cancelada`
 - [ ] Aviso precoce por GPS "⚓ parada na filial há N h" (rótulo) — os 85% dos desengates que só aparecem quando o manifesto seguinte nasce
+- [ ] **`EMBARQUES_AUTO_DEFASAGEM=0`** + disparo do diário após cada refresh — o último passo da §25.8, depois de a fita dar o dado real de cancelamento intradiário
+- [ ] **Status `Programada`** (a carga nasce na ordem comandada) e o endereço do cadastro `locais` como âncora de chegada
 - [ ] `KM FALTANDO` em carga entregue e `KM RASTREADOR —` na perna 1 de um desengate (§24.6)
 - [x] **Publicar no Power BI as 3 colunas novas de tarifas** (`icms_incluso`, `pedagio_incluso`, `prazo_recebimento`) — já publicadas; cards e "Total + Impostos" ativos
 - [x] **Análise por Veículo** (cavalo/carreta/motorista/proprietário) com custo real da frota (pedágio + combustível + folha + manutenção/seguro/rastreador) e **drawer de detalhe** por carga; normalização de placa Mercosul
