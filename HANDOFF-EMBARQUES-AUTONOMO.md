@@ -5,8 +5,10 @@ de parada: as 3 cargas que existiam em produção (C-832, C-874, C-946) estavam 
 e o estado ainda as congelava fora do alcance do documento que as encerraria. Consertado atrás
 da mesma chave (`prova_de_parada`, rótulo em vez de status quando não há prova, e o pátio
 deixando de esconder a carga de `fechar_pendentes`), medido com o robô REAL dia a dia: ligações
-idênticas, aferidor byte a byte, convergência estável. **Commitado — falta o deploy.** O que
-ficou aberto está na §27.7.
+idênticas, aferidor byte a byte, convergência estável. **No ar desde 18/09** — a primeira rodada
+saiu limpa (§27.8: 4 desengates, todos com parada provada, zero pátio novo, e a C-946 fechada
+pelo documento). O que ficou aberto está na §27.7 — inclusive as duas cargas que seguem
+travadas e não se resolvem sozinhas.
 
 **Antes disso — 17/09/2026 (noite), §26.10.** Dois deploys hoje (`0b88f9d` e
 `aedf89d`), os dois **confirmados na rodada das 16:30 de produção**: conclusão = o que vier
@@ -4298,3 +4300,40 @@ documento alcançar. Ela é a rede para o caso de produção.
    pré-existente do motor que o patch expõe; consertar é mexer no motor e pede medição própria.
 3. **`_rodar_diario_local.py` estava commitado com a docstring não fechada** — não parseava, ou
    seja, o gate da §24 não rodava desde que foi versionado. Corrigido junto (1 linha).
+
+### 27.8 Produção — a primeira rodada com a régua nova (18/09/2026, 16:34 BRT)
+
+Deploy de `87641fa` conferido DENTRO do container (`prova_de_parada` e `documental=True`,
+1 cada). Tag de volta `pre-patio-2026-09-18`. A rodada escreveu 166 linhas em 58 s.
+
+```
+desengates:  4, TODOS com "(parada provada)" e TODOS no destino
+             C-938 Uberlândia 2 km · C-963 Uberlândia 4 km · C-893 Brasília 11 km · C-936 Uberlândia 0 km
+patio novo:  0        (ontem, com a régua velha, a C-946 nasceu patio errado)
+rotulos:     0        o caminho "sem prova" nao precisou entrar nesta rodada
+fechamentos: 9 pelo atemporal + 1 `manifesto_novo`
+reconciliacao: zero escritas (esperado nos primeiros dias)
+Desengatada: 14 = patio 8 (6 ligadas) + destino 6 (5 ligadas) -> 3 esperando
+```
+
+**A C-946 fechou sozinha** (`Entregue`, `manifesto_novo_sem_gps`): era a carga congelada que,
+com a régua velha, nada alcançaria — o manifesto novo da carreta saiu em 17/09 e o documento
+a encerrou. É a camada documental (§27.3) provando o ponto na primeira rodada.
+
+Aferidor 20/08→18/09: 525 cargas, alta 67, contra 501 e alta 52 em 17/09. **O delta é janela,
+não regressão**: +24 cargas e +15 altas, todas em V1 (33→44), S1 (2→4), C7 (2→3) e C2 (1→2) —
+as classes de carga nova nascendo já em viagem (§22.10). **Todas as classes que o patch toca
+ficaram paradas**: F5 4, X1 2, F1 3, R1 3, L2 2.
+
+> ⚠ **Duas armadilhas de instrumento nesta conferência, as duas minhas.** (1) Comparei o
+> aferidor com janela diferente da do gabarito (`--desde 2026-08-15` contra `2026-08-20`) e o
+> salto de 52 para 77 era só isso — §21.10, de novo. (2) A consulta do log usava
+> `date_trunc('day', now())` e o banco roda em **UTC**: às 22 h de Brasília já é o dia
+> seguinte lá, e o filtro escondeu as 166 escritas das 19:34 UTC. `now() - interval '18 hours'`
+> não tem fronteira para errar.
+
+**Continuam travadas:** C-832 (carreta `MWP0769`) e C-874 (`QXA9775`). Nenhuma das duas
+carretas emitiu manifesto novo — conferido no BI — então não há documento para encerrá-las, e
+o GPS também não vem (a `MWP0769` está muda desde 11/09, é uma das 5 da §20.1). Elas não se
+resolvem sozinhas; destravar é correção de dado, devolvendo cada uma ao status que o log
+registra como anterior (C-832 `Aberta`, C-874 `Em rota`), e é decisão do Gabriel.
