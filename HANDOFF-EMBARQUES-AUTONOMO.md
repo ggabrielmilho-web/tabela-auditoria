@@ -4388,3 +4388,52 @@ desengate com continuidade, vindo do CTe — o que já funcionava.
 
 **Custo aceito:** o cavalo fica preso no conflito até a carga fechar (antes o desengate o
 liberava). Só afeta lançamento MANUAL, e como alerta amarelo, não bloqueio.
+
+### 27.10 Estado de produção ao fim de 19/09/2026
+
+Imagem `e5b8d29` no ar, conferida dentro do container (`desengate_por_cavalo_ligado` = 1).
+Env, lida do `service inspect` — não do stack do Portainer, que diverge (§22.10):
+
+```
+EMBARQUES_AUTO=true   JANELA_DIAS=5   CONTINUACAO=true   ATEMPORAL_DIAS=28
+EMBARQUES_RECONCILIACAO=true   EMBARQUES_COLETA=true
+EMBARQUES_DESENGATE_CAVALO ausente = false   (o gatilho por GPS, §27.9)
+EMBARQUES_MODELO_CARRETA ausente = false     (Fase D, §22.8)
+```
+
+**Correção de dado aplicada:** C-2026-000832 → `Aberta` e C-2026-000874 → `Em rota`, com
+`desengate_local` limpo e log com autor `Correcao (§27.9)`. Eram as duas travadas em
+`Desengatada/patio` por desengate declarado sem prova; a carreta da C-874 estava rodando
+para o destino enquanto a tela dizia "pátio", e carga em pátio é excluída do worker — ou
+seja, ela entregaria com a tela errada o caminho inteiro.
+
+**Três mudanças entraram no mesmo ciclo**, por decisão do Gabriel (*"é uma mudança muito
+pontual, não vamos ter problema"*). Cada uma tem assinatura própria no log, então o `diff`
+da próxima rodada não fica ambíguo:
+
+| mudança | assinatura |
+|---|---|
+| gatilho do cavalo desligado (§27.9) | **ausência**: nenhum `Desengatada (robô: cavalo …)` novo; só `Desengatada → C-B` |
+| coleta ligada (§26.3) | campos `coleta_origem`, `embarcador`, `origem_cnpj`, `destino_cnpj`; coluna Embarcador; classe **`L1`** |
+| destravamento | duas linhas com autor `Correcao (§27.9)` |
+
+O `L1` sobe de 0 para alguma coisa — é classe nova (divergência entre a ordem de coleta e o
+manifesto), **não regressão**. Qualquer outra classe que suba se olha caso a caso.
+
+> A `embarques_coleta.ligar` degrada sozinha sem o cadastro `locais` (`_tem_locais` → grava só
+> o CNPJ, sem o endereço em texto) e roda dentro de `try/except` no diário, com aviso no log:
+> falha dela não derruba a rodada. Por isso ligar antes da fita (§26.8 nº 4) é seguro — o que
+> falta é o texto do endereço, não o vínculo.
+
+**Conferência da próxima rodada** (a receita que funcionou, com as duas armadilhas já
+corrigidas — janela do aferidor igual à do gabarito, e nada de `date_trunc` num banco em UTC):
+
+```bash
+CT=$(docker ps -q --filter "name=rizza-auditoria")
+docker exec -i $CT python -X utf8 -  # log das ultimas 18 h por autor/campo (§27.8)
+docker exec $CT python -X utf8 _auditoria_geral.py --desde 2026-08-20 --ate <hoje> | head -22
+```
+
+Gabarito para comparar: 18/09 = 525 cargas, alta 67 (V1 44 · S1 4 · F5 4 · C7 3 · F1 3 ·
+R1 3 · C2 2 · X1 2 · L2 2). O `X1` deve **cair para 0**: ele contava exatamente as duas
+cargas travadas que foram destravadas.
