@@ -8286,6 +8286,20 @@ if __name__ == '__main__':
     else:
         print("ℹ️  Conferência CIOT desligada (CIOT_CONFERENCIA)")
 
+    # Fita documental — um retrato do BI por refresh (§25.8 Passo 0, §26.8 nº 4).
+    # Só lê o Power BI; grava `fita_documentos`, o cadastro `locais` e `embarques_programacao`
+    # (que é a tabela que a aba /embarques/ordens lê — sem a fita, ela abre vazia).
+    import _fita_documentos as _fita
+    if _fita.ligado():
+        import threading as _th_f
+        _th_f.Thread(target=_fita.loop, daemon=True, name='FitaDocumentos').start()
+        print(f"✅ Fita documental LIGADA (checa o refresh a cada "
+              f"{os.getenv('EMBARQUES_FITA_INTERVALO_MIN', '10')} min; janela "
+              f"{os.getenv('EMBARQUES_FITA_JANELA_DIAS', '7')} d; retenção "
+              f"{os.getenv('EMBARQUES_FITA_RETENCAO_DIAS', '21')} d)")
+    else:
+        print("ℹ️  Fita documental desligada (EMBARQUES_FITA)")
+
     # Boot do worker de rastreamento
     if os.getenv('START_WORKER', '').lower() == 'true':
         try:

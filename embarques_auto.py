@@ -1041,7 +1041,18 @@ def dedup_veiculo(cur, ctrbs):
                 continue
             itens.sort()                      # (data, emissão do CTRB, id)
             for _, _, cid in itens[:-1]:      # só a última continua aberta
-                if modelo_carreta_ligado() and not _chegou_ao_destino(cur, cid):
+                # PROVA SEMPRE EXIGIDA (§27.11). A exigência estava atrás de
+                # `EMBARQUES_MODELO_CARRETA` por acidente de história — ela foi escrita dentro
+                # daquele pacote em 07/09 —, e com a chave desligada o dedup fechava pela ORDEM
+                # da data, sem olhar GPS. Foi assim que a C-1008 fechou a 715 km do destino e a
+                # C-1013 a 1.345 km, em 18/09. A §18.2 já tinha medido em agosto: "dos 19
+                # fechamentos que ele produzia, os 19 eram a mais de 100 km do destino".
+                #
+                # Medido no cenário construído (12 carretas com duas cargas ativas): 11
+                # fechamentos -> 8, e as 3 que somem são exatamente as 3 SEM prova; os 8 com
+                # prova fecham igual. O que fica aberto o aferidor mostra como `F6`, que é
+                # honesto — melhor "não sei" do que `Entregue` sem ninguém ter chegado.
+                if not _chegou_ao_destino(cur, cid):
                     fechadas['mantida (sem prova de chegada)'] += 1
                     continue
                 if encerrar(cur, cid, 'sequencia_viagem'):

@@ -17,7 +17,6 @@ import json
 import hashlib
 from datetime import date, datetime, timedelta
 
-from server import get_token, get_db
 import embarques_auto as e
 import _locais
 import _programacao
@@ -130,7 +129,123 @@ def _resumo(fonte, p):
     return f"{str(p.get('emissao'))[:10]} {p.get('cidade_uf_origem')} -> {p.get('cidade_uf_destino')}"
 
 
+# ══════════════════════════════════════════════════════════════════════
+# AGENDADOR — uma rodada por refresh do BI (§26.8 nº 4)
+# ══════════════════════════════════════════════════════════════════════
+
+def ligado():
+    """`EMBARQUES_FITA=true` liga a thread. Nasce desligada; ligar pela CLI
+    (`docker service update --env-add`), nunca pelo stack do Portainer (§22.10)."""
+    import os
+    return os.getenv('EMBARQUES_FITA', 'false').strip().lower() == 'true'
+
+
+def _ts(v):
+    """Instante como `datetime`, venha do DAX (texto ISO com 'T') ou do Postgres (datetime).
+
+    Comparar os dois como TEXTO é armadilha e foi pega no primeiro teste: o DAX devolve
+    `2026-09-19T15:33:50.26` e o banco `2026-09-19 15:33:50.260000`; como 'T' > ' ', o mesmo
+    instante parecia SEMPRE mais novo e a fita rodaria a cada ciclo (144 rodadas/dia, ~144 MB)
+    em vez de uma por refresh."""
+    from datetime import datetime
+    if v is None or v == '':
+        return None
+    if isinstance(v, datetime):
+        return v
+    t = str(v).strip().replace('T', ' ')
+    for fmt in ('%Y-%m-%d %H:%M:%S.%f', '%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M', '%Y-%m-%d'):
+        try:
+            return datetime.strptime(t, fmt)
+        except ValueError:
+            pass
+    return None
+
+
+def marcador(tok):
+    """O instante mais recente que o BI carregou, nas três fontes que interessam. Uma linha,
+    ~1 s — é o que a thread pergunta de 10 em 10 min para saber se houve refresh novo.
+    Perguntar isto é barato; tirar o retrato inteiro não é (4 consultas, ~1 MB gravado)."""
+    r = e._dax(tok, 'EVALUATE ROW("m", MAX(%s[data_importacao]), "c", MAX(%s[data_importacao]), '
+                    '"t", MAX(%s[data_importacao]))' % (M, CO, CE))
+    vals = [d for d in (_ts(v) for v in (r[0] if r else {}).values()) if d]
+    return max(vals) if vals else None
+
+
+def ultimo_visto(conn):
+    """O marcador da última rodada gravada. Sai da própria fita — uma tabela de controle a
+    mais seria estado duplicado, e o `importado_em` já está lá, linha a linha."""
+    cur = conn.cursor()
+    cur.execute("SELECT to_regclass('fita_documentos')")
+    if not cur.fetchone()[0]:
+        return None
+    cur.execute("SELECT MAX(importado_em) FROM fita_documentos")
+    return _ts(cur.fetchone()[0])
+
+
+def purgar(conn, dias):
+    """A fita é um retrato INTEIRO por rodada (~660 linhas, ~1 MB). A 8 refreshes/dia isso é
+    ~8 MB/dia: sem purga a tabela come o disco do servidor em poucos meses. O valor dela está
+    no diff entre rodadas próximas, então guardar algumas semanas basta — e a janela cobre a
+    retenção de 14 dias da própria `coletas_0157` (§25.6)."""
+    from datetime import datetime, timedelta
+    cur = conn.cursor()
+    cur.execute("DELETE FROM fita_documentos WHERE rodada < %s",
+                (datetime.now() - timedelta(days=dias),))
+    n = cur.rowcount
+    conn.commit()
+    return n
+
+
+def rodada(conn, tok, janela_dias=7, retencao_dias=21):
+    """Uma rodada completa: retrato + cadastro de locais + programação de ordens. Devolve o
+    resumo para o log. É o mesmo caminho do `__main__`, sem o diff impresso."""
+    from datetime import date, datetime, timedelta
+    dados = coletar(tok, date.today() - timedelta(days=janela_dias))
+    r = datetime.now().replace(microsecond=0)
+    n = gravar(conn, r, dados)
+    t, te, tc = _locais.atualizar(conn, dados)
+    np_, est = _programacao.atualizar(conn, dados)
+    apagadas = purgar(conn, retencao_dias)
+    return {'rodada': r, 'linhas': n, 'locais': t, 'ordens': np_, 'estados': est,
+            'purgadas': apagadas,
+            'fontes': {k: len(v) for k, v in dados.items()}}
+
+
+def loop():
+    """Thread do servidor: vigia o `data_importacao` do BI e tira um retrato a cada refresh
+    novo (hoje 8×/dia). É o Passo 0 da §25.8 — sem ela não há como reproduzir cancelamento
+    ou correção INTRADIÁRIA, que é o sinal de que a reconciliação de documento precisa, e a
+    aba `/embarques/ordens` fica vazia porque `embarques_programacao` não existe.
+
+    Falha nunca derruba a thread: o pior caso é um refresh sem retrato, e o seguinte pega."""
+    import os
+    import time as _t
+    from server import get_token, get_db
+    intervalo = int(os.getenv('EMBARQUES_FITA_INTERVALO_MIN', '10')) * 60
+    janela = int(os.getenv('EMBARQUES_FITA_JANELA_DIAS', '7'))
+    retencao = int(os.getenv('EMBARQUES_FITA_RETENCAO_DIAS', '21'))
+    while True:
+        try:
+            conn = get_db()
+            tok = get_token()
+            novo, visto = marcador(tok), ultimo_visto(conn)
+            if novo and (visto is None or novo > visto):
+                r = rodada(conn, tok, janela, retencao)
+                print(f"✅ Fita: rodada {r['rodada']:%d/%m %H:%M} — {r['linhas']} linhas "
+                      f"({' · '.join(f'{k} {v}' for k, v in r['fontes'].items())}) · "
+                      f"{r['locais']} locais · {r['ordens']} ordens"
+                      + (f" · {r['purgadas']} linhas purgadas" if r['purgadas'] else ''))
+        except Exception as exc:
+            print(f'⚠️  Fita: falha na rodada: {exc}')
+        _t.sleep(intervalo)
+
+
 if __name__ == '__main__':
+    # O import do `server` é LAZY em todo este arquivo, como no `ciot_conferencia`: o
+    # container roda `python server.py`, então lá o módulo se chama `__main__` e um
+    # `from server import ...` no topo faria o Python importar o server DE NOVO, como um
+    # segundo módulo, re-executando o arquivo inteiro durante o boot.
+    from server import get_token, get_db
     conn = get_db()
     if '--locais' in sys.argv:      # so o cadastro, CTe desde 01/08; nao grava rodada
         dados = coletar(get_token(), date(2026, 8, 1))

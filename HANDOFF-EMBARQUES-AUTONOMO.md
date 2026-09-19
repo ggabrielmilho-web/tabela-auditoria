@@ -2885,8 +2885,15 @@ enxerga dois casos que antes estavam encobertos por outro defeito.
 **Convergência em produção: 225 → 8 → 0 → 0.** As oito da segunda passada eram o bug do `or`
 (§22.2).
 
-Os motivos de fechamento como ficaram (a coluna é histórica — `baixa_ctrb` e
-`sequencia_viagem` **não existem mais no código**, então nenhum novo pode surgir):
+Os motivos de fechamento como ficaram (a coluna é histórica para `baixa_ctrb`):
+
+> ⚠ **CORRIGIDO em 19/09/2026.** Este parágrafo dizia que `baixa_ctrb` **e**
+> `sequencia_viagem` "não existem mais no código". Sobre o `sequencia_viagem` **estava
+> errado**: ele nunca saiu — é o `dedup_veiculo`, roda todo dia, e em 18/09 fechou a
+> C-2026-001008 a **715 km** do destino e a C-2026-001013 a **1.345 km**. A exigência de
+> prova que conserta isso existia desde 07/09, mas atrás de `EMBARQUES_MODELO_CARRETA`, que
+> está desligada. Ver §27.11. É a §21.14 de novo: **a documentação afirmando um estado que o
+> código não tem.**
 
 ```
 gps_saiu_do_destino     83        (vazio)                43
@@ -4437,3 +4444,73 @@ docker exec $CT python -X utf8 _auditoria_geral.py --desde 2026-08-20 --ate <hoj
 Gabarito para comparar: 18/09 = 525 cargas, alta 67 (V1 44 · S1 4 · F5 4 · C7 3 · F1 3 ·
 R1 3 · C2 2 · X1 2 · L2 2). O `X1` deve **cair para 0**: ele contava exatamente as duas
 cargas travadas que foram destravadas.
+
+### 27.11 As três pendências de 19/09 — dedup com prova, agendador da fita, §22.1 corrigida
+
+**1. O `dedup_veiculo` fechava por ORDEM, sem olhar GPS.** Apareceu na conferência da rodada
+de 18/09, dentro do `F1` do aferidor:
+
+```
+C-2026-001008   sequencia_viagem   aproximacao maxima do destino:   715 km  (Serra)
+C-2026-001013   sequencia_viagem   aproximacao maxima do destino: 1.345 km  (Arapiraca)
+```
+
+A exigência de prova (`_chegou_ao_destino`) existia desde 07/09, mas **atrás de
+`EMBARQUES_MODELO_CARRETA`**, que está desligada — acidente de história: ela foi escrita
+dentro daquele pacote, não porque "fechar sem prova" fosse uma opção. A §18.2 já tinha medido
+em agosto: *"dos 19 fechamentos que ele produzia, os 19 eram a mais de 100 km do destino"*.
+
+Agora a prova é exigida **sempre**. Medido no cenário construído (12 carretas com duas cargas
+ativas, tudo em transação com rollback — a base convergida nunca dispara o dedup, e gate que
+não dispara não mede nada):
+
+```
+producao hoje : 10 fechamentos por `sequencia_viagem`, 3 deles SEM prova
+com a correcao:  7 fechamentos, todos com prova · 3 mantidas (sem prova de chegada)
+```
+
+Os fechamentos **com** prova são idênticos. Uma das 3 mantidas é a `C-2026-000662`, que a
+§21.17 já tinha apontado como o único `F1` puro da base — aproximação máxima de 1.726 km, e o
+dedup a fechava assim mesmo. Gate completo: 0 cargas diferentes (o dedup não dispara na base
+convergida), aferidor **idêntico**, 15/15 testes.
+
+**2. O agendador da fita (`EMBARQUES_FITA`), que é o Passo 0 da §25.8.** Thread no servidor
+que pergunta ao BI o `MAX(data_importacao)` das três fontes (1 consulta, ~1 s) e, quando ele
+anda, tira o retrato completo: `fita_documentos` + cadastro `locais` + `embarques_programacao`
+— que é a tabela que a aba `/embarques/ordens` lê. Sem ela a aba abre vazia, e era esse o
+estado de produção (`programacao / locais / fita: (None, None, None)`).
+
+Chaves: `EMBARQUES_FITA` (default `false`), `_INTERVALO_MIN` (10), `_JANELA_DIAS` (7),
+`_RETENCAO_DIAS` (21).
+
+**A retenção não é zelo: é dimensionamento.** Medido no lab: cada rodada grava ~660 linhas e
+~1 MB (é um retrato INTEIRO, não um delta). A 8 refreshes/dia são ~8 MB/dia — sem purga a
+tabela come o disco em poucos meses.
+
+Dois defeitos que o teste pegou antes de existir deploy:
+
+| defeito | como apareceu |
+|---|---|
+| **o marcador comparava TEXTO** | o DAX devolve `2026-09-19T15:33:50.26` e o banco `2026-09-19 15:33:50.260000`; como `'T' > ' '`, o mesmo instante parecia sempre mais novo e a fita rodaria **a cada ciclo** — 144 rodadas/dia, ~144 MB. O teste perguntou "dispara de novo?" logo depois de gravar e a resposta foi `True`. Agora os dois viram `datetime` (`_ts`) |
+| **`from server import ...` no topo do módulo** | o container roda `python server.py`, então lá o módulo é `__main__` e o import traria o server **de novo**, como um segundo módulo, re-executando o arquivo no boot. O `ciot_conferencia` já importava lazy, dentro das funções; a fita não. Conferido no boot real: o banner de config aparece **uma vez** |
+
+Testado nos dois caminhos: no lab (tabelas já existindo, 269 ordens, e **não redispara** no
+mesmo refresh) e **do zero** na base local — as três tabelas criadas na primeira rodada, que
+é exatamente o que produção vai fazer. A API `/api/embarques/ordens` devolve 200 com as 269
+ordens e os embarcadores (pablo · rafael · renato).
+
+**3. A §22.1 foi corrigida** — ela afirmava que `sequencia_viagem` não existia mais no código.
+Existia, rodava todo dia e produziu os dois fechamentos acima. §21.14 de novo: estado do
+código ≠ o que a documentação afirma.
+
+#### Para subir
+
+O dedup e a fita são independentes: o primeiro vale no ciclo seguinte ao deploy (não tem
+chave, a volta é a tag); a segunda nasce desligada.
+
+```bash
+docker service update --env-add EMBARQUES_FITA=true rizza-auditoria_app     # depois do deploy
+```
+
+Primeira rodada esperada: ~1.000 linhas, ~270 ordens, cadastro `locais` criado — e a aba
+`/embarques/ordens` deixa de abrir vazia. A partir daí, uma rodada por refresh (8×/dia).
