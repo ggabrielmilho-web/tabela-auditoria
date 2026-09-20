@@ -80,7 +80,7 @@
 // Aqui só ficam a apresentação: em que grupo cada aba cai e o texto do card.
 
 const GRUPOS = [
-  { nome: 'Operação',  abas: ['embarques', 'mapa', 'pgr', 'jornada', 'ciot', 'veiculos', 'verda'] },
+  { nome: 'Operação',  abas: ['embarques', 'ordens', 'mapa', 'pgr', 'jornada', 'ciot', 'veiculos', 'verda'] },
   { nome: 'Comercial', abas: ['tarifas', 'faturamento', 'contratos'] },
   { nome: 'Financeiro', abas: ['auditoria', 'dre', 'despesas', 'conhecimentos', 'contabil'] },
   { nome: 'Sistema',   abas: ['reuniao', 'admin'] },   // /uso fica fora: tela escondida
@@ -89,6 +89,7 @@ const GRUPOS = [
 const INFO = {
   auditoria:     { desc: 'Receita por viagem com KPIs, filtros e exportação. Abre no mês corrente.', tag: 'Relatório completo' },
   embarques:     { desc: 'Lançamento de cargas, relatório filtrável e histórico de alterações.' },
+  ordens:        { desc: 'Ordens de coleta do SSW: o que foi comandado, o que já virou carga e o que venceu sem documento.' },
   mapa:          { desc: 'Posição dos veículos em tempo real e trajeto de cada carga.' },
   pgr:           { desc: 'Excesso de velocidade: placas acima de 95 km/h, com situação de carga.' },
   jornada:       { desc: 'Em que placa cada motorista frota esteve no período, pronta para a empresa de controle de jornada.' },

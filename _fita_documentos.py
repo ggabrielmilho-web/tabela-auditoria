@@ -165,9 +165,13 @@ def marcador(tok):
     """O instante mais recente que o BI carregou, nas três fontes que interessam. Uma linha,
     ~1 s — é o que a thread pergunta de 10 em 10 min para saber se houve refresh novo.
     Perguntar isto é barato; tirar o retrato inteiro não é (4 consultas, ~1 MB gravado)."""
-    r = e._dax(tok, 'EVALUATE ROW("m", MAX(%s[data_importacao]), "c", MAX(%s[data_importacao]), '
-                    '"t", MAX(%s[data_importacao]))' % (M, CO, CE))
-    vals = [d for d in (_ts(v) for v in (r[0] if r else {}).values()) if d]
+    # A régua é do robô (`embarques_auto.marcador_bi`): duas noções de "houve refresh" em dois
+    # arquivos é como as réguas divergem (§20.6). A fita acrescenta a `coletas_0157`, que é
+    # fonte dela e não do robô.
+    base = e.marcador_bi(tok)
+    r = e._dax(tok, 'EVALUATE ROW("c", MAX(%s[data_importacao]))' % CO)
+    col = _ts((r[0] if r else {}).get('c'))
+    vals = [d for d in (base, col) if d]
     return max(vals) if vals else None
 
 

@@ -1,4 +1,9 @@
 .env
+# Backup de .env NUNCA entra: em 20/09/2026 um `git add -A` varreu o
+# `.env.bak-antes-carto` com a chave do Azure e a da OpenAI dentro, e quem barrou foi o
+# push protection do GitHub, não o repositório.
+.env.*
+*.env.bak
 __pycache__/
 *.pyc
 *.pyo

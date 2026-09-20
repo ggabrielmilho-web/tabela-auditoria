@@ -238,6 +238,69 @@ def carregar_cadastro(token):
     return cad
 
 
+def pos_refresh_ligado():
+    """`EMBARQUES_AUTO_POS_REFRESH=true`: o diário passa a rodar DEPOIS DE CADA REFRESH do BI
+    (hoje 8×/dia) em vez de uma vez por dia na janela das 16:30. Nasce desligada."""
+    return os.getenv('EMBARQUES_AUTO_POS_REFRESH', 'false').strip().lower() == 'true'
+
+
+def _instante(v):
+    """Instante como `datetime`, venha do DAX (texto ISO com 'T') ou do Postgres.
+
+    Comparar os dois como TEXTO é armadilha já paga: o DAX devolve `2026-09-19T15:33:50.26` e
+    o banco `2026-09-19 15:33:50.260000`; como 'T' > ' ', o mesmo instante parece sempre mais
+    novo (§27.11)."""
+    if v is None or v == '':
+        return None
+    if isinstance(v, datetime):
+        return v
+    t = str(v).strip().replace('T', ' ')
+    for fmt in ('%Y-%m-%d %H:%M:%S.%f', '%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M', '%Y-%m-%d'):
+        try:
+            return datetime.strptime(t, fmt)
+        except ValueError:
+            pass
+    return None
+
+
+def marcador_bi(token):
+    """O instante mais recente que o BI carregou nas fontes que o robô lê. Uma linha, ~1 s.
+
+    É a régua ÚNICA de "houve refresh": a fita (`_fita_documentos.marcador`) chama esta. Duas
+    noções de refresh em dois arquivos é exatamente como as réguas divergem (§20.6)."""
+    r = _dax(token, 'EVALUATE ROW("m", MAX(%s[data_importacao]), "o", MAX(%s[data_importacao]), '
+                    '"c", MAX(%s[data_importacao]))' % (M, OS_, CE))
+    vals = [d for d in (_instante(v) for v in (r[0] if r else {}).values()) if d]
+    return max(vals) if vals else None
+
+
+def deve_rodar(marcador, visto, agora_brt, ultimo_dia, hora='16:30', janela_min=180,
+               pos_refresh=False):
+    """Decide se o diário roda AGORA. Função pura — sem rede, sem banco, testável.
+
+    Dois regimes, e o segundo não abandona o primeiro:
+
+      * `pos_refresh=False` (hoje): uma vez por dia, dentro da janela a partir de `hora`.
+      * `pos_refresh=True`: roda quando o BI carregou algo novo (o marcador andou) E, como
+        rede, **garante pelo menos uma execução por dia** pela janela antiga — senão um dia
+        em que o refresh falhasse deixaria o operacional sem carga nenhuma, que é pior do
+        que rodar com dado velho.
+
+    Devolve `(rodar, motivo)`; o motivo vai para o log, para a rodada se explicar sozinha."""
+    try:
+        _hh, _mm = [int(x) for x in str(hora).split(':')]
+    except Exception:
+        _hh, _mm = 16, 30
+    minutos = agora_brt.hour * 60 + agora_brt.minute
+    alvo = _hh * 60 + _mm
+    na_janela = alvo <= minutos <= alvo + janela_min
+    if pos_refresh and marcador is not None and (visto is None or marcador > visto):
+        return True, f'refresh do BI ({marcador:%d/%m %H:%M})'
+    if na_janela and ultimo_dia != agora_brt.date():
+        return True, ('garantia diária' if pos_refresh else f'janela de {hora}')
+    return False, ''
+
+
 def coletar(token, ini, fim):
     """Puxa manifestos da janela + os CTRBs e CTRCs necessários para enriquecer.
 

@@ -8212,17 +8212,45 @@ if __name__ == '__main__':
             except Exception:
                 _hh, _mm = 16, 30
             ultimo_dia = None
+            ultimo_marcador = None
+            pos_refresh = embarques_auto.pos_refresh_ligado()
+            # O token é REUSADO entre as checagens do marcador. `get_token()` não tem cache
+            # (é o item do roadmap), e perguntar o marcador de 10 em 10 min pediria 144
+            # autenticações por dia só para descobrir que nada mudou. Aqui ele vale ~45 min e
+            # é descartado em qualquer falha, que é quando pode ter expirado.
+            _tok = {'v': None, 'ate': None}
+
+            def _token():
+                from datetime import datetime, timedelta
+                if not _tok['v'] or not _tok['ate'] or datetime.utcnow() >= _tok['ate']:
+                    _tok['v'] = get_token()
+                    _tok['ate'] = datetime.utcnow() + timedelta(minutes=45)
+                return _tok['v']
+
             while True:
                 try:
                     # BRT = UTC-3. Sem tz database: o container roda em UTC e a
                     # única coisa que importa é disparar DEPOIS da carga do SSW.
                     agora = datetime.utcnow() - timedelta(hours=3)
-                    minutos = agora.hour * 60 + agora.minute
-                    alvo_min = _hh * 60 + _mm
-                    na_janela = alvo_min <= minutos <= alvo_min + janela
-                    if na_janela and ultimo_dia != agora.date():
+                    # Com EMBARQUES_AUTO_POS_REFRESH o gatilho é o BI ter carregado algo novo
+                    # (hoje 8×/dia); a janela antiga fica como GARANTIA DIÁRIA, senão um dia
+                    # sem refresh deixaria o operacional sem carga nenhuma. A decisão é uma
+                    # função pura em `embarques_auto.deve_rodar`, testável sem rede.
+                    marcador = None
+                    if pos_refresh:
+                        try:
+                            marcador = embarques_auto.marcador_bi(_token())
+                        except Exception as e_mk:      # token velho ou BI fora: descarta e tenta no ciclo seguinte
+                            _tok['v'] = None
+                            print(f'⚠️  Embarques auto: marcador do BI indisponível ({e_mk})')
+                    rodar, motivo = embarques_auto.deve_rodar(
+                        marcador, ultimo_marcador, agora, ultimo_dia,
+                        hora=hora, janela_min=janela, pos_refresh=pos_refresh)
+                    if rodar:
                         r = embarques_auto.executar()
                         ultimo_dia = agora.date()
+                        ultimo_marcador = marcador or ultimo_marcador
+                        print(f'🔔 Embarques auto: disparo por {motivo}')
                         if r.get('ok'):
                             print(f"✅ Embarques auto: {r['criadas']} criada(s), "
                                   f"{sum(r['fechadas'].values())} encerrada(s), "
@@ -8240,8 +8268,12 @@ if __name__ == '__main__':
                 time.sleep(600)
 
         _th_ea.Thread(target=_loop_embarques_auto, daemon=True, name='EmbarquesAuto').start()
-        print("✅ Lançamento automático de embarques LIGADO "
-              f"(diário às {os.getenv('EMBARQUES_AUTO_HORA_BRT', '16:30')} BRT)")
+        _quando = ('após cada refresh do BI (+ garantia diária às '
+                   f"{os.getenv('EMBARQUES_AUTO_HORA_BRT', '16:30')} BRT)"
+                   if embarques_auto.pos_refresh_ligado()
+                   else f"diário às {os.getenv('EMBARQUES_AUTO_HORA_BRT', '16:30')} BRT")
+        print(f"✅ Lançamento automático de embarques LIGADO ({_quando}; "
+              f"defasagem {os.getenv('EMBARQUES_AUTO_DEFASAGEM', '1')} dia(s))")
     else:
         print("ℹ️  Lançamento automático de embarques desligado (EMBARQUES_AUTO)")
 

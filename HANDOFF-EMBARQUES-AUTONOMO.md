@@ -4553,3 +4553,88 @@ SELECT rodada::date, count(DISTINCT rodada) rodadas, count(*) linhas
 
 A outra medição pendente é a **primeira rodada do dedup com prova**: procurar
 `mantida (sem prova de chegada)` no lugar de fechamento a centenas de km do destino.
+
+### 27.12 Rodar a cada refresh — o gatilho, a auditoria e a aba de Coletas (20/09/2026)
+
+Pedido do Gabriel: *"não posso ficar atrasando a finalização do projeto esperando que
+aconteça"* — o robô tem de atualizar várias vezes ao dia. Dois achados encurtaram o caminho:
+
+1. **A defasagem 0 não precisa de código.** `executar()` já lê `EMBARQUES_AUTO_DEFASAGEM`.
+2. **O robô já espera o CTRB.** Em `montar_carga`, `numero_ctrb_os = '000000'` é tratado como
+   placeholder (o chute da fórmula de órfãos é ignorado) e, sem cidade de origem/destino, a
+   carga **não é criada** — volta na rodada seguinte dentro da janela de 5 dias. O risco que
+   parecia bloquear a defasagem 0 (carga nascer antes do documento) já tinha guarda.
+
+A fita provou o ponto 2 com um caso real, no primeiro fim de semana no ar — o único manifesto
+que mudou em 8 rodadas:
+
+```
+CHAVE_CTRB     : 'RIO003190' -> 'UDI027405'      <- a formula tinha CHUTADO o CTRB errado
+numero_ctrb_os : '000000'    -> '027405'
+```
+
+#### O gatilho
+
+`EMBARQUES_AUTO_POS_REFRESH` (default `false`): o diário passa a rodar quando o BI carrega
+algo novo, em vez de uma vez por dia na janela. A decisão é uma **função pura**,
+`embarques_auto.deve_rodar`, com regressão própria em `_teste_gatilho.py` (**15/15**).
+
+> **A janela antiga não foi substituída — virou garantia diária.** Trocar um mecanismo por
+> outro teria deixado o operacional sem carga nenhuma num dia em que o refresh falhasse, que
+> é pior do que rodar com dado velho. O motivo do disparo vai no log (`🔔 disparo por refresh
+> do BI` / `por garantia diária`).
+
+A régua de "houve refresh" é **uma só**: `embarques_auto.marcador_bi`, e a fita passou a
+chamá-la (ela acrescenta a `coletas_0157`, que é fonte dela e não do robô). Duas noções de
+refresh em dois arquivos é exatamente como as réguas divergem (§20.6).
+
+#### A auditoria do 8×/dia — o que foi verificado, um a um
+
+| ponto | veredito |
+|---|---|
+| `criar` | índice único em `manifesto_origem`; medido: "já lançada pelo robô: 31" numa rodada de 67 candidatas |
+| `fechar_pendentes` · `ligar_continuacoes` · `dedup` | idempotentes: a carga fechada/ligada sai da lista de ativas na rodada seguinte |
+| `desengatar_por_cavalo` | desligado (§27.9) — não entra na conta |
+| **reconciliação** | o **teto por rodada** (3) é o que protege: sumiço em massa **aborta e avisa**, lista vazia não decide nada, carga editada à mão não é tocada, e o cancelamento é **retratável** (manifesto voltou → status anterior do log). Uma extração truncada numa rodada é absorvida pela seguinte |
+| `rodar_pos_diario` (4 passos) | converge a zero; medido em produção: **58 s** o ciclo inteiro → ~8 min/dia com 8 rodadas |
+| ORS | `tracar_rotas_pendentes` só traça o que não tem polyline: a 1ª rodada do dia traça, as outras ~0. Longe dos 2.000/dia |
+| token do Power BI | `get_token()` **não tem cache** (item de roadmap). Perguntar o marcador de 10 em 10 min pediria 144 autenticações/dia à toa, então o laço **reusa o token por 45 min** e o descarta em qualquer falha. Não mexi no `get_token` global: ele serve o app inteiro |
+| restart | `ultimo_marcador` começa vazio → uma execução no boot. Idempotente, e é o que já acontecia na janela |
+| worker de rastreamento | thread separada; rodada longa não o bloqueia |
+
+**O que NÃO é tratado, e é honesto dizer:** placa/destino **corrigidos depois** de a carga
+nascer. A reconciliação só cancela (a própria docstring diz que a correção ficou para depois
+da fita medir). Com defasagem 0 a carga nasce mais cedo, então a janela de exposição a uma
+correção posterior **aumenta**. Medida até agora: **1 manifesto mudou em 8 rodadas**, e a
+mudança foi o CTRB chegando — que o robô já espera. A fita segue medindo.
+
+#### A defasagem 0, medida no lab com dado de hoje
+
+```
+defasagem 1   janela 15..19/09   criaria 32
+defasagem 0   janela 16..20/09   criaria 36   ·  1 "aguardando CTRB (sem cidade)" em 5 dias
+manifestos emitidos HOJE: 4  ·  sem CTRB ainda: 0
+```
+
+Os outros 21 descartes são `Terceiro`, fora do escopo por desenho.
+
+#### A aba de Coletas ganhou botão
+
+A página existia e **não havia como chegar nela** — nem menu, nem atalho; e de dentro dela não
+dava para voltar (ela não carregava o `nav-perms.js`). Agora:
+
+- **menu**, em todas as telas: `📥 Coletas`, com a permissão `embarques` (quem lança carga é
+  quem acompanha a ordem que a origina);
+- **atalho na landing** de Embarques (o grid virou 4);
+- **card no Início**, no grupo Operação;
+- a própria página passou a carregar o menu padrão, com `data-nav-active="ordens"`.
+
+#### Para subir
+
+```bash
+docker service update --env-add EMBARQUES_AUTO_POS_REFRESH=true rizza-auditoria_app
+docker service update --env-add EMBARQUES_AUTO_DEFASAGEM=0 rizza-auditoria_app
+```
+
+São independentes: a primeira sozinha já dá "várias vezes ao dia" lendo manifesto de ontem —
+é a metade sem risco novo. A segunda é a que faz a carga nascer no dia.

@@ -65,9 +65,9 @@
       <h1>📦 Ordens de coleta</h1>
       <div class="meta" id="meta">carregando…</div>
     </div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;">
-      <a href="/embarques" class="btn-sm">← Painel</a>
-      <a href="/embarques/relatorio" class="btn-sm">📋 Cargas</a>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      <span data-nav-menu data-nav-style="btn-wrap" data-nav-active="ordens"></span>
+      <a href="/logout" style="text-decoration:none;"><button class="btn-sm">Sair</button></a>
     </div>
   </div>
 
@@ -153,5 +153,6 @@ async function carregar(){
 document.getElementById('f-dia').value = hoje();
 carregar();
 </script>
+<script src="/nav-perms.js"></script>
 </body>
 </html>

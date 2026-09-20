@@ -14,6 +14,9 @@
     { id: 'auditoria',     page: 'auditoria',     href: '/',                  label: '⚡ Auditoria' },
     { id: 'embarques',     page: 'embarques',     href: '/embarques',         label: '🚚 Embarques' },
     { id: 'mapa',          page: 'embarques',     href: '/embarques/mapa',    label: '🗺️ Mapa' },
+    // Ordens de coleta (SSW 157). Mesma permissão de Embarques: quem lança carga é quem
+    // acompanha a ordem que a origina. Vive de `embarques_programacao`, que a fita alimenta.
+    { id: 'ordens',        page: 'embarques',     href: '/embarques/ordens',  label: '📥 Coletas' },
     // Junto da família de rastreamento, não perto do DRE: é segurança
     // operacional, não financeiro.
     { id: 'pgr',           page: 'pgr',           href: '/pgr',               label: '🚦 PGR' },
