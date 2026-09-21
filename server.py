@@ -1518,13 +1518,20 @@ def api_embarques_ordens():
             where.append("embarcador = %s"); args.append(embarcador)
         if estado:
             where.append("estado = %s"); args.append(estado)
+        # `tipo_frota` nasce na tabela só quando a fita roda a primeira rodada depois do deploy
+        # de 21/09 (o DDL mora em `_programacao.atualizar`). Citá-la antes disso derrubava a
+        # API inteira com 500 e a aba ficava em "carregando…" — aconteceu em produção no
+        # próprio dia do deploy. Mesma guarda que o relatório usa para as colunas da coleta.
+        cur.execute("SELECT 1 FROM information_schema.columns WHERE table_name='embarques_programacao' "
+                    "AND column_name='tipo_frota'")
+        _tf = 'tipo_frota' if cur.fetchone() else 'NULL::varchar AS tipo_frota'
         cur.execute(f"""
             SELECT coleta_origem, unidade, numero, tipo, situacao_ssw, situacao_em, limite_em,
                    cadastrada_em, cadastrada_por, comandada_em, comandada_por, coletada_em, coletada_por,
                    cancelada_em, solicitante, motorista, cavalo, carreta,
                    reme_nome, reme_endereco, reme_cidade, dest_nome, dest_cidade, dest_uf,
                    ctrc_gerado, manifesto, carga_id, carga_numero, carga_status, carga_via, embarcador, estado,
-                   tipo_frota, primeira_vez, ultima_vez
+                   {_tf}, primeira_vez, ultima_vez
               FROM embarques_programacao
              WHERE {' AND '.join(where)}
              ORDER BY CASE estado WHEN 'vencida sem documento' THEN 0 WHEN 'aguardando manifesto' THEN 1
