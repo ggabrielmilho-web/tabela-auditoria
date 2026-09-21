@@ -5014,3 +5014,51 @@ pontas; 65 é amostra de um mês e meio.
 | rota planejada / km / ETA | não muda o erro (esta seção) |
 | geocodificador | introduz regressão; `location_type` invertido; guarda de cidade funciona |
 | **mostrar o endereço na tela** | o único uso que sobrou — só exibição, sem régua, e nunca foi feito |
+
+### 27.17 O manifesto "Uberlândia → Uberlândia · 300 / 1" — é subcontratação da Martins, e fica quieto (21/09/2026)
+
+Observação do Gabriel no SSW: os manifestos que repetem a cidade na origem e no destino vêm
+sempre com **Peso Cálculo 300 e Peso Real 1**. O relatório tem os dois campos: `peso_total`
+(300) e `valor_total_mercadoria` (1.0), com o CTRB confirmando `peso_manifesto = 1,00`.
+Na fita (12–21/09, 147 manifestos): **26 com a assinatura, 18%**, todos `UDI → FEC`,
+`TRANSFERENCIA`, com fretes que se repetem por rota (Uberlândia → Serra 10.190,76 ×5;
+→ Ribeirão Pires 5.627,97 ×4; → Guarulhos 5.042,13 ×3).
+
+**O que são:** `tipo_documento = 'SUBC REC FORM LISO'` em 25 de 25 CTes — **subcontratação
+recebida da Martins**. Remetente, destinatário, expedidor e recebedor são MARTINS URN-MG
+DISTRIBUIÇÃO; a Rizza emite um CTe formal (1 kg, R$ 1) contra a própria Martins, por isso o
+manifesto sai Uberlândia → Uberlândia, e o CTRB — a ordem de pagamento do motorista — é o único
+documento nosso com a rota real. **O rótulo certo é o `SUBC REC` do CTe, não o peso**: 5
+subcontratações da Martins (filial CAR) vêm com peso e valor reais, e 1 manifesto 300/1 não
+é subcontratação.
+
+**As viagens aconteceram.** Régua apertada — carreta do próprio manifesto, origem antes da
+saída, destino depois: **15 de 25** provadas nas duas pontas; 5 só na origem; 1 em rota; 2
+sem GPS (as carretas mudas `MWP0H69`/`QXG2G47`). O par HLE0D74 de 12/09 (dois manifestos no
+dia) são duas pernas reais com carretas diferentes: `HNH1302` Jundiaí → Uberlândia (C-870,
+`Desengatada`) e `OGK1H32` Uberlândia → Serra (C-864, `Entregue` em Serra). C-1008/C-1009 são
+duplicata de pagamento complementar (mesma carreta, mesma rota, mesmo frete) — o dedup fechou
+uma delas sem saber por quê.
+
+**Fora da Martins**, nas 81 cargas "normais" do período: 52 batem nas duas pontas, 9 em
+viagem, 7 sem GPS, **9 erradas (11%)** — 4 outras eram borda de metrópole (30–41 km de Brasília
+/ Rio, que a régua do sistema aceita). As 9 têm causas já nomeadas: origem errada por CTRB
+(C-1042) ou por coleta casada por placa (C-943, C-994); carreta quase muda que não fez a viagem
+(C-875, C-937); fechamento sem chegada (C-1013 dedup velho, C-946 sem GPS, **C-871** a 103 km
+por `manifesto_novo`); e **C-894** com origem a 111 km. C-871 e C-894 são as únicas sem nome
+anterior.
+
+**Decisão do Gabriel: nenhuma regra em cima disso — nem por peso, nem por unidade.** *"O que
+for abertura errada vamos ter que considerar ruído."* Os 300/1 são viagens reais que o
+operacional precisa ver; excluir ou marcar pelo peso erraria a CAR e o 1 fora da Martins.
+
+**O que fica anotado, sem ação:**
+* a linha de subcontratação da Martins entra com peso 1 kg e R$ 1 em 18% dos manifestos —
+  quem usa peso ou valor (Verda g/t·km, faturamento por CTe) está lendo número formal nessa
+  linha. Não conferido de onde o `verda_payload` tira o peso;
+* a regra "origem = expedidor do CTe com guarda de cidade" (§27.13 nº 5 e o teste desta
+  tarde: 75 iguais · 12 corrigidas · 0 piores) segue **na mão do Gabriel** — "mudança meio
+  grande, ainda estou pensando";
+* a rota pelo endereço (teste da tarde: 2 regressões na guarda de 100 km/h sem a guarda dos
+  60 km do centroide; 0 com ela) fica na fila, atrás da decisão acima;
+* C-2026-001013 continua `Entregue` a 624 km do destino, à espera de correção de dado.
