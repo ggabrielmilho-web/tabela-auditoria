@@ -94,7 +94,7 @@
       <table>
         <thead><tr>
           <th>Ordem</th><th>Estado</th><th>Limite</th><th>Atraso</th><th>Embarcador</th><th>Cliente</th>
-          <th>Conjunto</th><th>Motorista</th><th>De</th><th>Para</th><th>Documento</th><th>Carga</th><th>Comandada</th>
+          <th>Conjunto</th><th>Frota</th><th>Motorista</th><th>De</th><th>Para</th><th>Documento</th><th>Carga</th><th>Comandada</th>
         </tr></thead>
         <tbody id="tbody"></tbody>
       </table>
@@ -114,6 +114,15 @@ function horasAtraso(o){
   const h=(Date.now()-new Date(o.limite_em))/36e5; return h>0?h:null;
 }
 function hoje(){ const d=new Date(); return d.toISOString().slice(0,10); }
+// Frota / Agregado / Terceiro pela MESMA regra do robô (par de placas do manifesto contra o
+// cadastro). Terceiro fica em "documento emitido" para sempre: o robô só lança Frota e Agregado,
+// e sem rastreador da casa não há como dizer se saiu de viagem.
+const FROTA_CLS={Frota:'e-carga',Agregado:'e-documento',Terceiro:'e-semveic'};
+function frota(o){
+  if(!o.tipo_frota) return '<span class="dim">—</span>';
+  const t=o.tipo_frota==='Terceiro'?'terceiro: fora do robô (sem rastreador da casa, não vira carga)':o.tipo_frota;
+  return `<span class="badge ${FROTA_CLS[o.tipo_frota]||''}" title="${t}">${o.tipo_frota}</span>`;
+}
 function limpar(){ document.getElementById('f-dia').value=''; document.getElementById('f-estado').value=''; carregar(); }
 async function carregar(){
   const dia=document.getElementById('f-dia').value, emb=document.getElementById('f-emb').value, est=document.getElementById('f-estado').value;
@@ -141,6 +150,7 @@ async function carregar(){
       <td>${o.embarcador||'—'}</td>
       <td title="${o.solicitante||''}">${o.solicitante||'—'}</td>
       <td class="mono">${o.cavalo||'—'}/${o.carreta||'—'}</td>
+      <td>${frota(o)}</td>
       <td title="${o.motorista||''}">${(o.motorista||'—').split(' ').slice(0,2).join(' ')}</td>
       <td title="${o.reme_nome||''} · ${o.reme_endereco||''}">${o.reme_cidade||'—'} <span class="dim">${o.reme_nome?('· '+o.reme_nome.slice(0,18)):''}</span></td>
       <td title="${o.dest_nome||''}">${o.dest_cidade||'—'}/${o.dest_uf||''}</td>

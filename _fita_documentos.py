@@ -200,6 +200,17 @@ def purgar(conn, dias):
     return n
 
 
+def _cadastro(tok):
+    """O cadastro de veículos do robô (`carregar_cadastro`, 1 consulta DAX), para a programação
+    classificar Frota/Agregado/Terceiro com a MESMA regra. Falha aqui não derruba a rodada: a
+    coluna fica em branco e a rodada seguinte preenche."""
+    try:
+        return e.carregar_cadastro(tok)
+    except Exception as exc:
+        print(f'⚠️  Fita: cadastro de veículos indisponível nesta rodada ({exc})')
+        return None
+
+
 def rodada(conn, tok, janela_dias=7, retencao_dias=21):
     """Uma rodada completa: retrato + cadastro de locais + programação de ordens. Devolve o
     resumo para o log. É o mesmo caminho do `__main__`, sem o diff impresso."""
@@ -208,7 +219,7 @@ def rodada(conn, tok, janela_dias=7, retencao_dias=21):
     r = datetime.now().replace(microsecond=0)
     n = gravar(conn, r, dados)
     t, te, tc = _locais.atualizar(conn, dados)
-    np_, est = _programacao.atualizar(conn, dados)
+    np_, est = _programacao.atualizar(conn, dados, cadastro=_cadastro(tok))
     apagadas = purgar(conn, retencao_dias)
     return {'rodada': r, 'linhas': n, 'locais': t, 'ordens': np_, 'estados': est,
             'purgadas': apagadas,
@@ -255,7 +266,7 @@ if __name__ == '__main__':
         dados = coletar(get_token(), date(2026, 8, 1))
         t, te, tc = _locais.atualizar(conn, dados)
         n, ex, rc = _locais.cobertura(conn, dados)
-        np_, est = _programacao.atualizar(conn, dados)
+        np_, est = _programacao.atualizar(conn, dados, cadastro=_cadastro(get_token()))
         print(f'programação: {np_} ordens · ' + ' · '.join(f'{e} {c}' for e, c in est))
         print(f'locais: {t} CNPJs · {te} com rua · {tc} com CEP')
         print(f'cobertura nos {n} CTes desde 01/08: expedidor com rua {ex/n*100:.1f}% · recebedor com rua {rc/n*100:.1f}%')
@@ -271,6 +282,6 @@ if __name__ == '__main__':
               f'último import de manifesto no BI: {imp[:19]}')
         t, te, tc = _locais.atualizar(conn, dados)
         print(f'locais: {t} CNPJs · {te} com rua · {tc} com CEP')
-        np_, est = _programacao.atualizar(conn, dados)
+        np_, est = _programacao.atualizar(conn, dados, cadastro=_cadastro(tok))
         print(f'programação: {np_} ordens · ' + ' · '.join(f'{e} {c}' for e, c in est))
     diff(conn)

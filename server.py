@@ -1524,7 +1524,7 @@ def api_embarques_ordens():
                    cancelada_em, solicitante, motorista, cavalo, carreta,
                    reme_nome, reme_endereco, reme_cidade, dest_nome, dest_cidade, dest_uf,
                    ctrc_gerado, manifesto, carga_id, carga_numero, carga_status, carga_via, embarcador, estado,
-                   primeira_vez, ultima_vez
+                   tipo_frota, primeira_vez, ultima_vez
               FROM embarques_programacao
              WHERE {' AND '.join(where)}
              ORDER BY CASE estado WHEN 'vencida sem documento' THEN 0 WHEN 'aguardando manifesto' THEN 1
@@ -6123,6 +6123,13 @@ def api_embarques_cargas_list():
         where.append("c.cliente_id = %s"); params.append(args['cliente_id'])
     if args.get('criado_por_id'):
         where.append("c.criado_por_id = %s"); params.append(args['criado_por_id'])
+    # Embarcador pelo NOME que a coluna mostra (21/09/26): a coluna exibe o embarcador da ordem
+    # de coleta (renato/pablo/rafael) e cai no criado_por_nome quando não há coleta ("Robô SSW
+    # (manifesto)", "Administrador"). O filtro antigo era por criado_por_id — usuário do sistema —
+    # e por isso a lista oferecia "gabriel" e não oferecia "renato", que era o que se via na tela.
+    if args.get('embarcador'):
+        where.append(f"COALESCE({'c.embarcador' if _tem_col_embarcador() else 'NULL'}, c.criado_por_nome) = %s")
+        params.append(args['embarcador'])
     if args.get('motorista'):
         where.append("c.motorista_nome ILIKE %s"); params.append(f"%{args['motorista']}%")
     if args.get('origem_uf'):
@@ -6651,6 +6658,13 @@ def api_embarques_cargas_csv():
         where.append("c.cliente_id = %s"); params.append(args['cliente_id'])
     if args.get('criado_por_id'):
         where.append("c.criado_por_id = %s"); params.append(args['criado_por_id'])
+    # Embarcador pelo NOME que a coluna mostra (21/09/26): a coluna exibe o embarcador da ordem
+    # de coleta (renato/pablo/rafael) e cai no criado_por_nome quando não há coleta ("Robô SSW
+    # (manifesto)", "Administrador"). O filtro antigo era por criado_por_id — usuário do sistema —
+    # e por isso a lista oferecia "gabriel" e não oferecia "renato", que era o que se via na tela.
+    if args.get('embarcador'):
+        where.append(f"COALESCE({'c.embarcador' if _tem_col_embarcador() else 'NULL'}, c.criado_por_nome) = %s")
+        params.append(args['embarcador'])
     if args.get('motorista'):
         where.append("c.motorista_nome ILIKE %s"); params.append(f"%{args['motorista']}%")
     if args.get('origem_uf'):
@@ -6770,19 +6784,34 @@ def api_embarques_kpis():
         return jsonify({'ok': False, 'error': str(e)}), 500
 
 
-# ── Lista de embarcadores (usuários do sistema) p/ filtro do relatório ─
+def _tem_col_embarcador():
+    """A coluna `embarcador` só existe depois que a coleta rodou (garantir_colunas). Citá-la
+    numa base sem ela quebra o SELECT antes de a chave ser consultada."""
+    import embarques_coleta as _co
+    c = get_db(); cur = c.cursor()
+    try:
+        return _co.colunas_existem(cur)
+    finally:
+        cur.close(); c.close()
+
+
+# ── Lista de embarcadores p/ filtro do relatório: os MESMOS valores que a coluna mostra ─
 @app.route('/api/embarques/embarcadores')
 @login_required
 def api_embarques_embarcadores():
+    """Até 21/09/26 listava usuários do sistema (criado_por_id), enquanto a coluna do
+    relatório mostra o embarcador da ordem de coleta com o criado_por_nome de reserva. A lista
+    passa a ser DISTINCT da mesma expressão — o que se vê é o que se filtra."""
     try:
+        expr = f"COALESCE({'embarcador' if _tem_col_embarcador() else 'NULL'}, criado_por_nome)"
         conn = get_db(); cur = conn.cursor()
-        cur.execute("""
-            SELECT DISTINCT criado_por_id, criado_por_nome
+        cur.execute(f"""
+            SELECT DISTINCT {expr} AS nome, count(*) AS n
             FROM embarques_cargas
-            WHERE criado_por_id IS NOT NULL AND criado_por_nome IS NOT NULL
-            ORDER BY criado_por_nome
+            WHERE {expr} IS NOT NULL
+            GROUP BY 1 ORDER BY 1
         """)
-        data = [{'id': r[0], 'nome': r[1]} for r in cur.fetchall()]
+        data = [{'id': r[0], 'nome': r[0], 'n': r[1]} for r in cur.fetchall()]
         cur.close(); conn.close()
         return jsonify({'ok': True, 'data': data, 'count': len(data)})
     except Exception as e:

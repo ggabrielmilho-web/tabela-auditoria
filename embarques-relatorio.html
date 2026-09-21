@@ -525,7 +525,7 @@
         const sel = document.getElementById('fEmbarcador');
         for (const u of j.data) {
           const o = document.createElement('option');
-          o.value = u.id; o.textContent = u.nome;
+          o.value = u.nome; o.textContent = u.n ? `${u.nome} (${u.n})` : u.nome;
           sel.appendChild(o);
         }
       }
@@ -538,7 +538,7 @@
       fStart: 'start', fEnd: 'end',
       fDataCampo: 'data_campo', fTipo: 'tipo_operacao', fStatus: 'status',
       fViagem: 'viagem_vazia',
-      fCliente: 'cliente_id', fEmbarcador: 'criado_por_id',
+      fCliente: 'cliente_id', fEmbarcador: 'embarcador',
       fMotorista: 'motorista', fOrigemUF: 'origem_uf', fDestinoUF: 'destino_uf',
       fQ: 'q'
     };
@@ -840,7 +840,7 @@
     const map = {
       start: 'fStart', end: 'fEnd', data_campo: 'fDataCampo', tipo_operacao: 'fTipo',
       status: 'fStatus', viagem_vazia: 'fViagem', cliente_id: 'fCliente',
-      criado_por_id: 'fEmbarcador', motorista: 'fMotorista',
+      embarcador: 'fEmbarcador', motorista: 'fMotorista',
       origem_uf: 'fOrigemUF', destino_uf: 'fDestinoUF', q: 'fQ',
     };
     for (const key in map) {

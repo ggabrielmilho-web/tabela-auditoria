@@ -43,6 +43,9 @@ CREATE TABLE IF NOT EXISTS embarques_programacao (
     sumiu_em        TIMESTAMP
 );
 ALTER TABLE embarques_programacao ADD COLUMN IF NOT EXISTS carga_via VARCHAR(10);
+-- Frota / Agregado / Terceiro (21/09/26): a ordem de terceiro fica em "documento emitido" para
+-- sempre, porque o robô só lança Frota e Agregado — e sem essa coluna a tela não dizia por quê.
+ALTER TABLE embarques_programacao ADD COLUMN IF NOT EXISTS tipo_frota VARCHAR(10);
 CREATE INDEX IF NOT EXISTS ix_prog_limite ON embarques_programacao (limite_em);
 CREATE INDEX IF NOT EXISTS ix_prog_estado ON embarques_programacao (estado);
 """
@@ -76,15 +79,43 @@ def derivar_estado(r, agora):
     return 'sem veículo'
 
 
-def atualizar(conn, dados):
-    """`dados` = dict da fita (coleta + cte). Upsert por ordem; liga manifesto (via CTe) e carga
-    (via embarques_cargas.coleta_origem); marca `sumiu_em` na ordem que saiu do relatório."""
+def classificar_ordem(cavalo, carreta, manifesto, cadastro, vendidas):
+    """Frota / Agregado / Terceiro pela MESMA regra do robô (`embarques_auto.classificar`), para a
+    tela nunca dizer uma coisa e o robô fazer outra (§20.6).
+
+    As placas vêm do MANIFESTO quando ele existe — a ordem de coleta costuma trazer só o cavalo
+    (NOD-000127 e UDI-000204 em 21/09: carreta `—` na ordem, `FWL6H09` e `AFX1G26` no manifesto),
+    e sem a carreta um conjunto com cavalo de fora sairia como Terceiro mesmo com carreta Rizza.
+    Sem cadastro (Power BI fora) devolve None, e a coluna fica em branco em vez de errada."""
+    if cadastro is None:
+        return None
+    from embarques_auto import classificar
+    if manifesto:
+        cavalo = manifesto.get('placa_cavalo') or cavalo
+        carreta = manifesto.get('placa_carreta') or carreta
+    if not cavalo and not carreta:
+        return None
+    return classificar(cavalo, carreta, cadastro, vendidas)
+
+
+def atualizar(conn, dados, cadastro=None):
+    """`dados` = dict da fita (coleta + cte + manifesto). Upsert por ordem; liga manifesto (via CTe)
+    e carga (via embarques_cargas.coleta_origem); marca `sumiu_em` na ordem que saiu do relatório.
+    `cadastro` = `embarques_auto.carregar_cadastro(token)`; sem ele o `tipo_frota` fica em branco."""
     import placas as pl
     from _locais import cnpj14
     from embarques_auto import _norm
     cur = conn.cursor()
     cur.execute(DDL)
     cte = {str(r.get('serie_numero_ctrc') or '').strip(): r for r in dados.get('cte', {}).values()}
+    manifestos = dados.get('manifesto', {})        # já indexado por _norm(CHAVE_MANIFESTO)
+    vendidas = frozenset()
+    if cadastro is not None:
+        try:
+            from embarques_auto import _config
+            vendidas = _config()['vendidas']
+        except Exception:
+            pass
     cur.execute("SELECT 1 FROM information_schema.columns WHERE table_name='embarques_cargas' AND column_name='coleta_origem'")
     tem_col = cur.fetchone() is not None
     cargas = {}
@@ -125,9 +156,14 @@ def atualizar(conn, dados):
             'carga_via': cg[3] if cg else None,
             'embarcador': _s(r.get('comandada_por') or r.get('cadastrada_por'), 40),
         }
+        row['tipo_frota'] = classificar_ordem(row['cavalo'], row['carreta'],
+                                              manifestos.get(man) if man else None,
+                                              cadastro, vendidas)
         row['estado'] = derivar_estado(row, agora)
         cols = list(row.keys())
-        sets = ', '.join(f'{c}=EXCLUDED.{c}' for c in cols if c != 'coleta_origem')
+        # tipo_frota: uma rodada sem cadastro (Power BI fora) não pode apagar o que a anterior soube
+        sets = ', '.join(f'{c}=COALESCE(EXCLUDED.{c}, embarques_programacao.{c})' if c == 'tipo_frota'
+                         else f'{c}=EXCLUDED.{c}' for c in cols if c != 'coleta_origem')
         cur.execute(f"INSERT INTO embarques_programacao ({', '.join(cols)}) VALUES ({', '.join(['%s']*len(cols))}) "
                     f"ON CONFLICT (coleta_origem) DO UPDATE SET {sets}, ultima_vez=NOW(), sumiu_em=NULL",
                     [row[c] for c in cols])
