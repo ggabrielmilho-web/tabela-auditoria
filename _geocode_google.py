@@ -97,13 +97,32 @@ def por_geocode(endereco, lat, lng):
     return km, r0.get('formatted_address'), rot
 
 
+def _cep(v):
+    """`9845000` é 09845-000: a fonte guarda o CEP como número e come o zero à esquerda.
+    Mandar assim faz o Google procurar um CEP que não existe."""
+    d = re.sub(r'\D', '', str(v or ''))
+    if len(d) == 7:
+        d = '0' + d
+    return f'{d[:5]}-{d[5:]}' if len(d) == 8 else None
+
+
+def monta_endereco(r):
+    """A UF vem VAZIA em 7 dos 10 locais (a regra `coleta_remetente` do `_locais` não traz
+    UF). Concatenar 'CIDADE - ' com traço solto atrapalha a busca, então a UF só entra
+    quando existe, e o país entra sempre para ancorar o Brasil."""
+    cidade = (r.get('cidade') or '').strip()
+    uf = (r.get('uf') or '').strip()
+    local = f'{cidade} - {uf}' if (cidade and uf) else cidade
+    partes = [r.get('endereco'), r.get('bairro'), local, _cep(r.get('cep')), 'Brasil']
+    return ', '.join(x for x in partes if x)
+
+
 linhas = list(csv.DictReader(open(A.csv, encoding='utf-8-sig'), delimiter=';'))
 print(f'{len(linhas)} locais no CSV')
-res = []
+res, extra_cep = [], {}
 for r in linhas:
     lat, lng = r['lat_provado'], r['lng_provado']
-    end = ', '.join(x for x in (r.get('endereco'), r.get('bairro'),
-                                f"{r.get('cidade')} - {r.get('uf')}", r.get('cep')) if x)
+    end = monta_endereco(r)
     if A.modo == 'distancia':
         d_end, entendeu = por_rota(end, lat, lng)
         time.sleep(A.pausa)
@@ -115,6 +134,11 @@ for r in linhas:
         d_end, entendeu, rotulo = por_geocode(end, lat, lng)
         time.sleep(A.pausa)
         d_cent = float(r['km_do_centroide']) if r.get('km_do_centroide') else None
+        cep = _cep(r.get('cep'))
+        if cep:
+            d_cep, _fmt, rot_cep = por_geocode(f'{cep}, Brasil', lat, lng)
+            time.sleep(A.pausa)
+            extra_cep[r['cnpj'] + r['lado']] = (d_cep, rot_cep)
     res.append((r, end, d_end, d_cent, entendeu, rotulo))
 
 unidade = 'km rota' if A.modo == 'distancia' else 'km reta'
@@ -136,6 +160,9 @@ for r, end, d_end, d_cent, entendeu, rotulo in res:
           f"dispersão {r['dispersao_km']} km, {r['horas_parado']} h parado ({r['cargas']})")
     print(f"   centroide: {r['km_do_centroide']} km em linha reta"
           + (f" · {d_cent:.1f} km de rota" if d_cent is not None else ''))
+    _ec = extra_cep.get(r['cnpj'] + r['lado'])
+    if _ec and _ec[0] is not None:
+        print(f"   só o CEP : {_ec[0]:.1f} km [{_ec[1]}]")
     if d_end is None:
         print(f"   google   : FALHOU — {entendeu}")
     else:
