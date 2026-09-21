@@ -51,6 +51,8 @@ ap.add_argument('novo')
 ap.add_argument('--codigo', default='V1')
 ap.add_argument('--desde-log', default=None, help='default: 5 dias atras')
 ap.add_argument('--limite', type=int, default=40)
+ap.add_argument('--todos', action='store_true',
+                help='detalha tambem as cargas que FICARAM no codigo (o perfil do conjunto)')
 A = ap.parse_args()
 HOJE = datetime.now(timezone.utc).replace(tzinfo=None)   # posicoes sao UTC (secao 10)
 CORTE_LOG = (datetime.strptime(A.desde_log, '%Y-%m-%d') if A.desde_log
@@ -91,7 +93,8 @@ saiu, entrou, ficou = sorted(alvo_a - alvo_b), sorted(alvo_b - alvo_a), alvo_a &
 universo = sorted(set(GAB) | set(NOV))
 cur.execute("""SELECT numero, id, data_carregamento, status, encerrada_motivo, origem_cidade,
                       origem_latitude, origem_longitude, cavalo_placa, carreta1_placa,
-                      carreta2_placa, criado_em, COALESCE(criada_por_robo, FALSE)
+                      carreta2_placa, criado_em, COALESCE(criada_por_robo, FALSE),
+                      COALESCE(viagem_vazia, FALSE)
                  FROM embarques_cargas WHERE numero = ANY(%s)""", (universo,))
 INFO = {r[0]: r for r in cur.fetchall()}
 
@@ -188,11 +191,12 @@ def detalhar(num, titulo):
     if not r:
         print(f'   {num:<15} (nao esta mais na tabela?)')
         return
-    (_, cid, dcarg, status, motivo, ocid, ola, oln, cav, c1, c2, criado, robo) = r
+    (_, cid, dcarg, status, motivo, ocid, ola, oln, cav, c1, c2, criado, robo, vazia) = r
     base = datetime.combine(dcarg, _time()) - timedelta(hours=12)
     fim = min(HOJE, datetime.combine(dcarg, _time()) + timedelta(days=JANELA_EVIDENCIA_D))
     print(f'\n   {num}  {titulo}')
-    print(f'      carregamento {dcarg} · criada {str(criado)[:16]} · status {status}'
+    print(f'      carregamento {dcarg} · criada {str(criado)[:16]}'
+          f'{" · PERNA VAZIA" if vazia else ""} · status {status}'
           f'{" (" + str(motivo) + ")" if motivo else ""} · robo={robo}')
     print(f'      origem {ocid} ({ola},{oln}) · cavalo {cav or "—"} · carreta1 {c1 or "—"}'
           f' · carreta2 {c2 or "—"}')
@@ -246,6 +250,21 @@ print(f'{"semana":<12} {"gab":>5} {"novo":>5}')
 for s in sorted(set(sa) | set(sb)):
     print(f'{s:<12} {sa[s]:>5} {sb[s]:>5}')
 
+# PERFIL do conjunto. A `data_carregamento` NAO data a entrada da carga na base: a perna
+# vazia nasce com a data de CONCLUSAO da carga anterior (retroativa, _regerar_vazias) e o
+# robo lanca dentro de uma janela de 5 dias. Quem data a entrada e `criado_em`.
+print(f'\n--- PERFIL do conjunto atual de {A.codigo} ({len(alvo_b)}) ---')
+perfil = Counter()
+for n in alvo_b:
+    r = INFO.get(n)
+    if r:
+        perfil[('perna vazia' if r[13] else 'carga'), str(r[11])[:10] if r[11] else '?'] += 1
+print(f'{"tipo":<12} {"criada em (UTC)":<16} {"n":>4}')
+for (tipo, dia), n in sorted(perfil.items(), key=lambda x: (x[0][1], x[0][0])):
+    print(f'{tipo:<12} {dia:<16} {n:>4}')
+print(f'   pernas vazias {sum(v for (t, _d), v in perfil.items() if t == "perna vazia")}'
+      f' · cargas {sum(v for (t, _d), v in perfil.items() if t == "carga")}')
+
 print(f'\n--- ENTRARAM no {A.codigo} ({len(entrou)}) ---')
 for n in entrou[:A.limite]:
     detalhar(n, 'ENTROU')
@@ -259,7 +278,10 @@ if len(saiu) > A.limite:
     print(f'   ... e mais {len(saiu) - A.limite}')
 
 print(f'\n--- FICARAM no {A.codigo} ({len(ficou)}) ---')
-print('   ' + ' '.join(sorted(ficou)[:60]))
+print('   ' + ' '.join(sorted(ficou)))
+if A.todos:
+    for n in sorted(ficou):
+        detalhar(n, 'FICOU')
 
 print(f'\n--- LEITURA AUTOMATICA (triagem, medida HOJE com a regua do aferidor) ---')
 for k, n in VEREDITOS.most_common():
