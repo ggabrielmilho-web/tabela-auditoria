@@ -9,7 +9,7 @@ URL de produção: **https://rizza.carvalhoia.com**
 
 ---
 
-## Estado atual do rastreamento e do robô (20/09/2026)
+## Estado atual do rastreamento e do robô (21/09/2026)
 
 **Antes de commitar ou subir qualquer coisa deste repositório, leia esta seção.**
 O detalhe de cada item está no `HANDOFF-EMBARQUES-AUTONOMO.md`, §27 em diante.
@@ -28,6 +28,7 @@ O detalhe de cada item está no `HANDOFF-EMBARQUES-AUTONOMO.md`, §27 em diante.
 | `EMBARQUES_ATEMPORAL_DIAS` | **28** | janela do motor convergente; 40 era maior que a retenção de GPS (§25.4) |
 | `EMBARQUES_DESENGATE_CAVALO` | **ausente = false** | o gatilho de desengate por GPS, desligado em 19/09 — ver abaixo |
 | `EMBARQUES_MODELO_CARRETA` | **ausente = false** | Fase D, ainda não medido com dado novo |
+| `RASTREAMENTO_SYNC_AUTO` | **nasce desligada** (21/09) | sincroniza o cadastro `embarques_veiculos_rastreio` sozinho: por **lacuna** (placa que o worker vê e o cadastro não conhece — consulta local, sem cota) + **garantia de 24 h**. Sem ela, o cadastro só anda quando alguém clica no Admin, e veículo novo na 3S fica invisível **para a tela** com a viagem correndo (§27.13 nº 2) |
 
 ### O que mudou em 18–19/09, e por quê
 
@@ -44,6 +45,24 @@ O detalhe de cada item está no `HANDOFF-EMBARQUES-AUTONOMO.md`, §27 em diante.
 - **O `dedup_veiculo` exige prova de chegada** (§27.11). Ele fechava pela **ordem da data**,
   sem olhar GPS — em 18/09 fechou uma carga a 715 km do destino e outra a 1.345 km. A
   exigência existia desde 07/09, mas atrás do `EMBARQUES_MODELO_CARRETA`, que está desligado.
+
+### O que mudou em 21/09, e por quê
+
+- **A tela deixou de dizer "Sem rastreio" para carga rastreada** (§27.13 nº 2). O mapa exigia
+  a placa no cadastro `embarques_veiculos_rastreio` — cópia local do `/ListaVeiculos` que só
+  andava pelo botão do Admin — e, fora dele, desenhava o **cavalo**, que na C-2026-001011 era
+  a placa sem GPS nenhum enquanto a carreta tinha 352 pontos. Agora escolhe a placa que TEM
+  trajeto e rotula `fora do cadastro`. Gate: 9/9 pela rota real.
+- **O sync do cadastro ficou automático**, atrás de `RASTREAMENTO_SYNC_AUTO`.
+- **O salto do `V1` (44 → 64) foi explicado**: 19 das 64 se apoiam em GPS que entrou no banco
+  depois do gabarito, e **uma carreta muda que voltou a falar responde por 11** (§27.13 nº 1).
+  Nada no robô mudou. O `V1` mistura cobertura de sensor (26 casos) com documento (18).
+- **Três ideias de âncora foram medidas e caíram** (§27.13 nº 4): o `location_type` do Google
+  está invertido (os dois `ROOFTOP` foram os dois piores, um a 76 km), o endereço geocodificado
+  **introduz regressão** (2 cargas perdem prova) e o ponto provado por GPS **não muda decisão
+  nenhuma**. A precisão da âncora não era o gargalo; cobertura de sensor é.
+- **O teto de 3 da reconciliação fica como está**: zero sumiço de manifesto em 11 comparações
+  intradiárias, em três dias de fita (§27.13 nº 3).
 
 ### O resto do quadro
 
@@ -74,7 +93,8 @@ gabarito do `_replay_producao.py`. Os simuladores não viram dois bugs que o rob
 | desfazer o que a continuação gravou | `_snapshot_embarques.py restaurar snap_X --chave --aplicar` (por id; nunca as tabelas de posição) |
 | desligar a fita documental | `EMBARQUES_FITA=false` (as tabelas ficam; só a aba de ordens as lê) |
 | religar o desengate por GPS | `EMBARQUES_DESENGATE_CAVALO=true` — **medido e reprovado em 19/09**, §27.9 |
-| comparar código com o estado anterior | tags `modelo-manual-2026-09`, `estudo-embarques-2026-09-08`, `pre-continuacao-2026-09-11`, `pre-lab-2026-09-15`, `pre-patio-2026-09-18` |
+| desligar o sync automático do cadastro | `RASTREAMENTO_SYNC_AUTO=false` (o botão do Admin continua funcionando) |
+| comparar código com o estado anterior | tags `modelo-manual-2026-09`, `estudo-embarques-2026-09-08`, `pre-continuacao-2026-09-11`, `pre-lab-2026-09-15`, `pre-patio-2026-09-18`, `pre-cadastro-2026-09-21` |
 
 Env sempre pela CLI (`docker service update --env-add`): editar pelo stack do Portainer devolve
 a imagem antiga (21/08/2026).

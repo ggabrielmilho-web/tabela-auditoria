@@ -4697,3 +4697,247 @@ diferentes. A régua de 20/09 ficou guardada FORA do container (que é efêmero)
 4. **Cancelamento intradiário**: as duas consultas da §27.12 com volume de dia útil — é o que
    decide se a reconciliação precisa de ajuste (o teto de 3 por rodada).
 5. **Coleta**: o `L1` com volume real (6 no domingo).
+
+### 27.13 O dia inteiro de 21/09/2026 — o V1 explicado, a tela cega e três ideias medidas
+
+> **Comece por aqui se está retomando.** Quatro coisas fecharam hoje, e três delas fecharam
+> derrubando a hipótese de quem escreveu (eu). O método funcionou; as ideias é que caíram.
+
+#### 1. O `V1` 44 → 64: é evidência que chegou depois, não regressão
+
+A comparação foi feita por **lista**, não por contagem, contra o gabarito de 20/09 guardado
+fora do container. Primeiro resultado: entre 20/09 e 21/09 o V1 **não se moveu** — 64 → 64,
+entrou 0, saiu 0, mesma quebra por semana. O salto aconteceu entre 18 e 20/09 e o conjunto
+está estável desde então. O que se moveu foi só `S2` (−26), que é buraco de sinal fechando
+conforme o GPS atrasado chega.
+
+A causa, medida com o `id` BIGSERIAL da `embarques_posicoes_historico` como relógio de
+gravação (ids vizinhos foram gravados juntos; o `data_posicao` mais novo entre os vizinhos
+diz QUANDO aquela linha entrou):
+
+```
+19 das 64 cargas com V1 se apoiam em GPS que entrou no banco DEPOIS do gabarito de 18/09
+```
+
+O salto foi de 20. A conta fecha a uma ou duas cargas, que são as criadas na própria rodada
+do gabarito (`C-987`, `C-994`, 18/09 19:34 UTC).
+
+**Uma carreta responde por 11 dos 20.** A `HNL0A70` tem 353 pontos em toda a base, o primeiro
+em **18/09 12:25**, gravado em 19/09 09:43 — ela estava muda a janela inteira, voltou a falar,
+e onze cargas espalhadas de 20/08 a 17/09 viraram V1 no mesmo instante. Junto com ela:
+`HMV3D38` (2 pontos na janela, 3 cargas), `QXG2G47` (5 pontos, 2), `HMV3G86` (2), `QWZ9B18` (1).
+
+> **O mecanismo, que vale para sempre:** o `V1` só dispara quando a placa TEM pontos. Carreta
+> muda cai em `S1` e sai pelo `continue`, sem V1. Então **carreta que volta a falar promove em
+> bloco todas as cargas dela** — e nenhuma outra classe se move, que é exatamente a assinatura
+> que a §27.12 registrou sem explicar.
+
+**O que as 64 são**, pela triagem (`_diff_aferidor.py --todos`):
+
+| | n | o que é |
+|---|---|---|
+| sensor mudo | 26 | o 1º ping chega horas ou semanas depois do carregamento |
+| **carreta errada** | **18** | só o cavalo esteve na origem — o alvo da Fase D, e o único que é defeito de documento |
+| sem origem | 18 | a placa fala desde o início e mesmo assim nunca encosta na origem |
+| posição falsa | 2 | `C-505` e `C-887`: bruto a **8 km** da origem, limpo a 215 km — o filtro da §23.3 tirou as duas pontas da perna impossível, e uma delas era o ping da origem |
+
+Ou seja: **o `V1` não é um medidor de defeito, é um medidor de cobertura de rastreador
+misturado com um de documento.** Dos 64, 18 são o problema que a Fase D quer atacar; 26 são o
+inverso — ausência de evidência escrita como "a placa NUNCA esteve na origem", com 2 pings
+no mês. Não mexi no gatilho: ele é o instrumento do gabarito, e mudar quando ele dispara
+re-baseia toda comparação futura. A proposta registrada é acrescentar a **classe da
+evidência** na coluna `prova`, que mantém a contagem comparável.
+
+#### 2. A tela dizia "Sem rastreio" com a viagem inteira rastreada (C-2026-001011)
+
+A carga rodou Serra → Cordeirópolis com o mapa em branco, KPIs zerados e o rótulo
+"Sem rastreio", enquanto o robô carimbava saída 18/09 21:19 e chegada 20/09 18:41 a 5 km do
+destino. **São dois leitores com réguas diferentes:**
+
+* a TELA exige a placa no cadastro `embarques_veiculos_rastreio` — cópia local do
+  `/ListaVeiculos`, alimentada só pelo botão do Admin;
+* o ROBÔ lê `embarques_posicoes_historico` direto, pela grafia, sem cadastro nenhum.
+
+E havia um segundo defeito empilhado: fora do cadastro, o endpoint fazia
+`traj_principal = traj_cavalo` — e ali o cavalo `AZK2I93` **nunca teve um ponto**, enquanto a
+carreta `TZC9G24` tinha 352 na janela. Os 307 pontos da carreta eram buscados e jogados fora.
+
+**Corrigido** (`93b9517`, tag de volta `pre-cadastro-2026-09-21`): escolhe a placa que TEM
+trajeto, na mesma ordem do `_placa_tracking`, e devolve `fora_cadastro` / `grafia_nao_casou`
+para a tela dizer o que está acontecendo. Sem placa com ponto nenhum, segue "sem rastreio".
+
+**E o sync virou automático**, que era a pergunta do Gabriel ("como eu sei a hora de
+sincronizar?"): o corpo da rota virou `rastreio_cadastro.sincronizar`, e a rota do Admin passou
+a chamar a MESMA função (§20.6). A thread fica atrás de `RASTREAMENTO_SYNC_AUTO` (nasce
+desligada) com dois gatilhos, como o robô da §27.12: **lacuna** (placa que o worker vê e o
+cadastro não conhece — consulta local, sem cota) e **garantia de 24 h** (pega troca de placa,
+que a lacuna não vê).
+
+Gate: `_teste_rastreado_via.py`, pela rota real, **9/9** — com a placa no cadastro a resposta
+é idêntica; com `_placa_tracking=None` a tela passa a desenhar o MESMO trajeto (15.060 pontos)
+e o MESMO km (978,8); sem ponto em ninguém, `rastreado_via` segue `null`. Gatilho puro: 5/5.
+
+> Alcance no dia do deploy: **zero** cargas ativas — o sync manual das 12:06 fechou a lacuna.
+> É guarda para a próxima vez, não conserto visível.
+
+#### 3. Volume do dia e cancelamento intradiário — o teto de 3 fica como está
+
+Medido no dump de produção das 10:40 BRT, restaurado localmente (§27.14):
+
+```
+fita: 13 rodadas em 72 h (2 em 19/09 · 7 em 20/09 · 4 em 21/09 ate 10:07)  <- ~7-8/dia, nao 144
+manifesto: 0 sumicos em 11 comparacoes intradiarias validas
+cte:       1 sumico (UDS004555-1), sem nenhuma carga lastreada
+reconciliacao no log: 0 linhas
+dedup: 29 carretas com carga ativa, 0 com duas — a regra da 27.11 segue sem ser exercitada
+```
+
+**Com zero cancelamento intradiário de manifesto em três dias, o teto de 3 não tem o que
+apertar.** Subir seria mexer numa guarda sem evidência de que ela atrapalha.
+
+A "correção intradiária" que a §27.12 apontou como não tratada também não apareceu: os **17
+CTRBs que mudaram** numa rodada foram 14 `chegada` sendo preenchida e 3 saldo financeiro —
+nenhuma placa, nenhum destino.
+
+Assinatura da defasagem 0 em 20/09: 21 cargas criadas, **4 nasceram no mesmo dia**. Em 21/09
+o robô criou zero — e não é falha: a fita registra **um único manifesto novo** no dia inteiro
+até as 10:07 (confirmado pelo Gabriel: *"não teve carga mesmo"*).
+
+**Pendência de dado:** das 3 cargas que o dedup velho fechou por ordem em 19/09 16:34 (antes do
+deploy da correção), duas se resolveram sozinhas — a `C-1008` chegou depois (9 km, o atemporal
+reescreveu a conclusão em 21/09 11:43) e a `C-1015` está a 0 km. Mas a **`C-2026-001013`
+continua `Entregue (sequencia_viagem)` com aproximação máxima de 624 km** do destino
+(Arapiraca/AL). O patch evita novas, não desfaz as antigas — §27.7 nº 1 de novo. O log guarda
+o status anterior (`Aberta`), então destravar é um UPDATE, e é decisão do Gabriel.
+
+#### 4. Endereço como âncora: três ideias, três reprovações medidas
+
+O cadastro `locais` (388 CNPJs, alimentado pela fita) tem **99% com endereço e 96% com CEP**.
+Um terço é do perfil ruim — 14% rodovia/KM, 11% sem número, 19% CEP terminado em `-000` — e
+esse terço é justamente onde ficam os CDs e as plantas.
+
+**Ideia 1 — filtrar pelo `location_type` do Google. REPROVADA, e ela está invertida.** Nos 10
+locais testados contra o ponto provado por GPS, os dois `ROOFTOP` são os **dois piores**
+resultados; os `APPROXIMATE` deram mediana de 3,4 km. O caso que fecha o assunto:
+
+```
+cadastro : ROD ANHANGUERA KM1545 P SUL, RURAL, CORDEIROPOLIS, 13490-000
+Google   : "Rod. Anhangueera, KM 15 - Parque Sao Domingos, Sao Simao - SP"  [ROOFTOP]
+           76,1 km do lugar onde o caminhao parou
+```
+
+Ele leu `KM1545` como **KM 15**, mudou de cidade e carimbou como resolução exata.
+
+**Ideia 2 — usar o endereço geocodificado como âncora. REPROVADA por regressão.** A guarda que
+funciona não é o rótulo, é **comparar a cidade devolvida com a do cadastro** (pega a Nestlé e
+mais 4, incluindo um "São Paulo ≠ Osasco"). Mesmo com ela, no simulador sobre 76 cargas:
+
+```
+B/endereco : 2 PERDEM prova (C-900 e C-1026, Vitoria da Conquista) · 0 ganham · 49 iguais
+```
+
+Introduz regressão e não compra nada.
+
+**Ideia 3 — usar o ponto provado por GPS como âncora. REPROVADA por irrelevância.** Com
+leave-one-out obrigatório (julgar a carga X com um ponto que ela ajudou a formar é corrigir a
+própria prova — o erro do simulador da Verda, §19):
+
+```
+C/GPS : 0 perdem · 0 ganham · 26 iguais · 7 movem o instante · 37 SEM ANCORA
+```
+
+**Nenhuma decisão muda.** O raio de 20 km mais a tolerância de metrópole de 60 km já absorvem
+o erro do centroide, que medimos entre 2,8 e 11,2 km. A âncora perfeita não compra chegada
+nenhuma. E metade das cargas (37 de 76) fica sem âncora no leave-one-out, porque metade dos
+CNPJs só tem uma carga na base.
+
+> **A lição que fica:** a precisão da âncora não era o gargalo. O gargalo é **cobertura de
+> sensor** — as carretas mudas do item 1 —, e nenhuma coordenada resolve placa que não
+> transmite.
+
+#### 5. A origem indevida do CTRB (observação do Gabriel, vinda da Jornada)
+
+O relatório de manifesto **não traz cidade**, então o robô tira origem e destino do **CTRB**
+(`montar_carga`, `embarques_auto.py:422`). O Gabriel achou pela Jornada uma viagem que não
+batia com o fluxo: manifesto aberto de uma unidade para ela mesma (UDI → UDI, comum em
+pagamento avulso/complementar) e, na emissão do CTRB, alguém digitou origem e destino
+**distintos** — e a carga nasceu com uma origem que a viagem nunca teve.
+
+Medido na fita (12–21/09, 147 manifestos): **2 com `unidade_origem == unidade_destino`**, ambos
+com CTRB dizendo cidades diferentes, ambos viraram carga. E o GPS separa os dois:
+
+| manifesto | CTRB diz | GPS diz |
+|---|---|---|
+| UDI029215-0 · UDI→UDI | Manhuaçu → Uberlândia | carreta a **0 km de Manhuaçu** — CTRB **certo** |
+| UDI029271-1 · UDI→UDI | Extrema → Uberlândia | **106 km** no mínimo — CTRB **indevido** |
+
+A `C-2026-001042`, do segundo caso, é uma das 64 do `V1`, classe "sem origem" — ou seja, **o
+mecanismo existe, gera carga e aparece no aferidor**.
+
+**Mas a unidade não serve de parâmetro** (decisão do Gabriel, confirmada pela medição): em 1
+dos 2 casos o CTRB descrevia a viagem real. O sinal documental não separa o certo do errado;
+quem separa é o GPS, depois do fato — que é o que o `V1` já faz. Não foi escrita nenhuma regra
+em cima disso.
+
+> **Fora de escopo por decisão do Gabriel:** usar o campo `chegada` do CTRB como fonte de
+> chegada. *"Pelo manifesto isso deu ruim demais."* Não tentar de novo sem pedido explícito.
+
+#### 6. Ferramentas novas (todas só leitura, nenhuma agendada)
+
+| arquivo | o que responde |
+|---|---|
+| `_diff_aferidor.py` | duas rodadas do aferidor pela LISTA; confere se as janelas são a mesma; `--todos` detalha e soma a triagem |
+| `_evidencia_chegou_quando.py` | quando o ponto de GPS ENTROU no banco, pelo `id` BIGSERIAL |
+| `_diagnostico_carga.py` | por que a tela mostra o que mostra (cadastro × posições, `_placa_tracking`, recorte, log) |
+| `_lacuna_cadastro_rastreio.py` | placas que o worker vê e o cadastro não conhece; cargas cegas na tela |
+| `_dedup_conferencia.py` | candidatas do dedup e o veredito de `_chegou_ao_destino` (o contador `mantida` não aparece no log do servidor) |
+| `_cancelamento_intradia.py` | rodadas da fita por dia, o que nasceu/sumiu/mudou entre rodadas do MESMO dia UTC, e o log da reconciliação |
+| `_pontos_provados_local.py` | onde o caminhão parou por CNPJ, com a dispersão entre viagens como aferição |
+| `_geocode_google.py` | o endereço do cadastro contra esse ponto (dois modos: Distance Matrix e Geocoding) |
+| `_simular_ancora.py` | as três âncoras com leave-one-out, pela régua do motor |
+| `_teste_rastreado_via.py` | gate da correção do mapa, pela rota real |
+
+#### 7. Armadilhas que custaram rodada hoje
+
+* **a `data_carregamento` não data a entrada da carga na base.** A perna vazia nasce com a data
+  de CONCLUSÃO da carga anterior (retroativa) e o robô lança dentro de 5 dias. O teste "só 4 das
+  64 são de 19–20/09" foi feito por ela e por isso não descartava população nova; quem data a
+  entrada é `criado_em`. Das 64, **25 são perna vazia**.
+* **o aferidor não é invariante no tempo.** `fim = min(HOJE, carregamento + 30 d)` e
+  `COALESCE(data_conclusao, NOW())` entram na conta: rodar a mesma janela um dia depois é a
+  mesma pergunta com um dia a mais de evidência. Diferença ali é informação, não prova de
+  mudança de código.
+* **a chave do Google tinha Distance Matrix e não Geocoding.** São produtos separados, e a
+  restrição fica na CHAVE, não só no projeto — ativar a API na Biblioteca não basta.
+* **o CEP é guardado como número e perde o zero à esquerda** (`9845000` = 09845-000), e a UF vem
+  **vazia em 7 dos 10 locais** (a regra `coleta_remetente` do `_locais` não traz UF).
+* **o `pg_dump` cai dentro do checkout do git** quando se faz `docker cp $PG:/tmp/... .` no
+  servidor — 29,7 MB com dado de cliente na raiz do repositório, a mesma forma do acidente do
+  `.env.bak`. Agora `*.dump` está no `.gitignore`.
+
+### 27.14 O laboratório de 21/09 (`rizza_lab_0921`)
+
+Dump de produção das 13:40 UTC restaurado local, pela receita da §26.1 **mais as tabelas que
+não existiam em 15/09**:
+
+```bash
+# servidor
+PG=$(docker ps -q -f name=postgres)
+docker exec $PG pg_dump -U postgres -d rizza_auditoria -Fc --no-owner --no-privileges \
+    -t 'embarques_*' -t 'municipios_ibge' \
+    -t 'locais_fontes' -t 'locais' -t 'fita_documentos' -f /tmp/emb_20260921.dump
+# local — banco NOVO, nunca por cima: o lab anterior e o ponto de partida dos gates antigos
+psql -c "CREATE DATABASE rizza_lab_0921 TEMPLATE template0 ENCODING 'UTF8'"
+pg_restore -d rizza_lab_0921 --no-owner --no-privileges -j 4 emb_20260921.dump   # 10 FKs falham: ok
+```
+
+A view `locais` precisa ser citada à parte (o curinga `embarques_*` não a pega) e as 10 falhas
+são FKs para `auditoria_users` e `clientes`, que não entram no filtro.
+
+```
+204 MB · 1.032 cargas (02/06 .. 20/09) · 510.368 posicoes (30/04 .. 21/09 13:39)
+108 cargas com CNPJ · 388 locais · 12.468 linhas de fita (13 rodadas) · 94 veiculos no cadastro
+```
+
+As 13 rodadas de fita são o que permitiu medir o cancelamento intradiário **sem tocar em
+produção** — e é o argumento para trazer o dump sempre que a pergunta for sobre documento.
