@@ -350,6 +350,13 @@
       if (rv.fallback_carreta_muda) {
         elRastreio.innerHTML += ` <span style="color:var(--yellow,#facc15);font-size:0.82em;cursor:help;" title="Carreta sem sinal — exibindo a posição do cavalo (origem→destino)">· carreta sem sinal</span>`;
       }
+      // Fora do cadastro de rastreio: a placa NÃO está em embarques_veiculos_rastreio (cópia
+      // local, sincronizada no Admin), mas tem posição gravada — o trajeto abaixo é real.
+      // Antes disto a tela dizia "Sem rastreio" e desenhava o cavalo, que podia ser a placa
+      // sem GPS nenhum (C-2026-001011).
+      if (rv.fora_cadastro || rv.grafia_nao_casou) {
+        elRastreio.innerHTML += ` <span style="color:var(--yellow,#facc15);font-size:0.82em;cursor:help;" title="${rv.grafia_nao_casou ? 'A placa do cadastro não casou com nenhuma placa desta carga' : 'Placa fora do cadastro de rastreio (Admin → sincronizar veículos)'} — o trajeto vem das posições já gravadas">· fora do cadastro</span>`;
+      }
     } else {
       elRastreio.textContent = '🛰️ Sem rastreio';
     }

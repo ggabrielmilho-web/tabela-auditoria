@@ -7498,8 +7498,31 @@ def api_rastreamento_trajeto(carga_id):
             rastreado_via = {'placa': placa_track, 'tipo': 'cavalo'}
             traj_principal = traj_cavalo
         else:
-            rastreado_via = None
-            traj_principal = traj_cavalo
+            # FORA DO CADASTRO — e cadastro não é ausência de GPS. O
+            # `embarques_veiculos_rastreio` é uma cópia local alimentada SÓ pelo botão de
+            # sync do Admin; a posição não depende dele (o worker grava tudo o que o polling
+            # da 3S devolve, da conta inteira). Cair no cavalo por padrão aqui foi o que
+            # deixou a C-2026-001011 com a tela em branco em 21/09/26: a carreta TZC9G24
+            # tinha 352 pontos na janela e chegou a 5 km do destino, e o cavalo AZK2I93
+            # nunca teve um único ponto — os 307 pontos da carreta eram buscados e jogados
+            # fora. O robô, que lê as posições direto, tinha carimbado saída e chegada.
+            #
+            # Então escolhe a placa que TEM trajeto, na mesma ordem do `_placa_tracking`
+            # (carreta1 → cavalo → carreta2), e diz na resposta POR QUE está fora da régua
+            # normal. Sem placa com ponto nenhum continua sendo "sem rastreio", que aí é
+            # verdade.
+            _cands = [('carreta1', carga.get('carreta1_placa'), traj_c1),
+                      ('cavalo', carga.get('cavalo_placa'), traj_cavalo),
+                      ('carreta2', carga.get('carreta2_placa'), traj_c2)]
+            _esc = next(((t, p, tr) for t, p, tr in _cands if p and tr), None)
+            if _esc:
+                rastreado_via = {'placa': _esc[1], 'tipo': _esc[0],
+                                 'fora_cadastro': not placa_track,
+                                 'grafia_nao_casou': bool(placa_track)}
+                traj_principal = _esc[2]
+            else:
+                rastreado_via = None
+                traj_principal = traj_cavalo
 
         # ── FALLBACK DE EXIBIÇÃO (item 2): se a placa rastreada é a CARRETA e ela está MUDA
         # (sem ponto recente no trajeto), mostra o CAVALO — só exibição, não muda o fechamento.
@@ -7924,53 +7947,19 @@ def api_rastreamento_confirmar_entrega(carga_id):
 @app.route('/api/rastreamento/sync-veiculos', methods=['POST'])
 @admin_required
 def api_rastreamento_sync_veiculos():
-    """Força sync com /ListaVeiculos da 3S. UPSERT em embarques_veiculos_rastreio."""
+    """Força sync com /ListaVeiculos da 3S. UPSERT em embarques_veiculos_rastreio.
+
+    O corpo mora em `rastreio_cadastro.sincronizar`: a thread automática
+    (`RASTREAMENTO_SYNC_AUTO`) chama a MESMA função. Duas noções de sync em dois arquivos
+    é como as réguas divergem (§20.6)."""
     try:
-        veiculos = tres_s_client.lista_veiculos()
+        import rastreio_cadastro
         conn = get_db()
-        cur = conn.cursor()
-        novos = 0
-        atualizados = 0
-        for v in veiculos:
-            placa = (v.get('placa') or '').strip().upper()
-            id_veiculo = v.get('idVeiculo')
-            if not placa or not id_veiculo:
-                continue
-            # Identidade do veículo é o id_veiculo_3s (a placa pode mudar: antiga -> Mercosul).
-            cur.execute("SELECT 1 FROM embarques_veiculos_rastreio WHERE id_veiculo_3s=%s", (id_veiculo,))
-            existe = cur.fetchone() is not None
-            # Se essa placa estiver presa em OUTRA linha (placa realocada/órfã), libera antes.
-            cur.execute(
-                "DELETE FROM embarques_veiculos_rastreio WHERE placa=%s AND id_veiculo_3s<>%s",
-                (placa, id_veiculo)
-            )
-            # UPSERT pela identidade do veículo: atualiza a placa no lugar (resolve troca de placa,
-            # sem deixar linha órfã com a placa antiga).
-            cur.execute("""
-                INSERT INTO embarques_veiculos_rastreio
-                    (placa, id_veiculo_3s, id_equipamento, frota, modelo, tipo, sincronizado_em)
-                VALUES (%s, %s, %s, %s, %s, %s, NOW())
-                ON CONFLICT (id_veiculo_3s) DO UPDATE SET
-                    placa = EXCLUDED.placa,
-                    id_equipamento = EXCLUDED.id_equipamento,
-                    frota = EXCLUDED.frota,
-                    modelo = EXCLUDED.modelo,
-                    tipo = EXCLUDED.tipo,
-                    sincronizado_em = NOW()
-            """, (placa, id_veiculo, v.get('idEquipamento'), v.get('frota'),
-                  v.get('modelo'), v.get('tipo')))
-            # Limpa posição órfã da placa antiga (mesma identidade) — senão o veículo
-            # aparece 2× no mapa após a troca p/ Mercosul.
-            cur.execute(
-                "DELETE FROM embarques_posicoes_atuais WHERE id_veiculo_3s=%s AND placa<>%s",
-                (id_veiculo, placa))
-            if existe:
-                atualizados += 1
-            else:
-                novos += 1
-        conn.commit()
-        cur.close(); conn.close()
-        return jsonify({'ok': True, 'total': len(veiculos), 'novos': novos, 'atualizados': atualizados})
+        try:
+            total, novos, atualizados = rastreio_cadastro.sincronizar(conn)
+        finally:
+            conn.close()
+        return jsonify({'ok': True, 'total': total, 'novos': novos, 'atualizados': atualizados})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
 
@@ -8276,6 +8265,25 @@ if __name__ == '__main__':
               f"defasagem {os.getenv('EMBARQUES_AUTO_DEFASAGEM', '1')} dia(s))")
     else:
         print("ℹ️  Lançamento automático de embarques desligado (EMBARQUES_AUTO)")
+
+    # Cadastro de veículos rastreados — o sync que até 21/09/2026 só acontecia quando
+    # alguém lembrava de clicar no Admin. Sem ele, veículo novo na conta da 3S fica
+    # invisível PARA A TELA (a posição é gravada do mesmo jeito), e não havia nenhum
+    # sinal disso: a C-2026-001011 rodou Serra → Cordeirópolis inteira com o mapa
+    # dizendo "Sem rastreio". Gatilho por LACUNA (consulta local, sem cota) + garantia
+    # de 24 h, como o robô da §27.12.
+    try:
+        import rastreio_cadastro
+        if rastreio_cadastro.ligado():
+            import threading as _th_rc
+            _th_rc.Thread(target=rastreio_cadastro.loop, daemon=True, name='SyncCadastro').start()
+            print(f"✅ Sync do cadastro de rastreio LIGADO (lacuna a cada "
+                  f"{os.getenv('RASTREAMENTO_SYNC_INTERVALO_MIN', '30')} min + garantia de "
+                  f"{os.getenv('RASTREAMENTO_SYNC_MAX_H', '24')} h)")
+        else:
+            print("ℹ️  Sync do cadastro de rastreio automático desligado (RASTREAMENTO_SYNC_AUTO)")
+    except Exception as _e_rc:
+        print(f"⚠️  Sync do cadastro de rastreio não subiu: {_e_rc}")
 
     # Robô semanal da Verda. Fica aqui, e não no worker, pelo mesmo motivo do PGR
     # e dos embarques: é este lado que fala Power BI, e a `Auditoria Receita` é a
