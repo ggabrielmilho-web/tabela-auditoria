@@ -4638,3 +4638,55 @@ docker service update --env-add EMBARQUES_AUTO_DEFASAGEM=0 rizza-auditoria_app
 
 São independentes: a primeira sozinha já dá "várias vezes ao dia" lendo manifesto de ontem —
 é a metade sem risco novo. A segunda é a que faz a carga nascer no dia.
+
+#### No ar em 20/09, e o que a primeira noite mostrou
+
+```
+✅ LIGADO (apos cada refresh do BI (+ garantia diaria as 16:30 BRT); defasagem 0 dia(s))
+🔔 disparo por refresh do BI (20/09 15:33) -> 4 criada(s), 4 encerrada(s) [janela 16..20/09]
+🔔 disparo por refresh do BI (20/09 19:33) -> 0 criada(s), 1 encerrada(s)
+```
+
+A **janela terminando no dia corrente** é a assinatura da defasagem 0 (antes terminava em
+D-1), e o segundo disparo criando **zero** é a idempotência provada em produção. Quatro cargas
+nasceram no mesmo dia do carregamento — `C-1052` a `C-1055` — e três já tinham saído do
+`Aberta` sozinhas na mesma noite: é o worker pegando a viagem no dia, que é o ganho todo.
+
+Desengate só pela ligação (`C-986 → C-1053`), reconciliação em zero, fita com 7 rodadas.
+
+> ⚠ **O fuso mordeu pela terceira vez nesta sessão.** Minha consulta usou `current_date` para
+> achar "cargas de hoje" e devolveu **nenhuma** — o banco roda em UTC, e às 23 h de Brasília o
+> `current_date` dele já é o dia seguinte. As quatro cargas estavam lá. Em consulta sobre
+> "hoje" da operação, ou se compara com `current_date - 1`, ou se aplica `- INTERVAL '3 hours'`
+> (§10).
+
+#### A pergunta que fica aberta: o `V1` subiu 44 → 64 num dia
+
+Duas hipóteses minhas, as duas **derrubadas pelo dado**:
+
+| hipótese | o que a derrubou |
+|---|---|
+| "é carga recém-nascida pela defasagem 0" | só **4 das 64** são de 19–20/09 |
+| "é a purga de 30 dias comendo a evidência das velhas" | a purga cortou só a semana de 17/08 (32 mil posições contra ~120 mil das outras), e a semana **mais recente** — com GPS completo — é a que tem **mais** V1 (19) |
+
+O que se sabe com segurança: **nenhuma classe que as mudanças tocam se moveu** — `F5` 4,
+`X1` 0, `R1` 3, `L2` 2, `F1` 4 —, e nada no gatilho, na defasagem, no desengate ou no dedup
+entra no cálculo do V1. Vale lembrar que o V1 é justamente a classe que a **Fase D**
+(`EMBARQUES_MODELO_CARRETA`) foi desenhada para atacar: documento com a carreta errada (§22.1).
+
+Responder exige comparar a **lista**, não o agregado — dois números iguais podem ser cargas
+diferentes. A régua de 20/09 ficou guardada FORA do container (que é efêmero):
+
+```
+/opt/stacks/rizza-auditoria/aferidor_20260920.csv    64 cargas com V1
+```
+
+#### Fila para a primeira segunda-feira com tudo ligado
+
+1. **V1**: rodar o aferidor na mesma janela e `diff` contra o CSV acima — lista, não contagem.
+2. **Volume real**: quantos disparos (esperado ~8) e quantas cargas nascem no dia.
+3. **Dedup com prova**: procurar `mantida (sem prova de chegada)` — no fim de semana não houve
+   candidata, então a regra ainda não foi exercitada em produção.
+4. **Cancelamento intradiário**: as duas consultas da §27.12 com volume de dia útil — é o que
+   decide se a reconciliação precisa de ajuste (o teto de 3 por rodada).
+5. **Coleta**: o `L1` com volume real (6 no domingo).
