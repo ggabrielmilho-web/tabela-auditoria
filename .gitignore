@@ -30,4 +30,9 @@ odo_diario.csv
 
 # dumps de laboratorio (dado de cliente, nunca versionar)
 lab_*/
+# pg_dump cai DENTRO do checkout quando se usa `docker cp $PG:/tmp/... .` no servidor
+# (21/09/2026: emb_20260921.dump, 29,7 MB com dado de cliente). E a mesma forma do
+# acidente do `.env.bak`: arquivo grande e sensivel parado na raiz esperando um add.
+*.dump
+*.dump.gz
 eventos.json
