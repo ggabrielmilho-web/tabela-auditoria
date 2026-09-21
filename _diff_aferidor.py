@@ -30,7 +30,10 @@ import argparse
 from collections import defaultdict, Counter
 from datetime import datetime, timedelta, time as _time, timezone
 
-_AQUI = os.path.dirname(os.path.abspath(__file__))
+# `__file__` nao existe quando o script e PIPADO para dentro do container
+# (`docker exec -i ... python -X utf8 - < este_arquivo`), que e como ele roda em
+# producao enquanto a imagem nao for refeita. Ali o cwd ja e o /app do Dockerfile.
+_AQUI = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else os.getcwd()
 sys.path.insert(0, _AQUI)
 os.chdir(_AQUI)
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
