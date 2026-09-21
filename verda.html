@@ -76,7 +76,8 @@
 
   table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
   thead th { text-align: left; padding: 8px 10px; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em;
-             color: var(--text-dim); font-weight: 700; border-bottom: 1px solid var(--border); white-space: nowrap; cursor: pointer; user-select: none; }
+             color: var(--text-dim); font-weight: 700; border-bottom: 1px solid var(--border); white-space: nowrap; cursor: pointer; user-select: none;
+             position: sticky; top: 0; z-index: 2; background: var(--surface); }
   thead th:hover { color: var(--accent); }
   tbody td { padding: 8px 10px; border-bottom: 1px solid rgba(30,41,59,0.55); }
   tbody tr:hover { background: var(--surface2); }
@@ -119,8 +120,8 @@
   <div class="controls">
     <span class="field-label">Período</span>
     <div class="toggle" id="presets">
-      <button data-p="semana" class="active">Semana</button>
-      <button data-p="mes">Mês</button>
+      <button data-p="semana">Semana</button>
+      <button data-p="mes" class="active">Mês</button>
       <button data-p="ano">Ano</button>
     </div>
     <input type="date" id="dDesde"><span style="color:var(--text-dim)">até</span><input type="date" id="dAte">
@@ -237,8 +238,9 @@ let DADOS = null, ordem = { campo: 'co2', desc: true }, chEscopo = null, chDia =
 
 function iso(d) { return d.toISOString().slice(0, 10); }
 
-// A semana padrão é a mesma do robô: ele roda na sexta sobre a semana que
-// fechou no domingo. Abrir a tela sem filtro mostra o lote que acabou de subir.
+// O robô roda na sexta sobre a semana que fechou no domingo (preset "semana"),
+// mas a tela abre no mês corrente: é o recorte que a Verda consolida e o que a
+// diretoria pede (21/09/2026).
 function janelaPreset(p) {
   const hoje = new Date();
   if (p === 'semana') {
@@ -535,7 +537,7 @@ document.querySelectorAll('#tabela thead th').forEach(th => th.onclick = () => {
   desenharTabela();
 });
 
-const [d0, a0] = janelaPreset('semana');
+const [d0, a0] = janelaPreset('mes');
 document.getElementById('dDesde').value = d0;
 document.getElementById('dAte').value = a0;
 carregar(d0, a0).catch(e => {
