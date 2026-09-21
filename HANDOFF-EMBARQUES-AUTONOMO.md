@@ -4941,3 +4941,37 @@ são FKs para `auditoria_users` e `clientes`, que não entram no filtro.
 
 As 13 rodadas de fita são o que permitiu medir o cancelamento intradiário **sem tocar em
 produção** — e é o argumento para trazer o dump sempre que a pergunta for sobre documento.
+
+### 27.15 Tarde de 21/09 — duas telas dizendo menos do que o dado sabia
+
+**1. "Documento emitido e não saiu carga: qual o motivo?"** (aba `/embarques/ordens`).
+NOD-000127 e UDI-000204: manifesto e CTRB existem, o robô viu os dois, e descartou como
+`Terceiro (fora do alvo)` — cavalo do próprio motorista num caso, de outra transportadora no
+outro, nenhuma das quatro placas Rizza. O robô só lança `Frota` e `Agregado`
+(`EMBARQUES_AUTO_TIPOS`), então a ordem de terceiro fica em **"documento emitido" para sempre**,
+e a tela não dizia por quê.
+
+Pedido do Gabriel: uma coluna Frota / Agregado / Terceiro. Feito em `embarques_programacao.tipo_frota`
+(`0f9a708`), pela **mesma `classificar` do robô** (§20.6), com as placas do **manifesto** quando ele
+existe — a ordem de coleta costuma trazer só o cavalo. A fita carrega o cadastro uma vez por rodada
+(1 DAX); sem cadastro a coluna fica em branco e o upsert preserva o valor anterior (`COALESCE`).
+
+> **A armadilha que o Gabriel pegou antes do deploy:** *"em muitos casos traz só o cavalo? se for, é
+> melhor tirar, que muito agregado vai acabar virando terceiro."* Medido: **24 dos 58 Terceiro
+> tinham sido decididos só pelo cavalo** (41%). A régua do robô trata carreta vazia como truck
+> rígido — vale para o manifesto (60 de 61 trazem carreta), não para a ordem de coleta, onde
+> vazio é "não informada". Regra final: com manifesto, a régua do robô; sem manifesto, só com as
+> **duas** placas, senão em branco. Re-medido: 154 Agregado · 38 Frota · **35** Terceiro · 53 em
+> branco, **zero** decididos só pelo cavalo da ordem. Nos "documento emitido": 50 Agregado ·
+> 14 Frota · 25 Terceiro · 8 em branco.
+
+**2. O filtro de Embarcador do relatório não oferecia o que a coluna mostrava.** O dropdown vinha
+de `criado_por_id` (usuários: Administrador, Camilo, gabriel) e a coluna mostra o embarcador da
+**ordem de coleta** (renato, pablo) com `criado_por_nome` de reserva ("Robô SSW (manifesto)").
+Agora lista e filtro usam a mesma expressão, `COALESCE(embarcador, criado_por_nome)`, com a
+contagem ao lado (`1e6b0d6`). Gate pela rota real: Administrador 398 · Robô SSW 329 · renato 51 ·
+pablo 36 · Camilo 1 · gabriel 1 — cada filtro devolve exatamente a contagem da lista, zero linhas
+com outro valor. As "Vazia" seguem com `—` e fora do filtro.
+
+Os dois entram na mesma imagem da correção do mapa (§27.13 nº 2): **um deploy só**. A coluna
+aparece na primeira rodada da fita depois dele; o filtro vale na hora.
