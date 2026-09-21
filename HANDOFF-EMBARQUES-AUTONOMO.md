@@ -4975,3 +4975,42 @@ com outro valor. As "Vazia" seguem com `—` e fora do filtro.
 
 Os dois entram na mesma imagem da correção do mapa (§27.13 nº 2): **um deploy só**. A coluna
 aparece na primeira rodada da fita depois dele; o filtro vale na hora.
+
+### 27.16 Km planejado × realizado — o ponto do CD não melhora a rota (21/09/2026)
+
+Pergunta do Gabriel: *"não resolve para roteirizar?"* A âncora de chegada já tinha caído
+(§27.13 nº 4); faltava o outro uso, a **rota planejada** — a linha do mapa e o
+`distancia_planejada_km`, que alimenta ETA, `KM FALTANDO` e o `T5`. `_medir_km_planejado.py`,
+65 cargas entregues dos últimos 45 dias, KPI consolidado, um destino, uma chamada ORS por carga:
+
+```
+                              mediana    média     p90    <=5%  <=10%
+A · centroide (hoje)          35,7 km   69,8 km  142 km    35     50
+B · pontos REAIS da viagem    33,5 km   65,2 km  135 km    33     52
+pareado: B melhor em 31 · pior em 30 · empate em 4 · ganho mediano +0,3 km
+desvio do centroide (origem + destino): mediana 12,5 km · p90 46,7 km
+```
+
+**Cara ou coroa.** O centroide desloca a ponta da rota em 12,5 km na mediana, e corrigir isso
+não move o erro do km planejado, porque o erro está em outro lugar: **a rota que o ORS traça
+(perfil HGV) não é a rota que o motorista faz.** C-585 Jundiaí → Capelinha: real 955, planejado
+1.097 e 1.106 — o caminhão foi por um caminho mais curto que o do roteador. C-560 Goiânia →
+Monte Mor: real 945 contra 835 — desvio de 110 km. Mudar o ponto de partida em 10 km não
+conserta uma escolha de estrada errada em 100.
+
+Se um dia o km planejado precisar melhorar, a alavanca é o **perfil de roteamento** (ou
+aprender das rotas realizadas), não a coordenada do CD.
+
+**Caveats honestos:** o "real" é o trajeto do GPS dentro do recorte, que também erra (C-617
+Anápolis → Catalão marcou 248 km contra 346 do ORS entre os pontos reais — provavelmente
+recorte comendo trecho); 15 cargas ficaram fora por não terem parada sustentada numa das
+pontas; 65 é amostra de um mês e meio.
+
+**Estado do assunto "endereço", fechado por medição em 21/09:**
+
+| uso | veredito |
+|---|---|
+| âncora de chegada | não muda decisão nenhuma (§27.13 nº 4) |
+| rota planejada / km / ETA | não muda o erro (esta seção) |
+| geocodificador | introduz regressão; `location_type` invertido; guarda de cidade funciona |
+| **mostrar o endereço na tela** | o único uso que sobrou — só exibição, sem régua, e nunca foi feito |
