@@ -9,7 +9,7 @@ URL de produção: **https://rizza.carvalhoia.com**
 
 ---
 
-## Estado atual do rastreamento e do robô (19/09/2026)
+## Estado atual do rastreamento e do robô (20/09/2026)
 
 **Antes de commitar ou subir qualquer coisa deste repositório, leia esta seção.**
 O detalhe de cada item está no `HANDOFF-EMBARQUES-AUTONOMO.md`, §27 em diante.
@@ -23,6 +23,8 @@ O detalhe de cada item está no `HANDOFF-EMBARQUES-AUTONOMO.md`, §27 em diante.
 | `EMBARQUES_RECONCILIACAO` | **true** desde 17/09 | manifesto que sumiu do 916 = cancelado → carga vira `Cancelada` (§26.3) |
 | `EMBARQUES_COLETA` | **true** desde 18/09 | a ordem de coleta preenche embarcador, CNPJ de origem/destino e `coleta_origem` |
 | `EMBARQUES_FITA` | **true** desde 19/09 | um retrato do BI por refresh → `fita_documentos`, `locais` e `embarques_programacao`, que é o que a aba `/embarques/ordens` lê (§27.11) |
+| `EMBARQUES_AUTO_POS_REFRESH` | **true** desde 20/09 | o diário roda **após cada refresh do BI** (~8×/dia) em vez de 1×/dia; a janela das 16:30 fica como garantia diária (§27.12) |
+| `EMBARQUES_AUTO_DEFASAGEM` | **0** desde 20/09 | a carga nasce do manifesto **do dia**, não de ontem. O robô já espera o CTRB: sem cidade, a carga não nasce (§27.12) |
 | `EMBARQUES_ATEMPORAL_DIAS` | **28** | janela do motor convergente; 40 era maior que a retenção de GPS (§25.4) |
 | `EMBARQUES_DESENGATE_CAVALO` | **ausente = false** | o gatilho de desengate por GPS, desligado em 19/09 — ver abaixo |
 | `EMBARQUES_MODELO_CARRETA` | **ausente = false** | Fase D, ainda não medido com dado novo |
@@ -353,7 +355,8 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 | `EMBARQUES_AUTO_FECHAMENTO` | Deixa o robô ENCERRAR cargas (criar e fechar são chaves separadas) | `true` |
 | `EMBARQUES_AUTO_HORA_BRT` | Horário do job em Brasília (a carga do SSW chega ~05:10). Somado à janela de disparo tem de caber no mesmo dia — acima de ~21:00 nunca dispara | `16:30` |
 | `EMBARQUES_AUTO_JANELA_DISPARO_MIN` | Tolerância p/ disparar após o horário (restart) | `180` |
-| `EMBARQUES_AUTO_DEFASAGEM` | Dias para trás (1 = ontem) | `1` |
+| `EMBARQUES_AUTO_DEFASAGEM` | Dias para trás (1 = ontem; **0 = o dia corrente**, em produção desde 20/09) | `1` |
+| `EMBARQUES_AUTO_POS_REFRESH` | O diário dispara quando o BI carrega algo novo (marcador `MAX(data_importacao)`, 1 consulta de ~1 s) em vez de 1×/dia. A janela de `HORA_BRT` **continua valendo como garantia diária** — sem ela, um dia sem refresh deixaria o operacional sem carga nenhuma. Decisão isolada em `deve_rodar`, com regressão em `_teste_gatilho.py` | `false` |
 | `EMBARQUES_AUTO_JANELA_DIAS` | Dias varridos por execução (cobre o CTRB que sai em D+1) | `5` |
 | `EMBARQUES_AUTO_TIPOS` | Tipos que o robô lança | `Frota,Agregado` |
 | `EMBARQUES_AUTO_MAX_DESTINOS` | Acima disso é distribuição → 1 destino + observação | `8` |
@@ -1360,7 +1363,8 @@ Resultado Final   = Pós Investimento - Retiradas
 - [x] **Ordem de coleta ligada à carga** (`EMBARQUES_COLETA`) — embarcador, CNPJ de origem/destino e a classe `L1` do aferidor
 - [x] **Reconciliação de documento** (`EMBARQUES_RECONCILIACAO`) — manifesto que sumiu do 916 vira `Cancelada`
 - [ ] Aviso precoce por GPS "⚓ parada na filial há N h" (rótulo) — os 85% dos desengates que só aparecem quando o manifesto seguinte nasce
-- [ ] **`EMBARQUES_AUTO_DEFASAGEM=0`** + disparo do diário após cada refresh — o último passo da §25.8, depois de a fita dar o dado real de cancelamento intradiário
+- [x] **`EMBARQUES_AUTO_DEFASAGEM=0` + disparo do diário após cada refresh** (§27.12) — no ar desde 20/09; a carga passou a nascer no mesmo dia do carregamento
+- [x] **Aba de Coletas no menu, no Início e na landing** — a página existia e não havia como chegar nela
 - [ ] **Status `Programada`** (a carga nasce na ordem comandada) e o endereço do cadastro `locais` como âncora de chegada
 - [ ] `KM FALTANDO` em carga entregue e `KM RASTREADOR —` na perna 1 de um desengate (§24.6)
 - [x] **Publicar no Power BI as 3 colunas novas de tarifas** (`icms_incluso`, `pedagio_incluso`, `prazo_recebimento`) — já publicadas; cards e "Total + Impostos" ativos

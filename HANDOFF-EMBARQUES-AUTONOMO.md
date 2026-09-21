@@ -1,6 +1,13 @@
 # Handoff — Painel de Embarques autônomo
 
-**Estado em 19/09/2026 — ⚠ COMECE PELA §27.** Em 19/09 o desengate por GPS foi **desligado**
+**Estado em 20/09/2026 — ⚠ COMECE PELA §27.12.** O diário passou a rodar **após cada refresh
+do BI** e com **defasagem 0** (a carga nasce no dia do carregamento) — no ar desde 20/09, com
+a primeira noite medida no fim da §27.12. A aba de Coletas ganhou entrada no menu. **O que
+está aberto e é o primeiro item de amanhã: o `V1` subiu 44 → 64 num dia e nenhuma das duas
+hipóteses se sustentou** — a régua de 20/09 está guardada em
+`/opt/stacks/rizza-auditoria/aferidor_20260920.csv` para a comparação ser por LISTA.
+
+**Antes disso — 19/09/2026.** Em 19/09 o desengate por GPS foi **desligado**
 (§27.9: ele chamava de desengate o fim normal de viagem — só o CTe declara agora), o
 `dedup_veiculo` passou a **exigir prova de chegada** (§27.11: fechava pela ordem da data, e em
 18/09 fechou carga a 715 km e a 1.345 km do destino) e a **fita documental entrou no ar**
