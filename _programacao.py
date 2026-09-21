@@ -91,9 +91,17 @@ def classificar_ordem(cavalo, carreta, manifesto, cadastro, vendidas):
         return None
     from embarques_auto import classificar
     if manifesto:
+        # A fonte do robô: `placa_carreta` vazia aqui é truck rígido, e a régua dele já trata.
         cavalo = manifesto.get('placa_cavalo') or cavalo
         carreta = manifesto.get('placa_carreta') or carreta
-    if not cavalo and not carreta:
+        if not cavalo and not carreta:
+            return None
+        return classificar(cavalo, carreta, cadastro, vendidas)
+    # Sem manifesto, as placas são as da ORDEM — e ali carreta vazia significa "não informada",
+    # não "rígido". Classificar só pelo cavalo virava Terceiro o que era Agregado: medido em
+    # 21/09/26, 24 dos 58 Terceiro tinham sido decididos assim (Gabriel: "muito agregado vai
+    # acabar virando terceiro"). Então a ordem só classifica com as DUAS placas; senão, em branco.
+    if not cavalo or not carreta:
         return None
     return classificar(cavalo, carreta, cadastro, vendidas)
 
