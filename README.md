@@ -402,7 +402,8 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 | Variável | Descrição | Default |
 |---|---|---|
 | `CIOT_CONFERENCIA` | **Liga o laço** no servidor. Só lê o BI e grava `ciot_pendencias` | `false` |
-| `CIOT_DESDE` | Documentos emitidos a partir desta data (retroativo a 01/09, decisão de 17/09/2026) | `2026-09-01` |
+| `CIOT_DESDE` | Documentos emitidos a partir desta data — é o que a régua confere, o que a tabela guarda e, portanto, **o que a aba mostra** | `2026-09-01` |
+| `CIOT_AVISO_DESDE` | Recorte do que pode virar **mensagem de WhatsApp**, separado do que a aba consulta. Uma data, ou `mes-vigente` (resolvido a cada rodada — vira sozinho em 01/10). Sem ele, o aviso segue o `CIOT_DESDE` e nada muda | `CIOT_DESDE` |
 | `CIOT_INTERVALO_MIN` | `0` = roda **só depois de cada refresh do BI** (hoje 8×/dia). `>0` força rodada extra | `0` |
 | `CIOT_ESPERA_POS_REFRESH_MIN` | Folga depois do **fim** do refresh antes de ler; durante um refresh não roda | `10` |
 | `CIOT_CARENCIA_H` | Horas que a pendência espera antes de ir no aviso (o CTRB costuma sair depois do manifesto) | `2` |
@@ -1114,6 +1115,18 @@ aí a conferência acompanha sozinha, sem mudar código.
 `ciot_pendencias` guarda uma linha por pendência (`primeiro_visto`, `ultimo_visto`,
 `resolvido_em`, `avisado_em`, em UTC). Sumiu da rodada = resolvida; voltou = nova de novo.
 Documento anterior ao `CIOT_DESDE` sai da tabela (não conta como resolvido).
+
+**Consultar mais meses sem inundar o WhatsApp.** O escopo da TELA (`CIOT_DESDE`) e o do
+AVISO (`CIOT_AVISO_DESDE`) são separados. Ampliar só o primeiro mandaria o histórico
+inteiro como "novas" no disparo seguinte — documento velho passa a carência na hora e
+nasce com `avisado_em IS NULL` (medido: trazer agosto = **127 pendências** de uma vez).
+Com `CIOT_DESDE=2026-08-01` + `CIOT_AVISO_DESDE=mes-vigente`, a aba consulta agosto e o
+WhatsApp segue só no mês corrente, virando sozinho em 01/10. **As duas variáveis sobem no
+mesmo comando** — o `CIOT_DESDE` andando sozinho é justamente o disparo em massa.
+
+> ⚠️ Com `mes-vigente`, pendência de setembro ainda ABERTA em 01/10 **para de ser avisada**
+> (continua na aba). Se o que se quer é "nunca perder de vista o que está aberto", o valor
+> é uma data fixa, não `mes-vigente`.
 
 O WhatsApp tem **três mensagens**, sempre **uma linha por documento** (o mesmo CTRB costuma estar
 sem CIOT e sem manifesto):

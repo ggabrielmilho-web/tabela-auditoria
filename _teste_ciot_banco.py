@@ -78,6 +78,38 @@ def main():
         docs2 = {p['documento'] for p in cc._pendentes(cur, f'resolvido_em IS NULL AND {c2[0]}', c2[1])}
         confere('depois da carência o CTRB recente entra', 'UDI000002-9' in docs2, docs2)
         confere('MDF de hoje entra 2 h depois de visto', 'UDI000100-1' in docs2, docs2)
+
+        # ── Escopo do aviso: a aba consulta agosto, o WhatsApp só o mês vigente ──
+        # Sem o recorte, documento velho passa a carência na hora e entra nas "novas".
+        cc.gravar(cur, lote + [pend('UDI000900-3', 'sem_ciot', datetime(2026, 8, 12, 9, 0)),
+                               pend('UDI000901-1', 'ctrb_sem_manifesto', datetime(2026, 8, 20, 9, 0))], agora)
+        cur.execute('SELECT COUNT(DISTINCT documento) FROM ciot_pendencias WHERE resolvido_em IS NULL')
+        confere('a TABELA (= a aba) enxerga agosto', cur.fetchone()[0] == 7)
+
+        cfg = cc._AVISO_DESDE_CFG
+        try:
+            cc._AVISO_DESDE_CFG = 'mes-vigente'
+            esc = ' AND emissao >= %(aviso_desde)s'
+            pa = {'aviso_desde': cc.aviso_desde(brt)}
+            docs3 = {p['documento'] for p in
+                     cc._pendentes(cur, f'resolvido_em IS NULL AND {c2[0]}{esc}', dict(c2[1], **pa))}
+            confere('agosto NÃO entra no aviso', not ({'UDI000900-3', 'UDI000901-1'} & docs3), docs3)
+            confere('setembro segue entrando', 'UDI000001-1' in docs3, docs3)
+            cur.execute('SELECT COUNT(DISTINCT documento) FROM ciot_pendencias '
+                        'WHERE resolvido_em IS NULL' + esc, pa)
+            confere('o contador da mensagem usa o MESMO recorte', cur.fetchone()[0] == 5)
+
+            # 01/10: o corte anda sozinho e setembro sai do aviso — sem sumir da aba
+            out = datetime(2026, 10, 1, 9, 0)
+            po = {'aviso_desde': cc.aviso_desde(out)}
+            co = (cc._CARENCIA_SQL, {'corte_utc': out, 'corte_brt': out, 'hoje_brt': out.date()})
+            docs4 = {p['documento'] for p in
+                     cc._pendentes(cur, f'resolvido_em IS NULL AND {co[0]}{esc}', dict(co[1], **po))}
+            confere('em outubro o aviso vira sozinho', not docs4, docs4)
+            cur.execute('SELECT COUNT(DISTINCT documento) FROM ciot_pendencias WHERE resolvido_em IS NULL')
+            confere('e a aba continua com tudo', cur.fetchone()[0] == 7)
+        finally:
+            cc._AVISO_DESDE_CFG = cfg
     finally:
         conn.rollback()
         conn.close()
