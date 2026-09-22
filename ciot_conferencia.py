@@ -85,6 +85,27 @@ import placas
 _logger = logging.getLogger(__name__)
 
 DESDE = os.getenv('CIOT_DESDE', '2026-09-01')
+# O que a tela CONSULTA e o que o WhatsApp AVISA são escopos diferentes. `CIOT_DESDE`
+# manda na régua e na tabela (logo, na aba); `CIOT_AVISO_DESDE` limita o que pode virar
+# mensagem. Trazer agosto para consulta sem isto mandaria 127 pendências antigas ao
+# diretor no disparo seguinte: documento velho passa a carência na hora, e todas estão
+# com `avisado_em IS NULL`.
+#
+# Valores: uma data (`2026-09-01`) ou `mes-vigente`. Default = `CIOT_DESDE`, então sem
+# configurar nada muda.
+_AVISO_DESDE_CFG = os.getenv('CIOT_AVISO_DESDE', '').strip() or DESDE
+
+
+def aviso_desde(agora_brt):
+    """Data de corte do AVISO, resolvida A CADA RODADA.
+
+    `mes-vigente` tem de ser calculado na hora: o processo fica semanas no ar, e uma
+    constante de import continuaria em setembro depois da virada de outubro — o robô
+    seguiria avisando o mês passado sem ninguém notar.
+    """
+    if _AVISO_DESDE_CFG.lower() in ('mes-vigente', 'mês-vigente', 'mes_vigente'):
+        return agora_brt.replace(day=1).date().isoformat()
+    return _AVISO_DESDE_CFG
 # 0 = só depois de cada refresh do BI (hoje, 8×/dia no Pro). Com refresh horário (PPU)
 # não precisa mexer: a conferência já acompanha o refresh. >0 força uma rodada extra.
 INTERVALO_MIN = int(os.getenv('CIOT_INTERVALO_MIN', '0'))
@@ -141,7 +162,11 @@ def ligado():
 
 # ── Régua (funções puras) ────────────────────────────────────────────────────
 
-_RE_CIOT = re.compile(r'\d{12}([./]\d{1,6})?')
+# O número do CIOT são os 12 dígitos; o que vem depois do `.`/`/` é o código de
+# verificação. O Pamcard às vezes entrega esse verificador MASCARADO
+# ('520032204311.xxxx', NOD004843-7 em 19/09/2026) — o documento tem CIOT, e exigir
+# dígito ali acusava a carga de irregular com o CIOT impresso no CTRB.
+_RE_CIOT = re.compile(r'\d{12}([./](\d{1,6}|[Xx]{1,6}))?')
 _RE_MF_073 = re.compile(r'([A-Z]{3})-[A-Z]{3}\s+(\d{6}-\d)')
 _RE_SUBST = re.compile(r'NOVO CTRB:\s*([A-Z]{3}\d{6}-\d)')
 _RE_ZEROS = re.compile(r'0*')
@@ -349,7 +374,14 @@ def conferir(ctrbs, manifestos, desde):
         elif ciot_erro(ciot):
             add('ciot_erro', c, r, detalhe=ciot_erro(ciot), mfs=mfs)
         else:
-            add('sem_ciot', c, r, detalhe='campo CIOT vazio no CTRB', mfs=mfs)
+            # "Não é válido e não é erro" NÃO quer dizer vazio. Dizer "campo vazio"
+            # com o campo cheio transforma todo formato novo do SSW em falso positivo
+            # com frase falsa — que é como o `.xxxx` passou despercebido até alguém
+            # comparar com o CTRB impresso. O conteúdo vai à vista.
+            bruto = str(ciot or '').strip()
+            add('sem_ciot', c, r, mfs=mfs,
+                detalhe='campo CIOT vazio no CTRB' if not bruto
+                        else f'CIOT não reconhecido no CTRB: {bruto[:80]!r}')
 
         if not mfs:
             # Com ou sem CIOT muda tudo: sem os dois é a multa; com CIOT falta só o MDF.
@@ -1065,16 +1097,23 @@ def avisar(cur, agora, forcar_resumo=False, so_mostrar=False, refresh_fim=None):
     carencia = (_CARENCIA_SQL, {'corte_utc': agora - timedelta(hours=CARENCIA_H),
                                 'corte_brt': agora_brt - timedelta(hours=CARENCIA_H),
                                 'hoje_brt': agora_brt.date()})
+    # Escopo do AVISO. As quatro consultas abaixo levam o mesmo recorte: listar só o
+    # escopo e contar a tabela inteira faria a mensagem dizer "175 em aberto" mostrando
+    # os 48 de setembro — número que não bate com nada que o leitor consiga conferir.
+    escopo = ' AND emissao >= %(aviso_desde)s'
+    p_escopo = {'aviso_desde': aviso_desde(agora_brt)}
+    carencia = (carencia[0] + escopo, dict(carencia[1], **p_escopo))
 
     link = link_leitura(cur)
     # documentos (não pendências): é o mesmo número que o resumo e a tela mostram
-    cur.execute("SELECT COUNT(DISTINCT documento) FROM ciot_pendencias WHERE resolvido_em IS NULL")
+    cur.execute('SELECT COUNT(DISTINCT documento) FROM ciot_pendencias '
+                'WHERE resolvido_em IS NULL' + escopo, p_escopo)
     total = cur.fetchone()[0]
     cur.execute("SELECT MAX(enviado_em) FROM ciot_envios")
     ultimo = cur.fetchone()[0]
     ultimo_aviso = ultimo - timedelta(hours=3) if ultimo else None
-    cur.execute("SELECT COUNT(*) FROM ciot_pendencias WHERE resolvido_em >= %s",
-                (agora - timedelta(hours=24),))
+    cur.execute('SELECT COUNT(*) FROM ciot_pendencias WHERE resolvido_em >= %(corte)s' + escopo,
+                dict(p_escopo, corte=agora - timedelta(hours=24)))
     resolvidas = cur.fetchone()[0]
     if forcar_resumo or resumo_devido(cur, agora_brt, refresh_fim):
         tipo = 'resumo'

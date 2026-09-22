@@ -49,9 +49,45 @@ def main():
     assert cc.ciot_valido('520027032280/4846') and cc.ciot_valido('520027146303.7599')
     assert cc.ciot_valido(' 520027042261 ') and not cc.ciot_valido('0') and not cc.ciot_valido(None)
     assert not cc.ciot_valido('Mensagem recebida da ANTT (Gerando CIOT):<br />ERRO 200 -  -')
+    # Verificador mascarado pelo Pamcard: o CIOT são os 12 dígitos (NOD004843-7, 19/09/26)
+    assert cc.ciot_valido('520032204311.xxxx') and cc.ciot_valido('520032204311/XX')
+    # Mascarar o NÚMERO não vale — aí não há CIOT que se possa conferir
+    assert not cc.ciot_valido('xxxxxxxxxxxx.xxxx') and not cc.ciot_valido('52003220431.xxxx')
     assert cc.ciot_erro('Mensagem recebida da Pamcard:<br />4 - Rejeicao').startswith('Mensagem recebida da Pamcard: 4')
     assert cc.manifestos_do_073('UDI-FEC  029132-3, NOD-UDI  004852-6') == ['UDI029132-3', 'NOD004852-6']
     assert cc.substituto('X BAIXADO PELA EMISSAO DE NOVO CTRB:NOD004816-0 Y') == 'NOD004816-0'
+
+    # Escopo do aviso: `mes-vigente` tem de virar junto com o mês, senão em outubro o
+    # robô segue avisando setembro. Testado nas duas bordas.
+    from datetime import datetime as _dtt
+    _cfg = cc._AVISO_DESDE_CFG
+    try:
+        cc._AVISO_DESDE_CFG = 'mes-vigente'
+        assert cc.aviso_desde(_dtt(2026, 9, 22, 10, 0)) == '2026-09-01'
+        assert cc.aviso_desde(_dtt(2026, 9, 30, 23, 59)) == '2026-09-01'
+        assert cc.aviso_desde(_dtt(2026, 10, 1, 0, 5)) == '2026-10-01'
+        assert cc.aviso_desde(_dtt(2027, 1, 15, 8, 0)) == '2027-01-01'
+        cc._AVISO_DESDE_CFG = '2026-09-01'   # corte fixo: não anda sozinho
+        assert cc.aviso_desde(_dtt(2026, 11, 20, 8, 0)) == '2026-09-01'
+    finally:
+        cc._AVISO_DESDE_CFG = _cfg
+
+    # O CIOT com verificador mascarado não é pendência nenhuma (NOD004843-7)
+    r.append(caso('CIOT com verificador mascarado é CIOT',
+                  [ctrb('UDI000001-1', ciot='520032204311.xxxx')],
+                  [mf('UDI000100-1', 'UDI000001')], {}))
+
+    # Formato desconhecido continua sendo pendência — mas o detalhe NÃO pode dizer
+    # "campo vazio" com o campo cheio: é assim que um formato novo vira falso
+    # positivo invisível.
+    pend_d, _ = cc.conferir([ctrb('UDI000001-1', ciot='CIOT-PENDENTE-ANALISE')],
+                            [mf('UDI000100-1', 'UDI000001')], DESDE)
+    d = [p['detalhe'] for p in pend_d if p['tipo'] == 'sem_ciot']
+    assert d and 'não reconhecido' in d[0] and 'CIOT-PENDENTE-ANALISE' in d[0], d
+    assert 'vazio' not in d[0], d
+    vazio_d, _ = cc.conferir([ctrb('UDI000001-1', ciot='')],
+                             [mf('UDI000100-1', 'UDI000001')], DESDE)
+    assert [p['detalhe'] for p in vazio_d if p['tipo'] == 'sem_ciot'] == ['campo CIOT vazio no CTRB']
 
     r.append(caso('tudo certo pelo 916', [ctrb('UDI000001-1')], [mf('UDI000100-1', 'UDI000001')], {}))
     r.append(caso('tudo certo só pelo 073',
