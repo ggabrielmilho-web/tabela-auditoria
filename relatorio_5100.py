@@ -83,6 +83,16 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.application import MIMEApplication
 
+# Antes das constantes, e não no bloco de linha de comando: elas são avaliadas no
+# import, então o `.env` precisa já estar carregado quando o módulo roda como
+# script. Em produção as variáveis vêm do Docker e isto é inócuo — o dotenv não
+# sobrescreve o que o ambiente já define.
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 D = "'public consulta_despesas_477'"
 C = "'public conhecimentos_emitidos'"
 
@@ -415,8 +425,6 @@ def loop():
 
 if __name__ == '__main__':
     import argparse
-    from dotenv import load_dotenv
-    load_dotenv()
 
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--semana', help='segunda-feira da semana (YYYY-MM-DD); '
