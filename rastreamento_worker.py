@@ -49,6 +49,7 @@ FRESCOR_H = float(os.getenv('RASTREAMENTO_FRESCOR_H', '12'))
 # decididas por POSIÇÃO (distância ao centroide), não pelo nome que o 3S reporta (mente a
 # 100+ km). Mesmo env var lido no server.py (corte do mapa) p/ manter os dois coerentes.
 RAIO_CHEGADA_DESTINO_KM = float(os.getenv('RASTREAMENTO_RAIO_CHEGADA_DESTINO', '20'))
+RAIO_CHEGADA_FATOR = float(os.getenv('RASTREAMENTO_RAIO_CHEGADA_FATOR', '2'))
 # Teto de km num dia para a consolidação diária. Com dois motoristas revezando, um
 # cavalo faz ~1.200 km/dia; acima de 2.500 é troca de rastreador ou leitura suja, não
 # viagem. Serve de guarda, não de critério — o valor cru fica gravado do mesmo jeito.
@@ -460,19 +461,25 @@ def _consolidar_kpi(cur, carga_id, final=False):
     # chegada por POSIÇÃO, exatamente como o mapa já faz em _indice_chegada_destino.
     # Com no_local_desde preenchido (o caso normal) NADA muda aqui.
     if rows and no_local_desde is None and dest_lat is not None:
-        # Guarda: destino perto da origem (ida-e-volta curta) — o corte poderia cair no
-        # começo do trajeto e encolher a viagem. Degrada pro comportamento de hoje.
+        # RAIO PROPORCIONAL A PERNA (23/09/2026) — a MESMA regra do endpoint (§20.6).
+        # Aqui havia uma guarda que simplesmente NAO cortava quando origem e destino ficavam
+        # a menos de 2 raios ("degrada pro comportamento de hoje"). Medido nas 30 cargas
+        # afetadas: nao cortar troca um erro por outro — a C-2026-000559, de 24 km de rota,
+        # passava a desenhar 851 km, porque sem corte o trajeto segue pela viagem SEGUINTE
+        # da placa. Encolher o raio junto com a perna resolve os dois lados: o patio da
+        # origem fica sempre FORA do raio do destino, e o corte continua existindo.
         d_od = geocoding.km_entre(origem_lat, origem_lng, dest_lat, dest_lng) \
             if origem_lat is not None else None
-        if d_od is None or d_od > RAIO_CHEGADA_DESTINO_KM * 2:
-            i_cheg = geocoding.indice_chegada_destino(
-                rows, dest_lat, dest_lng,
-                raio_km=RAIO_CHEGADA_DESTINO_KM,
-                parado_kmh=PARADO_KMH, parado_min=CHEGADA_MIN_PARADO)
-            if i_cheg is not None:
-                _logger.info(f'[Carga {carga_id}/{placa}] KPI sem chegada registrada — '
-                             f'cortando na chegada por posição ({len(rows)} → {i_cheg + 1} pontos)')
-                rows = rows[:i_cheg + 1]
+        _raio_dest = (min(RAIO_CHEGADA_DESTINO_KM, d_od / RAIO_CHEGADA_FATOR)
+                      if d_od is not None and d_od > 0 else RAIO_CHEGADA_DESTINO_KM)
+        i_cheg = geocoding.indice_chegada_destino(
+            rows, dest_lat, dest_lng,
+            raio_km=_raio_dest,
+            parado_kmh=PARADO_KMH, parado_min=CHEGADA_MIN_PARADO)
+        if i_cheg is not None:
+            _logger.info(f'[Carga {carga_id}/{placa}] KPI sem chegada registrada — '
+                         f'cortando na chegada por posição ({len(rows)} → {i_cheg + 1} pontos)')
+            rows = rows[:i_cheg + 1]
     if len(rows) < 2:
         cur.execute("""
             INSERT INTO embarques_cargas_rastreio_kpi (carga_id, placa, consolidado_em, consolidado_final)

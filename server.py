@@ -6900,9 +6900,10 @@ def _km_restante(polyline_enc, pos_lat, pos_lng):
 
 # Raio (km) que conta como "dentro da cidade do destino" — por POSIÇÃO, nunca por nome.
 RAIO_CHEGADA_DESTINO_KM = float(os.getenv('RASTREAMENTO_RAIO_CHEGADA_DESTINO', '20'))
+RAIO_CHEGADA_FATOR = float(os.getenv('RASTREAMENTO_RAIO_CHEGADA_FATOR', '2'))
 
 
-def _indice_chegada_destino(traj, dest_lat, dest_lng):
+def _indice_chegada_destino(traj, dest_lat, dest_lng, raio_km=None):
     """Índice do ponto de CHEGADA no destino, decidido por POSIÇÃO (ignora o nome que o 3S
     reporta). Escada:
       1) primeiro ponto dentro do raio que INICIA uma parada de >= CHEGADA_MIN_PARADO
@@ -6922,10 +6923,11 @@ def _indice_chegada_destino(traj, dest_lat, dest_lng):
     parado_kmh = getattr(rastreamento_worker, 'PARADO_KMH', 3)
     parado_min = getattr(rastreamento_worker, 'CHEGADA_MIN_PARADO', 60)
     dest_lat, dest_lng = float(dest_lat), float(dest_lng)
+    _raio = RAIO_CHEGADA_DESTINO_KM if raio_km is None else float(raio_km)
     dentro = []  # (idx, distância_km) dos pontos dentro do raio do destino
     for i, p in enumerate(traj):
         d = _geo.km_entre(p['lat'], p['lng'], dest_lat, dest_lng)
-        if d is not None and d <= RAIO_CHEGADA_DESTINO_KM:
+        if d is not None and d <= _raio:
             dentro.append((i, d))
     if not dentro:
         return None
@@ -7634,9 +7636,29 @@ def api_rastreamento_trajeto(carga_id):
         if carga.get('status') == 'Entregue' and destinos:
             _dfin = destinos[-1]
             _dla, _dln = _dfin.get('latitude'), _dfin.get('longitude')
+            # RAIO PROPORCIONAL A PERNA (23/09/2026). O corte varre a janela INTEIRA, que
+            # abre 12 h antes do carregamento. Numa perna curta entre cidades vizinhas o raio
+            # fixo de 20 km cobre o PROPRIO PATIO da origem, a "chegada" cai antes de a viagem
+            # comecar e o desenho morre ali: a C-2026-001085 (Aparecida de Goiania -> Goiania,
+            # 19 km) ficava com 3 pontos, e eram da viagem ANTERIOR — 7,8 km publicados numa
+            # viagem de 49, com a velocidade media vinda da estrada do dia anterior.
+            #
+            # Nao basta DESLIGAR o corte quando origem e destino sao proximos (que e o que o
+            # `_consolidar_kpi` do worker faz desde sempre): medido nas 30 cargas afetadas, isso
+            # troca um erro por outro — a C-2026-000559, de 24 km de rota, passava a desenhar
+            # 851 km, porque sem corte o trajeto segue pela viagem SEGUINTE da placa.
+            #
+            # O que conserta os dois lados e encolher o raio junto com a perna: metade da
+            # distancia origem->destino, com teto nos 20 km de sempre. Assim o patio da origem
+            # fica SEMPRE fora do raio do destino, e o corte continua existindo.
+            import geocoding as _ggd
+            _dod = (_ggd.km_entre(_olat, _olng, _dla, _dln)
+                    if (_olat is not None and _dla is not None) else None)
+            _raio_dest = (min(RAIO_CHEGADA_DESTINO_KM, _dod / RAIO_CHEGADA_FATOR)
+                          if _dod is not None and _dod > 0 else RAIO_CHEGADA_DESTINO_KM)
             if _dla is not None and _dln is not None:
                 def _corta_chegada(traj):
-                    idx = _indice_chegada_destino(traj, _dla, _dln)
+                    idx = _indice_chegada_destino(traj, _dla, _dln, raio_km=_raio_dest)
                     return traj[:idx + 1] if idx is not None else traj
                 traj_cavalo = _corta_chegada(traj_cavalo)
                 traj_c1 = _corta_chegada(traj_c1)
@@ -7694,7 +7716,11 @@ def api_rastreamento_trajeto(carga_id):
             FROM embarques_cargas_rastreio_kpi WHERE carga_id=%s
         """, (carga_id,))
         rk = cur.fetchone()
-        if rk and rk[5] and not fallback_cavalo:
+        # `rk[0] is not None`: o ramo `len(rows) < 2` do `_consolidar_kpi` grava a linha com
+        # consolidado_final=TRUE e TODAS as metricas nulas. Sem esta condicao o endpoint
+        # preferia esse vazio ao calculo ao vivo, e o `(rk[0] or 0)` logo abaixo virava
+        # "0,0 km percorridos" — ausencia virando afirmacao, o oposto do §12.13.
+        if rk and rk[5] and rk[0] is not None and not fallback_cavalo:
             # KPI final consolidado (carga entregue) — usa o valor persistido.
             # O km do rastreador NÃO está na tabela de KPI (que é anterior ao campo),
             # então vem do trajeto, que continua disponível enquanto a retenção não

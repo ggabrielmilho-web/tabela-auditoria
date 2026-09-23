@@ -54,6 +54,11 @@ from embarques_regua import (perto_com_parada, RAIO_CHEGADA, RAIO_METRO,
 # Raios, limiares e a decisao de chegada vivem em embarques_regua.py — fonte unica.
 DWELL_H = 24.0
 JANELA_FUTURO_D = JANELA_EVIDENCIA_D   # da regua: mesmo horizonte da reanalise
+SENSOR_CAVALO = os.getenv('EMBARQUES_SENSOR_CAVALO', 'false').lower() in ('1', 'true', 'sim')
+SENSOR_CAVALO_FATOR = float(os.getenv('EMBARQUES_SENSOR_CAVALO_FATOR', '3'))
+SAIDA_CARREGAMENTO = os.getenv('EMBARQUES_SAIDA_CARREGAMENTO', 'false').lower() in ('1', 'true', 'sim')
+SAIDA_JANELA_H = float(os.getenv('EMBARQUES_SAIDA_JANELA_H', '48'))
+SAIDA_PARADA_MIN = float(os.getenv('EMBARQUES_SAIDA_PARADA_MIN', '60'))
 VEL_MAX_CRIVEL = 100.0    # km/h medios: acima disso o par saida/chegada nao e a mesma viagem
 AUTOR = 'Robo atemporal'
 
@@ -129,6 +134,29 @@ def serie(placa, ini, fim):
     return cur_rows
 
 
+def _saida_de(d_org):
+    """A SAIDA derivada de uma serie ja projetada na origem.
+
+    Extraida para que carreta e cavalo sejam julgados pela MESMA regua — duas copias desta
+    conta em dois lugares e exatamente como os leitores divergem (§20.6).
+
+    A saida e o ULTIMO ponto visto DENTRO do raio da origem, nao o primeiro visto fora. Com a
+    carreta transmitindo a cada 12 h o "primeiro ponto fora" pode estar a centenas de km, e ai
+    o par saida/chegada descrevia 94 km em 20 min (282 km/h) na C-2026-000642.
+    """
+    if not d_org:
+        return None, None
+    t_org, _ = perto_com_parada(d_org, RAIO_ORIGEM, RAIO_METRO)
+    if not t_org:
+        return None, None
+    saiu = next((d for d, k, v in d_org if k > RAIO_ORIGEM and d > t_org), None)
+    if not saiu:
+        return None, t_org
+    dentro = [d for d, k, v in d_org if k <= RAIO_ORIGEM and t_org <= d < saiu]
+    return (max(dentro) if dentro else saiu), t_org
+
+
+
 mudancas, resumo, detalhe = [], Counter(), []
 
 for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal, dconc,
@@ -163,14 +191,82 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
     # Com a carreta transmitindo a cada 12 h, o "primeiro ponto fora" pode estar a centenas
     # de km — e ai o par saida/chegada descrevia 94 km em 20 min (282 km/h) na C-2026-000642.
     # O ultimo ponto no patio e o instante da partida a menos do intervalo de amostragem.
-    n_saida, t_org = None, None
-    if d_org:
-        t_org, _como = perto_com_parada(d_org, RAIO_ORIGEM, RAIO_METRO)
-        if t_org:
-            _saiu = next((d for d, k, v in d_org if k > RAIO_ORIGEM and d > t_org), None)
-            if _saiu:
-                _dentro = [d for d, k, v in d_org if k <= RAIO_ORIGEM and t_org <= d < _saiu]
-                n_saida = max(_dentro) if _dentro else _saiu
+    n_saida, t_org = _saida_de(d_org)
+
+    # ── SENSOR EMPRESTADO DO CAVALO (23/09/2026) — atras de EMBARQUES_SENSOR_CAVALO.
+    #
+    # O motor ja caia no cavalo, mas so quando a carreta tinha ZERO ponto (`if s: break`):
+    # uma carreta com 1 ponto vencia um cavalo com 900. O aferidor ja media essa populacao e
+    # lhe deu nome — `S3`, "cavalo mede melhor que a carreta em uso", 120 cargas em 30 dias.
+    #
+    # O emprestimo e ADITIVO, a mesma filosofia do `chegada_emprestada`: nunca APAGA o que a
+    # carreta deu, e so corrige quando o instante do cavalo e ANTERIOR. O frame congelado
+    # sempre ATRASA o evento (a placa acorda tarde e longe) — nunca o adianta. Medido em 120
+    # cargas: 24 saidas e 27 chegadas que nao existiam passam a existir, 19 saidas e 12
+    # chegadas sao antecipadas, e PERDA e impossivel por construcao. As saidas corrigidas
+    # saem de mediana 2,6 dias do carregamento para 0,7 (18 de 19 melhoram).
+    #
+    # A GUARDA que justifica o modelo carreta-cêntrico continua valendo: o cavalo pode estar
+    # puxando OUTRA carreta. Por isso so empresta quando ele esteve na ORIGEM desta carga —
+    # sem essa guarda, 5 saidas e 1 chegada eram PERDIDAS para viagem alheia.
+    _pcav, _cav_vale = None, False
+    if SENSOR_CAVALO and sensor and sensor.startswith('carreta') and cav and ola is not None:
+        _pcav = serie(cav, ini, fim)
+        if _pcav and len(_pcav) > SENSOR_CAVALO_FATOR * max(1, len(pts)):
+            _dorg_cav = [(d, geocoding.km_entre(la_, ln_, float(ola), float(oln)), v)
+                         for d, la_, ln_, v in _pcav]
+            _dorg_cav = [(d, k, v) for d, k, v in _dorg_cav if k is not None]
+            _cav_vale = bool(_dorg_cav) and min(k for _, k, _v in _dorg_cav) <= RAIO_ORIGEM
+            if _cav_vale:
+                _s_cav, _t_cav = _saida_de(_dorg_cav)
+                if _s_cav is not None and (n_saida is None
+                                           or _s_cav < n_saida - timedelta(minutes=30)):
+                    resumo['saida do cavalo: ' + ('preencheu' if n_saida is None
+                                                  else 'antecipou')] += 1
+                    n_saida, t_org = _s_cav, (t_org or _t_cav)
+
+    _saida_corrigida = False
+    # ── SAIDA EM PASSAGEM: corrigir para o BLOCO DE CARREGAMENTO (23/09/2026)
+    # Atras de EMBARQUES_SAIDA_CARREGAMENTO.
+    #
+    # A origem so pergunta "esteve la?" (embarques_regua.py:130) e `saiu` e a PRIMEIRA saida
+    # do raio — entao um caminhao que PASSA pela origem, segue adiante e volta no dia seguinte
+    # para carregar tem a saida carimbada na passagem. C-2026-001064: passou por Resende a
+    # 82 km/h rumo a Seropedica, voltou 18 h depois e carregou; a saida ficou 29 h adiantada.
+    #
+    # NAO se troca a regra: medido sobre 565 cargas, exigir parada na origem muda 14 e so 1
+    # melhora, e ancorar sempre no ultimo bloco perde 29 saidas. O que funciona e CORRIGIR
+    # onde ha prova: um bloco de parada sustentada no raio da origem que TERMINA depois da
+    # saida ja calculada, dentro de uma janela curta. Fora disso nada muda.
+    #
+    # A regua da melhora e a VELOCIDADE MEDIA IMPLICITA (rota planejada / duracao ate a
+    # chegada): as 22 corrigidas saiam de 4,8..24 km/h — nenhum caminhao faz uma viagem
+    # inteira a 5 km/h — e vao para 25..90. 21 das 22 melhoram. A 22a (C-1064) passaria a
+    # 117 km/h porque o bloco dela termina no frame congelado, e por isso a guarda de
+    # VEL_MAX_CRIVEL abaixo a rejeita: evidencia congelada nao corrige nada.
+    if SAIDA_CARREGAMENTO and n_saida is not None and ola is not None and pts:
+        _cds = [(la_, ln_) for _d, la_, ln_, _v in pts]
+        _vls = [v_ for _d, _la, _ln, v_ in pts]
+        _ins = [d_ for d_, _la, _ln, _v in pts]
+        _blc = geocoding._bloco_de_carregamento(_cds, float(ola), float(oln), RAIO_ORIGEM,
+                                                _vls, _ins, None, PARADO_KMH, SAIDA_PARADA_MIN)
+        if _blc is not None:
+            _fim_blc = _ins[_blc[1]]
+            _dh = (_fim_blc - n_saida).total_seconds() / 3600.0
+            if 0.5 <= _dh <= SAIDA_JANELA_H:
+                # A saida NUNCA pode ser posterior a chegada ja gravada: corrigir para
+                # depois dela faz o motor limpar a chegada por coerencia, e o efeito
+                # liquido da correcao vira PERDA. Medido: 7 cargas.
+                _ok = not (nolocal and _fim_blc >= nolocal)
+                if nolocal and dist_plan and nolocal > _fim_blc:
+                    _hh = (nolocal - _fim_blc).total_seconds() / 3600.0
+                    _ok = _hh > 0 and float(dist_plan) / _hh <= VEL_MAX_CRIVEL
+                if _ok:
+                    n_saida, _saida_corrigida = _fim_blc, True
+                    resumo['saida corrigida: passagem -> bloco de carregamento'] += 1
+                else:
+                    resumo['saida NAO corrigida: bloco implicaria velocidade impossivel'] += 1
+
 
     # ── CHEGADA: SO DEPOIS DE TER SAIDO.
     # A 1a versao varria a serie inteira e por isso gravou 18 cargas com chegada ANTERIOR a
@@ -199,7 +295,7 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
 
     # CARRETA DORMIDA — regua compartilhada com o aferidor (embarques_regua.chegada_emprestada)
     if sensor and sensor.startswith('carreta') and cav and dla is not None:
-        _pcav = serie(cav, ini, fim)
+        _pcav = _pcav if _pcav is not None else serie(cav, ini, fim)
         if _pcav:
             _dcav = [(d, geocoding.km_entre(la_, ln_, float(dla), float(dln)), v) for d, la_, ln_, v in _pcav]
             _dcav = [(d, k, v) for d, k, v in _dcav if k is not None
@@ -208,6 +304,19 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
             if _c2 != n_cheg:
                 n_cheg, como_cheg = _c2, _como2
                 resumo['chegada emprestada do cavalo (carreta dormida)'] += 1
+
+            # SENSOR EMPRESTADO (aditivo, §item 2). A regra acima trata a carreta DORMIDA;
+            # esta trata a carreta que fala pouco e mal. Mesmo principio: so preenche vazio
+            # ou antecipa, nunca apaga o que a carreta afirmou.
+            if SENSOR_CAVALO and _cav_vale and _dcav:
+                _cc, _comocc = perto_com_parada(_dcav, RAIO_CHEGADA, RAIO_METRO,
+                                                exigir_parada=True)
+                if _cc is not None and (n_cheg is None
+                                        or _cc < n_cheg - timedelta(minutes=30)):
+                    resumo['chegada do cavalo: ' + ('preencheu' if n_cheg is None
+                                                    else 'antecipou')] += 1
+                    n_cheg, como_cheg = _cc, (_comocc or 'estrita') + '+cavalo'
+
 
     # GUARDA DE VELOCIDADE: o par saida/chegada tem de ser fisicamente possivel. Se implicar
     # mais de VEL_MAX_CRIVEL km/h medios, esses dois instantes nao descrevem a mesma viagem —
@@ -317,6 +426,14 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
         n_status = 'Desengatada'
 
     campos = {}
+    # A correcao de carregamento PRECISA reescrever a saida JA GRAVADA. Sem isto ela so
+    # muda o piso interno, a chegada cai fora dele e o efeito liquido e APAGAR chegada:
+    # medido no lab, 24 correcoes nao chegavam ao banco e 5 chegadas eram perdidas.
+    if n_saida and _saida_corrigida and dsaida and n_saida != dsaida:
+        campos['data_saida_real'] = n_saida
+        campos['saida_auto'] = True
+        campos['inicio_viagem'] = n_saida
+
     if n_saida and not dsaida:
         campos['data_saida_real'] = n_saida
         campos['saida_auto'] = True
