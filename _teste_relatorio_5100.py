@@ -61,31 +61,40 @@ idx = R.indexar_ctes([
     cte('UDI400000-1', 4288,    '2026-08-31T00:00:00'),
 ])
 
-check('NF única',
-      R.escolher_cte('NF 361230', '2026-09-01T00:00:00', idx),
-      ('UDI415682-0', ''))
+r = R.escolher_cte('NF 361230', '2026-09-01T00:00:00', idx)
+check('NF única', (r['cte'], r['cte_outros']), ('UDI415682-0', ''))
+check('critério da NF única', r['cte_criterio'], 'NF única')
 
 # A regra do desempate: fica o CTe emitido antes/no dia, e o outro é preservado.
-check('duas pernas → fica a anterior',
-      R.escolher_cte('CNPJFORN13274688000140 NF 3841991 - MERIO', '2026-09-04T00:00:00', idx),
+r = R.escolher_cte('CNPJFORN13274688000140 NF 3841991 - MERIO', '2026-09-04T00:00:00', idx)
+check('duas pernas → fica a anterior', (r['cte'], r['cte_outros']),
       ('UDI415577-7', 'UDI416382-6'))
+check('critério diz que houve escolha',
+      r['cte_criterio'], '2 CTes com a NF — ficou o anterior mais próximo')
 
-check('sem NF no histórico → célula vazia',
-      R.escolher_cte('SD - CARREGAMENTO ITATIAIA - PIX 186.223.937-12', '2026-09-10T00:00:00', idx),
-      ('', ''))
+# O rastro tem de permitir enxergar um casamento errado sem abrir o CTe.
+check('rastro: NF que saiu do texto', r['nf_historico'], '3841991')
+check('rastro: cliente declarado no histórico', r['cliente_historico'], 'MERIO')
+check('rastro: emissão do CTe escolhido', r['cte_emissao'], '2026-08-29')
 
-check('NF que não existe na base → célula vazia',
-      R.escolher_cte('NF 38754121 - NESTLE', '2026-09-03T00:00:00', idx),
-      ('', ''))
+r = R.escolher_cte('SD - CARREGAMENTO ITATIAIA - PIX 186.223.937-12', '2026-09-10T00:00:00', idx)
+check('sem NF no histórico → célula vazia', r['cte'], '')
+check('sem NF: o motivo aparece', r['cte_criterio'], 'sem NF no histórico')
+
+r = R.escolher_cte('NF 38754121 - NESTLE', '2026-09-03T00:00:00', idx)
+check('NF que não existe na base → célula vazia', r['cte'], '')
+check('NF sem CTe: o motivo aparece', r['cte_criterio'], 'NF sem CTe na janela')
+check('NF sem CTe ainda mostra a NF lida', r['nf_historico'], '38754121')
 
 check('NF pequena casa sem zeros à esquerda',
-      R.escolher_cte('CNPJFORN26452694000191 - NF 4288 TANGARA', '2026-09-04T00:00:00', idx)[0],
+      R.escolher_cte('CNPJFORN26452694000191 - NF 4288 TANGARA',
+                     '2026-09-04T00:00:00', idx)['cte'],
       'UDI400000-1')
 
 # Todos posteriores à despesa: não deve devolver vazio, e sim o mais próximo.
 idx_pos = R.indexar_ctes([cte('UDI999999-9', 555, '2026-09-20T00:00:00')])
 check('só CTe posterior → o mais próximo, não vazio',
-      R.escolher_cte('NF 555', '2026-09-10T00:00:00', idx_pos)[0], 'UDI999999-9')
+      R.escolher_cte('NF 555', '2026-09-10T00:00:00', idx_pos)['cte'], 'UDI999999-9')
 
 
 # ── semana_anterior ──────────────────────────────────────────────────────────
@@ -104,19 +113,32 @@ check('segunda 04/01/2027 → 28/12 a 03/01',
       R.semana_anterior(datetime(2027, 1, 4)), (date(2026, 12, 28), date(2027, 1, 3)))
 
 
-# ── montar: a coluna cte fica logo depois do histórico ───────────────────────
+# ── montar: bloco de conferência na frente, resto do 477 atrás ───────────────
 
 despesas = [{
-    'emissao': '2026-09-01T00:00:00', 'nome_fornecedor': 'FULANO',
+    'empresa': 1, 'emissao': '2026-09-01T00:00:00', 'nome_fornecedor': 'FULANO',
+    'uni': 'UDI', 'numlancto': 104376, 'parcela': '01', 'nfiscal': 361230,
     'classificacao_dre': 'X', 'historico_despesa': 'NF 361230',
     'liq_empresa': 1, 'vlr_final': 100.0,
 }]
 cols, linhas = R.montar(despesas, [cte('UDI415682-0', 361230, '2026-08-30T00:00:00')])
-i = cols.index('historico_despesa')
-check('cte vem logo após historico_despesa', cols[i + 1], 'cte')
-check('cte_outros vem em seguida', cols[i + 2], 'cte_outros')
-check('a coluna seguinte do 477 é preservada', cols[i + 3], 'liq_empresa')
+
+check('a ordem da frente é a combinada',
+      cols[:9], ['emissao', 'uni', 'numlancto', 'parcela', 'nome_fornecedor',
+                 'vlr_final', 'historico_despesa', 'nfiscal', 'cte'])
+# O pedido de 23/09: a NF da despesa encostada no CTe, que é o par que se compara.
+check('nfiscal vem imediatamente antes do cte',
+      cols.index('nfiscal') + 1, cols.index('cte'))
 check('valor resolvido', linhas[0]['cte'], 'UDI415682-0')
+
+# Nada do 477 pode sumir: o que não está no cabeçalho vai para o fim, na ordem.
+check('resto do 477 preservado, na ordem original',
+      cols[9:], ['cte_outros', 'nf_historico', 'cliente_historico', 'cte_remetente',
+                 'cte_emissao', 'cte_criterio',
+                 'empresa', 'classificacao_dre', 'liq_empresa'])
+check('nenhuma coluna do 477 se perde',
+      set(despesas[0]).issubset(set(cols)), True)
+check('nenhuma coluna repetida', len(cols), len(set(cols)))
 
 check('sem despesas → nada', R.montar([], []), ([], []))
 

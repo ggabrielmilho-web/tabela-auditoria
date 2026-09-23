@@ -159,26 +159,40 @@ def indexar_ctes(ctes):
 
 
 def escolher_cte(historico, emissao_despesa, idx):
-    """→ (ctrc, outros_ctrc_separados_por_virgula).
+    """→ dict com o CTe escolhido e o rastro de como se chegou nele.
 
     Com mais de um CTe para a mesma NF fica o emitido antes ou no dia da
     despesa, mais próximo. Se todos forem posteriores (não aconteceu em
     setembro, mas é possível), fica o mais próximo em valor absoluto — melhor um
     palpite datado que uma célula vazia, e o `cte_outros` mostra o resto.
+
+    As colunas de rastro existem para a conferência não depender de fé: quem lê
+    vê a NF que saiu do texto, o cliente que o histórico declarou e o remetente
+    que o CTe traz — é assim que se enxerga um casamento errado.
     """
     p = extrair_nf(historico)
+    vazio = {'cte': '', 'cte_outros': '', 'nf_historico': ', '.join(p['nfs']),
+             'cliente_historico': p['cliente'] or '', 'cte_remetente': '',
+             'cte_emissao': '', 'cte_criterio': ''}
     if not p['nfs']:
-        return '', ''
+        return dict(vazio, cte_criterio='sem NF no histórico')
     cands = [c for nf in p['nfs'] for c in idx.get(nf, [])]
     if not cands:
-        return '', ''
+        return dict(vazio, cte_criterio='NF sem CTe na janela')
     dd = _dia(emissao_despesa)
     anteriores = sorted([c for c in cands if (dd - _dia(c['emissao'])).days >= 0],
                         key=lambda c: (dd - _dia(c['emissao'])).days)
     esc = anteriores[0] if anteriores else min(
         cands, key=lambda c: abs((dd - _dia(c['emissao'])).days))
-    outros = ', '.join(c['ctrc'] for c in cands if c['ctrc'] != esc['ctrc'])
-    return esc['ctrc'], outros
+    criterio = ('NF única' if len(cands) == 1
+                else f'{len(cands)} CTes com a NF — ficou o anterior mais próximo')
+    return {'cte': esc['ctrc'],
+            'cte_outros': ', '.join(c['ctrc'] for c in cands if c['ctrc'] != esc['ctrc']),
+            'nf_historico': ', '.join(p['nfs']),
+            'cliente_historico': p['cliente'] or '',
+            'cte_remetente': esc.get('cli_rem') or '',
+            'cte_emissao': str(esc['emissao'])[:10],
+            'cte_criterio': criterio}
 
 
 def semana_anterior(hoje=None):
@@ -222,24 +236,44 @@ def coletar(token, ini, fim, dax=None):
     return despesas, ctes
 
 
+# O que se confere vem primeiro; o resto da tabela segue atrás, intacto.
+# `nfiscal` (a NF da despesa) fica colada no `cte` de propósito: é o par que o
+# olho compara. As 62 colunas do 477 que não aparecem aqui entram depois, na
+# ordem original — nada é descartado.
+CABECALHO = ['emissao', 'uni', 'numlancto', 'parcela', 'nome_fornecedor',
+             'vlr_final', 'historico_despesa', 'nfiscal', 'cte', 'cte_outros',
+             'nf_historico', 'cliente_historico', 'cte_remetente', 'cte_emissao',
+             'cte_criterio']
+
+ROTULOS = {'emissao': 'Emissao', 'uni': 'Uni', 'numlancto': 'Lancto',
+           'parcela': 'Parc', 'nome_fornecedor': 'Fornecedor',
+           'vlr_final': 'Valor', 'historico_despesa': 'Historico',
+           'nfiscal': 'NF despesa', 'cte': 'CTe', 'cte_outros': 'Outros CTes c/ a NF',
+           'nf_historico': 'NF no historico', 'cliente_historico': 'Cliente (historico)',
+           'cte_remetente': 'Remetente do CTe', 'cte_emissao': 'Emissao do CTe',
+           'cte_criterio': 'Criterio'}
+
+DERIVADAS = ['cte', 'cte_outros', 'nf_historico', 'cliente_historico',
+             'cte_remetente', 'cte_emissao', 'cte_criterio']
+
+
 def montar(despesas, ctes):
-    """→ (colunas, linhas) com `cte` e `cte_outros` logo após historico_despesa."""
+    """→ (colunas, linhas): bloco de conferência primeiro, resto do 477 depois."""
     if not despesas:
         return [], []
     idx = indexar_ctes(ctes)
     linhas = []
     for x in despesas:
-        cte, outros = escolher_cte(x.get('historico_despesa'), x.get('emissao'), idx)
         linha = dict(x)
-        linha['cte'] = cte
-        linha['cte_outros'] = outros
+        linha.update(escolher_cte(x.get('historico_despesa'), x.get('emissao'), idx))
         linhas.append(linha)
-    cols = list(despesas[0].keys())
-    i = cols.index('historico_despesa') + 1
-    cols = cols[:i] + ['cte', 'cte_outros'] + cols[i:]
+
+    originais = list(despesas[0].keys())
+    cabecalho = [c for c in CABECALHO if c in originais or c in DERIVADAS]
+    resto = [c for c in originais if c not in cabecalho]
     linhas.sort(key=lambda l: (str(l.get('emissao'))[:10],
                                str(l.get('nome_fornecedor') or '')))
-    return cols, linhas
+    return cabecalho + resto, linhas
 
 
 # ── Planilha ─────────────────────────────────────────────────────────────────
@@ -259,7 +293,9 @@ def gerar_xlsx(cols, linhas, ini, fim):
     wb = Workbook()
     ws = wb.active
     ws.title = f'5100 {ini:%d-%m} a {fim:%d-%m}'[:31]
-    ws.append([c.upper() for c in cols])
+    # Rótulo curto nas colunas da frente (é a parte que se lê); o resto da tabela
+    # mantém o nome cru da coluna do 477, que é como a aba Despesas a mostra.
+    ws.append([ROTULOS.get(c, c.upper()) for c in cols])
 
     branco = Font(bold=True, color='FFFFFF')
     azul   = PatternFill('solid', fgColor='1F4E79')
@@ -268,7 +304,7 @@ def gerar_xlsx(cols, linhas, ini, fim):
     for i, c in enumerate(cols, 1):
         cel = ws.cell(row=1, column=i)
         cel.font = branco
-        cel.fill = azul_c if c.startswith('cte') else azul
+        cel.fill = azul_c if c in DERIVADAS else azul
         cel.alignment = Alignment(horizontal='center')
 
     for ln in linhas:
@@ -289,7 +325,8 @@ def gerar_xlsx(cols, linhas, ini, fim):
                     cel.value = str(cel.value)[:10]
         ws.column_dimensions[get_column_letter(i)].width = {
             'historico_despesa': 58, 'nome_fornecedor': 30, 'descr_evento': 28,
-            'cte': 15, 'cte_outros': 16}.get(c, 14)
+            'cte': 15, 'cte_outros': 18, 'cte_remetente': 32, 'cte_criterio': 40,
+            'cliente_historico': 22, 'nf_historico': 16}.get(c, 14)
 
     ws.freeze_panes = 'A2'
     buf = io.BytesIO()
