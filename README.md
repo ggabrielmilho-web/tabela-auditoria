@@ -250,6 +250,10 @@ Tabela Auditoria/
 ├── jornada.py                   # Motor puro: carry-forward, segmentos, avisos (sem DAX/Flask)
 ├── jornada.html                 # Página /jornada (ciclo 21→20, auditoria por período, download .xlsx)
 │
+│   # ── Relatório semanal 5100 (carga e descarga c/ terceiros) ──
+├── relatorio_5100.py            # Motor: NF do histórico → CTe, planilha e envio; laço da segunda 08:00
+├── _teste_relatorio_5100.py     # Regressão do motor (sem rede nem banco)
+│
 │   # ── Módulo PGR (excesso de velocidade) ──
 ├── pgr.py                       # Motor: episódios, sustentada, situação de carga, persistência
 ├── pgr_imagem.py                # Imagem-resumo do WhatsApp (fitz.Story)
@@ -416,6 +420,16 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 | `CIOT_FORMATO` | `imagem` (imagem + legenda curta, como o PGR) ou `texto` | `imagem` |
 | `CIOT_INTERVALO_ENVIO_SEG` | Segundos entre um destinatário e o próximo | `75` |
 | `CIOT_BASE_URL` | Base do link da mensagem (cai no `PGR_BASE_URL`) | — |
+
+### Relatório semanal 5100 (carga e descarga c/ terceiros)
+| Variável | Descrição | Default |
+|---|---|---|
+| `R5100_ENVIO` | **Liga o laço e o envio.** Nasce desligado | `false` |
+| `R5100_TO` | Destinatário(s) do e-mail, separados por vírgula | — |
+| `R5100_HORA_BRT` | Horário da **segunda-feira** em Brasília | `08:00` |
+| `R5100_JANELA_DISPARO_MIN` | Tolerância p/ disparar após o horário (restart) | `180` |
+| `R5100_EVENTO` | Evento do 477 que o relatório recorta | `5100` |
+| `GMAIL_USER` / `APP_GMAIL` | Conta de envio (`automacao@rizzalog.com.br`) e a app password | — |
 
 ### PGR (relatório de excesso de velocidade)
 | Variável | Descrição | Default |
@@ -1177,6 +1191,62 @@ python -X utf8 ciot_conferencia.py --enviar --resumo              # teste: forç
 python -X utf8 _teste_ciot.py                                     # regressão da régua
 ```
 
+## Módulo Relatório 5100 (carga e descarga c/ terceiros)
+
+Toda **segunda-feira às 08:00 de Brasília**, a semana que fechou (segunda a domingo) sai por
+e-mail para o operacional: corpo curto em texto e a planilha em anexo, com as mesmas colunas da
+aba Despesas mais a coluna **`cte`** logo depois do `historico_despesa`. Motor em
+`relatorio_5100.py`, regressão em `_teste_relatorio_5100.py`, envio pela conta
+`automacao@rizzalog.com.br` (SMTP do Gmail com app password).
+
+### ⚠ A janela é por `emissao` — o filtro da aba é mensal
+
+A aba Despesas **parece** filtrar por data, mas `_gerar_refs_periodo` converte o período numa
+lista de competências `YYYY/MM` e **descarta o dia**: pedir 14/09→20/09 devolve setembro inteiro.
+Semana não existe naquele filtro. Medido em 2026/09 (176 lançamentos, R$ 133.447,52):
+competência e mês de emissão coincidem em 173; os outros 3 foram emitidos em agosto e caíram na
+competência de setembro.
+
+**Consequência aceita** (decisão de 23/09/2026): lançamento incluído com atraso não entra em
+relatório nenhum — a semana dele já foi enviada. O risco foi medido antes de aceitar: **384 de
+396 lançamentos entram no BI no mesmo dia da emissão**, e nas 7 semanas medidas a semana estava
+**96–100% completa** na segunda seguinte.
+
+### Como a NF do histórico vira CTe
+
+A NF escrita no `historico_despesa` casa com `numero_nota_fiscal` de `conhecimentos_emitidos`,
+que dá o `serie_numero_ctrc`. As duas tabelas vivem no **mesmo dataset** (o do DRE), então o
+cruzamento não abre fonte nova.
+
+| Armadilha | O que vale |
+|---|---|
+| `nfiscal` parece ser a NF da carga | É a NF **da despesa** (documento do fornecedor). Quem vincula ao CTe é a NF escrita no histórico |
+| `CNPJFORN<14 dígitos>` parece ser o remetente | **Não é**, nem pela raiz — na Heinz o histórico diz `02691482000107` e o CTe traz `50955707000472`. Testado como desempate e reprovado |
+| Conferir pelo nome do cliente | O histórico usa apelido comercial e o CTe razão social: YPE = QUIMICA AMPARO, FINI = SANCHEZ CANO, MERIO/START = LIMA E PERGHER, EMBELLEZE = DOARBELLEZA. Comparar nome com nome dá falso negativo |
+
+**O que prova o casamento é a data**: a defasagem despesa − emissão do CTe deu mediana 4 d,
+p90 8 d, mínimo 0, e só 2 casos acima de 20 d em 123. Colisão aleatória de número de NF
+espalharia as datas. Por isso, quando a mesma NF está em **dois** CTes (26 casos em setembro,
+sempre o **mesmo remetente** — duas pernas ou redespacho, nunca empresa diferente), fica o CTe
+emitido **antes ou no dia** da despesa, mais próximo; o outro vai em `cte_outros`, para auditoria.
+
+Cobertura medida em 2026/09: **146 de 176 (83%)**. O que sobra são os 26 lançamentos
+`SD - CARREGAMENTO ... PIX <CPF>`, que não têm NF nenhuma, e 4 NFs sem CTe — duas com cara de
+dígito trocado (`3481991` × `3841991`).
+
+Semana sem lançamento **também é enviada**, com o aviso no corpo: silêncio não separa "não houve
+carregamento" de "o job morreu" — mesma regra do PGR.
+
+```bash
+python -X utf8 _teste_relatorio_5100.py                          # regressão (sem rede)
+python -X utf8 relatorio_5100.py --dry-run                       # a semana que fechou
+python -X utf8 relatorio_5100.py --semana 2026-09-14 --dry-run
+python -X utf8 relatorio_5100.py --semana 2026-09-14 --salvar x.xlsx
+python -X utf8 relatorio_5100.py --semana 2026-09-14 --enviar    # manda de verdade
+```
+
+---
+
 ## Módulo PGR (excesso de velocidade)
 
 Relatório diário das placas que passaram de 95 km/h, por WhatsApp. Motor em
@@ -1420,6 +1490,7 @@ Resultado Final   = Pós Investimento - Retiradas
 - [ ] **Regras de classificação do 456 → tabela** — hoje `_SWITCH_REGRA_456` no código, e já mudou uma vez (R$ 2,7 mi ficavam fora)
 - [ ] **Criar no plano de contas** o TRIBANCO e o CAIXA PAMBANK (hoje sem conta na aba Contábil)
 - [x] **Conferência CIOT** (CTRB × manifesto × CIOT, aba `/ciot` + WhatsApp) — preparada, desligada (`CIOT_CONFERENCIA`/`CIOT_ENVIO`)
+- [x] **Relatório semanal 5100 por e-mail** (`R5100_ENVIO`) — segunda 08:00 BRT, semana seg–dom recortada por `emissao`, planilha com a coluna `cte` derivada da NF do histórico (83% de cobertura)
 - [ ] **PGR fase 2**: ranking por motorista, evolução mês a mês e CSV
 - [x] **Consolidação diária placa+dia** (`embarques_rastreio_dia`) — odômetro real, km vazio e dias parados sobrevivendo à retenção
 - [ ] **km/L pelo GPS do rastreamento** (substituir o hodômetro do ValeCard, que é sujo, na Análise por Veículo)

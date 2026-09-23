@@ -8362,6 +8362,18 @@ if __name__ == '__main__':
     else:
         print("ℹ️  Conferência CIOT desligada (CIOT_CONFERENCIA)")
 
+    # Relatório semanal do evento 5100 (carga e descarga c/ terceiros) por e-mail,
+    # segunda-feira de manhã, com a semana que fechou. Mora aqui pelo mesmo motivo
+    # do CIOT: é este lado que fala Power BI, e o container está de pé 24/7.
+    # A janela é por `emissao` — o filtro da aba Despesas é por competência e
+    # descarta o dia, então semana não existe lá (ver o cabeçalho do módulo).
+    import relatorio_5100
+    if relatorio_5100.ligado():
+        import threading as _th_r
+        _th_r.Thread(target=relatorio_5100.loop, daemon=True, name='Relatorio5100').start()
+    else:
+        print("ℹ️  Relatório semanal 5100 desligado (R5100_ENVIO)")
+
     # Fita documental — um retrato do BI por refresh (§25.8 Passo 0, §26.8 nº 4).
     # Só lê o Power BI; grava `fita_documentos`, o cadastro `locais` e `embarques_programacao`
     # (que é a tabela que a aba /embarques/ordens lê — sem a fita, ela abre vazia).
