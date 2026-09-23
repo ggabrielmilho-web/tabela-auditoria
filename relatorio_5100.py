@@ -438,29 +438,52 @@ def _hora_agendada():
     return 8, 0
 
 
-def loop():
-    """Segunda-feira, no horário de Brasília. Nunca derruba o processo.
+def deve_disparar(agora_utc, ultima_semana):
+    """→ (dispara?, ini, fim). Recebe **UTC**, que é o relógio do servidor.
+
+    ⚠ O DIA DA SEMANA É LIDO EM BRASÍLIA, NUNCA NO RELÓGIO DO SERVIDOR.
+
+    O container roda em UTC (o handoff registra o fuso mordendo três vezes). Às
+    22:00 de domingo em Brasília já é SEGUNDA em UTC — se o `weekday()` saísse do
+    relógio cru, o relatório dispararia no domingo à noite e, pior, com a semana
+    ERRADA: `semana_anterior` de um domingo devolve a semana retrasada. Por isso a
+    conversão vem primeiro e tudo depois dela é horário de Brasília.
+
+    Brasília é UTC−3 fixo desde que o país acabou com o horário de verão (2019),
+    então o deslocamento constante está correto — não há dia de 23 h para tratar.
 
     O marcador é a SEMANA enviada, não a data de execução: restart no meio da
-    manhã de segunda não manda o e-mail duas vezes, e a janela de tolerância
-    cobre um container que subiu depois do horário.
+    manhã de segunda não manda o e-mail duas vezes.
     """
+    agora = agora_utc - timedelta(hours=3)          # daqui para baixo, Brasília
+    ini, fim = semana_anterior(agora)
+    if agora.weekday() != 0:                        # 0 = segunda
+        return False, ini, fim
+    hh, mm = _hora_agendada()
+    marcado = agora.replace(hour=hh, minute=mm, second=0, microsecond=0)
+    atraso = (agora - marcado).total_seconds() / 60
+    return (0 <= atraso < JANELA_MIN and ultima_semana != ini), ini, fim
+
+
+def loop():
+    """Segunda-feira, no horário de Brasília. Nunca derruba o processo."""
     hh, mm = _hora_agendada()
     print(f'✅ Relatório 5100 agendado para segunda-feira {hh:02d}:{mm:02d} '
           f'(Brasília) → {", ".join(destinatarios()) or "SEM DESTINATÁRIO"}')
+    # A janela não atravessa a meia-noite: passada a segunda, o gatilho só volta
+    # na semana seguinte. Mesma armadilha do EMBARQUES_AUTO_HORA_BRT.
+    if hh * 60 + mm + JANELA_MIN > 24 * 60:
+        print(f'⚠️  R5100: {hh:02d}:{mm:02d} + {JANELA_MIN} min passa da meia-noite '
+              f'— a parte que vaza para terça NÃO dispara')
     ultima_semana = None
     while True:
         try:
-            agora = datetime.utcnow() - timedelta(hours=3)
-            if agora.weekday() == 0:                       # segunda
-                marcado = agora.replace(hour=hh, minute=mm, second=0, microsecond=0)
-                atraso = (agora - marcado).total_seconds() / 60
-                ini, fim = semana_anterior(agora)
-                if 0 <= atraso < JANELA_MIN and ultima_semana != ini:
-                    ultima_semana = ini
-                    r = executar(ini, fim)
-                    print(f"📧 Relatório 5100 {r['ini']}..{r['fim']}: {r['n']} lançamentos, "
-                          f"R$ {r['total']:,.2f} → {', '.join(r['enviado_para'])}")
+            dispara, ini, fim = deve_disparar(datetime.utcnow(), ultima_semana)
+            if dispara:
+                ultima_semana = ini
+                r = executar(ini, fim)
+                print(f"📧 Relatório 5100 {r['ini']}..{r['fim']}: {r['n']} lançamentos, "
+                      f"R$ {r['total']:,.2f} → {', '.join(r['enviado_para'])}")
         except Exception as e:
             # Falhou hoje? `ultima_semana` já está marcada e não retenta sozinho:
             # e-mail repetido é pior que e-mail faltando, e o log mostra o motivo.

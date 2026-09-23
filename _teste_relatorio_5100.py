@@ -117,6 +117,43 @@ check('segunda 04/01/2027 → 28/12 a 03/01',
       R.semana_anterior(datetime(2027, 1, 4)), (date(2026, 12, 28), date(2027, 1, 3)))
 
 
+# ── deve_disparar: o relógio do servidor é UTC, o gatilho é de Brasília ──────
+#
+# Toda entrada aqui está em UTC, como o container vê. 08:00 BRT = 11:00 UTC.
+
+def disp(utc, ultima=None):
+    return R.deve_disparar(utc, ultima)
+
+
+d, ini, fim = disp(datetime(2026, 9, 21, 11, 0))      # segunda 08:00 BRT
+check('segunda 08:00 BRT dispara', d, True)
+check('e manda a semana que fechou', (ini, fim), (date(2026, 9, 14), date(2026, 9, 20)))
+
+# A ARMADILHA: 22:00 de domingo em Brasília já é SEGUNDA em UTC. Lendo o dia no
+# relógio cru, dispararia no domingo à noite — e `semana_anterior` de um domingo
+# devolve a semana RETRASADA, então sairia o relatório errado.
+d, ini, _ = disp(datetime(2026, 9, 21, 1, 0))         # dom 22:00 BRT = seg 01:00 UTC
+check('domingo 22:00 BRT não dispara', d, False)
+check('e a semana lida ali seria a retrasada', ini, date(2026, 9, 7))
+
+# O espelho: 21:00 BRT de segunda ainda é segunda; 00:00 UTC de terça não é gatilho.
+check('segunda 21:00 BRT (terça 00:00 UTC) não dispara — fora da janela',
+      disp(datetime(2026, 9, 22, 0, 0))[0], False)
+
+check('segunda 07:59 BRT ainda não', disp(datetime(2026, 9, 21, 10, 59))[0], False)
+check('segunda 10:59 BRT ainda dispara (janela de 180 min)',
+      disp(datetime(2026, 9, 21, 13, 59))[0], True)
+check('segunda 11:01 BRT já passou da janela',
+      disp(datetime(2026, 9, 21, 14, 1))[0], False)
+check('terça 08:00 BRT não dispara', disp(datetime(2026, 9, 22, 11, 0))[0], False)
+
+# Restart no meio da manhã não manda duas vezes: o marcador é a semana.
+check('semana já enviada não repete',
+      disp(datetime(2026, 9, 21, 11, 30), date(2026, 9, 14))[0], False)
+check('semana seguinte dispara de novo',
+      disp(datetime(2026, 9, 28, 11, 0), date(2026, 9, 14))[0], True)
+
+
 # ── montar: bloco de conferência na frente, resto do 477 atrás ───────────────
 
 despesas = [{

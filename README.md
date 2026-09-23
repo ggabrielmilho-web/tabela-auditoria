@@ -1212,6 +1212,24 @@ relatório nenhum — a semana dele já foi enviada. O risco foi medido antes de
 396 lançamentos entram no BI no mesmo dia da emissão**, e nas 7 semanas medidas a semana estava
 **96–100% completa** na segunda seguinte.
 
+### ⚠ O dia da semana é lido em Brasília, nunca no relógio do servidor
+
+O container roda em **UTC** (o Dockerfile não define `TZ`), e às **22:00 de domingo em
+Brasília já é segunda em UTC**. Se o `weekday()` saísse do relógio cru, o relatório dispararia
+no domingo à noite e — pior que o horário — com a **semana errada**: `semana_anterior` de um
+domingo devolve a semana *retrasada*. Por isso `deve_disparar` converte para Brasília na
+primeira linha e tudo depois dela é horário local.
+
+A decisão fica isolada em `deve_disparar(agora_utc, ultima_semana)`, com regressão que alimenta
+o relógio em UTC (08:00 BRT = 11:00 UTC) e trava os dois lados da virada. O deslocamento é
+`−3` fixo: o Brasil acabou com o horário de verão em 2019, então não há dia de 23 h. E porque a
+função usa `utcnow()`, e não a hora local, definir `TZ` na stack um dia não quebra o gatilho.
+
+A janela de tolerância **não atravessa a meia-noite** — `R5100_HORA_BRT` tardio somado a
+`R5100_JANELA_DISPARO_MIN` vaza para terça e essa parte não dispara (mesma armadilha do
+`EMBARQUES_AUTO_HORA_BRT`). Com 08:00 + 180 min sobra folga larga; o boot avisa no log se a
+soma passar da meia-noite.
+
 ### Como a NF do histórico vira CTe
 
 A NF escrita no `historico_despesa` casa com `numero_nota_fiscal` de `conhecimentos_emitidos`,
