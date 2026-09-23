@@ -171,7 +171,8 @@ def escolher_cte(historico, emissao_despesa, idx):
     que o CTe traz — é assim que se enxerga um casamento errado.
     """
     p = extrair_nf(historico)
-    vazio = {'cte': '', 'cte_outros': '', 'nf_historico': ', '.join(p['nfs']),
+    vazio = {'cte': '', 'cte_numero': '', 'cte_outros': '',
+             'nf_historico': ', '.join(p['nfs']),
              'cliente_historico': p['cliente'] or '', 'cte_remetente': '',
              'cte_emissao': '', 'cte_criterio': ''}
     if not p['nfs']:
@@ -187,6 +188,7 @@ def escolher_cte(historico, emissao_despesa, idx):
     criterio = ('NF única' if len(cands) == 1
                 else f'{len(cands)} CTes com a NF — ficou o anterior mais próximo')
     return {'cte': esc['ctrc'],
+            'cte_numero': esc.get('cte_num') or '',
             'cte_outros': ', '.join(c['ctrc'] for c in cands if c['ctrc'] != esc['ctrc']),
             'nf_historico': ', '.join(p['nfs']),
             'cliente_historico': p['cliente'] or '',
@@ -231,7 +233,12 @@ def coletar(token, ini, fim, dax=None):
     ctes = dax(
         f'EVALUATE SELECTCOLUMNS(FILTER(ALL({C}), '
         f'{C}[data_emissao] >= {_dax_data(a)} && {C}[data_emissao] <= {_dax_data(b)}), '
-        f'"ctrc",{C}[serie_numero_ctrc], "nf",{C}[numero_nota_fiscal], '
+        # Dois identificadores, de propósito: `serie_numero_ctrc` é o número
+        # interno do SSW (UDI416192-1) e `serie_numero_cte` é o fiscal, série e
+        # número concatenados (84000001135 = série 84, nº 1135) — é este que o
+        # CRM usa para conferir.
+        f'"ctrc",{C}[serie_numero_ctrc], "cte_num",{C}[serie_numero_cte], '
+        f'"nf",{C}[numero_nota_fiscal], '
         f'"cli_rem",{C}[cliente_remetente], "emissao",{C}[data_emissao])')
     return despesas, ctes
 
@@ -241,19 +248,21 @@ def coletar(token, ini, fim, dax=None):
 # olho compara. As 62 colunas do 477 que não aparecem aqui entram depois, na
 # ordem original — nada é descartado.
 CABECALHO = ['emissao', 'uni', 'numlancto', 'parcela', 'nome_fornecedor',
-             'vlr_final', 'historico_despesa', 'nfiscal', 'cte', 'cte_outros',
+             'vlr_final', 'historico_despesa', 'nfiscal', 'cte', 'cte_numero',
+             'cte_outros',
              'nf_historico', 'cliente_historico', 'cte_remetente', 'cte_emissao',
              'cte_criterio']
 
 ROTULOS = {'emissao': 'Emissao', 'uni': 'Uni', 'numlancto': 'Lancto',
            'parcela': 'Parc', 'nome_fornecedor': 'Fornecedor',
            'vlr_final': 'Valor', 'historico_despesa': 'Historico',
-           'nfiscal': 'NF despesa', 'cte': 'CTe', 'cte_outros': 'Outros CTes c/ a NF',
+           'nfiscal': 'NF despesa', 'cte': 'CTe', 'cte_numero': 'N CTe',
+           'cte_outros': 'Outros CTes c/ a NF',
            'nf_historico': 'NF no historico', 'cliente_historico': 'Cliente (historico)',
            'cte_remetente': 'Remetente do CTe', 'cte_emissao': 'Emissao do CTe',
            'cte_criterio': 'Criterio'}
 
-DERIVADAS = ['cte', 'cte_outros', 'nf_historico', 'cliente_historico',
+DERIVADAS = ['cte', 'cte_numero', 'cte_outros', 'nf_historico', 'cliente_historico',
              'cte_remetente', 'cte_emissao', 'cte_criterio']
 
 
@@ -325,7 +334,8 @@ def gerar_xlsx(cols, linhas, ini, fim):
                     cel.value = str(cel.value)[:10]
         ws.column_dimensions[get_column_letter(i)].width = {
             'historico_despesa': 58, 'nome_fornecedor': 30, 'descr_evento': 28,
-            'cte': 15, 'cte_outros': 18, 'cte_remetente': 32, 'cte_criterio': 40,
+            'cte': 15, 'cte_numero': 15, 'cte_outros': 18, 'cte_remetente': 32,
+            'cte_criterio': 40,
             'cliente_historico': 22, 'nf_historico': 16}.get(c, 14)
 
     ws.freeze_panes = 'A2'
