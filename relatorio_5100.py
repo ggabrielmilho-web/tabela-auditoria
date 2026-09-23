@@ -358,9 +358,7 @@ def corpo_texto(ini, fim, r):
         f"Semana de {ini:%d/%m/%Y} a {fim:%d/%m/%Y}\n\n"
         f"{r['n']} lançamentos, R$ {_brl(r['total'])}.\n"
         f"{r['com_cte']} com CTe identificado pela nota fiscal do histórico; "
-        f"{r['sem_cte']} sem.\n\n"
-        f"A planilha vai em anexo, com as mesmas colunas da aba Despesas e a "
-        f"coluna CTE logo depois do HISTORICO_DESPESA.\n"
+        f"{r['sem_cte']} sem.\n"
     )
 
 
