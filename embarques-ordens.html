@@ -94,7 +94,7 @@
       <table>
         <thead><tr>
           <th>Ordem</th><th>Estado</th><th>Limite</th><th>Atraso</th><th>Embarcador</th><th>Cliente</th>
-          <th>Conjunto</th><th>Frota</th><th>Motorista</th><th>De</th><th>Para</th><th>Documento</th><th>Carga</th><th>Comandada</th>
+          <th>Conjunto</th><th>Frota</th><th>Motorista</th><th>De</th><th>Para</th><th>Documento</th><th>Carga</th><th title="quando a ordem nasceu no SSW (cadastrada_em) — é sempre o carimbo mais antigo dela; em metade das ordens é o mesmo minuto da Comandada, e na coleta programada nasce sem autor">Criada</th><th>Comandada</th>
         </tr></thead>
         <tbody id="tbody"></tbody>
       </table>
@@ -156,6 +156,7 @@ async function carregar(){
       <td title="${o.dest_nome||''}">${o.dest_cidade||'—'}/${o.dest_uf||''}</td>
       <td class="mono">${doc}</td>
       <td>${carga}</td>
+      <td class="mono dim" title="${o.cadastrada_por? ('cadastrada por '+o.cadastrada_por) : 'sem autor: ordem criada pelo próprio SSW (coleta programada)'}">${fmt(o.cadastrada_em)}</td>
       <td class="mono dim">${fmt(o.comandada_em)}</td>
     </tr>`;
   });
