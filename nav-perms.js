@@ -85,10 +85,14 @@
     '.side-nav::-webkit-scrollbar-thumb { background: var(--border, #1e293b); border-radius: 3px; }',
     '.side-nav .topo { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 2px 2px 14px; }',
     '.side-nav .marca { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--text, #e2e8f0); min-width: 0; }',
-    '.side-nav .marca .logo { width: 32px; height: 32px; border-radius: 9px; flex-shrink: 0; display: grid; place-items: center;',
-    '  background: linear-gradient(135deg, var(--accent, #38bdf8), #818cf8); color: #0a0e17; font-weight: 700; font-size: 16px; }',
-    '.side-nav .marca .nome { font-weight: 700; font-size: 14.5px; white-space: nowrap; line-height: 1.15; }',
-    '.side-nav .marca .sub { font-size: 9.5px; color: var(--text-dim, #94a3b8); letter-spacing: .7px; text-transform: uppercase; white-space: nowrap; }',
+    // Aberta: o logo inteiro (mapa + RIZZA LOG). Recolhida: só o mapa, que funciona sozinho.
+    '.side-nav .marca .logo-mapa { display: none; width: 38px; height: auto; }',
+    '.side-nav .marca .texto { display: flex; flex-direction: column; gap: 2px; }',
+    '.side-nav .marca .logo-full { display: block; width: 158px; height: auto; }',
+    // "Analytics" alinhado ao R de RIZZA (o R começa em 1/3 da largura do logo).
+    '.side-nav .marca .sub { font-size: 9px; color: var(--text-dim, #94a3b8); letter-spacing: 2.2px; text-transform: uppercase;',
+    '  white-space: nowrap; padding-left: 53px; }',
+    'html.nav-recolhida .side-nav .marca .logo-mapa { display: block; }',
     '.side-nav .recolher { flex-shrink: 0; width: 26px; height: 26px; border-radius: 7px; cursor: pointer;',
     '  background: transparent; border: 1px solid var(--border, #1e293b); color: var(--text-dim, #94a3b8);',
     '  font-size: 13px; line-height: 1; display: grid; place-items: center; padding: 0; }',
@@ -126,6 +130,7 @@
     '  .side-nav .recolher, .side-nav .marca .texto, .side-nav .grupo, .side-nav a.item .rotulo,',
     '  .side-nav .rodape .quem, .side-nav .rodape .papel { display: none; }',
     '  .side-nav .grupo-sep { display: block; }',
+    '  .side-nav .marca .logo-mapa { display: block; width: 34px; }',
     '  .side-nav a.item { justify-content: center; padding: 8px 4px; }',
     '  .side-nav .rodape { align-items: center; }',
     '}'
@@ -215,8 +220,8 @@
     marca.href = '/inicio';
     marca.title = 'Início';
     marca.innerHTML =
-      '<span class="logo">R</span>' +
-      '<span class="texto"><span class="nome">Rizza Log</span><br>' +
+      '<img class="logo-mapa" src="/marca/rizza-mapa.svg" alt="Rizza Log">' +
+      '<span class="texto"><img class="logo-full" src="/marca/rizza-logo.svg" alt="Rizza Log">' +
       '<span class="sub">Analytics</span></span>';
     var btn = document.createElement('button');
     btn.type = 'button';

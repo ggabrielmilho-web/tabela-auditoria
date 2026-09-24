@@ -25,7 +25,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-app = Flask(__name__, static_folder='.')
+# SEM pasta estática. Era `static_folder='.'`, que publicava a pasta do projeto inteira em
+# `/./<arquivo>`, sem login — `.env`, `server.py`, CSVs e dumps respondiam 200 (achado em
+# 24/09/2026). Nenhuma tela usava a rota: todo arquivo servido tem rota própria abaixo.
+app = Flask(__name__, static_folder=None)
 app.secret_key = os.getenv('SECRET_KEY', 'dev-secret-change-me')
 CORS(app, supports_credentials=True)
 
@@ -212,6 +215,20 @@ def login_page():
 def nav_perms_js():
     """Script de gating do menu por permissão de aba (servido a qualquer um)."""
     return send_from_directory('.', 'nav-perms.js', mimetype='application/javascript')
+
+
+_MARCA = {'rizza-logo.svg', 'rizza-mapa.svg'}
+
+
+@app.route('/marca/<nome>')
+def marca_svg(nome):
+    """Logo da Rizza (menu lateral e login — por isso sem login). Lista fechada de arquivos.
+    Vetorizado de um print de 372×127 px; o 'LOG' é texto, não traço (no print tinha 8 px)."""
+    if nome not in _MARCA:
+        return ('', 404)
+    resp = send_from_directory('marca', nome, mimetype='image/svg+xml')
+    resp.headers['Cache-Control'] = 'public, max-age=86400'
+    return resp
 
 
 @app.route('/report-filter.js')
