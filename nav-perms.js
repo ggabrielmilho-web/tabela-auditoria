@@ -217,7 +217,7 @@
     marca.innerHTML =
       '<span class="logo">R</span>' +
       '<span class="texto"><span class="nome">Rizza Log</span><br>' +
-      '<span class="sub">Auditoria</span></span>';
+      '<span class="sub">Analytics</span></span>';
     var btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'recolher';
