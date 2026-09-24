@@ -1531,6 +1531,7 @@ Resultado Final   = Pós Investimento - Retiradas
 - [ ] Exportação em Excel (.xlsx) além de CSV
 - [ ] Acompanhamento de terceiros (link público / bot WhatsApp)
 - [ ] Dark/light theme toggle
+- [x] **Menu lateral no lugar da barra de cima** (24/09/2026, trazido da VitrineTransporte) — montado pelo `nav-perms.js` a partir do mesmo placeholder `data-nav-menu`, com grupos (os mesmos do `/inicio`, via `window.NAV_GRUPOS`) e botão **«** para recolher numa faixa de ícones; a escolha fica no `localStorage` (`rizza.nav.recolhida`). A página é empurrada por `margin-left`, não `padding-left`, para preservar o padding próprio de telas como o PGR. O robô do WhatsApp segue capturando DRE e tomadores inteiros (medido com a barra aberta)
 
 ---
 

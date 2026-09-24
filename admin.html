@@ -260,9 +260,7 @@
   <div class="top-bar">
     <h1>⚙ Gerenciamento de Usuários</h1>
     <div style="display:flex;gap:8px;">
-      <a href="/" style="text-decoration:none;"><button class="btn btn-outline">← Dashboard</button></a>
-      <a href="/embarques" style="text-decoration:none;"><button class="btn btn-outline">🚚 Embarques</button></a>
-      <a href="/embarques/mapa" style="text-decoration:none;"><button class="btn btn-outline">🗺️ Mapa</button></a>
+      <span data-nav-menu data-nav-active="admin"></span>
       <a href="/logout" style="text-decoration:none;"><button class="btn btn-outline">Sair</button></a>
     </div>
   </div>
@@ -826,5 +824,6 @@ async function salvarEditarAcesso() {
   </div>
 </div>
 
+<script src="/nav-perms.js"></script>
 </body>
 </html>

@@ -65,6 +65,7 @@
       <span class="meta" id="userInfo" style="margin-top:4px;display:block;"></span>
     </div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <span data-nav-menu data-nav-active="inicio"></span>
       <a href="/logout" class="btn-sm">Sair</a>
     </div>
   </div>
@@ -79,12 +80,9 @@
 // permissões. Aba nova entra lá e aparece aqui e na barra ao mesmo tempo.
 // Aqui só ficam a apresentação: em que grupo cada aba cai e o texto do card.
 
-const GRUPOS = [
-  { nome: 'Operação',  abas: ['embarques', 'ordens', 'mapa', 'pgr', 'jornada', 'ciot', 'veiculos', 'verda'] },
-  { nome: 'Comercial', abas: ['tarifas', 'faturamento', 'contratos'] },
-  { nome: 'Financeiro', abas: ['auditoria', 'dre', 'despesas', 'conhecimentos', 'contabil'] },
-  { nome: 'Sistema',   abas: ['reuniao', 'admin'] },   // /uso fica fora: tela escondida
-];
+// Os grupos também vêm do nav-perms.js: a barra lateral usa os mesmos, e duas listas
+// divergiriam no dia em que alguém movesse uma aba de grupo.
+const GRUPOS = window.NAV_GRUPOS || [];
 
 const INFO = {
   auditoria:     { desc: 'Receita por viagem com KPIs, filtros e exportação. Abre no mês corrente.', tag: 'Relatório completo' },
