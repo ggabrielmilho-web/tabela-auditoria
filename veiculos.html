@@ -842,7 +842,7 @@ function renderTabelaFrota(arr, t) {
     <th onclick="ordenar('combustivel')">Combustível${setaOrd('combustivel')}</th>
     <th onclick="ordenar('litros')">Litros${setaOrd('litros')}</th>
     <th onclick="ordenar('arla')">ARLA${setaOrd('arla')}</th>
-    <th onclick="ordenar('pessoal')" title="Folha do motorista lançada no veículo em que ele rodou, proporcional ao nº de viagens em cada um. Quem não rodou no mês é rateado por igual dentro da classe (truck entre trucks, cavalo entre cavalos).">Pessoal${setaOrd('pessoal')}</th>
+    <th onclick="ordenar('pessoal')" title="Folha por função, dividida por igual entre os veículos do tipo que rodaram no mês: Motorista Carreteiro → cavalos, Carreteiro 9 eixos → rodotrens, Truck → trucks. Inativos ficam fora.">Pessoal${setaOrd('pessoal')}</th>
     <th onclick="ordenar('manut_cavalo')">Manut. Cavalo${setaOrd('manut_cavalo')}</th>
     <th onclick="ordenar('seguro')">Seguro${setaOrd('seguro')}</th>
     <th onclick="ordenar('rastreador')">Rastreador${setaOrd('rastreador')}</th>

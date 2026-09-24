@@ -3245,15 +3245,39 @@ def _nome_parecido(a, b):
     return min(pri, ult) * 0.5 + tudo * 0.5
 
 
-def _pessoal_por_cavalo(token, meses_set, cadastro, fat_por_placa):
-    """Folha (`custo_pessoal`) descarregada no veículo em que o motorista realmente rodou.
+# Cavalos de rodotrem (9 eixos). O cadastro não distingue — só conhece CAVALO e TRUCK —,
+# então a lista é mantida aqui, validada com a diretoria em 24/09/2026.
+RODOTREM = {'QOX7H94', 'EWJ6C10'}
 
-    Nível 1 — a folha de cada motorista vai para os cavalos/trucks RIZZA em que ele rodou no
-    período, proporcional ao **nº de viagens** em cada um.
-    Nível 2 — quem não rodou em veículo Rizza no período (afastado, férias, admissão no meio,
-    ou só rodou em agregado) forma o **resíduo**, dividido **por igual dentro da classe**: folha
-    de motorista de truck entre os trucks, as demais (inclusive a função genérica "Motorista")
-    entre os cavalos.
+
+def _classe_folha(funcao):
+    """Pool da folha pela função do RH: 'truck', 'rodotrem', 'cavalo' ou None (fora do custo).
+    Fora: '- inativo' e qualquer função que não seja de carreteiro/truck (ex.: a genérica
+    'Motorista', que não gera INSS/FGTS)."""
+    f = str(funcao or '').upper()
+    if 'INATIVO' in f:
+        return None
+    if 'TRUCK' in f:
+        return 'truck'
+    if '9 EIXOS' in f:
+        return 'rodotrem'
+    if 'CARRETEIRO' in f:
+        return 'cavalo'
+    return None
+
+
+def _pessoal_por_cavalo(token, meses_set, cadastro, fat_por_placa):
+    """Folha (`custo_pessoal`) por POOL da função, dividida por igual entre os veículos do tipo.
+
+    Regra da diretoria (24/09/2026), mês a mês:
+      - Motorista Carreteiro            → cavalos normais
+      - Motorista Carreteiro - 9 eixos  → rodotrens (`RODOTREM`)
+      - Motorista de Caminhão Truck     → trucks
+      - '- inativo' e a função genérica 'Motorista' → fora do custo
+    O divisor é o nº de veículos Rizza do tipo que **rodaram Frota no mês** (os que têm linha na
+    tela) — dividir pelo cadastro mandaria a fatia do veículo parado para uma linha que não existe.
+    Tipo sem veículo rodando no mês cai por igual em todos os que rodaram, para o total fechar.
+    Não casa nome: o motorista de 9 eixos que dirige cavalo normal continua no pool do rodotrem.
 
     Carreta não recebe folha — é custo do cavalo. Truck fica na visão Cavalo, como já era.
     Retorna (por_placa, diag)."""
@@ -3265,8 +3289,11 @@ def _pessoal_por_cavalo(token, meses_set, cadastro, fat_por_placa):
     rizza_cav = {p: v for p, v in cadastro.items()
                  if v.get('proprietario') == 'RIZZA TRANSPORTES LTDA' and v.get('tipo') != 'CARRETA'}
     elegiveis = {p for p in fat_por_placa if p in rizza_cav}
-    trucks = {p for p in elegiveis if str(rizza_cav[p].get('tipo') or '').upper() == 'TRUCK'}
-    cavalos = elegiveis - trucks
+
+    def _classe_veiculo(p):
+        if str(rizza_cav[p].get('tipo') or '').upper() == 'TRUCK':
+            return 'truck'
+        return 'rodotrem' if p in RODOTREM else 'cavalo'
 
     # Competência sem folha lançada usa a anterior mais recente que tenha, como PROVISÃO —
     # quando o RH lançar o mês, o real entra no lugar sozinho (a fonte deixa de ser a anterior).
@@ -3285,93 +3312,62 @@ def _pessoal_por_cavalo(token, meses_set, cadastro, fat_por_placa):
                 provisao.append(f'{m}<-{anteriores[-1]}')
     fontes = sorted(set(origem.values()))
 
-    por_comp = {}
+    pools_comp = {}   # competência → {classe: R$}
+    fora_comp = {}    # competência → R$ fora do custo (inativos, função genérica)
     if fontes:
         fset = '{' + ','.join(f'"{c}"' for c in fontes) + '}'
         for r in _dax_rows(token, f"EVALUATE SUMMARIZE(FILTER({CP}, {CP}[competencia] IN {fset}), "
-                           f"{CP}[competencia], {CP}[nome], {CP}[funcao], \"v\", SUM({CP}[total_mes]))"):
-            chave = ' '.join(_nome_tokens(r.get('nome')))
-            if not chave:
-                continue
-            d = por_comp.setdefault(str(r.get('competencia')), {}).setdefault(
-                chave, {'nome': r.get('nome'), 'funcao': str(r.get('funcao') or ''), 'v': 0.0})
-            d['v'] += float(r.get('v') or 0)
+                           f"{CP}[competencia], {CP}[funcao], \"v\", SUM({CP}[total_mes]))"):
+            c, v = str(r.get('competencia')), float(r.get('v') or 0)
+            classe = _classe_folha(r.get('funcao'))
+            if classe is None:
+                fora_comp[c] = fora_comp.get(c, 0.0) + v
+            else:
+                pc = pools_comp.setdefault(c, {})
+                pc[classe] = pc.get(classe, 0.0) + v
 
-    folha, v_provisao = {}, 0.0
+    # Veículos que rodaram Frota em cada mês pedido — o divisor é mensal.
+    ativos = {}   # mês → {placa}
+    if elegiveis:
+        for r in _dax_rows(token, f"EVALUATE SUMMARIZE(ADDCOLUMNS(FILTER({AR}, "
+                           f"FORMAT({AR}[data_ref_ctrc],\"YYYY-MM\") IN {meses_set} && "
+                           f"{AR}[Tipo Operacao]=\"FROTA\" && NOT(ISBLANK({AR}[placa_cavalo]))), "
+                           f"\"mes\", FORMAT({AR}[data_ref_ctrc],\"YYYY-MM\")), "
+                           f"[mes], {AR}[placa_cavalo])"):
+            p = _placa_mercosul(r.get('placa_cavalo'))
+            if p in elegiveis:
+                ativos.setdefault(str(r.get('mes')), set()).add(p)
+
+    por_placa, pools = {}, {}
+    v_total = v_provisao = v_fora = v_sem_veiculo = 0.0
     for m in pedidos:  # um mês provisionado repete o valor da fonte (é estimativa daquele mês)
-        for chave, d in por_comp.get(origem.get(m, ''), {}).items():
-            alvo = folha.setdefault(chave, {'nome': d['nome'], 'funcao': d['funcao'], 'v': 0.0})
-            alvo['v'] += d['v']
-            if origem.get(m) != m:
-                v_provisao += d['v']
-    folha_total = sum(d['v'] for d in folha.values())
-    base_diag = {'pessoal_total': round(folha_total, 2),
-                 'pessoal_provisionado': round(v_provisao, 2),
-                 'pessoal_meses_provisao': provisao}
-    if not folha_total or not elegiveis:
-        return {}, dict(base_diag, pessoal_residuo=round(folha_total, 2),
-                        pessoal_motoristas=len(folha), pessoal_sem_viagem=len(folha),
-                        pessoal_nome_aproximado=0)
-
-    # KM rodado por motorista × cavalo — mesma régua de KM da tela (rotas_km, com
-    # fallback no distancia_km cru), não o hodômetro do ValeCard, que é digitado e sujo.
-    km_rota = (f"SUMX({AR}, COALESCE(LOOKUPVALUE('public rotas_km'[km],"
-               f"'public rotas_km'[cidade_uf_origem],{AR}[cidade_uf_origem],"
-               f"'public rotas_km'[cidade_uf_destino],{AR}[cidade_uf_destino]),"
-               f"{AR}[distancia_km]))")
-    viagens = {}   # nome_chave -> {placa: {'km': km rodado, 'n': nº de viagens}}
-    for r in _dax_rows(token, f"EVALUATE SUMMARIZE(FILTER({AR}, "
-                       f"FORMAT({AR}[data_ref_ctrc],\"YYYY-MM\") IN {meses_set} && "
-                       f"NOT(ISBLANK({AR}[placa_cavalo])) && NOT(ISBLANK({AR}[motorista]))), "
-                       f"{AR}[motorista], {AR}[placa_cavalo], \"km\", {km_rota}, "
-                       f"\"n\", COUNTROWS({AR}))"):
-        p = _placa_mercosul(r.get('placa_cavalo'))
-        if p not in elegiveis:
+        fonte = origem.get(m)
+        if not fonte:
             continue
-        chave = ' '.join(_nome_tokens(r.get('motorista')))
-        if chave:
-            d = viagens.setdefault(chave, {}).setdefault(p, {'km': 0.0, 'n': 0})
-            d['km'] += float(r.get('km') or 0)
-            d['n'] += int(r.get('n') or 0)
-
-    # Nível 1 — quem rodou: folha proporcional ao KM rodado em cada veículo.
-    por_placa, sem_viagem, n_aprox = {}, [], 0
-    for chave, d in folha.items():
-        alvo = chave if chave in viagens else None
-        if alvo is None and viagens:  # nome corrompido/abreviado: cai para similaridade
-            cand = max(viagens, key=lambda a: _nome_parecido(chave, a))
-            if _nome_parecido(chave, cand) >= _NOME_MATCH_MIN:
-                alvo, n_aprox = cand, n_aprox + 1
-        if alvo is None:
-            sem_viagem.append(d)
+        v_fora += fora_comp.get(fonte, 0.0)
+        ativos_m = ativos.get(m, set())
+        if not ativos_m:
             continue
-        vs = viagens[alvo]
-        total_km = sum(x['km'] for x in vs.values())
-        total_n = sum(x['n'] for x in vs.values())
-        if total_km <= 0:  # nenhum km medido no mês → divide entre os veículos que dirigiu
-            peso = {p: 1.0 for p in vs}
-        else:
-            # Viagem sem km medido (rota fora do rotas_km e distancia_km vazio) pesaria ZERO e
-            # o veículo ficaria sem folha mesmo tendo rodado. Vale o km médio das viagens do
-            # próprio motorista no mês — proporcional a uma viagem típica, em vez de nada.
-            media = total_km / (total_n or 1)
-            peso = {p: (x['km'] if x['km'] > 0 else media * x['n']) for p, x in vs.items()}
-        total_peso = sum(peso.values()) or 1.0
-        for p, w in peso.items():
-            por_placa[p] = por_placa.get(p, 0.0) + d['v'] * w / total_peso
-
-    # Nível 2 — resíduo por igual dentro da classe (truck → trucks; demais → cavalos).
-    res_truck = sum(d['v'] for d in sem_viagem if 'TRUCK' in d['funcao'].upper())
-    res_cav = sum(d['v'] for d in sem_viagem) - res_truck
-    for base, valor in ((trucks or elegiveis, res_truck), (cavalos or elegiveis, res_cav)):
-        if valor and base:
+        por_classe = {}
+        for p in ativos_m:
+            por_classe.setdefault(_classe_veiculo(p), []).append(p)
+        for classe, valor in pools_comp.get(fonte, {}).items():
+            base = por_classe.get(classe)
+            if not base:  # nenhum veículo do tipo rodou no mês → todos os que rodaram
+                base, v_sem_veiculo = list(ativos_m), v_sem_veiculo + valor
             for p in base:
                 por_placa[p] = por_placa.get(p, 0.0) + valor / len(base)
-    residuo = res_truck + res_cav
-    n_sem = len(sem_viagem)
+            pools.setdefault(m, {})[classe] = {'valor': round(valor, 2), 'veiculos': len(base)}
+            v_total += valor
+            if fonte != m:
+                v_provisao += valor
 
-    diag = dict(base_diag, pessoal_residuo=round(residuo, 2), pessoal_motoristas=len(folha),
-                pessoal_sem_viagem=n_sem, pessoal_nome_aproximado=n_aprox)
+    diag = {'pessoal_total': round(v_total, 2),
+            'pessoal_provisionado': round(v_provisao, 2),
+            'pessoal_meses_provisao': provisao,
+            'pessoal_fora': round(v_fora, 2),              # inativos + função genérica
+            'pessoal_sem_veiculo_tipo': round(v_sem_veiculo, 2),
+            'pessoal_pools': pools}
     return {p: round(v, 2) for p, v in por_placa.items()}, diag
 
 
