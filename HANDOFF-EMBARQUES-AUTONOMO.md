@@ -5144,3 +5144,29 @@ docker service update --env-add EMBARQUES_RAIO_PERNA=true rizza-auditoria_app
 Esperado na 1ª rodada: ~20 cargas de perna curta (Grande Goiânia, Grande Vitória, Grande SP) e
 a C-1085 corrigida. **Perna longa alterada = desligar a chave** e `restaurar` pelo snapshot.
 Tag de volta: `pre-raio-perna-2026-09-25`.
+
+#### No ar em 25/09 — a primeira rodada bateu com o laboratório
+
+`f3ee8e6` deployado e `EMBARQUES_RAIO_PERNA=true` pela CLI (snapshot `snap_20260925_1238`).
+**As 20 cargas do lab mudaram em produção, uma a uma**, mais 3 pernas de 35 km nascidas depois
+do dump (V-244, V-247, V-254, Viana ↔ Serra). C-1085 na tela: saída 22/09 19:14 BRT, chegada
+19:49, conclusão 23/09 05:15 (saiu do destino — o `F3` previsto no lab não se confirmou), 12 km
+rastreados, mapa desenhado.
+
+**O gate que eu passei estava errado, e o certo fica como receita.** "Perna longa alterada =
+desligar" vale no lab (GPS congelado), não em produção: nas 3 h da rodada o motor mexeu em 8
+pernas longas (C-1108 961 km, C-1065, C-1159, V-253, C-1113, C-1124, C-1127, V-245) — GPS novo
+chegando, como em qualquer rodada. O efeito do PATCH é o que o motor DESFARIA com a chave
+desligada, só naquele comando:
+
+```bash
+docker exec -e EMBARQUES_RAIO_PERNA=false $CT python -X utf8 _robo_atemporal.py \
+    --desde 2026-08-28 --ate $HOJE --csv /tmp/off.csv | tail -3
+```
+
+Resultado: 22 cargas, **21 as pernas curtas do lab** e nenhuma das 8 longas. A 22ª,
+C-2026-001114 (804 km), aparece IGUAL com a chave ligada: o worker fechou às 13:41 UTC e não
+grava `encerrada_motivo`; o motor preenche na rodada seguinte, com ou sem chave.
+
+**Defeito à parte, pré-existente:** `_snapshot_embarques.py diff snap_X` sem `--ids` nem
+`--desde-log` monta `WHERE  ORDER BY` e levanta `SyntaxError`. Com o filtro funciona.

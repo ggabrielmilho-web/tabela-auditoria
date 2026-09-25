@@ -29,7 +29,7 @@ O detalhe de cada item está no `HANDOFF-EMBARQUES-AUTONOMO.md`, §27 em diante.
 | `EMBARQUES_DESENGATE_CAVALO` | **ausente = false** | o gatilho de desengate por GPS, desligado em 19/09 — ver abaixo |
 | `EMBARQUES_MODELO_CARRETA` | **ausente = false** | Fase D, ainda não medido com dado novo |
 | `EMBARQUES_SENSOR_CAVALO` | **true** desde 24/09 | carreta que fala pouco empresta saída/chegada do cavalo que esteve na origem — só preenche ou antecipa (`2df2d86`) |
-| `EMBARQUES_RAIO_PERNA` | **ausente = false** (subindo em 25/09) | perna curta: ponto só conta para a ponta de que está mais perto — o pátio da origem deixa de virar chegada (§27.18) |
+| `EMBARQUES_RAIO_PERNA` | **true** desde 25/09 | perna curta: ponto só conta para a ponta de que está mais perto — o pátio da origem deixa de virar chegada (§27.18) |
 | `RASTREAMENTO_SYNC_AUTO` | **nasce desligada** (21/09) | sincroniza o cadastro `embarques_veiculos_rastreio` sozinho: por **lacuna** (placa que o worker vê e o cadastro não conhece — consulta local, sem cota) + **garantia de 24 h**. Sem ela, o cadastro só anda quando alguém clica no Admin, e veículo novo na 3S fica invisível **para a tela** com a viagem correndo (§27.13 nº 2) |
 
 ### O que mudou em 18–19/09, e por quê
