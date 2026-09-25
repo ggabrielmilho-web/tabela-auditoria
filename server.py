@@ -1875,11 +1875,18 @@ def admin_acessos():
         conn = get_db()
         cur = conn.cursor()
         corte = "criado_em >= NOW() - INTERVAL '%d days'" % dias
+        # `criado_em` é TIMESTAMP sem fuso gravado pelo NOW() do banco. Em PRODUÇÃO o banco roda
+        # em UTC: exibido cru, o horário saía 3 h ADIANTADO e o "dia" virava às 21h de Brasília
+        # (dias ativos e o gráfico por dia contavam errado). O banco LOCAL roda em São Paulo —
+        # por isso a conversão parte do fuso do próprio banco, e não de 'UTC' fixo: fixar
+        # consertaria produção e atrasaria 3 h o local. Todo horário e dia desta tela passa aqui.
+        brt = ("(criado_em AT TIME ZONE current_setting('TimeZone') "
+               "AT TIME ZONE 'America/Sao_Paulo')")
 
         cur.execute(f"""
             SELECT COALESCE(user_id, -1), MAX(nome), COUNT(*),
-                   COUNT(DISTINCT criado_em::date), COUNT(DISTINCT aba),
-                   MIN(criado_em), MAX(criado_em)
+                   COUNT(DISTINCT ({brt})::date), COUNT(DISTINCT aba),
+                   MIN({brt}), MAX({brt})
               FROM auditoria_acessos WHERE {corte}
              GROUP BY COALESCE(user_id, -1) ORDER BY COUNT(*) DESC""")
         usuarios = [{'user_id': r[0], 'nome': r[1] or '(sem nome)', 'acessos': r[2],
@@ -1890,7 +1897,7 @@ def admin_acessos():
                     for r in cur.fetchall()]
 
         cur.execute(f"""
-            SELECT aba, COUNT(*), COUNT(DISTINCT user_id), MAX(criado_em)
+            SELECT aba, COUNT(*), COUNT(DISTINCT user_id), MAX({brt})
               FROM auditoria_acessos WHERE {corte}
              GROUP BY aba ORDER BY COUNT(*) DESC""")
         abas = [{'aba': r[0], 'acessos': r[1], 'usuarios': r[2],
@@ -1898,7 +1905,7 @@ def admin_acessos():
                 for r in cur.fetchall()]
 
         cur.execute(f"""
-            SELECT COALESCE(user_id, -1), aba, COUNT(*), MAX(criado_em)
+            SELECT COALESCE(user_id, -1), aba, COUNT(*), MAX({brt})
               FROM auditoria_acessos WHERE {corte}
              GROUP BY COALESCE(user_id, -1), aba""")
         matriz = [{'user_id': r[0], 'aba': r[1], 'acessos': r[2],
@@ -1906,7 +1913,7 @@ def admin_acessos():
                   for r in cur.fetchall()]
 
         cur.execute(f"""
-            SELECT criado_em::date, COUNT(*), COUNT(DISTINCT user_id)
+            SELECT ({brt})::date, COUNT(*), COUNT(DISTINCT user_id)
               FROM auditoria_acessos WHERE {corte}
              GROUP BY 1 ORDER BY 1""")
         por_dia = [{'dia': r[0].strftime('%Y-%m-%d'), 'acessos': r[1], 'usuarios': r[2]}

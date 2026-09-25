@@ -54,9 +54,11 @@
     // 🌱 e não ♻/🌍: é inventário de emissão, não reciclagem nem "planeta".
     // Emoji de bloco antigo, pela mesma razão do 🚛 acima (glifo no Windows 10).
     { id: 'verda',         page: 'verda',         href: '/verda',             label: '🌱 Verda' },
-    { id: 'admin',         page: 'admin',         href: '/admin',             label: '⚙ Admin' }
-    // O relatório de uso (/uso) NÃO entra aqui de propósito: é tela escondida,
-    // acessada só por quem sabe a URL. Protegida por admin_required no servidor.
+    { id: 'admin',         page: 'admin',         href: '/admin',             label: '⚙ Admin' },
+    // Relatório de uso (/uso). Era tela escondida; desde 25/09/26 aparece no menu para quem é
+    // role=admin — `page: 'admin'` faz o `podeVer` negar aos demais, e o servidor segue
+    // protegendo a rota com admin_required (menu escondido nunca foi a proteção).
+    { id: 'uso',           page: 'admin',         href: '/uso',               label: '👥 Acessos' }
   ];
 
   // Grupos da barra E dos cards do /inicio — uma lista só, para os dois não divergirem
@@ -65,7 +67,7 @@
     { nome: 'Operação',   abas: ['embarques', 'ordens', 'mapa', 'pgr', 'jornada', 'ciot', 'veiculos', 'verda'] },
     { nome: 'Comercial',  abas: ['tarifas', 'faturamento', 'contratos'] },
     { nome: 'Financeiro', abas: ['auditoria', 'dre', 'despesas', 'conhecimentos', 'contabil'] },
-    { nome: 'Sistema',    abas: ['reuniao', 'admin'] }   // /uso fica fora: tela escondida
+    { nome: 'Sistema',    abas: ['reuniao', 'admin', 'uso'] }
   ];
 
   var CHAVE_RECOLHIDA = 'rizza.nav.recolhida';
