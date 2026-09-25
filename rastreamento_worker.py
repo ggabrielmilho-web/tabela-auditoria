@@ -33,6 +33,14 @@ CICLOS_CONFIRMACAO = int(os.getenv('RASTREAMENTO_CICLOS_CONFIRMACAO', '3'))
 RAIO_CONFIRMACAO_KM = float(os.getenv('RASTREAMENTO_RAIO_KM', '5'))
 DESVIO_MAX_KM = float(os.getenv('RASTREAMENTO_DESVIO_KM', '10'))
 RETENCAO_DIAS = int(os.getenv('RASTREAMENTO_RETENCAO_DIAS', '30'))
+# PURGA DAS POSICOES — DESLIGADA desde 25/09/2026 (decisao do Gabriel). A posicao e fato bruto
+# e a 3S so serve ~35 dias: o que a purga leva nao volta. Ja custou evidencia duas vezes — o
+# V1 que subiu em bloco quando a purga comeu a origem das cargas de agosto (§27.13) e o ponto
+# de parada por CNPJ, que a ancora por endereco precisa acumular por MESES (§27.18). Custo de
+# nao purgar, medido: ~20 mil posicoes/dia x 243 bytes = ~5 MB/dia, ~1,8 GB/ano.
+# `RETENCAO_DIAS` continua valendo para o que NAO e apagar: a janela da consolidacao diaria e
+# o corte de veiculo inativo do backfill. Religar: RASTREAMENTO_PURGA_POSICOES=true.
+PURGA_POSICOES = os.getenv('RASTREAMENTO_PURGA_POSICOES', 'false').lower() in ('1', 'true', 'sim')
 RECALCULO_INTERVALO_MIN = int(os.getenv('RASTREAMENTO_RECALCULO_MIN', '30'))
 # Status 'No destino': na cidade da descarga há >= 60min E parado agora (vel <= 3 km/h).
 CHEGADA_MIN_PARADO = 60   # minutos na cidade do destino p/ promover a 'No destino' (fixo)
@@ -923,7 +931,11 @@ def _purgar_posicoes_antigas(cur):
     trajeto de uma viagem em curso (carga longa, parada de dias no destino).
     Cargas concluídas não precisam da exceção: o KPI já foi consolidado em
     embarques_cargas_rastreio_kpi, que sobrevive à limpeza.
+
+    Desde 25/09/2026 só roda com RASTREAMENTO_PURGA_POSICOES=true (ver PURGA_POSICOES).
     """
+    if not PURGA_POSICOES:
+        return 0
     cur.execute("""
         DELETE FROM embarques_posicoes_historico h
         WHERE h.data_posicao < NOW() - %s::interval

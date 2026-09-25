@@ -5170,3 +5170,20 @@ grava `encerrada_motivo`; o motor preenche na rodada seguinte, com ou sem chave.
 
 **Defeito à parte, pré-existente:** `_snapshot_embarques.py diff snap_X` sem `--ids` nem
 `--desde-log` monta `WHERE  ORDER BY` e levanta `SyntaxError`. Com o filtro funciona.
+
+#### A purga do GPS foi desligada (25/09, decisão do Gabriel)
+
+Motivo: a âncora por endereço precisa de **meses** de ponto de parada por CNPJ, e a purga de 30
+dias apagava exatamente isso — além de já ter promovido `V1` em bloco (§27.13). Medido no lab:
+121 MB para 520 mil posições (243 bytes/linha com índices), ~20 mil posições/dia → **~5 MB/dia,
+~1,8 GB/ano**. A purga ganhou chave própria, `RASTREAMENTO_PURGA_POSICOES` (ausente = false);
+`RASTREAMENTO_RETENCAO_DIAS` **não** foi reaproveitada porque também define a janela da
+consolidação diária e o corte de veículo inativo do backfill da 3S — subir o número varreria o
+histórico inteiro todo dia e gastaria cota com placa morta. Teste no lab: chave ausente apaga 0;
+`true` apaga 36.312 (o comportamento antigo).
+
+**Retroativo dos CNPJs (medido no lab, NÃO aplicado):** `embarques_coleta.ligar` com janela
+19/08 → hoje leva a cobertura de 107 para 308 cargas com `destino_cnpj` e de 44% para 66% das
+cargas com âncora possível (CNPJs com 2+ chegadas provadas: 12/48 → 42/112). Das 246 chegadas
+provadas com CNPJ, 218 ainda tinham GPS no dump de 23/09. Comando com dry-run/`APLICAR=1` na
+conversa de 25/09; próximo passo proposto: gravar o ponto de parada (lat/lng) junto da chegada.
