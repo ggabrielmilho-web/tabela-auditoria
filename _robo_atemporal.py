@@ -157,6 +157,27 @@ def _saida_de(d_org):
 
 
 
+def _pontas(pts_, ola, oln, dla, dln):
+    """(d_org, d_dst, mexeu) — triplas (instante, km, vel) de uma serie contra as duas pontas
+    da perna, com o LADO DA PERNA aplicado (embarques_regua.lado): ponto mais perto da outra
+    ponta fica LONGE. Chave desligada: as distancias cruas, identico ao que era.
+
+    `mexeu` = o lado reclassificou algum ponto DENTRO DA AREA DA ORIGEM (raio de metropole).
+    So acontece em perna curta: em perna longa o ponto mais perto do destino esta a centenas
+    de km da origem, fora de qualquer raio. A 1a versao desta flag olhava a serie inteira e
+    disparava em TODA viagem concluida (o fim da viagem sempre esta "mais perto do destino"):
+    no lab reescreveu a saida de 24 cargas longas, Serra -> Uberlandia inclusive."""
+    _o = [geocoding.km_entre(la, ln, float(ola), float(oln)) if ola is not None else None
+          for _d, la, ln, _v in pts_]
+    _t = [geocoding.km_entre(la, ln, float(dla), float(dln)) if dla is not None else None
+          for _d, la, ln, _v in pts_]
+    d_o = [(p[0], regua.lado(o, t), p[3]) for p, o, t in zip(pts_, _o, _t) if o is not None]
+    d_t = [(p[0], regua.lado(t, o), p[3]) for p, o, t in zip(pts_, _o, _t) if t is not None]
+    mexeu = regua.RAIO_PERNA and any(o is not None and t is not None and o <= RAIO_METRO and t <= o
+                                     for o, t in zip(_o, _t))
+    return d_o, d_t, mexeu
+
+
 mudancas, resumo, detalhe = [], Counter(), []
 
 for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal, dconc,
@@ -179,12 +200,11 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
 
     # As listas carregam a VELOCIDADE junto desde 09/09/26: sem ela o raio estrito nao
     # consegue separar "chegou e parou" de "cruzou a borda do anel a 80 km/h".
-    d_org = ([(d, geocoding.km_entre(la, ln, float(ola), float(oln)), v) for d, la, ln, v in pts]
-             if ola is not None else [])
-    d_org = [(d, k, v) for d, k, v in d_org if k is not None]
-    d_dst = ([(d, geocoding.km_entre(la, ln, float(dla), float(dln)), v) for d, la, ln, v in pts]
-             if dla is not None else [])
-    d_dst = [(d, k, v) for d, k, v in d_dst if k is not None]
+    # O LADO DA PERNA (EMBARQUES_RAIO_PERNA) vive em `_pontas`: em perna curta, ponto mais
+    # perto da outra ponta nao conta para esta. Desligado, e a conta de sempre.
+    # `_lado_mexeu`: o lado reclassificou ponto da area da ORIGEM — so entao a saida gravada
+    # pela regua antiga pode estar errada (ver `_saida_perna`).
+    d_org, d_dst, _lado_mexeu = _pontas(pts, ola, oln, dla, dln)
 
     # ── SAIDA: precisa ter estado na origem e depois se afastado
     # A saida e o ULTIMO ponto visto DENTRO do raio da origem, nao o primeiro visto fora.
@@ -213,9 +233,7 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
     if SENSOR_CAVALO and sensor and sensor.startswith('carreta') and cav and ola is not None:
         _pcav = serie(cav, ini, fim)
         if _pcav and len(_pcav) > SENSOR_CAVALO_FATOR * max(1, len(pts)):
-            _dorg_cav = [(d, geocoding.km_entre(la_, ln_, float(ola), float(oln)), v)
-                         for d, la_, ln_, v in _pcav]
-            _dorg_cav = [(d, k, v) for d, k, v in _dorg_cav if k is not None]
+            _dorg_cav, _, _ = _pontas(_pcav, ola, oln, dla, dln)
             _cav_vale = bool(_dorg_cav) and min(k for _, k, _v in _dorg_cav) <= RAIO_ORIGEM
             if _cav_vale:
                 _s_cav, _t_cav = _saida_de(_dorg_cav)
@@ -277,7 +295,19 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
     # Usar so a do GPS fazia o robo gravar uma chegada valida para ele e invalida para a
     # regra de coerencia (que olha o banco) — ele gravava, descartava e recalculava a cada
     # passada, oscilando em 8 cargas sem nunca convergir.
-    _pisos = [x for x in (n_saida, dsaida) if x is not None]
+    # SAIDA DA REGUA ANTIGA em perna curta (EMBARQUES_RAIO_PERNA). Sem o lado da perna, a
+    # saida gravada numa perna de 20 km e o ultimo ponto a 30 km da origem — ja em cima do
+    # destino — e vira o PISO da chegada: a chegada verdadeira, que a regua nova enxerga, cai
+    # antes dele e e descartada. Medido no lab de 25/09 (C-2026-000559: chegada provada pelo
+    # aferidor, nunca gravada). Mesmo tratamento da correcao de carregamento acima: reescreve
+    # a saida, e so a AUTOMATICA — saida digitada por pessoa nao se toca. Perna vazia fica de
+    # fora: a janela dela e da rederivacao, e o motor nao escreve saida nela.
+    _saida_perna = (_lado_mexeu and saida_auto and not vazia
+                    and n_saida is not None and dsaida is not None
+                    and n_saida < dsaida - timedelta(minutes=30))
+    if _saida_perna:
+        resumo['saida reescrita: lado da perna'] += 1
+    _pisos = [x for x in (n_saida, None if _saida_perna else dsaida) if x is not None]
     piso = max(_pisos) if _pisos else t_org
     # E um TETO, simetrico do piso: a viagem nao pode ter chegada DEPOIS de a carreta ja
     # ter comecado outra. Sem ele a V-2026-000015 aceitava chegada em 01/09 numa viagem que
@@ -297,9 +327,9 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
     if sensor and sensor.startswith('carreta') and cav and dla is not None:
         _pcav = _pcav if _pcav is not None else serie(cav, ini, fim)
         if _pcav:
-            _dcav = [(d, geocoding.km_entre(la_, ln_, float(dla), float(dln)), v) for d, la_, ln_, v in _pcav]
-            _dcav = [(d, k, v) for d, k, v in _dcav if k is not None
-                     and (piso is None or d >= piso) and (teto is None or d <= teto)]
+            _, _dcav, _ = _pontas(_pcav, ola, oln, dla, dln)
+            _dcav = [(d, k, v) for d, k, v in _dcav
+                     if (piso is None or d >= piso) and (teto is None or d <= teto)]
             _c2, _como2 = regua.chegada_emprestada(n_cheg, como_cheg, d_dst, _dcav)
             if _c2 != n_cheg:
                 n_cheg, como_cheg = _c2, _como2
@@ -429,7 +459,7 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
     # A correcao de carregamento PRECISA reescrever a saida JA GRAVADA. Sem isto ela so
     # muda o piso interno, a chegada cai fora dele e o efeito liquido e APAGAR chegada:
     # medido no lab, 24 correcoes nao chegavam ao banco e 5 chegadas eram perdidas.
-    if n_saida and _saida_corrigida and dsaida and n_saida != dsaida:
+    if n_saida and (_saida_corrigida or _saida_perna) and dsaida and n_saida != dsaida:
         campos['data_saida_real'] = n_saida
         campos['saida_auto'] = True
         campos['inicio_viagem'] = n_saida

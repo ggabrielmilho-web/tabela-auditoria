@@ -59,6 +59,35 @@ PARADA_MIN_H = _f('RASTREAMENTO_PARADA_MIN_H', 2.0)         # parada que prova p
 RAIO_ORIGEM = _f('RASTREAMENTO_RAIO_ORIGEM', 30)            # esteve na origem
 RAIO_SAIDA_DESTINO = _f('RASTREAMENTO_RAIO_SAIDA_DESTINO', 30)  # saiu do destino
 
+# LADO DA PERNA (25/09/2026) — atras de EMBARQUES_RAIO_PERNA.
+#
+# Em 23/09 o raio proporcional entrou so no RECORTE do mapa. A DECISAO continuou com os raios
+# fixos, e numa perna curta eles cobrem a outra ponta: C-2026-001085 (Aparecida de Goiania ->
+# Goiania, 15 km em linha reta), carreta parada no patio a 4 km da origem e 11 km do
+# destino, ganhou chegada em 21/09 14:10 — UM DIA ANTES do carregamento — e saida nenhuma,
+# porque o raio da origem (30 km) e maior que a perna inteira: ela nunca "sai".
+#
+# Encolher o raio para a metade da perna foi a primeira versao, e o lab REPROVOU: a
+# V-2026-000172 (Rio -> Duque de Caxias, 17,7 km) ficou 7 h parada a 14,4 km do destino e
+# 29,7 km da origem — entrega de verdade — e o raio de 8,85 km a perdia. O centroide erra de
+# 2,8 a 11,2 km (secao 27.13); raio da ordem desse erro perde chegada em metropole.
+#
+# A regra que fica e a do LADO: um ponto so conta para uma ponta se estiver mais perto dela
+# do que da outra. Os raios continuam os de sempre. O patio da origem (mais perto da origem)
+# nunca vira chegada; o cliente no destino (mais perto do destino) nunca e excluido. Em perna
+# longa nada muda — um ponto a 20 km do destino nunca esta mais perto da origem.
+RAIO_PERNA = _os.getenv('EMBARQUES_RAIO_PERNA', 'false').lower() in ('1', 'true', 'sim')
+LONGE = float('inf')
+
+
+def lado(k_alvo, k_outra):
+    """Distancia a uma ponta da perna — ou LONGE, se o ponto esta mais perto da OUTRA ponta
+    (fora de qualquer raio, e contando como "saiu" para quem pergunta se saiu). Chave
+    desligada, ou a outra ponta desconhecida: a distancia crua, como sempre."""
+    if not RAIO_PERNA or k_alvo is None or k_outra is None:
+        return k_alvo
+    return k_alvo if k_alvo < k_outra else LONGE
+
 # HORIZONTE DE EVIDENCIA — ate onde vale procurar resposta depois do carregamento.
 # Sao 30 dias porque e ali que a evidencia de GPS acaba (a retencao da 3S), e porque e a
 # janela de reanalise que a secao 13.4 dimensionou. O motor usava 20 e o aferidor tambem:

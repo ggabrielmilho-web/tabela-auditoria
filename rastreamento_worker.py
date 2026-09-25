@@ -299,6 +299,17 @@ def _n_ciclos_fora_raio(cur, placa, centroide, raio_km, n):
     return True
 
 
+def _lado_destino(d_dest, lat, lng, centroide_origem):
+    """Distancia ao destino com o LADO DA PERNA aplicado — a MESMA regua do motor
+    (embarques_regua.lado, atras de EMBARQUES_RAIO_PERNA). Numa perna curta o patio da
+    origem cai dentro do raio do destino; ponto mais perto da origem nao e chegada. Sem isto,
+    ligar a chave so no motor faria os dois escritores brigarem pelo status (§21.3)."""
+    import embarques_regua as _regua
+    if d_dest is None or not _regua.RAIO_PERNA or not centroide_origem or centroide_origem[0] is None:
+        return d_dest
+    return _regua.lado(d_dest, geocoding.km_entre(lat, lng, centroide_origem[0], centroide_origem[1]))
+
+
 def _saiu_da_cidade(cur, placa, pos_cidade, cidade_ref, uf_ref, centroide_ref, raio_saida_km):
     """Confirma SAÍDA da cidade de referência, robusto ao 3S mentir o nome.
     Saiu se: (nome mudou E > RAIO_CONFIRMACAO) OU (distância > raio_saida_km).
@@ -673,6 +684,7 @@ def _processar_cargas(cur):
                 and centroide_dest[0] is not None and ref_fresca \
                 and (ref_vel is None or ref_vel <= PARADO_KMH):
             _d_dest = geocoding.km_entre(ref_lat, ref_lng, centroide_dest[0], centroide_dest[1])
+            _d_dest = _lado_destino(_d_dest, ref_lat, ref_lng, centroide_origem)
             if _d_dest is not None and _d_dest <= RAIO_CHEGADA_DESTINO_KM:
                 cur.execute("UPDATE embarques_cargas SET no_local_desde=NOW(), atualizado_em=NOW() WHERE id=%s", (carga_id,))
                 _logger.info(f'[Carga {carga_id}/{placa}] Chegou e parou no destino ({_d_dest:.1f} km do centro)')
@@ -684,7 +696,8 @@ def _processar_cargas(cur):
                 and centroide_dest[0] is not None \
                 and (datetime.utcnow() - no_local_desde) >= timedelta(minutes=CHEGADA_MIN_PARADO) \
                 and (ref_vel is None or ref_vel <= PARADO_KMH) \
-                and (_d := geocoding.km_entre(ref_lat, ref_lng, centroide_dest[0], centroide_dest[1])) is not None \
+                and (_d := _lado_destino(geocoding.km_entre(ref_lat, ref_lng, centroide_dest[0], centroide_dest[1]),
+                                         ref_lat, ref_lng, centroide_origem)) is not None \
                 and _d <= RAIO_CHEGADA_DESTINO_KM:
             cur.execute("UPDATE embarques_cargas SET status='No destino', atualizado_em=NOW() WHERE id=%s", (carga_id,))
             _logger.info(f'[Carga {carga_id}/{placa}] Parado no destino há +{CHEGADA_MIN_PARADO}min → status "No destino"')

@@ -1,6 +1,8 @@
 # Handoff — Painel de Embarques autônomo
 
-**Estado em 20/09/2026 — ⚠ COMECE PELA §27.12.** O diário passou a rodar **após cada refresh
+**Estado em 25/09/2026 — ⚠ COMECE PELA §27.18** (perna curta: o lado da perna na decisão de chegada, atrás de `EMBARQUES_RAIO_PERNA`; e o registro do `2df2d86` de 23/09).
+
+**Antes disso — 20/09/2026, §27.12.** O diário passou a rodar **após cada refresh
 do BI** e com **defasagem 0** (a carga nasce no dia do carregamento) — no ar desde 20/09, com
 a primeira noite medida no fim da §27.12. A aba de Coletas ganhou entrada no menu. **O que
 está aberto e é o primeiro item de amanhã: o `V1` subiu 44 → 64 num dia e nenhuma das duas
@@ -5062,3 +5064,83 @@ operacional precisa ver; excluir ou marcar pelo peso erraria a CAR e o 1 fora da
 * a rota pelo endereço (teste da tarde: 2 regressões na guarda de 100 km/h sem a guarda dos
   60 km do centroide; 0 com ela) fica na fila, atrás da decisão acima;
 * C-2026-001013 continua `Entregue` a 624 km do destino, à espera de correção de dado.
+
+### 27.18 Perna curta — o lado da perna na DECISÃO de chegada (25/09/2026)
+
+**Antes disso, 23/09 (`2df2d86`, não documentado até aqui):** sensor emprestado do cavalo
+(`EMBARQUES_SENSOR_CAVALO`, **ligado em produção em 24/09**) e raio proporcional no **recorte**
+do mapa (endpoint + worker, sem chave). A conferência de 25/09 em produção: imagem certa,
+disparos por refresh normais, motor em 0 no dry-run. O `V1` 64 → 84 contra o gabarito de 20/09
+é **purga de 30 dias** (15 cargas de 20–25/08 com o 1º ponto em 25/08 ~18:54) + a carreta
+`GSV8C03` voltando a falar (6 cargas) — nenhuma é do patch. As 6 `no_local_desde` apagadas
+são V-033/V-118 (o efeito colateral previsto no lab de 23/09), V-003 (apagou na imagem velha
+e voltou na nova) e 3 pernas recém-rederivadas. O `R1` da C-1124 é a briga antiga das duas
+réguas (§21.3), numa perna de 605 km — o raio proporcional não entra.
+
+**O caso (tela do Gabriel).** C-2026-001085, Aparecida de Goiânia → Goiânia (15 km em linha
+reta): `Entregue`, chegada **21/09 14:10 — um dia antes do carregamento (22/09)** — e saída
+nenhuma. A carreta estava parada no pátio, 4 km da origem e 11 km do centroide do destino. O
+patch de 23/09 corrigiu o DESENHO; a DECISÃO continuava em `embarques_regua` com raios fixos.
+Dois defeitos: o raio do destino (20 km, e 60 de metrópole) cobre o pátio da origem, e o da
+origem (30 km) é maior que a perna inteira — a carreta nunca "sai".
+
+**Primeira versão REPROVADA: raio = metade da perna.** Consertava a C-1085, mas a V-2026-000172
+(Rio → Duque de Caxias, 17,7 km) ficou 7 h parada a **14,4 km** do destino e 29,7 da origem —
+entrega de verdade — e o raio de 8,85 km a perdia. O centroide erra 2,8–11,2 km (§27.13): raio
+da ordem do erro perde chegada em metrópole, que é onde estão as pernas curtas.
+
+**A regra: o LADO da perna.** Um ponto só conta para uma ponta se estiver mais perto dela do
+que da outra (`embarques_regua.lado` → `LONGE`); os raios seguem 30/20/60. Pátio da origem
+nunca vira chegada; cliente no destino nunca é excluído; perna longa não muda (um ponto a 20 km
+do destino nunca está mais perto da origem). Atrás de **`EMBARQUES_RAIO_PERNA`** (nasce
+desligada), nos **quatro** leitores — motor, aferidor, `_chegou_ao_destino`/dedup e a chegada ao
+vivo do worker (`_lado_destino`) — porque régua ligada só no motor recria a briga de escritores.
+
+Junto, no motor: **a saída gravada pela régua antiga é reescrita** quando o lado reclassificou
+ponto da área da origem (perna curta), só a `saida_auto`, nunca em perna vazia (a janela é da
+rederivação). Sem isso a saída velha — o último ponto a 30 km da origem, já em cima do destino
+— vira piso e descarta a chegada verdadeira (C-2026-000559).
+
+**Bug meu que o lab pegou:** a 1ª flag dessa reescrita olhava a série inteira e disparava em
+TODA viagem concluída (o fim da viagem sempre está "mais perto do destino"): reescreveu a saída
+de 24 cargas longas, Serra → Uberlândia inclusive. Corrigida para "ponto dentro do raio de
+metrópole da origem".
+
+**Laboratório** — dump de produção de 23/09 (`emb_20260923.dump`), banco novo
+`rizza_lab_0925a`; gabarito = `server.rodar_pos_diario` com as chaves de produção até o ponto
+fixo; o patch roda num CLONE do gabarito convergido (`rizza_lab_0925d`), então toda diferença
+é do patch.
+
+```
+chave desligada   dry-run 0 · aferidor IDÊNTICO byte a byte ao gabarito
+chave ligada      20 cargas mudam, TODAS com perna < 50 km, nenhuma longa
+                  ponto fixo conjunto na rodada 2 · dry-run depois = 0
+C-1085            saída 22/09 22:14 · chegada 22:49 (cliente a 8 km de Goiânia, parado a noite toda)
+C-559             ganha chegada 28/08 22:04 e conclusão 29/08 02:39 (era 31/08 00:00 documental)
+V-225             gabarito: "chegou" com a carreta a 6 km da ORIGEM; agora a estadia real no destino
+aferidor          F1d −11 (pernas curtas com chegada provada) · P1 +6 (as mesmas: já estavam lá)
+                  V1 +3 (V-021, V-159, V-172 — a carreta nunca esteve do lado da origem; antes a
+                  metrópole de 60 km mascarava) · C3 +2 (V-187, V-202: o aferidor não respeita a
+                  janela da perna vazia — já eram 4 dos 5 C3 do gabarito)
+dedup (à parte)   C-1085: pátio 21/09 14:10 → 22/09 22:49 · carga longa igual
+```
+
+**Imprecisões conhecidas, sem ação:** V-225 grava 13:50 em vez de 01:50 (guarda de velocidade
+com a rota de 33 km contra amostra esparsa — mesma estadia); a C-1085 fica com conclusão =
+chegada no lab porque o dump acaba antes das 24 h, e em produção deve seguir `F3` (o motor só
+corrige conclusão com erro **> 24 h**, e o dwell dá exatamente 24).
+
+#### Para subir
+
+```bash
+# 1) deploy INERTE (chave ausente = false) — conferir DENTRO do container
+CT=$(docker ps -q --filter "name=rizza-auditoria_app")
+docker exec $CT grep -c "def lado" embarques_regua.py          # 1
+# 2) snapshot → 3) ligar
+docker exec $CT python -X utf8 _snapshot_embarques.py criar
+docker service update --env-add EMBARQUES_RAIO_PERNA=true rizza-auditoria_app
+```
+
+Esperado na 1ª rodada: ~20 cargas de perna curta (Grande Goiânia, Grande Vitória, Grande SP) e
+a C-1085 corrigida. **Perna longa alterada = desligar a chave** e `restaurar` pelo snapshot.
+Tag de volta: `pre-raio-perna-2026-09-25`.

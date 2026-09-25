@@ -1006,7 +1006,20 @@ def _destino_e_placa(cur, carga_id):
     return placa, float(la), float(ln), desde
 
 
-def _serie_destino(cur, placa, dla, dln, desde, ate_dias=45):
+def _origem_da_carga(cur, carga_id):
+    """(lat, lng) da origem, para o lado da perna (`embarques_regua.lado`). Com a chave
+    EMBARQUES_RAIO_PERNA desligada nem consulta — a regua ignoraria o valor."""
+    if not regua.RAIO_PERNA:
+        return None
+    cur.execute("SELECT origem_latitude, origem_longitude FROM embarques_cargas WHERE id = %s",
+                (carga_id,))
+    r = cur.fetchone()
+    if not r or r[0] is None or r[1] is None:
+        return None
+    return float(r[0]), float(r[1])
+
+
+def _serie_destino(cur, placa, dla, dln, desde, ate_dias=45, origem=None):
     """Triplas `(instante, km até o destino, velocidade)` em ordem — o formato que a
     `embarques_regua` consome.
 
@@ -1030,6 +1043,9 @@ def _serie_destino(cur, placa, dla, dln, desde, ate_dias=45):
         km = geocoding.km_entre(float(la), float(ln), dla, dln)
         if km is None:
             continue
+        if origem is not None:
+            # lado da perna: ponto mais perto da ORIGEM nao e chegada (mesma regua do motor)
+            km = regua.lado(km, geocoding.km_entre(float(la), float(ln), origem[0], origem[1]))
         saida.append((d, km, vel))
     return saida
 
@@ -1052,7 +1068,8 @@ def _chegou_ao_destino(cur, carga_id):
         return True
     if not placa:
         return False
-    chegada, _como = regua.chegada(_serie_destino(cur, placa, dla, dln, desde))
+    chegada, _como = regua.chegada(_serie_destino(cur, placa, dla, dln, desde,
+                                                  origem=_origem_da_carga(cur, carga_id)))
     return chegada is not None
 
 
@@ -1160,7 +1177,7 @@ def reanalisar_pendentes(cur, janela_dias=None):
         placa, dla, dln, desde = _destino_e_placa(cur, cid)
         if dla is None:
             continue                                  # sem destino não se julga nada
-        pontos = _serie_destino(cur, placa, dla, dln, desde)
+        pontos = _serie_destino(cur, placa, dla, dln, desde, origem=_origem_da_carga(cur, cid))
         # A régua é a de `embarques_regua` — a mesma do motor e do aferidor. Antes esta
         # linha era `primeiro ponto dentro do raio`, sem exigir parada: era o defeito do
         # anel, que marcava a chegada na borda dos 20 km com o caminhão a 60 km/h.

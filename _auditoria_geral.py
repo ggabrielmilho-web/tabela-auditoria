@@ -109,13 +109,17 @@ def pontos(placa, ini, fim):
     _cache[k] = v
     return v
 
-def dists(pts, lat, lng):
+def dists(pts, lat, lng, outra=None):
     """(instante, km ate o alvo, velocidade). A VELOCIDADE viaja junto desde 09/09/26:
-    sem ela nao da para separar "chegou e parou" de "cruzou a borda do anel a 80 km/h"."""
+    sem ela nao da para separar "chegou e parou" de "cruzou a borda do anel a 80 km/h".
+    `outra` = (lat, lng) da OUTRA ponta da perna: aplica o lado da perna, a MESMA regua do
+    motor (embarques_regua.lado). Chave desligada: distancia crua, como sempre."""
     out = []
     for d, la, ln, vel in pts:
         k = geocoding.km_entre(la, ln, lat, lng)
         if k is not None:
+            if outra is not None:
+                k = regua.lado(k, geocoding.km_entre(la, ln, outra[0], outra[1]))
             out.append((d, k, vel))
     return out
 
@@ -201,10 +205,14 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
             f'cavalo tem {len(pc)} pontos contra {len(principal)} da carreta — sensor mais pobre em uso',
             f'{papel}={c1 or c2}')
 
+    # As duas pontas da perna, para o lado da perna (mesma regua do motor, §20.6).
+    _P_ORG = (float(ola), float(oln)) if ola is not None else None
+    _P_DST = (float(dla), float(dln)) if dla is not None else None
+
     # ── VINCULO com a origem
     piso = None            # instante a partir do qual uma chegada e crivel (mesma regra do motor)
     if ola is not None:
-        d0 = dists(principal, float(ola), float(oln))
+        d0 = dists(principal, float(ola), float(oln), _P_DST)
         if d0:
             mino = min(k for _, k, v in d0)
             # Tolerancia de metropole tambem na ORIGEM: o patio/CD fica fora do centroide,
@@ -215,12 +223,14 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
             esteve = mino <= RAIO_ORIGEM or (mino <= RAIO_METRO and horas_o >= PARADA_MIN_H)
             if not esteve:
                 # o cavalo esteve la? entao a carreta do documento e que esta errada
-                dc = dists(pc, float(ola), float(oln)) if pc else []
+                dc = dists(pc, float(ola), float(oln), _P_DST) if pc else []
                 quem = ('so o CAVALO esteve na origem — carreta errada no documento'
                         if dc and min(k for _, k, v in dc) <= RAIO_ORIGEM
                         else 'nem carreta nem cavalo estiveram na origem')
+                # a distancia CRUA na mensagem: com o lado da perna o minimo pode ser LONGE
+                _mino_cru = min(k for _, k, v in dists(principal, float(ola), float(oln)))
                 add(num, 'V1', 'alta',
-                    f'a placa rastreada NUNCA esteve na origem ({mino:.0f} km no minimo) — {quem}',
+                    f'a placa rastreada NUNCA esteve na origem ({_mino_cru:.0f} km no minimo) — {quem}',
                     f'origem={ocid}')
             else:
                 # PRIMEIRA presenca na origem, nao a de menor distancia: numa viagem que
@@ -272,7 +282,7 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
 
     if dla is None:
         continue
-    dd = dists(principal, float(dla), float(dln))
+    dd = dists(principal, float(dla), float(dln), _P_ORG)
     if not dd:
         continue
     # Mesma regra do motor: chegada so conta DEPOIS de ter saido (ou de ter estado na
@@ -293,7 +303,7 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
         # o piso da carreta dormida e o proprio ponto em que ela acorda (11/09 no patio, na
         # C-632) — para o cavalo vale a saida GRAVADA, como no motor (max(saida gps, gravada))
         piso_c = min(piso, dsaida) if (piso and dsaida) else (dsaida or piso)
-        dd_cav = [(d, k, v) for d, k, v in dists(pc, float(dla), float(dln))
+        dd_cav = [(d, k, v) for d, k, v in dists(pc, float(dla), float(dln), _P_ORG)
                   if (piso_c is None or d >= piso_c) and (teto is None or d <= teto)]
         cheg, como = regua.chegada_emprestada(cheg, como, dd, dd_cav)
     mind = min(k for _, k, v in dd)
