@@ -1516,6 +1516,39 @@ def embarques_ordens_page():
     return send_from_directory('.', 'embarques-ordens.html')
 
 
+@app.route('/embarques/torre')
+@page_required('embarques')
+def embarques_torre_page():
+    return send_from_directory('.', 'embarques-torre.html')
+
+
+@app.route('/api/embarques/torre')
+@login_required
+def api_embarques_torre():
+    """Torre de controle: a consulta única do `torre.py`. `?dia=AAAA-MM-DD` anterior a hoje
+    devolve o RETRATO daquele dia (estado pelas datas, à meia-noite); sem `dia`, AO VIVO.
+    `TORRE_AGORA` (env, ISO em UTC) fixa o "agora" — só para ver a torre numa base de lab
+    congelada; em produção fica ausente."""
+    import torre
+    from datetime import date as _date, datetime
+    dia = None
+    try:
+        if request.args.get('dia'):
+            dia = _date.fromisoformat(request.args.get('dia'))
+    except ValueError:
+        return jsonify({'ok': False, 'error': 'dia inválido'}), 400
+    agora = None
+    if os.getenv('TORRE_AGORA'):
+        agora = datetime.fromisoformat(os.getenv('TORRE_AGORA'))
+    conn = get_db(); cur = conn.cursor()
+    try:
+        return jsonify({'ok': True, **torre.montar(cur, dia=dia, agora=agora)})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+    finally:
+        cur.close(); conn.close()
+
+
 @app.route('/api/embarques/ordens')
 @login_required
 def api_embarques_ordens():
