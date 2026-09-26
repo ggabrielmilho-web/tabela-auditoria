@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Projeção — Rizza Log</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%2338bdf8'/%3E%3Ctext x='50' y='72' font-family='Arial,sans-serif' font-size='68' font-weight='900' text-anchor='middle' fill='%230a0e17'%3ER%3C/text%3E%3C/svg%3E">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0a0e17; --surface: #111827; --surface2: #1a2235;
+    --border: #1e293b; --text: #e2e8f0; --text-dim: #94a3b8;
+    --accent: #38bdf8; --accent2: #818cf8;
+    --green: #34d399; --red: #f87171; --orange: #fb923c; --yellow: #fbbf24;
+    /* origem de cada número projetado */
+    --o-realizado: #94a3b8; --o-contratado: #34d399; --o-direcionado: #38bdf8; --o-estatistico: #c084fc;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+  .page { padding: 24px; max-width: 1800px; margin: 0 auto; }
+
+  .top-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; flex-wrap: wrap; gap: 16px; }
+  .top-bar h1 {
+    font-size: 1.4rem; font-weight: 700;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .nav-links { display: flex; gap: 8px; }
+  .nav-btn {
+    padding: 7px 14px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; color: var(--text-dim); font-size: 0.8rem; font-weight: 500; text-decoration: none;
+  }
+  .nav-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  .meta-linha {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    font-size: 0.78rem; color: var(--text-dim); margin-bottom: 18px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .btn {
+    padding: 7px 14px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text-dim); font-family: 'DM Sans', sans-serif; font-size: 0.78rem; cursor: pointer;
+  }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+
+  .status-box { padding: 40px; text-align: center; color: var(--text-dim); }
+  .status-box.erro { color: var(--red); }
+
+  /* CARDS */
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-bottom: 20px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
+  .card .rot { font-size: 0.7rem; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: .05em; }
+  .card .val { font-size: 1.45rem; font-weight: 700; margin-top: 6px; font-family: 'JetBrains Mono', monospace; }
+  .card .sub { font-size: 0.76rem; color: var(--text-dim); margin-top: 6px; line-height: 1.5; }
+  .card .sub strong { color: var(--text); font-weight: 600; }
+  .val.neg { color: var(--red); } .val.pos { color: var(--green); }
+
+  .aviso {
+    background: rgba(251,191,36,0.07); border: 1px solid rgba(251,191,36,0.3); border-left: 3px solid var(--yellow);
+    border-radius: 8px; padding: 11px 15px; margin-bottom: 18px; font-size: 0.8rem; line-height: 1.55;
+  }
+  .aviso strong { color: var(--yellow); }
+
+  /* GRÁFICOS */
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+  @media (max-width: 1000px) { .grid2 { grid-template-columns: 1fr; } }
+  .bloco { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; margin-bottom: 20px; }
+  .grid2 .bloco { margin-bottom: 0; }
+  .bloco h3 {
+    font-size: 0.78rem; font-weight: 600; color: var(--text-dim);
+    text-transform: uppercase; letter-spacing: .06em; margin-bottom: 12px;
+  }
+  .bloco h3 .dica { text-transform: none; letter-spacing: 0; font-weight: 400; margin-left: 8px; opacity: .8; }
+  .canvas-wrap { position: relative; height: 320px; }
+
+  /* TABELA */
+  .tabela-wrap { overflow-x: auto; }
+  table.dre { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+  table.dre th {
+    padding: 9px 8px; color: var(--text-dim); font-size: 0.66rem; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .05em; border-bottom: 1px solid var(--border);
+    background: var(--surface); position: sticky; top: 0; white-space: nowrap;
+  }
+  table.dre th.real { color: var(--o-realizado); }
+  table.dre th.proj { color: var(--accent); }
+  table.dre td {
+    padding: 7px 8px; text-align: right; border-bottom: 1px solid var(--border);
+    font-family: 'JetBrains Mono', monospace; white-space: nowrap;
+  }
+  table.dre td:first-child { text-align: left; font-family: 'DM Sans', sans-serif; font-weight: 500; position: sticky; left: 0; background: var(--surface); }
+  table.dre tr.subtotal td { color: var(--accent); font-weight: 700; background: rgba(56,189,248,0.04); }
+  table.dre tr.subtotal td:first-child { background: #121c2c; }
+  table.dre td.neg { color: var(--red); }
+  table.dre tr.margem td { color: var(--yellow); font-size: 0.74rem; padding-top: 5px; padding-bottom: 5px; }
+  table.dre tr.margem td:first-child { color: var(--yellow); font-weight: 600; padding-left: 18px; }
+  table.dre tr.margem td.neg { color: var(--red); }
+  table.dre tr.margem .un { color: var(--text-dim); font-weight: 400; font-size: 0.66rem; }
+  /* barra de rolagem escura (a branca padrão destoava da tela) */
+  .tabela-wrap { scrollbar-color: #334155 var(--surface); scrollbar-width: thin; }
+  .tabela-wrap::-webkit-scrollbar { height: 10px; }
+  .tabela-wrap::-webkit-scrollbar-track { background: var(--surface); }
+  .tabela-wrap::-webkit-scrollbar-thumb { background: #334155; border-radius: 6px; }
+  .tabela-wrap::-webkit-scrollbar-thumb:hover { background: #475569; }
+  table.dre td.real-col { color: var(--text-dim); }
+  table.dre td.sep, table.dre th.sep { border-left: 2px solid rgba(56,189,248,0.35); }
+  table.dre td.total, table.dre th.total { border-left: 2px solid rgba(148,163,184,0.35); background: rgba(56,189,248,0.04); }
+  .pt { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
+  .pt.realizado { background: var(--o-realizado); } .pt.contratado { background: var(--o-contratado); }
+  .pt.direcionado { background: var(--o-direcionado); } .pt.estatistico { background: var(--o-estatistico); }
+  .legenda { display: flex; gap: 16px; flex-wrap: wrap; font-size: 0.74rem; color: var(--text-dim); margin-top: 10px; }
+
+  table.acc { border-collapse: collapse; font-size: 0.8rem; margin-top: 4px; }
+  table.acc th, table.acc td { padding: 7px 12px; border-bottom: 1px solid var(--border); text-align: right; }
+  table.acc th { color: var(--text-dim); font-size: 0.68rem; text-transform: uppercase; letter-spacing: .05em; }
+  table.acc td:first-child, table.acc th:first-child { text-align: left; }
+  table.acc td { font-family: 'JetBrains Mono', monospace; }
+  .nota { font-size: 0.78rem; color: var(--text-dim); line-height: 1.65; margin-top: 12px; }
+  .nota strong { color: var(--text); }
+  details summary { cursor: pointer; color: var(--text-dim); font-size: 0.8rem; margin-top: 12px; }
+  details summary:hover { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<div class="page">
+  <div class="top-bar">
+    <h1>🔭 Projeção Financeira</h1>
+    <div class="nav-links">
+      <span data-nav-menu data-nav-style="pill" data-nav-active="projecao"></span>
+      <a href="/logout" class="nav-btn">Sair</a>
+    </div>
+  </div>
+
+  <div class="meta-linha">
+    <span id="meta">carregando…</span>
+    <button class="btn" id="btnAtualizar" onclick="carregar(true)">↻ Atualizar dados</button>
+  </div>
+
+  <div id="conteudo"><div class="status-box">Calculando a projeção…</div></div>
+</div>
+
+<script>
+const MESES = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+const rotMes = m => `${MESES[+m.slice(5, 7) - 1]}/${m.slice(2, 4)}`;
+const fmtR = v => (v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
+const fmtMi = v => {
+  const a = Math.abs(v || 0), s = v < 0 ? '−' : '';
+  if (a >= 1e6) return `${s}R$ ${(a / 1e6).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} mi`;
+  return `${s}R$ ${(a / 1e3).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} mil`;
+};
+// Tabelas: cada célula leva a própria unidade ("5,62 mi" / "581 mil"). Tudo em "R$ mil"
+// com ponto de milhar ("5.623" ao lado de "581") não deixava claro o que era milhão.
+const fmtCel = v => {
+  const a = Math.abs(v || 0), s = v < 0 ? '−' : '';
+  if (a < 500) return '—';
+  if (a >= 1e6) return `${s}${(a / 1e6).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} mi`;
+  return `${s}${(a / 1e3).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} mil`;
+};
+// Margens em linha própria (não embaixo de cada subtotal, que poluía a tabela)
+const fmtPctCel = (v, rb) => rb ? (v / rb * 100).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%' : '—';
+const LINHAS_MARGEM = { ebitda: 'Margem EBITDA', resultado_final: 'Margem final' };
+const pct = v => (v * 100).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%';
+const ROT_ORIGEM = {
+  realizado: 'realizado', contratado: 'contratado (parcelas já lançadas)',
+  direcionado: 'proporção da receita', estatistico: 'modelo estatístico'
+};
+const charts = {};
+
+async function carregar(forcar) {
+  const btn = document.getElementById('btnAtualizar');
+  btn.disabled = true;
+  if (forcar) document.getElementById('conteudo').innerHTML =
+    '<div class="status-box">Buscando os dados no Power BI e recalculando…</div>';
+  try {
+    const r = await fetch('/api/projecao' + (forcar ? '?refresh=1' : ''), { credentials: 'same-origin' });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || 'erro');
+    render(j);
+  } catch (e) {
+    document.getElementById('conteudo').innerHTML = `<div class="status-box erro">Erro: ${e.message}</div>`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function render(j) {
+  const ger = new Date(j.gerado_em);
+  document.getElementById('meta').textContent =
+    `calculado às ${ger.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} · ` +
+    `receita fechada até ${rotMes(j.ultimo_fechado_receita)} · despesa fechada até ${rotMes(j.ultimo_fechado_custo)}`;
+
+  const proj = j.meses.filter(m => m.h >= 1);           // os 12 meses a partir do corrente
+  const corrente = proj[0];
+  const soma = k => proj.reduce((s, m) => s + m.dre[k], 0);
+  const rec12 = soma('receita_bruta'), eb12 = soma('ebitda'), res12 = soma('resultado_final');
+  const retro = j.retroanalise, pf = retro.por_faixa;
+  const nc = corrente.nowcast;
+
+  let avisoCusto = '';
+  if (j.ultimo_fechado_custo < j.ultimo_fechado_receita) {
+    avisoCusto = `<div class="aviso"><strong>${rotMes(j.ultimo_fechado_receita)} ainda está em fechamento no SSW</strong> ` +
+      `(as provisões são trocadas pelo custo real até ~dia 10). A receita dele é real; a despesa é projetada.</div>`;
+  }
+
+  document.getElementById('conteudo').innerHTML = `
+    ${avisoCusto}
+    <div class="cards">
+      <div class="card">
+        <div class="rot">Receita — próximos 12 meses</div>
+        <div class="val">${fmtMi(rec12)}</div>
+        <div class="sub">${rotMes(proj[0].mes)} a ${rotMes(proj[11].mes)} · a soma de 12 meses errou em média
+          <strong>${pct(retro.erro_12m_medio_abs)}</strong> nos testes</div>
+      </div>
+      <div class="card">
+        <div class="rot">EBITDA — próximos 12 meses</div>
+        <div class="val ${eb12 < 0 ? 'neg' : ''}">${fmtMi(eb12)}</div>
+        <div class="sub">margem de <strong>${pct(eb12 / rec12)}</strong> · resultado final ${fmtMi(res12)}</div>
+      </div>
+      <div class="card">
+        <div class="rot">${rotMes(corrente.mes)} — mês em curso</div>
+        <div class="val">${fmtMi(corrente.dre.receita_bruta)}</div>
+        <div class="sub">fechamento projetado da receita${nc ? ` · já entrou <strong>${fmtMi(nc.realizado_ate_hoje)}</strong>
+          (${pct(nc.realizado_ate_hoje / corrente.dre.receita_bruta)})` : ''}
+          ${corrente.receita_p10 ? `<br>faixa ${fmtMi(corrente.receita_p10)} a ${fmtMi(corrente.receita_p90)}` : ''}</div>
+      </div>
+      <div class="card">
+        <div class="rot">Acerto do modelo (testes no passado)</div>
+        <div class="val">${pct(1 - pf['1'].wape_receita)}</div>
+        <div class="sub">de acerto na receita do mês seguinte · trimestre <strong>${pct(1 - pf['2-3'].wape_receita)}</strong>
+          · EBITDA erra ~<strong>${(pf['1'].margem_pp_mediana_abs * 100).toFixed(1).replace('.', ',')} pp</strong> de margem</div>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="bloco"><h3>Receita<span class="dica">real × projetada · a faixa é o tamanho de 90% dos erros do passado — não cobre cliente novo ou perdido</span></h3>
+        <div class="canvas-wrap"><canvas id="chReceita"></canvas></div></div>
+      <div class="bloco"><h3>EBITDA<span class="dica">a faixa é larga porque a margem é fina (~10%)</span></h3>
+        <div class="canvas-wrap"><canvas id="chEbitda"></canvas></div></div>
+    </div>
+
+    <div class="bloco">
+      <h3>DRE projetada<span class="dica">valores em reais (mi = milhões · mil = milhares) · os 3 primeiros meses são reais, para comparar</span></h3>
+      <div class="tabela-wrap" id="tabDre"></div>
+      <div class="legenda">${Object.entries(ROT_ORIGEM).map(([k, v]) => `<span><span class="pt ${k}"></span>${v}</span>`).join('')}</div>
+    </div>
+
+    <div class="bloco">
+      <h3>Projeção × lançado no SSW<span class="dica">valores em reais · o que o SSW mostra hoje para cada mês (pago + provisionado pelo financeiro)</span></h3>
+      <div class="tabela-wrap" id="tabSsw"></div>
+      <div class="nota">O financeiro lança provisões para os meses à frente e as troca pelo custo real quando ele chega.
+        Nos meses próximos, o SSW é a estimativa do financeiro; nos distantes, só aparecem as parcelas já contratadas —
+        por isso o SSW "cai" com o tempo e a projeção não.</div>
+    </div>
+
+    <div class="grid2">
+      <div class="bloco"><h3>Compromissos já contratados, por ano<span class="dica">parcelas de investimento e financeiro já lançadas no SSW</span></h3>
+        <div class="canvas-wrap"><canvas id="chEscada"></canvas></div></div>
+      <div class="bloco"><h3>Quanto o modelo errou no passado</h3>
+        <div id="acc"></div></div>
+    </div>`;
+
+  renderGraficos(j, proj);
+  renderTabelaDre(j, proj);
+  renderTabelaSsw(j);
+  renderEscada(j.escada_compromissos);
+  renderAcc(retro);
+}
+
+// ── gráficos ─────────────────────────────────────────────────────────────
+const EIXO = {
+  x: { ticks: { color: '#94a3b8', font: { size: 10 } }, grid: { color: 'rgba(148,163,184,0.06)' } },
+  y: { ticks: { color: '#94a3b8', font: { size: 10 }, callback: v => fmtMi(v).replace('R$ ', '') },
+       grid: { color: 'rgba(148,163,184,0.08)' } }
+};
+
+function leque(canvasId, labels, real, prev, p10, p90, cor) {
+  if (charts[canvasId]) charts[canvasId].destroy();
+  charts[canvasId] = new Chart(document.getElementById(canvasId), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: 'p90', data: p90, borderWidth: 0, pointRadius: 0, backgroundColor: cor + '26', fill: '+1' },
+        { label: 'p10', data: p10, borderWidth: 0, pointRadius: 0, fill: false },
+        { label: 'Projetado', data: prev, borderColor: cor, borderDash: [6, 4], borderWidth: 2, pointRadius: 2, tension: .2 },
+        { label: 'Real', data: real, borderColor: '#e2e8f0', borderWidth: 2, pointRadius: 2, tension: .2 },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { color: '#e2e8f0', font: { size: 11 }, filter: i => !['p10', 'p90'].includes(i.text) } },
+        tooltip: {
+          backgroundColor: '#1a2235', titleColor: '#e2e8f0', bodyColor: '#e2e8f0',
+          callbacks: { label: c => c.raw == null ? null : `${c.dataset.label === 'p90' ? 'faixa até' : c.dataset.label === 'p10' ? 'faixa desde' : c.dataset.label}: ${fmtMi(c.raw)}` }
+        }
+      },
+      scales: EIXO
+    }
+  });
+}
+
+function renderGraficos(j, proj) {
+  // Receita: 24 meses reais + 12 projetados. O último real repete no início da linha
+  // projetada, para as duas se encontrarem.
+  const reais = j.receita_recente;
+  const labels = [...reais.map(r => rotMes(r.mes)), ...proj.map(m => rotMes(m.mes))];
+  const n = reais.length;
+  const realR = [...reais.map(r => r.receita), ...proj.map(() => null)];
+  const prevR = [...reais.map((r, i) => i === n - 1 ? r.receita : null), ...proj.map(m => m.dre.receita_bruta)];
+  const p10R = [...reais.map(() => null), ...proj.map(m => m.receita_p10 ?? null)];
+  const p90R = [...reais.map(() => null), ...proj.map(m => m.receita_p90 ?? null)];
+  leque('chReceita', labels, realR, prevR, p10R, p90R, '#38bdf8');
+
+  const hist = j.historico;
+  const inter = j.meses.filter(m => m.h < 1);            // mês com receita real e custo ainda projetado
+  const todos = [...hist.map(h => ({ mes: h.mes, real: h.dre.ebitda })),
+                 ...inter.map(m => ({ mes: m.mes, prev: m.dre.ebitda })),
+                 ...proj.map(m => ({ mes: m.mes, prev: m.dre.ebitda, p10: m.ebitda_p10, p90: m.ebitda_p90 }))];
+  const nh = hist.length;
+  leque('chEbitda', todos.map(t => rotMes(t.mes)),
+    todos.map(t => t.real ?? null),
+    todos.map((t, i) => i === nh - 1 ? t.real : (t.prev ?? null)),
+    todos.map(t => t.p10 ?? null), todos.map(t => t.p90 ?? null), '#c084fc');
+}
+
+function renderEscada(escada) {
+  if (charts.chEscada) charts.chEscada.destroy();
+  charts.chEscada = new Chart(document.getElementById('chEscada'), {
+    type: 'bar',
+    data: {
+      labels: escada.map(e => e.ano),
+      datasets: [
+        { label: 'Investimento', data: escada.map(e => e.Investimento || 0), backgroundColor: '#34d399', borderRadius: 3 },
+        { label: 'Financeiro', data: escada.map(e => e.Financeiro || 0), backgroundColor: '#fbbf24', borderRadius: 3 },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { color: '#e2e8f0', font: { size: 11 } } },
+        tooltip: { backgroundColor: '#1a2235', callbacks: { label: c => `${c.dataset.label}: ${fmtMi(c.raw)}` } }
+      },
+      scales: { x: { ...EIXO.x, stacked: true }, y: { ...EIXO.y, stacked: true } }
+    }
+  });
+}
+
+// ── tabelas ──────────────────────────────────────────────────────────────
+function renderTabelaDre(j, proj) {
+  const reais = j.historico.slice(-3).map(h => ({ mes: h.mes, dre: h.dre, real: true }));
+  const inter = j.meses.filter(m => m.h < 1).map(m => ({ ...m, inter: true }));
+  const cols = [...reais, ...inter, ...proj];
+  const head = cols.map((c, i) => {
+    const cls = c.real ? 'real' : 'proj';
+    const sep = i === reais.length ? ' sep' : '';
+    const tag = c.real ? 'real' : c.inter ? 'rec. real' : (c.h === 1 ? 'em curso' : 'proj.');
+    return `<th class="${cls}${sep}">${rotMes(c.mes)}<br><span style="font-weight:400">${tag}</span></th>`;
+  }).join('');
+  const totRb = proj.reduce((s, m) => s + m.dre.receita_bruta, 0);
+  const linhas = j.estrutura.map(e => {
+    const sub = e.tipo === 'Subtotal';
+    const tds = cols.map((c, i) => {
+      const v = c.dre[e.key];
+      const sep = i === reais.length ? ' sep' : '';
+      const neg = sub && v < 0 ? ' neg' : '';
+      if (c.real) return `<td class="real-col${sep}${neg}">${fmtCel(v)}</td>`;
+      const o = c.origem && c.origem[e.key];
+      const pto = o ? `<span class="pt ${o}" title="${ROT_ORIGEM[o]}"></span>` : '';
+      return `<td class="${sep}${neg}">${pto}${fmtCel(v)}</td>`;
+    }).join('');
+    const tot = proj.reduce((s, m) => s + m.dre[e.key], 0);
+    let html = `<tr class="${sub ? 'subtotal' : ''}"><td>${e.linha}</td>${tds}` +
+      `<td class="total${sub && tot < 0 ? ' neg' : ''}">${fmtCel(tot)}</td></tr>`;
+    if (LINHAS_MARGEM[e.key]) {
+      const tdsM = cols.map((c, i) => {
+        const v = c.dre[e.key];
+        const sep = i === reais.length ? ' sep' : '';
+        return `<td class="${sep}${v < 0 ? ' neg' : ''}">${fmtPctCel(v, c.dre.receita_bruta)}</td>`;
+      }).join('');
+      html += `<tr class="margem"><td>${LINHAS_MARGEM[e.key]} <span class="un">% da receita</span></td>${tdsM}` +
+        `<td class="total${tot < 0 ? ' neg' : ''}">${fmtPctCel(tot, totRb)}</td></tr>`;
+    }
+    return html;
+  }).join('');
+  document.getElementById('tabDre').innerHTML =
+    `<table class="dre"><thead><tr><th>DRE</th>${head}<th class="total">12 meses</th></tr></thead><tbody>${linhas}</tbody></table>`;
+}
+
+function renderTabelaSsw(j) {
+  const LIN = [['deducoes', 'Deduções'], ['custo_operacional', 'Custo Operacional'],
+               ['despesas_administrativas', 'Despesas Administrativas'], ['despesas_financeiras', 'Despesas Financeiras'],
+               ['investimentos', 'Investimentos'], ['retiradas', 'Retiradas']];
+  const cols = j.meses.filter(m => Object.values(m.previsao_financeiro || {}).some(v => v));
+  if (!cols.length) { document.getElementById('tabSsw').innerHTML = '<div class="status-box">Nada lançado no SSW para os meses à frente.</div>'; return; }
+  const head = cols.map(c => `<th class="proj" colspan="2">${rotMes(c.mes)}</th>`).join('');
+  const sub = cols.map(() => '<th>projeção</th><th>SSW</th>').join('');
+  const linhas = LIN.map(([k, rot]) => `<tr><td>${rot}</td>${cols.map(c =>
+    `<td class="sep">${fmtCel(c.dre[k])}</td><td class="real-col">${fmtCel((c.previsao_financeiro || {})[k] || 0)}</td>`).join('')}</tr>`).join('');
+  document.getElementById('tabSsw').innerHTML =
+    `<table class="dre"><thead><tr><th rowspan="2">Grupo</th>${head}</tr><tr>${sub}</tr></thead><tbody>${linhas}</tbody></table>`;
+}
+
+function renderAcc(retro) {
+  const ROT = { '1': 'mês seguinte', '2-3': '2 a 3 meses', '4-6': '4 a 6 meses', '7-12': '7 a 12 meses' };
+  const linhas = Object.entries(retro.por_faixa).map(([k, f]) => `<tr>
+      <td>${ROT[k]}</td><td>${pct(f.wape_receita)}</td>
+      <td>± ${pct(Math.exp(f.receita_erro_log) - 1)}</td>
+      <td>${(f.margem_pp_mediana_abs * 100).toFixed(1).replace('.', ',')} pp</td><td>${f.n}</td></tr>`).join('');
+  document.getElementById('acc').innerHTML = `
+    <table class="acc">
+      <thead><tr><th>Horizonte</th><th>Erro médio receita</th><th>Faixa da receita</th><th>Erro margem EBITDA</th><th>Testes</th></tr></thead>
+      <tbody>${linhas}</tbody>
+    </table>
+    <div class="nota">Cada teste finge estar num mês do passado, projeta os meses seguintes só com o que se sabia
+      naquele dia e compara com o que aconteceu (${retro.origens} pontos de partida). Na soma de 12 meses — o número de
+      orçamento — o erro médio foi <strong>${pct(retro.erro_12m_medio_abs)}</strong>.<br>
+      <strong>Até onde confiar na faixa:</strong> em teste às cegas (2025–26), o real caiu dentro dela em ~80% dos meses
+      seguintes e ~70% dos trimestres; de 4 a 6 meses, ~65%; depois disso, menos da metade — nesse horizonte quem manda
+      é cliente novo ou perdido, que nenhum modelo enxerga.</div>
+    <details><summary>Como cada linha é projetada e o que o modelo não enxerga</summary>
+      <div class="nota">
+        <strong>Receita</strong>: média de três métodos — tendência sazonal dos últimos 36 meses, mesmo mês do ano
+        passado corrigido pelo crescimento, e média dos últimos 3 meses. O mês em curso mistura essa projeção com o ritmo
+        do que já entrou. CTe substituído conta uma vez só.<br>
+        <strong>Custo operacional e deduções</strong>: a proporção da receita dos últimos 6 meses — frete, diesel e
+        pedágio acompanham a receita quase à risca (erro de 2,6% nos testes).<br>
+        <strong>Administrativo, financeiro, retiradas</strong>: média dos últimos 6 meses.<br>
+        <strong>Investimento</strong>: o maior entre as parcelas já lançadas no SSW (CDC, FINAME, consórcio) e a
+        média dos últimos 6 meses — a empresa segue contratando, e só o contratado ficava abaixo do real.<br>
+        <strong>O que não enxerga</strong>: cliente novo ou perdido. 65% do crescimento de 2026 veio de clientes que não
+        existiam em 2025 — a faixa mede o erro do passado, não um contrato grande entrando ou saindo.
+      </div>
+    </details>`;
+}
+
+window.addEventListener('DOMContentLoaded', () => carregar(false));
+</script>
+<script src="/nav-perms.js"></script>
+</body>
+</html>

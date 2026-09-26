@@ -1079,11 +1079,17 @@ function renderDonutGrupo(subgrupos, totalGeral) {
   });
 }
 
+// "Mão de Obra" e "Outros" existem em mais de um grupo — nesses, o rótulo leva o grupo
+function rotuloSubgrupo(s, lista) {
+  const repetido = lista.some(o => o !== s && o.nome === s.nome);
+  return repetido ? `${s.nome} (${s.grupo})` : s.nome;
+}
+
 // ── 5. PARETO ⭐ ──
 function renderPareto(subgrupos, totalGeral) {
   destroyChart('pareto');
   const sorted = [...subgrupos].sort((a, b) => b.total - a.total);
-  const labels = sorted.map(s => s.nome);
+  const labels = sorted.map(s => rotuloSubgrupo(s, sorted));
   const valores = sorted.map(s => s.total);
   let acum = 0;
   const acumPct = valores.map(v => { acum += v; return (acum / totalGeral) * 100; });
@@ -1470,7 +1476,7 @@ function coletarContexto() {
     // Pareto 80%
     let acum = 0; const pareto = [];
     for (const s of subs) {
-      pareto.push(s.nome);
+      pareto.push(rotuloSubgrupo(s, subs));
       acum += s.total;
       if (acum / totalG >= 0.8) break;
     }

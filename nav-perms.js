@@ -42,6 +42,8 @@
     { id: 'reuniao',       page: 'reuniao',       href: '/reuniao',           label: '🎙 Reunião' },
     { id: 'contratos',     page: 'contratos',     href: '/contratos',         label: '📝 Contratos' },
     { id: 'dre',           page: 'dre',           href: '/dre',               label: '📈 DRE' },
+    // 12 meses à frente na régua do DRE. 🔭 é Emoji 1.0 (glifo no Windows 10).
+    { id: 'projecao',      page: 'projecao',      href: '/projecao',          label: '🔭 Projeção' },
     { id: 'conhecimentos', page: 'conhecimentos', href: '/dre/conhecimentos', label: '📦 Conhecimentos' },
     { id: 'despesas',      page: 'despesas',      href: '/dre/despesas',      label: '💰 Despesas' },
     { id: 'faturamento',   page: 'faturamento',   href: '/faturamento',       label: '📊 Faturamento' },
@@ -66,7 +68,7 @@
   var GRUPOS = [
     { nome: 'Operação',   abas: ['embarques', 'ordens', 'mapa', 'pgr', 'jornada', 'ciot', 'veiculos', 'verda'] },
     { nome: 'Comercial',  abas: ['tarifas', 'faturamento', 'contratos'] },
-    { nome: 'Financeiro', abas: ['auditoria', 'dre', 'despesas', 'conhecimentos', 'contabil'] },
+    { nome: 'Financeiro', abas: ['auditoria', 'dre', 'projecao', 'despesas', 'conhecimentos', 'contabil'] },
     { nome: 'Sistema',    abas: ['reuniao', 'admin', 'uso'] }
   ];
 
