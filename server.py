@@ -6364,6 +6364,8 @@ def api_embarques_cargas_list():
                NULL::text AS coleta_origem, NULL::text AS coleta_via, NULL::text AS embarcador,
                NULL::text AS origem_cnpj, NULL::text AS destino_cnpj, NULL::text AS origem_endereco,
                NULL::text AS destino_endereco,""")
+    _placa_mede = ("CASE WHEN c.status = 'Desengatada' THEN c.carreta1_placa "
+                   "ELSE COALESCE(NULLIF(trim(c.carreta1_placa),''), c.cavalo_placa) END")
 
     sql = f"""
         SELECT c.id, c.numero, c.status, c.tipo_operacao, c.viagem_vazia,
@@ -6384,10 +6386,17 @@ def api_embarques_cargas_list():
                -- guarda a dela. Com `=` puro, 13 das 25 cargas ativas rastreáveis
                -- devolviam NULL aqui — e NULL nunca dispara o alerta, então mais da
                -- metade das cargas ficava sem aviso mesmo com a carreta muda.
+               --
+               -- A placa que mede e a mesma do worker (`_placa_tracking`): a carreta, e o
+               -- CAVALO quando nao ha carreta — no truck/toco ele e o veiculo inteiro. Olhar
+               -- so `carreta1_placa` devolvia NULL em todo truck, e NULL alarma: os 29 trucks
+               -- da base (todos com saida pelo GPS) apareciam como "carreta sem GPS".
+               -- Desengatada segue so na carreta: o cavalo foi liberado (apenas_carreta).
                (SELECT EXTRACT(EPOCH FROM ((NOW() AT TIME ZONE 'UTC') - pa.data_posicao)) / 3600.0
                   FROM embarques_posicoes_atuais pa
-                 WHERE {_pn('pa.placa')} = {_pn('c.carreta1_placa')}
+                 WHERE {_pn('pa.placa')} = {_pn(_placa_mede)}
                  ORDER BY pa.data_posicao DESC LIMIT 1) AS rastreio_carreta_idade_h,
+               (NULLIF(trim(c.carreta1_placa),'') IS NULL) AS rastreio_sem_carreta,
                -- Posicao ATUAL da placa que mede (carreta, com o cavalo de reserva). Serve
                -- para separar dois casos que hoje moram no mesmo balde 'Aberta' e pedem
                -- acoes opostas (secao 16.5 do handoff): a carga que ainda NAO SAIU, com a

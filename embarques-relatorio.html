@@ -447,7 +447,8 @@
     if (c.rastreio_defasado) {
       const dias = c.rastreio_carreta_idade_h != null ? Math.floor(c.rastreio_carreta_idade_h / 24) : null;
       const quanto = dias != null ? ` há ${dias}d` : '';
-      html += ` <span style="color:var(--yellow,#facc15);font-size:0.82em;cursor:help;" title="Carreta sem posição GPS${quanto} — a carga não fecha sozinha; confira/finalize manual (ou foi desengate)">⚠️ rastreio</span>`;
+      const quem = c.rastreio_sem_carreta ? 'Truck' : 'Carreta';   // sem carreta, quem mede é o cavalo
+      html += ` <span style="color:var(--yellow,#facc15);font-size:0.82em;cursor:help;" title="${quem} sem posição GPS${quanto} — a carga não fecha sozinha; confira/finalize manual (ou foi desengate)">⚠️ rastreio</span>`;
     }
     return html;
   }
