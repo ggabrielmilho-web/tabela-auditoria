@@ -116,7 +116,8 @@ a imagem antiga (21/08/2026).
 - **Verda — Emissões CO₂e** (`/verda`) — Acompanhamento do inventário de CO₂e enviado à plataforma **Verda** (exigência da Nestlé, escopo 3 do embarcador). Placar da rodada (enviadas / `executed` / rejeitadas / bloqueadas), inventário (t CO₂e, km, peso, diesel, **intensidade g/t·km**, escopo 1 × escopo 3), consumo aplicado por faixa de km/l, `VehicleTypeKey`, **as placas que estão bloqueando envio** (lista copiável para o cadastro resolver) e detalhe por viagem com drill nos CTes + CSV. **Não chama a Verda**: lê a `verda_envios` e recalcula o CO₂e com o fator reconstruído da API `Fuel` — na conta gratuita a Verda guarda só o consolidado mensal, então para o dado por viagem esta é a única tela que existe. Janela padrão = semana fechada anterior. **Consumo**: escala por idade do veículo (3,00 / 2,80 / 2,50 / 2,20 km/l) e 3,70 no rígido, revisada pela diretoria em 10/09/2026 — a mesma régua vale para os indicadores ABIQUIM. Ver `HANDOFF-VERDA.md` (§19 registra a divergência com o ciclo medido no ValeCard)
 - **Reunião** (`/reuniao`) — Gerador de ata de reunião a partir de áudio. Transcreve via AssemblyAI (com identificação de falantes) e gera ata profissional via GPT-4.1-mini. Exporta em Word e PDF
 - **Contratos** (`/contratos`) — Emissão de **contrato TAC Agregado** por IA. O operador sobe os documentos (CNH, CRLV, RNTRC/ANTT, comprovante de endereço, dados bancários); o GPT-4.1-mini (visão) **extrai os campos** de cada documento-fonte correto, o backend reconfere **pendências impeditivas** em Python e preenche o **template Word soberano** (`contrato_tac_template.docx` via docxtpl — o texto jurídico nunca é tocado). Gera **comodato de rastreador** quando o agregado não usa rastreador próprio. Exporta `.docx` e oferece **preview HTML** (para "Salvar como PDF" pelo navegador)
-- **DRE** (`/dre`) — Demonstração do Resultado do Exercício com 4 gráficos analíticos (Waterfall, Donut por Grupo, Pareto 80/20, Comparativo Mensal) e chat IA financeiro com streaming em tempo real
+- **DRE** (`/dre`) — Demonstração do Resultado do Exercício com 4 gráficos analíticos (Waterfall, Donut por Grupo, Pareto 80/20, Comparativo Mensal) e chat IA financeiro com streaming em tempo real. É o número que o diretor valida e confronta com o sistema: **não se muda a régua dele sem o diretor**
+- **Projeção** (`/projecao`) — DRE dos **próximos 12 meses** na mesma régua do DRE, com faixa de incerteza medida em teste às cegas, o mês em curso projetado pelo ritmo do que já entrou, comparação com o que o SSW mostra (pago + provisão do financeiro) e a escada de compromissos já contratados até 2036. Modelo estatístico (não é IA): erra ~7% na receita do mês seguinte e ~5% na soma do ano. Não prevê cliente novo. Ver Módulo Projeção Financeira
 - **Despesas** (`/dre/despesas`) — Auditoria detalhada de `consulta_despesas_477` com filtros, drilldown por grupo/evento, **AutoFilter estilo Excel por coluna** (funil no cabeçalho; via `report-filter.js`) e exportação CSV em streaming
 - **Conhecimentos** (`/dre/conhecimentos`) — Auditoria detalhada de `conhecimentos_emitidos` com filtros, **AutoFilter estilo Excel por coluna** e exportação CSV em streaming
 - **Faturamento por Tomador** (`/faturamento`) — Matriz **tomador × meses** (faturamento e nº de cargas) de `conhecimentos_emitidos`, **consolidada por raiz de CNPJ** (junta filiais do mesmo grupo). Toggle R$/Cargas, busca, ordenação e CSV; cards e subtotal acompanham o filtro. **Filtro de rota** (origem → destino): cada lado aceita **estado ou cidade**, com autocomplete ordenado por volume. **Carga = manifesto distinto**, contado já no grão da raiz — a mesma viagem faturada em duas filiais conta **uma vez** (ver Módulo Faturamento por Tomador)
@@ -243,6 +244,11 @@ Tabela Auditoria/
 ├── faturamento.html             # Faturamento por tomador (matriz tomador × mês, admin)
 ├── veiculos.html                # Análise por Veículo (cavalo/carreta/motorista/proprietário + drawer de detalhe, admin)
 ├── report-filter.js             # Componente de AutoFilter estilo Excel (compartilhado por Conhecimentos e Despesas)
+│
+│   # ── Módulo Projeção (12 meses na régua do DRE) ──
+├── projecao.py                  # Motor puro (sem DAX/Flask/numpy): receita, custos, faixa, retroanálise
+├── projecao.html                # Página /projecao
+├── _teste_projecao.py           # Regressão do motor (sem rede nem banco) + trava de régua igual ao DRE
 ├── embarques.html               # Landing de embarques (KPIs + atalhos)
 ├── embarques-novo.html          # Formulário de lançamento de carga
 ├── embarques-relatorio.html     # Listagem + filtros + CSV + edição + histórico
@@ -471,6 +477,7 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 - `GET /reuniao` — Reunião (admin)
 - `GET /contratos` — Contratos TAC (admin)
 - `GET /dre` — DRE (admin)
+- `GET /projecao` — Projeção financeira (aba `projecao`)
 - `GET /dre/despesas` — Despesas (admin)
 - `GET /dre/conhecimentos` — Conhecimentos (admin)
 - `GET /faturamento` — Faturamento por Tomador (admin)
@@ -493,7 +500,8 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 - `GET /api/icms?origem=XX&destino=YY` — alíquota de ICMS de transporte (matriz `icms_aliquota`): `{aliquota, tipo, isento, observacao}`; 404 se o par não existir
 - `POST /api/dax` — query DAX customizada
 - `GET /api/dre?meses=YYYY-MM,...` — DRE estruturada
-- `GET /api/dre/detalhamento?meses=...` — detalhamento por subgrupo/evento
+- `GET /api/dre/detalhamento?meses=...` — detalhamento por subgrupo/evento. O subgrupo é agrupado por **grupo + subgrupo**: "Mão de Obra" e "Outros" existem em Operacional e Administrativo, e agrupar só pelo nome juntava os dois (até 26/09/2026 o donut divergia da tabela: ago/26, Administrativo R$ 767 mil × R$ 599 mil)
+- `GET /api/projecao[?refresh=1]` — projeção de 12 meses pronta para a tela: `meses` (DRE projetada, origem de cada linha, faixa p10/p90 de receita e EBITDA, visão do SSW, contratado), `historico` (24 meses reais), `retroanalise` (erro por horizonte), `escada_compromissos`. Cache de 1 h em memória; `refresh=1` busca de novo no BI (~10 s)
 - `GET /api/dre/despesas?start=...&end=...&grupo=...&evento=...` — despesas filtradas
 - `GET /api/dre/conhecimentos?start=...&end=...` — conhecimentos filtrados
 - `GET /api/dre/despesas/csv?...` — CSV streaming de despesas
@@ -1203,6 +1211,87 @@ python -X utf8 ciot_conferencia.py --enviar --resumo              # teste: forç
 python -X utf8 _teste_ciot.py                                     # regressão da régua
 ```
 
+## Módulo Projeção Financeira
+
+DRE dos próximos 12 meses (`/projecao`), pedido de 26/09/2026 para orçamento e gestão,
+nível diretoria. Motor em `projecao.py` (Python puro — a imagem não tem numpy/pandas),
+dados e cache em `server.py:_projecao_dados`, regressão em `_teste_projecao.py`.
+
+### A régua é a do DRE
+
+O DRE é o número que o diretor valida e confronta com o sistema, então a projeção lê o
+**mesmo** dataset, o **mesmo** `MAPA_DRE` e faz a **mesma** cascata — e o DRE não foi
+alterado para isso. O `_teste_projecao.py` lê o `server.py` e falha se as linhas ou os
+grupos da DRE mudarem de um lado só.
+
+Uma diferença, e é correção de dado: **o CTe que foi substituído sai da receita.** O
+cliente paga só o substituto (nenhum original está em fatura do 441) e em geral o
+original some da base — mas 16 de 62 ficaram (fev–mar/2026, R$ 94.841), e o DRE soma os
+dois. A regra lê a observação do substituto ("SUBSTITUIR O CTRC UDI 409658-4").
+
+### Como cada linha é projetada
+
+| Linha | Método | Erro em teste às cegas |
+|---|---|---|
+| Receita | média de 3 métodos: Holt-Winters (36 meses, em log), mesmo mês do ano passado × crescimento, média de 3 meses | 6,9% no mês seguinte · ~5% na soma de 12 meses |
+| Mês em curso | a projeção misturada com o ritmo do que já entrou (fração típica do mês até aquele dia) | 6,9% no dia 1 → 4,4% no dia 15 → 3,7% no dia 26 |
+| Custo operacional, deduções | proporção da receita (6 meses) | 2,6% (variável) quando a receita está certa |
+| Administrativo, financeiro, retiradas, impostos | média de 6 meses | 8,6% (administrativo) |
+| Investimento | o **maior** entre as parcelas já lançadas no SSW e a média de 6 meses | 28% (só o contratado: 36% — a empresa segue contratando) |
+
+Reprovados no teste: Holt-Winters com histórico desde 2021 (a empresa mudou; 31% de
+erro), projeção cliente a cliente (36% na soma do ano) e o **Chronos** (IA de séries
+temporais da Amazon: empatou no curto prazo, errou mais no ano e custaria ~1 GB de
+torch na imagem). **O modelo é estatística + regra de negócio, não IA.**
+
+⚠ **O que nenhum método enxerga: cliente novo ou perdido.** 65% do crescimento de 2026
+(+31%) veio de clientes que não existiam em 2025. Os piores erros do teste (jan/26 −14%,
+mar/26 −21,5%) são exatamente esses meses.
+
+### A faixa de incerteza
+
+Simétrica, do tamanho do erro que o próprio motor cometeu no passado: receita ± o erro
+que cobre 90% dos casos; EBITDA ± o erro de margem (pontos percentuais) que cobre 80%.
+O p10–p90 da razão, que parecia natural, deixava o real dentro da faixa só 65% das vezes
+no mês seguinte e 23% no segundo semestre. Cobertura real às cegas: **80% no mês
+seguinte, ~70% no trimestre, ~64% em 4–6 meses, ~45% depois disso** — e a tela diz isso
+em vez de prometer 80%.
+
+O EBITDA de um mês é naturalmente pouco previsível (margem ~10%, custo pontual como 13º e
+manutenção): erra ~R$ 100 mil sobre ~R$ 535 mil. Ler por trimestre/ano.
+
+### O teste às cegas
+
+Mesmo motor da aba, cortado em cada mês de jan/2025 a ago/2026 como se estivesse no dia 1
+(e nos dias 15 e 26), com o investimento reconstruído pelo que estava lançado no SSW
+naquela data (`inclusao`). Foi esse teste que trocou a faixa, o método do investimento e
+achou um viés de inicialização no Holt-Winters (9,7% numa série sintética limpa). A tela
+recalcula a própria retroanálise (24 origens) a cada carga, então o card de acerto anda
+sozinho.
+
+### O SSW e as provisões do financeiro
+
+O financeiro lança provisão para os meses à frente (PREVISAO/PROVISAO, valores redondos) e
+a **troca pelo custo real** quando ele chega — no Operacional apaga e relança; nas
+Deduções edita o lançamento no lugar. Consequências:
+
+- **Mês fechado é real.** Mas o 477 só fecha ~dia 10: antes disso, o mês anterior ainda
+  tem provisão e a projeção trata a despesa dele como projetada (a receita, não — CTe de
+  mês encerrado é final).
+- A provisão é o **orçamento do financeiro**: aparece na tabela "Projeção × lançado no
+  SSW" para comparação, **nunca somada**.
+- O acerto das provisões passadas não é medível (a provisão some quando é trocada) — só
+  congelando daqui para frente (próxima fase).
+
+### Próximas fases
+
+- **Camada comercial**: a diretoria informa cliente que entra/sai (é o erro que falta)
+- **Cenários salvos** (volume por cliente, reajuste, diesel)
+- **Congelamento** da projeção e da provisão do financeiro no dia 10, para medir o acerto real
+- Custos sazonais conhecidos no calendário (13º, férias, IPVA)
+
+---
+
 ## Módulo Relatório 5100 (carga e descarga c/ terceiros)
 
 Toda **segunda-feira às 08:00 de Brasília**, a semana que fechou (segunda a domingo) sai por
@@ -1520,6 +1609,9 @@ Resultado Final   = Pós Investimento - Retiradas
 - [ ] **Regras de classificação do 456 → tabela** — hoje `_SWITCH_REGRA_456` no código, e já mudou uma vez (R$ 2,7 mi ficavam fora)
 - [ ] **Criar no plano de contas** o TRIBANCO e o CAIXA PAMBANK (hoje sem conta na aba Contábil)
 - [x] **Conferência CIOT** (CTRB × manifesto × CIOT, aba `/ciot` + WhatsApp) — preparada, desligada (`CIOT_CONFERENCIA`/`CIOT_ENVIO`)
+- [x] **Projeção financeira** (`/projecao`, 26/09/2026) — DRE de 12 meses na régua do DRE, faixa calibrada às cegas, visão do SSW e escada de compromissos
+- [x] **Fix do donut do DRE** — detalhamento agrupado por grupo+subgrupo (26/09/2026)
+- [ ] **Projeção: camada comercial, cenários salvos e congelamento no dia 10**
 - [x] **Relatório semanal 5100 por e-mail** (`R5100_ENVIO`) — segunda 08:00 BRT, semana seg–dom recortada por `emissao`, planilha com a coluna `cte` derivada da NF do histórico (83% de cobertura)
 - [ ] **PGR fase 2**: ranking por motorista, evolução mês a mês e CSV
 - [x] **Consolidação diária placa+dia** (`embarques_rastreio_dia`) — odômetro real, km vazio e dias parados sobrevivendo à retenção
