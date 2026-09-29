@@ -3065,17 +3065,17 @@ def _projecao_dados():
     fracao = pj.fracao_do_mes(diario, hoje.day,
                               pj.meses_entre(pj.mes_add(mes_corrente, -12), pj.mes_add(mes_corrente, -1)))
 
-    # ── despesa fechada, no grão grupo|fixo_variavel ──
+    # ── despesa fechada, no grão grupo|subcategoria|evento (o motor projeta cada linha pela natureza) ──
     refs = [m.replace('-', '/') for m in pj.meses_entre(f'{_PROJECAO_DESDE}-01', ult_custo)]
     linhas_hist = {}
     for r in _dax_dre(
-            f"EVALUATE CALCULATETABLE(SUMMARIZE({D},{D}[REF],{D}[descr_evento],{D}[fixo_variavel],"
+            f"EVALUATE CALCULATETABLE(SUMMARIZE({D},{D}[REF],{D}[descr_evento],"
             f"\"v\",SUM({D}[vlr_final])),{D}[REF] IN {_dax_lista_refs(refs)})"):
         ev = r.get('descr_evento')
         if ev not in MAPA_DRE:
             continue
         m = r['REF'].replace('/', '-')
-        chave = f"{MAPA_DRE[ev][0]}|{r.get('fixo_variavel') or '?'}"
+        chave = f"{MAPA_DRE[ev][0]}|{MAPA_DRE[ev][1]}|{ev}"
         linhas_hist.setdefault(m, {})
         linhas_hist[m][chave] = linhas_hist[m].get(chave, 0.0) + float(r.get('v') or 0)
 
@@ -3094,8 +3094,12 @@ def _projecao_dados():
         visao_ssw.setdefault(m, {})
         visao_ssw[m][g] = visao_ssw[m].get(g, 0.0) + v
         # "contratado" = parcela pendente de contrato + o que JÁ foi pago no mês em aberto
-        # (sem o pago, o Investimento de setembro saía com R$ 90 mil em vez do mês inteiro)
+        # (sem o pago, o Investimento de setembro saía com R$ 90 mil em vez do mês inteiro).
+        # No Financeiro, só a dívida (capital de giro, empréstimo): juro pago no mês não é
+        # compromisso, e o motor projeta juros/IOF/tarifa pela média — somaria duas vezes.
         sit = r.get('sit_des')
+        if g == 'Financeiro' and MAPA_DRE[ev][1] != pj.SUB_DIVIDA:
+            continue
         if (sit == 'LIQU' and g in ('Investimento', 'Financeiro')) or \
                 (sit == 'PEND' and pj.natureza_pend(g, r.get('historico_despesa')) == 'contrato'):
             contratos.setdefault(m, {})
@@ -3122,6 +3126,10 @@ def _projecao_dados():
         'escada_compromissos': pj.escada_compromissos(
             {m: gs for m, gs in contratos.items() if m >= mes_corrente}),
         'substituidos_descontados': desc_subst,
+        # Mês "fechado" que ainda recebe lançamento: medido set/25–jul/26, 0,1–4,8% do custo
+        # (até R$ 238 mil, quase tudo Operacional) entra depois do dia 10 do mês seguinte e
+        # ~0 depois do dia 30. Enquanto o mês seguinte não acaba, a tela avisa.
+        'custo_em_consolidacao': ult_custo if ult_custo == pj.mes_add(mes_corrente, -1) else None,
     })
     return res
 
@@ -8593,6 +8601,23 @@ if __name__ == '__main__':
               f"{os.getenv('EMBARQUES_FITA_RETENCAO_DIAS', '21')} d)")
     else:
         print("ℹ️  Fita documental desligada (EMBARQUES_FITA)")
+
+    # Foto diária da Projeção — guarda o que a tela previu e a provisão do financeiro
+    # (que some quando o real chega), para medir o acerto depois. Só lê o BI e grava a
+    # própria tabela; nasce ligada, `PROJECAO_FOTO=false` desliga.
+    import projecao_foto
+    if projecao_foto.ligado():
+        import threading as _th_pf
+
+        def _projecao_foto_dados():
+            data = _projecao_dados()
+            _PROJECAO_CACHE.update(ts=time.time(), data=data)   # de brinde, a tela abre quente
+            return data
+
+        _th_pf.Thread(target=projecao_foto.loop, args=(_projecao_foto_dados, get_db),
+                      daemon=True, name='ProjecaoFoto').start()
+    else:
+        print("ℹ️  Foto diária da projeção desligada (PROJECAO_FOTO)")
 
     # Boot do worker de rastreamento
     if os.getenv('START_WORKER', '').lower() == 'true':

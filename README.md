@@ -248,6 +248,7 @@ Tabela Auditoria/
 │   # ── Módulo Projeção (12 meses na régua do DRE) ──
 ├── projecao.py                  # Motor puro (sem DAX/Flask/numpy): receita, custos, faixa, retroanálise
 ├── projecao.html                # Página /projecao
+├── projecao_foto.py             # Foto diária em projecao_fotos (projeção + provisão do financeiro), laço no server
 ├── _teste_projecao.py           # Regressão do motor (sem rede nem banco) + trava de régua igual ao DRE
 ├── embarques.html               # Landing de embarques (KPIs + atalhos)
 ├── embarques-novo.html          # Formulário de lançamento de carga
@@ -1236,7 +1237,9 @@ dois. A regra lê a observação do substituto ("SUBSTITUIR O CTRC UDI 409658-4"
 | Receita | média de 3 métodos: Holt-Winters (36 meses, em log), mesmo mês do ano passado × crescimento, média de 3 meses | 6,9% no mês seguinte · ~5% na soma de 12 meses |
 | Mês em curso | a projeção misturada com o ritmo do que já entrou (fração típica do mês até aquele dia) | 6,9% no dia 1 → 4,4% no dia 15 → 3,7% no dia 26 |
 | Custo operacional, deduções | proporção da receita (6 meses) | 2,6% (variável) quando a receita está certa |
-| Administrativo, financeiro, retiradas, impostos | média de 6 meses | 8,6% (administrativo) |
+| Administrativo | **por natureza** (29/09/2026): folha, encargos, benefícios e saúde × receita; 13º, IPVA e confraternização no mesmo mês do ano anterior; o resto na média de 6 meses | soma de 12 meses 2,7% (a média do grupo: 5,9%) · 7–12 meses 7,8% (era 9,4%) |
+| Financeiro | **por natureza**: dívida (capital de giro, empréstimo — subcategoria `Dívida` do `MAPA_DRE`) pelas parcelas lançadas no SSW, sem piso (contrato quitado some); juros, IOF e tarifa na média | 4–6 meses 12% (a média do grupo: 23%) |
+| Retiradas, impostos | média de 6 meses | decisão dos sócios, sem padrão (testados tendência e sazonalidade: erram mais) |
 | Investimento | o **maior** entre as parcelas já lançadas no SSW e a média de 6 meses | 28% (só o contratado: 36% — a empresa segue contratando) |
 
 Reprovados no teste: Holt-Winters com histórico desde 2021 (a empresa mudou; 31% de
@@ -1283,11 +1286,45 @@ Deduções edita o lançamento no lugar. Consequências:
 - O acerto das provisões passadas não é medível (a provisão some quando é trocada) — só
   congelando daqui para frente (próxima fase).
 
+### O mês "fechado" ainda recebe lançamento
+
+O motor trata o mês anterior como custo fechado a partir do dia 11. Medido set/25–jul/26 pela
+`inclusao` do 477: **0,1–4,8% do custo de um mês (até R$ 238 mil, quase tudo Operacional) entra
+depois do dia 10 do mês seguinte**, e ~0 depois do dia 30. O corte do dia 10 ficou (esperar
+o fim do mês tiraria um mês inteiro da janela), mas a tela marca esse mês como **`real*`**
+e avisa que o EBITDA dele tende a cair até o fim do mês corrente (`custo_em_consolidacao`
+no `/api/projecao`).
+
+### Foto diária (`projecao_foto.py`, 29/09/2026)
+
+Uma linha por dia em `projecao_fotos` (Brasília, depois de `PROJECAO_FOTO_HORA_BRT`, 07:00):
+a projeção dos 12 meses, a **previsão do financeiro lançada no SSW** e o acerto que a tela
+mostrava, com o `sha1` do `projecao.py` que gerou. Serve para medir depois o que a
+retroanálise não mede: a **provisão do financeiro** (apagada quando o real chega — nunca foi
+medida) e **o que foi mostrado à diretoria** (cada mudança no motor reescreve a retroanálise).
+~5 KB por dia. A chave é o dia: restart não duplica, falha tenta de novo em 15 min. Só lê o
+BI e grava a própria tabela; nasce ligada, `PROJECAO_FOTO=false` desliga.
+
+**Como comparar:** pegue a foto tirada antes do mês começar e compare com o real só **depois
+que o mês seguinte terminar** (a seção acima) — comparar no dia 10 mede lançamento atrasado,
+não erro de projeção.
+
+### Testado e descartado (29/09/2026)
+
+- **Diesel como driver** (preço semanal da ANP por estado — a planilha baixa sem login em
+  `gov.br/anp/.../shlp/semanal/semanal-estados-desde-2013.xlsx`): combustível é 11% do custo
+  operacional, e fretes de terceiros 68%. Nem sabendo o diesel futuro exato o erro do
+  operacional melhora (7,7% → 7,5% no mês seguinte; 4,0% → 4,2% na soma de 12 meses). Serve
+  para cenário de sensibilidade (+10% no diesel ≈ +R$ 50 mil/mês na frota), não para projetar.
+- **Camada comercial manual** (cliente que entra/sai): descartada — nada que dependa de alguém
+  informar.
+
 ### Próximas fases
 
-- **Camada comercial**: a diretoria informa cliente que entra/sai (é o erro que falta)
-- **Cenários salvos** (volume por cliente, reajuste, diesel)
-- **Congelamento** da projeção e da provisão do financeiro no dia 10, para medir o acerto real
+- ~~Camada comercial~~ — **descartada em 29/09/2026**: nada que dependa de alguém informar
+- **Cenários salvos** (reajuste, diesel)
+- **Tela de acerto** das fotos diárias (projeção × real, provisão do financeiro × real) — quando
+  houver fotos com o mês seguinte já terminado (a primeira comparação possível: out/2026, em dez/2026)
 - Custos sazonais conhecidos no calendário (13º, férias, IPVA)
 
 ---

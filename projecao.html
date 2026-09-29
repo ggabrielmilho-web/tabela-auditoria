@@ -14,7 +14,7 @@
     --accent: #38bdf8; --accent2: #818cf8;
     --green: #34d399; --red: #f87171; --orange: #fb923c; --yellow: #fbbf24;
     /* origem de cada número projetado */
-    --o-realizado: #94a3b8; --o-contratado: #34d399; --o-direcionado: #38bdf8; --o-estatistico: #c084fc;
+    --o-realizado: #94a3b8; --o-contratado: #34d399; --o-direcionado: #38bdf8; --o-estatistico: #c084fc; --o-natureza: #fbbf24;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
@@ -109,6 +109,7 @@
   .pt { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
   .pt.realizado { background: var(--o-realizado); } .pt.contratado { background: var(--o-contratado); }
   .pt.direcionado { background: var(--o-direcionado); } .pt.estatistico { background: var(--o-estatistico); }
+  .pt.natureza { background: var(--o-natureza); }
   .legenda { display: flex; gap: 16px; flex-wrap: wrap; font-size: 0.74rem; color: var(--text-dim); margin-top: 10px; }
 
   table.acc { border-collapse: collapse; font-size: 0.8rem; margin-top: 4px; }
@@ -164,7 +165,8 @@ const LINHAS_MARGEM = { ebitda: 'Margem EBITDA', resultado_final: 'Margem final'
 const pct = v => (v * 100).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%';
 const ROT_ORIGEM = {
   realizado: 'realizado', contratado: 'contratado (parcelas já lançadas)',
-  direcionado: 'proporção da receita', estatistico: 'modelo estatístico'
+  direcionado: 'proporção da receita', estatistico: 'modelo estatístico',
+  natureza: 'por natureza do custo'
 };
 const charts = {};
 
@@ -204,6 +206,11 @@ function render(j) {
       `(as provisões são trocadas pelo custo real até ~dia 10). A receita dele é real; a despesa é projetada.</div>`;
   }
 
+  if (j.custo_em_consolidacao) {
+    avisoCusto += `<div class="aviso"><strong>${rotMes(j.custo_em_consolidacao)} (real*) ainda recebe lançamentos.</strong> ` +
+      `Nos últimos meses, 0,1% a 4,8% do custo (até R$ 238 mil, quase tudo operacional) entrou no SSW depois do dia 10 ` +
+      `do mês seguinte — o EBITDA dele tende a cair um pouco até o fim de ${rotMes(j.meses.find(m => m.h === 1).mes)}.</div>`;
+  }
   document.getElementById('conteudo').innerHTML = `
     ${avisoCusto}
     <div class="cards">
@@ -255,7 +262,7 @@ function render(j) {
     </div>
 
     <div class="grid2">
-      <div class="bloco"><h3>Compromissos já contratados, por ano<span class="dica">parcelas de investimento e financeiro já lançadas no SSW</span></h3>
+      <div class="bloco"><h3>Compromissos já contratados, por ano<span class="dica">parcelas de investimento e de dívida (capital de giro, empréstimo) já lançadas no SSW</span></h3>
         <div class="canvas-wrap"><canvas id="chEscada"></canvas></div></div>
       <div class="bloco"><h3>Quanto o modelo errou no passado</h3>
         <div id="acc"></div></div>
@@ -334,7 +341,7 @@ function renderEscada(escada) {
       labels: escada.map(e => e.ano),
       datasets: [
         { label: 'Investimento', data: escada.map(e => e.Investimento || 0), backgroundColor: '#34d399', borderRadius: 3 },
-        { label: 'Financeiro', data: escada.map(e => e.Financeiro || 0), backgroundColor: '#fbbf24', borderRadius: 3 },
+        { label: 'Dívida', data: escada.map(e => e.Financeiro || 0), backgroundColor: '#fbbf24', borderRadius: 3 },
       ]
     },
     options: {
@@ -356,8 +363,10 @@ function renderTabelaDre(j, proj) {
   const head = cols.map((c, i) => {
     const cls = c.real ? 'real' : 'proj';
     const sep = i === reais.length ? ' sep' : '';
-    const tag = c.real ? 'real' : c.inter ? 'rec. real' : (c.h === 1 ? 'em curso' : 'proj.');
-    return `<th class="${cls}${sep}">${rotMes(c.mes)}<br><span style="font-weight:400">${tag}</span></th>`;
+    const consol = c.real && c.mes === j.custo_em_consolidacao;
+    const tag = c.real ? (consol ? 'real*' : 'real') : c.inter ? 'rec. real' : (c.h === 1 ? 'em curso' : 'proj.');
+    const tit = consol ? ' title="ainda recebendo lançamentos no SSW até o fim do mês seguinte"' : '';
+    return `<th class="${cls}${sep}"${tit}>${rotMes(c.mes)}<br><span style="font-weight:400">${tag}</span></th>`;
   }).join('');
   const totRb = proj.reduce((s, m) => s + m.dre.receita_bruta, 0);
   const linhas = j.estrutura.map(e => {
@@ -427,7 +436,12 @@ function renderAcc(retro) {
         do que já entrou. CTe substituído conta uma vez só.<br>
         <strong>Custo operacional e deduções</strong>: a proporção da receita dos últimos 6 meses — frete, diesel e
         pedágio acompanham a receita quase à risca (erro de 2,6% nos testes).<br>
-        <strong>Administrativo, financeiro, retiradas</strong>: média dos últimos 6 meses.<br>
+        <strong>Administrativo</strong>: por natureza — folha, encargos, benefícios e saúde acompanham a receita;
+        13º, IPVA e confraternização entram no mesmo mês do ano anterior; o resto (PJ de apoio, sistemas, aluguel)
+        é a média dos últimos 6 meses. Na soma de 12 meses erra 2,7% nos testes (a média do grupo errava 5,9%).<br>
+        <strong>Financeiro</strong>: capital de giro e empréstimo pelas parcelas já lançadas no SSW (contrato quitado
+        some da conta); juros, IOF e tarifa pela média dos últimos 6 meses.<br>
+        <strong>Retiradas e impostos</strong>: média dos últimos 6 meses — é decisão dos sócios, sem padrão que se preveja.<br>
         <strong>Investimento</strong>: o maior entre as parcelas já lançadas no SSW (CDC, FINAME, consórcio) e a
         média dos últimos 6 meses — a empresa segue contratando, e só o contratado ficava abaixo do real.<br>
         <strong>O que não enxerga</strong>: cliente novo ou perdido. 65% do crescimento de 2026 veio de clientes que não

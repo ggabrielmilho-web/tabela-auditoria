@@ -19,8 +19,11 @@ Como cada linha é projetada — escolha medida em retroanálise sobre 24 origen
 | Receita                         | média de 3 métodos (abaixo)     | 7% no mês seguinte, 8% no trimestre, ~5% na soma de 12 meses |
 | Operacional (variável e fixo)   | proporção da receita, 6 meses   | 2,6% (variável) · 8,9% (fixo) |
 | Deduções                        | proporção da receita, 6 meses   | 8,4% |
-| Administrativo, Financeiro,     | média dos últimos 6 meses       | 10% (adm. fixo); o resto é irregular por natureza (18–45%) |
-| Retirada, Impostos              |                                 |             |
+| Administrativo                  | por natureza: folha × receita,  | soma de 12 meses 2,7% (a média do grupo: 5,9%) |
+|                                 | 13º/IPVA no mês, resto na média |             |
+| Financeiro                      | dívida pelo cronograma do SSW,  | 4–6 meses 12% (a média do grupo: 23%) |
+|                                 | juros/IOF/tarifa na média       |             |
+| Retirada, Impostos              | média dos últimos 6 meses       | irregular por natureza (decisão dos sócios) |
 | Investimento                    | o maior entre as parcelas já    | 28% (só o contratado: 36% — a Rizza segue contratando, |
 |                                 | lançadas e a média de 6 meses   | e todo método subestima) |
 
@@ -79,13 +82,24 @@ GRUPO_CHAVE = {
 GRUPOS = list(GRUPO_CHAVE)
 
 # Método por grupo (ver a tabela do docstring). A projeção é feita no grão
-# grupo × fixo/variável do 477 e somada ao grupo.
+# grupo|subcategoria|evento do 477 (subcategoria = 2º item do MAPA_DRE) e somada ao grupo.
 METODO_GRUPO = {
     'Deduções': 'proporcao', 'Operacional': 'proporcao',
-    'Administrativo': 'media', 'Financeiro': 'media', 'Retirada': 'media', 'Impostos': 'media',
+    'Administrativo': 'natureza', 'Financeiro': 'natureza', 'Retirada': 'media', 'Impostos': 'media',
     'Investimento': 'contrato_ou_media',
 }
-ORIGEM_METODO = {'proporcao': 'direcionado', 'media': 'estatistico', 'contrato_ou_media': 'contratado'}
+ORIGEM_METODO = {'proporcao': 'direcionado', 'media': 'estatistico', 'contrato_ou_media': 'contratado',
+                 'natureza': 'natureza'}
+
+# 'natureza' = cada linha do grupo pelo que a move (teste às cegas de 29/09/2026, 20 origens):
+#   Administrativo: folha e o que anda com ela → proporção da receita; o que tem mês
+#   certo → o mesmo mês do ano anterior; o resto → média de 6 meses. Soma de 12 meses
+#   errava 5,9% com a média do grupo e erra 2,7%; 7–12 meses, 9,4% → 7,8%.
+#   Financeiro: a dívida (capital de giro, empréstimo) tem cronograma lançado no SSW →
+#   as parcelas; juros, IOF e tarifa → média. 4–6 meses: 23% → 12%.
+SUB_FOLHA = {'Mão de Obra', 'Encargos', 'Benefícios', 'Saúde'}
+EVENTOS_CALENDARIO = {'13O SALARIOS', 'IPVA', 'BRINDES DOACOES CONFRATERNIZACOES'}
+SUB_DIVIDA = 'Dívida'
 
 # Faixa simétrica: quantil do erro absoluto (ver o docstring — p10–p90 cobria 65%/23%)
 Q_FAIXA_RECEITA = 0.9
@@ -215,29 +229,70 @@ def _linhas_do_grupo(linhas, grupo):
     return sorted(chaves)
 
 
-def prever_custos(receita_hist, linhas_hist, meses_hist, receita_prev, meses_prev, contratos=None):
-    """Projeta cada grupo (no grão grupo|fixo_variavel) para `meses_prev`.
+def metodo_linha(chave, com_cronograma=True):
+    """Método de uma linha 'Grupo|Subcategoria|Evento' (ver SUB_FOLHA e cia.)."""
+    partes = (chave.split('|') + ['', ''])[:3]
+    g, sub, ev = partes
+    met = METODO_GRUPO[g]
+    if met != 'natureza':
+        return met
+    if g == 'Administrativo':
+        if ev in EVENTOS_CALENDARIO:
+            return 'calendario'
+        return 'proporcao' if sub in SUB_FOLHA else 'media'
+    if g == 'Financeiro' and sub == SUB_DIVIDA:
+        # sem cronograma (a retroanálise: a provisão/parcela passada não fica guardada) → média
+        return 'cronograma' if com_cronograma else 'media'
+    return 'media'
 
-    receita_hist / linhas_hist: {mes: valor} / {mes: {'Grupo|Fixo': valor}} fechados.
+
+def _mesmo_mes_antes(linhas_hist, chave, m):
+    """Valor da linha no mesmo mês do ano anterior já fechado (m−12, senão m−24)."""
+    for k in (12, 24):
+        ant = mes_add(m, -k)
+        if ant in linhas_hist:
+            return linhas_hist[ant].get(chave, 0.0)
+    return 0.0
+
+
+def prever_custos(receita_hist, linhas_hist, meses_hist, receita_prev, meses_prev, contratos=None):
+    """Projeta cada grupo (no grão grupo|subcategoria|evento) para `meses_prev`.
+
+    receita_hist / linhas_hist: {mes: valor} / {mes: {'Grupo|Sub|Evento': valor}} fechados.
     meses_hist: os meses fechados a considerar (a janela sai do fim deles).
     receita_prev: receita projetada, alinhada a meses_prev.
-    contratos: {mes: {grupo: valor}} — parcelas já contratadas (PEND de contrato).
+    contratos: {mes: {grupo: valor}} — parcelas já contratadas (PEND de contrato). No
+               Financeiro, só a dívida (SUB_DIVIDA). None = sem cronograma (retroanálise).
     Devolve {grupo: [valor por mês]}.
     """
+    com_cronograma = contratos is not None
     contratos = contratos or {}
     jan = meses_hist[-JANELA_CUSTO:]
     rec_jan = sum(receita_hist.get(m, 0.0) for m in jan)
+    # linhas que aparecem na janela; as de calendário olham o ano inteiro (o 13º não está em mar–ago)
+    ano = meses_hist[-12:]
     out = {}
     for g in GRUPOS:
         met = METODO_GRUPO[g]
         vals = [0.0] * len(meses_prev)
-        for chave in _linhas_do_grupo({m: linhas_hist.get(m, {}) for m in jan}, g):
+        chaves = set(_linhas_do_grupo({m: linhas_hist.get(m, {}) for m in jan}, g))
+        chaves |= {c for c in _linhas_do_grupo({m: linhas_hist.get(m, {}) for m in ano}, g)
+                   if metodo_linha(c) == 'calendario'}
+        for chave in sorted(chaves):
+            ml = metodo_linha(chave, com_cronograma)
+            if ml == 'cronograma':
+                continue
             soma = sum(linhas_hist.get(m, {}).get(chave, 0.0) for m in jan)
             for i, rp in enumerate(receita_prev):
-                if met == 'proporcao':
+                if ml == 'proporcao':
                     vals[i] += (soma / rec_jan) * rp if rec_jan else 0.0
+                elif ml == 'calendario':
+                    vals[i] += _mesmo_mes_antes(linhas_hist, chave, meses_prev[i])
                 else:
                     vals[i] += soma / len(jan)
+        if g == 'Financeiro' and com_cronograma:
+            # a dívida é o cronograma lançado, sem piso de média: contrato quitado some
+            vals = [v + contratos.get(m, {}).get(g, 0.0) for m, v in zip(meses_prev, vals)]
         if met == 'contrato_ou_media':
             # O contratado é piso, não teto: a Rizza segue contratando (o investimento
             # dobrou em 2026) e só o contratado subestimava 36% em teste às cegas.

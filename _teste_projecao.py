@@ -103,6 +103,39 @@ cp = pj.prever_custos(rec, lin_inv, meses, [1000.0, 1000.0], ['2026-07', '2026-0
 caso('11e. investimento: contratado é piso, a média vale quando é maior', cp['Investimento'] == [100.0, 150.0],
      str(cp['Investimento']))
 
+# 16. Custo por natureza (Administrativo e Financeiro)
+subs_srv = {}
+for ev, (g, sub) in ns['MAPA_DRE'].items():
+    subs_srv.setdefault(g, set()).add(sub)
+caso('16. subcategorias de folha existem no Administrativo do MAPA_DRE', pj.SUB_FOLHA <= subs_srv['Administrativo'],
+     str(pj.SUB_FOLHA - subs_srv['Administrativo']))
+caso('16b. eventos de calendário existem no Administrativo do MAPA_DRE',
+     all(ns['MAPA_DRE'].get(e, ('',))[0] == 'Administrativo' for e in pj.EVENTOS_CALENDARIO))
+caso('16c. dívida existe no Financeiro do MAPA_DRE', pj.SUB_DIVIDA in subs_srv['Financeiro'])
+caso('16d. métodos por linha',
+     (pj.metodo_linha('Administrativo|Encargos|INSS'), pj.metodo_linha('Administrativo|Mão de Obra|13O SALARIOS'),
+      pj.metodo_linha('Administrativo|Sistemas|SOFTWARE E LICENCAS'), pj.metodo_linha('Financeiro|Dívida|CAPITAL DE GIRO'),
+      pj.metodo_linha('Financeiro|Dívida|CAPITAL DE GIRO', com_cronograma=False),
+      pj.metodo_linha('Financeiro|Custos Financeiros|JUROS E ENCARGOS'))
+     == ('proporcao', 'calendario', 'media', 'cronograma', 'media', 'media'))
+
+ms12 = pj.meses_entre('2025-09', '2026-08')
+rec12 = {m: 1000.0 for m in ms12}
+lin12 = {m: {'Administrativo|Encargos|INSS': 100.0, 'Administrativo|Sistemas|SOFTWARE E LICENCAS': 20.0,
+             'Financeiro|Custos Financeiros|JUROS E ENCARGOS': 50.0, 'Financeiro|Dívida|CAPITAL DE GIRO': 80.0}
+         for m in ms12}
+lin12['2025-11']['Administrativo|Mão de Obra|13O SALARIOS'] = 40.0
+lin12['2025-12']['Administrativo|Mão de Obra|13O SALARIOS'] = 30.0
+prev_m = ['2026-10', '2026-11', '2026-12']
+cp = pj.prever_custos(rec12, lin12, ms12, [2000.0] * 3, prev_m,
+                      {'2026-10': {'Financeiro': 70.0}, '2026-11': {'Financeiro': 70.0}})
+caso('16e. administrativo: folha × receita + fixo na média + 13º no mês certo',
+     cp['Administrativo'] == [200.0 + 20.0, 200.0 + 20.0 + 40.0, 200.0 + 20.0 + 30.0], str(cp['Administrativo']))
+caso('16f. financeiro: juros na média + dívida pelo cronograma (quitada some)',
+     cp['Financeiro'] == [50.0 + 70.0, 50.0 + 70.0, 50.0], str(cp['Financeiro']))
+cp = pj.prever_custos(rec12, lin12, ms12, [2000.0], ['2026-10'])
+caso('16g. sem cronograma (retroanálise) a dívida volta para a média', cp['Financeiro'] == [130.0], str(cp['Financeiro']))
+
 
 # 12. Ponta a ponta com série sintética
 def sintetico(ate_rec, ate_custo):
@@ -152,6 +185,21 @@ esc = pj.escada_compromissos({'2027-01': {'Investimento': 10.0}, '2027-02': {'In
                               '2028-01': {'Investimento': 3.0}})
 caso('15. escada por ano', esc == [{'ano': 2027, 'Investimento': 15.0, 'Financeiro': 1.0, 'total': 16.0},
                                    {'ano': 2028, 'Investimento': 3.0, 'total': 3.0}], str(esc))
+
+# 17. Foto diária: dia lido em Brasília, uma por dia, só depois do horário
+import datetime as _dt
+import projecao_foto as pf
+U = lambda s_: _dt.datetime.strptime(s_, '%Y-%m-%d %H:%M')
+caso('17. antes das 07:00 BRT não grava', pf.dia_a_gravar(U('2026-09-29 09:59'), None) is None)     # 06:59 BRT
+caso('17b. depois das 07:00 BRT grava o dia de Brasília',
+     pf.dia_a_gravar(U('2026-09-29 10:00'), None) == _dt.date(2026, 9, 29))
+caso('17c. 22:00 BRT (já é o dia seguinte em UTC) grava o dia de Brasília',
+     pf.dia_a_gravar(U('2026-09-30 01:00'), None) == _dt.date(2026, 9, 29))
+caso('17d. dia já gravado não grava de novo', pf.dia_a_gravar(U('2026-09-29 15:00'), _dt.date(2026, 9, 29)) is None)
+meses_f, retro_f = pf.compactar(res)
+caso('17e. a foto guarda a projeção, a previsão do financeiro e o acerto',
+     len(meses_f) == len(res['meses']) and 'dre' in meses_f[0] and 'previsao_financeiro' in meses_f[0]
+     and 'por_faixa' in retro_f and len(pf.versao_motor()) == 12)
 
 print(f'\n{"TUDO OK" if not FALHAS else str(len(FALHAS)) + " FALHA(S)"}')
 raise SystemExit(1 if FALHAS else 0)
