@@ -1548,8 +1548,12 @@ def api_embarques_ordens():
         cur.execute("SELECT 1 FROM information_schema.columns WHERE table_name='embarques_programacao' "
                     "AND column_name='tipo_frota'")
         _tf = 'tipo_frota' if cur.fetchone() else 'NULL::varchar AS tipo_frota'
+        # agendamento/obs (29/09/26): mesma guarda — nascem na 1ª rodada da fita depois do deploy
+        cur.execute("SELECT 1 FROM information_schema.columns WHERE table_name='embarques_programacao' "
+                    "AND column_name='agendamento'")
+        _ag = 'agendamento, obs' if cur.fetchone() else 'NULL::date AS agendamento, NULL::varchar AS obs'
         cur.execute(f"""
-            SELECT coleta_origem, unidade, numero, tipo, situacao_ssw, situacao_em, limite_em,
+            SELECT coleta_origem, unidade, numero, tipo, situacao_ssw, situacao_em, limite_em, {_ag},
                    cadastrada_em, cadastrada_por, comandada_em, comandada_por, coletada_em, coletada_por,
                    cancelada_em, solicitante, motorista, cavalo, carreta,
                    reme_nome, reme_endereco, reme_cidade, dest_nome, dest_cidade, dest_uf,

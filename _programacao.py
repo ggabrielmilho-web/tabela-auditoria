@@ -19,7 +19,9 @@ vencido, inclusive uma que já era manifesto do dia anterior. O que fecha uma or
 
 Nada aqui é lido por régua nenhuma do app (raio, rota, KPI, status de carga).
 """
-from datetime import datetime
+import re
+import unicodedata
+from datetime import date, datetime
 
 DDL = """
 CREATE TABLE IF NOT EXISTS embarques_programacao (
@@ -46,6 +48,10 @@ ALTER TABLE embarques_programacao ADD COLUMN IF NOT EXISTS carga_via VARCHAR(10)
 -- Frota / Agregado / Terceiro (21/09/26): a ordem de terceiro fica em "documento emitido" para
 -- sempre, porque o robô só lança Frota e Agregado — e sem essa coluna a tela não dizia por quê.
 ALTER TABLE embarques_programacao ADD COLUMN IF NOT EXISTS tipo_frota VARCHAR(10);
+-- Agendamento (29/09/26): o gerente alinhou com os embarcadores escrever a data na observação da
+-- ordem ("AGENDA 02/10"). `agendamento` é a data lida dali; `obs` guarda o texto para conferência.
+ALTER TABLE embarques_programacao ADD COLUMN IF NOT EXISTS agendamento DATE;
+ALTER TABLE embarques_programacao ADD COLUMN IF NOT EXISTS obs VARCHAR(300);
 CREATE INDEX IF NOT EXISTS ix_prog_limite ON embarques_programacao (limite_em);
 CREATE INDEX IF NOT EXISTS ix_prog_estado ON embarques_programacao (estado);
 """
@@ -61,6 +67,45 @@ def _dt(v):
 def _s(v, n):
     v = str(v or '').strip()
     return v[:n] or None
+
+
+# "AGENDA 02/10", "AGENDA02/10", "AGENDA DIA 05/10", "AGENDADO P/ 05/10/2026" — a palavra é
+# obrigatória: a observação também carrega outras datas (NF, coleta), e só a que vem depois de
+# AGEND* é o agendamento. Formatos medidos nas 33 ordens de 28–29/09/26 (17 com agenda).
+_RE_AGENDA = re.compile(r'AGEND[A-Z]*([^|]{0,30})')      # [A-Z], não \w: "AGENDA02/10" (sem espaço)
+_RE_DATA = re.compile(r'(?<!\d)(\d{1,2})\s*[/.-]\s*(\d{1,2})(?:\s*[/.-]\s*(\d{2,4}))?(?!\d)')
+
+
+def ler_agendamento(obs, ref):
+    """Data do agendamento escrita na observação, ou None. Sem ano, vale o ano de `ref` (a
+    criação da ordem) — ou o seguinte, se a data cairia mais de 60 dias antes dela (ordem de
+    dezembro agendada para janeiro)."""
+    ref = ref or datetime.now()
+    for trecho in _RE_AGENDA.finditer(unicodedata.normalize('NFKD', str(obs or '')).upper()):
+        # "AGENDA ÀS 14H DO DIA 03/10": a 1ª DATA VÁLIDA depois da palavra, até 30 caracteres
+        for m in _RE_DATA.finditer(trecho.group(1)):
+            dt = _data(int(m.group(1)), int(m.group(2)), m.group(3), ref)
+            if dt:
+                return dt
+    return None
+
+
+def _data(d, mes, ano, ref):
+    if ano:
+        a = int(ano)
+        a = a + 2000 if a < 100 else a
+        try:
+            return date(a, mes, d)
+        except ValueError:
+            return None
+    for a in (ref.year, ref.year + 1):
+        try:
+            dt = date(a, mes, d)
+        except ValueError:
+            return None
+        if (dt - ref.date()).days >= -60:
+            return dt
+    return None
 
 
 def derivar_estado(r, agora):
@@ -101,9 +146,21 @@ def classificar_ordem(cavalo, carreta, manifesto, cadastro, vendidas):
     # não "rígido". Classificar só pelo cavalo virava Terceiro o que era Agregado: medido em
     # 21/09/26, 24 dos 58 Terceiro tinham sido decididos assim (Gabriel: "muito agregado vai
     # acabar virando terceiro"). Então a ordem só classifica com as DUAS placas; senão, em branco.
+    # Exceção (29/09/26): o CADASTRO diz que a placa é caminhão rígido (TRUCK/TOCO) — aí carreta
+    # vazia é "não tem", não "não informada". UDI-000265 e CAR-002256 (trucks Rizza) ficavam "—".
+    if cavalo and not carreta and _eh_rigido(cavalo, cadastro):
+        return classificar(cavalo, None, cadastro, vendidas)
     if not cavalo or not carreta:
         return None
     return classificar(cavalo, carreta, cadastro, vendidas)
+
+
+def _eh_rigido(placa, cadastro):
+    """A placa é truck/toco NO CADASTRO (mesmo rótulo do `cavalo_tipo` do robô). Placa fora do
+    cadastro não é rígido — na dúvida, a coluna fica em branco."""
+    from embarques_auto import _placa, _tipo_cavalo
+    v = cadastro.get(_placa(placa))
+    return bool(v) and _tipo_cavalo(v) == 'Truck'
 
 
 def atualizar(conn, dados, cadastro=None):
@@ -163,7 +220,10 @@ def atualizar(conn, dados, cadastro=None):
             'carga_id': cg[0] if cg else None, 'carga_numero': cg[1] if cg else None, 'carga_status': cg[2] if cg else None,
             'carga_via': cg[3] if cg else None,
             'embarcador': _s(r.get('comandada_por') or r.get('cadastrada_por'), 40),
+            'obs': _s(' | '.join(str(r.get(c)).strip() for c in ('obs1', 'obs2', 'obs3')
+                                 if str(r.get(c) or '').strip()), 300),
         }
+        row['agendamento'] = ler_agendamento(row['obs'], row['cadastrada_em'] or row['comandada_em'])
         row['tipo_frota'] = classificar_ordem(row['cavalo'], row['carreta'],
                                               manifestos.get(man) if man else None,
                                               cadastro, vendidas)

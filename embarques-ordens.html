@@ -94,7 +94,7 @@
       <table>
         <thead><tr>
           <th>Ordem</th><th>Estado</th><th>Limite</th><th>Atraso</th><th>Embarcador</th><th>Cliente</th>
-          <th>Conjunto</th><th>Frota</th><th>Motorista</th><th>De</th><th>Para</th><th>Documento</th><th>Carga</th><th title="quando a ordem nasceu no SSW (cadastrada_em) — é sempre o carimbo mais antigo dela; em metade das ordens é o mesmo minuto da Comandada, e na coleta programada nasce sem autor">Criada</th><th>Comandada</th>
+          <th>Conjunto</th><th>Frota</th><th>Motorista</th><th>De</th><th>Para</th><th title="data de entrega agendada pelo cliente, lida da observação da ordem (“AGENDA 02/10”)">Entrega agendada</th><th>Documento</th><th>Carga</th><th title="quando a ordem nasceu no SSW (cadastrada_em) — é sempre o carimbo mais antigo dela; em metade das ordens é o mesmo minuto da Comandada, e na coleta programada nasce sem autor">Criada</th><th>Comandada</th>
         </tr></thead>
         <tbody id="tbody"></tbody>
       </table>
@@ -122,6 +122,17 @@ function frota(o){
   if(!o.tipo_frota) return '<span class="dim">—</span>';
   const t=o.tipo_frota==='Terceiro'?'terceiro: fora do robô (sem rastreador da casa, não vira carga)':o.tipo_frota;
   return `<span class="badge ${FROTA_CLS[o.tipo_frota]||''}" title="${t}">${o.tipo_frota}</span>`;
+}
+// Entrega agendada (29/09/26): lida da observação da ordem ("AGENDA 02/10"). A API manda a data
+// como meia-noite GMT — formatar em UTC, senão em Brasília ela vira o dia anterior.
+const esc = t => String(t||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+function agenda(o){
+  const tit = o.obs ? `observação: ${esc(o.obs)}` : 'observação vazia';
+  if(!o.agendamento) return `<span class="dim" title="${tit}">sem agenda</span>`;
+  const d = new Date(o.agendamento);
+  if(isNaN(d)) return `<span class="dim" title="${tit}">—</span>`;
+  const txt = d.toLocaleDateString('pt-BR',{timeZone:'UTC',weekday:'short',day:'2-digit',month:'2-digit'});
+  return `<span class="mono" title="${tit}">${txt}</span>`;
 }
 function limpar(){ document.getElementById('f-dia').value=''; document.getElementById('f-estado').value=''; carregar(); }
 async function carregar(){
@@ -154,6 +165,7 @@ async function carregar(){
       <td title="${o.motorista||''}">${(o.motorista||'—').split(' ').slice(0,2).join(' ')}</td>
       <td title="${o.reme_nome||''} · ${o.reme_endereco||''}">${o.reme_cidade||'—'} <span class="dim">${o.reme_nome?('· '+o.reme_nome.slice(0,18)):''}</span></td>
       <td title="${o.dest_nome||''}">${o.dest_cidade||'—'}/${o.dest_uf||''}</td>
+      <td>${agenda(o)}</td>
       <td class="mono">${doc}</td>
       <td>${carga}</td>
       <td class="mono dim" title="${o.cadastrada_por? ('cadastrada por '+o.cadastrada_por) : 'sem autor: ordem criada pelo próprio SSW (coleta programada)'}">${fmt(o.cadastrada_em)}</td>
