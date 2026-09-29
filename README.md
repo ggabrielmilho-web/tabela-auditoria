@@ -112,6 +112,9 @@ a imagem antiga (21/08/2026).
 - **Embarques** (`/embarques`) — Lançamento de cargas (Terceiro / Agregado / Frota), relatório filtrável + CSV, edição com log de auditoria por campo e histórico. **Agendamento por destino** (data/hora com o cliente), com filtro "Por agendamento", **badge de atraso** (agendamento vencido + carga ativa) e **ETA realista** (~600 km/dia). Suporta **viagem vazia** (carga sem cliente) e **cidades de rota/passagem** (pontos que moldam o caminho da rota planejada sem serem destino de entrega). **Desengate de carreta carregada** (drop-and-hook): libera cavalo+motorista para outra viagem com a carreta ainda no destino aguardando descarga (ver Módulo Embarques). **Continuação** (`EMBARQUES_CONTINUACAO`): quando a mercadoria atravessa duas cargas (desengate no pátio, manifesto novo no hub, reemissão), a primeira aponta para a segunda (`→ C-B`) e só a segunda conta como entrega
 - **Mapa / Rastreamento** (`/embarques/mapa`, `/embarques/cargas/<id>/mapa`) — Mapa em tempo real (Leaflet): posição dos veículos e trajeto de cada carga, rota planejada **origem → cidades de rota → destinos** (completa, multi-ponto), KPIs de viagem **ao vivo** (vel. máx/média, km, tempos) e **Data de saída** no painel da carga. Fluxo de status automático **Aberta → Em rota → No destino → Entregue** (`No destino` = parado na cidade da descarga há +60 min), com desvio **Desengatada** (carreta carregada largada no destino). **Rastreia pela carreta** (carreta1 → cavalo → carreta2 — o GPS costuma estar na carreta). **Reconstrói o trajeto** mesmo em lançamento tardio: detecta a saída da origem pelo GPS (por distância, pois o 3S erra o nome da cidade) e persiste em `inicio_viagem`. Mapa geral tem filtro **🔌 Desengatadas** e marcador próprio. **Salto impossível**: a linha do GPS QUEBRA no trecho que o veículo não pode ter feito (velocidade implícita acima do teto físico, ou odômetro negando o deslocamento) — duas bolinhas âmbar marcam as pontas do buraco, e o km desse trecho sai do `KM PERCORRIDOS`, mas segue medido pelo `KM RASTREADOR` (o odômetro é cumulativo no aparelho e não depende da posição). Régua única em `embarques_regua.py`
 
+- **Ordens de coleta** (`/embarques/ordens`) — cada ordem de coleta do SSW (157) com estado **derivado do documento** (vencida sem documento · aguardando manifesto · sem veículo · documento emitido · carga · cancelada), a carga ligada, a classificação **Frota/Agregado/Terceiro** pela régua do robô (truck sem carreta classificado pelo cadastro TRUCK/TOCO) e a coluna **Entrega agendada**, lida da observação da ordem ("AGENDA 02/10"). Ver Módulo Embarques
+- **Torre de controle** (`/embarques/torre`) — o "agora" da operação num painel só, igual para todos e só leitura: relógios de GPS/documentos/robô, caixas com estoque + fluxo do dia + idade, frota em quatro baldes (trabalhando · livres para carga · precisa olhar · sem sinal), exceções com a regra que disparou, mapa, próximas 12 h, linha do tempo de 36 h e produtividade do dia. **Atraso pela entrega agendada** da ordem de coleta; sem ela, pelos 600 km/dia. Modo **retrato** de um dia anterior. Ver Módulo Embarques
+
 ### Restrito a admins
 - **Verda — Emissões CO₂e** (`/verda`) — Acompanhamento do inventário de CO₂e enviado à plataforma **Verda** (exigência da Nestlé, escopo 3 do embarcador). Placar da rodada (enviadas / `executed` / rejeitadas / bloqueadas), inventário (t CO₂e, km, peso, diesel, **intensidade g/t·km**, escopo 1 × escopo 3), consumo aplicado por faixa de km/l, `VehicleTypeKey`, **as placas que estão bloqueando envio** (lista copiável para o cadastro resolver) e detalhe por viagem com drill nos CTes + CSV. **Não chama a Verda**: lê a `verda_envios` e recalcula o CO₂e com o fator reconstruído da API `Fuel` — na conta gratuita a Verda guarda só o consolidado mensal, então para o dado por viagem esta é a única tela que existe. Janela padrão = semana fechada anterior. **Consumo**: escala por idade do veículo (3,00 / 2,80 / 2,50 / 2,20 km/l) e 3,70 no rígido, revisada pela diretoria em 10/09/2026 — a mesma régua vale para os indicadores ABIQUIM. Ver `HANDOFF-VERDA.md` (§19 registra a divergência com o ciclo medido no ValeCard)
 - **Reunião** (`/reuniao`) — Gerador de ata de reunião a partir de áudio. Transcreve via AssemblyAI (com identificação de falantes) e gera ata profissional via GPT-4.1-mini. Exporta em Word e PDF
@@ -291,7 +294,9 @@ Tabela Auditoria/
 ├── _fita_documentos.py          # retrato do BI por refresh (`fita_documentos`) + agendador (EMBARQUES_FITA)
 ├── _locais.py                   # `locais_fontes` + view `locais` (CNPJ → endereço), alimentada pela fita
 ├── _programacao.py              # `embarques_programacao`: ordens com estado derivado
-├── embarques-ordens.html        # Página /embarques/ordens (ordens de coleta e seu estado)
+├── embarques-ordens.html        # Página /embarques/ordens (ordens de coleta, estado e entrega agendada)
+├── torre.py                     # Torre de controle: a consulta única `montar(cur, dia, agora)` (só leitura)
+├── embarques-torre.html         # Página /embarques/torre
 │
 │   # ── Módulo Rastreamento ──
 ├── rastreamento_worker.py       # Worker daemon (60s): posições, saída/entrega auto, recálculo de rota
@@ -490,7 +495,8 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 - `GET /embarques/novo` — Formulário de lançamento
 - `GET /embarques/relatorio` — Relatório de cargas
 - `GET /embarques/<id>/editar` — Edição de carga
-- `GET /embarques/ordens` — Ordens de coleta (0157) com estado derivado
+- `GET /embarques/ordens` — Ordens de coleta (0157) com estado derivado · API `GET /api/embarques/ordens?dia=&embarcador=&estado=`
+- `GET /embarques/torre` — Torre de controle · API `GET /api/embarques/torre` (ao vivo) ou `?dia=AAAA-MM-DD` (retrato daquele dia à meia-noite)
 - `GET /embarques/mapa` — Mapa geral de rastreamento
 - `GET /embarques/cargas/<id>/mapa` — Mapa de uma carga
 
@@ -822,6 +828,82 @@ python embarques_auto.py                           # exige EMBARQUES_AUTO=true
 > **Pré-requisito:** `embarques_veiculos_rastreio` precisa estar sincronizada
 > (`POST /api/rastreamento/sync-veiculos`) — é a tabela que o worker consulta em
 > `_placa_tracking`. Sem ela nenhuma carga rastreia, por mais que a 3S enxergue a placa.
+
+### Ordens de coleta (`_programacao.py`, aba `/embarques/ordens`)
+
+A ordem de coleta (SSW 157) **não entra no painel de cargas** (decisão de 15/09/26): vive em
+`embarques_programacao`, uma linha por ordem (`unidade-numero`), atualizada pela fita a cada
+refresh do BI. Guarda os instantes que o SSW sobrescreve e a ordem que sai da janela de ~14 dias
+do 157 (`sumiu_em`), que é o histórico que o SSW não tem.
+
+**O estado é derivado do documento**, porque a situação do SSW não fecha sozinha (só Uberlândia
+marca COLETADA): cancelada → carga (existe carga do robô ligada) → documento emitido (CTe gerado)
+→ aguardando manifesto / vencida sem documento (COMANDADA, pelo limite) → sem veículo.
+
+**Frota / Agregado / Terceiro** pela mesma régua do robô (`embarques_auto.classificar`), com as
+placas do manifesto quando ele existe. Sem manifesto, só classifica com cavalo **e** carreta —
+carreta vazia na ordem costuma ser "não informada", e classificar só pelo cavalo virava Terceiro
+o que era Agregado (24 de 58, 21/09). **Exceção (29/09):** se o cadastro diz que a placa é
+TRUCK/TOCO, carreta vazia é "não tem", e classifica pela placa.
+
+**Entrega agendada (29/09/26).** O gerente alinhou com os embarcadores escrever a data de entrega
+agendada pelo cliente na observação da ordem. `ler_agendamento` lê `obs1..3`:
+
+| regra | por quê |
+|---|---|
+| exige a palavra `AGEND*` antes da data | a observação carrega outras datas (NF, coleta) |
+| aceita `AGENDA 02/10`, `AGENDA02/10`, `AGENDA DIA 05/10`, `AGENDADO P/ 05/10/2026`, `AGENDA ÀS 14H DO DIA 03/10` | formatos vistos nas ordens reais; pega a 1ª data válida até 30 caracteres depois da palavra |
+| sem ano: o ano da criação da ordem, ou o seguinte se a data cairia > 60 dias antes | ordem de dezembro agendada para janeiro |
+
+Grava `agendamento` (DATE) e `obs` (texto, para conferência no tooltip). As colunas nascem na 1ª
+rodada da fita depois do deploy; até lá a API devolve NULL. Medido em 28–29/09: 17 de 31 ordens
+com agenda — renato 17/21, pablo 0/7, rafael 0/3.
+
+### Torre de controle (`torre.py`, aba `/embarques/torre`)
+
+O "agora" da operação num painel só (desenho de 25/09/26). **Só leitura e igual para todos** —
+sem dono, sem "minhas"; o embarcador aparece só como informação. Carreteiro/Terceiro ficam fora
+(contados). Tudo sai de uma consulta, `montar(cur, dia=None, agora=None)`:
+
+| bloco | o que é |
+|---|---|
+| relógios | idade do GPS, dos documentos (fita) e do robô atemporal — ficam vermelhos quando o dado envelhece |
+| caixas | coletas do dia · documento sem saída · em trânsito · no destino · entregues: **estoque** no instante, **fluxo** do dia e **idade**; ao vivo, um "confere" cruza o status com as datas |
+| frota | cada carreta que teve carga (Frota/Agregado) em 30 dias, em quatro baldes; **nunca lê perna vazia** (99,4% coerente na simulação) |
+| exceções | o que precisa de alguém, cada uma com a regra que disparou |
+| próximas 12 h | coletas com prazo × carretas livres ("amanhã" dava sempre 0: a ordem nasce no dia) |
+| linha do tempo | 36 h por carreta, um bloco por hora: carregada/vazia × rodando/parada/no cliente |
+| produtividade | coletas por embarcador, **pontualidade** das chegadas do dia, km roteirizado das entregas |
+
+**Dois modos.** Ao vivo, o estado é o status da carga. Com `?dia=` anterior, é o **retrato** à
+meia-noite, deduzido das datas (o worker muda status sem log) — é o que hoje sabemos daquele dia.
+
+**Prazo da entrega (29/09/26, decisão do Gabriel):**
+1. **A entrega agendada da ordem de coleta** ligada à carga (`embarques_programacao.agendamento`
+   por `carga_id`) — vale até 23:59 de Brasília; N ordens numa carga → a menor data;
+2. sem ela, **600 km/dia** (25 km/h, `KM_DIA_PADRAO`) com 20% de folga e +4 h na perna < 300 km.
+
+O agendamento manual por destino (`embarques_cargas_destinos.data_agendamento`) não entra.
+
+| exceção | regra |
+|---|---|
+| Coleta vencida sem documento (alta) | limite da ordem passou e nada foi emitido |
+| **Entrega agendada vencida** (alta) | passou o dia agendado e a carga não chegou — inclusive a que nem saiu |
+| **Vai atrasar** (média) | ainda no prazo, mas a chegada estimada (600 km/dia, sem folga) já não cabe no dia agendado |
+| Atrasando (média) | sem agenda: passou a previsão dos 600 km/dia + 20% |
+| Documento sem saída (média) | carga existe há 12 h e o GPS não mostrou a saída |
+| Parada na estrada (alta) | parada > 2 h de dia ou > 11 h à noite (22h–6h, interjornada), a mais de 30 km da origem e do destino |
+| Esperando no cliente (média) | > 24 h no destino sem conclusão — ⚠ **nunca acende**: o robô fecha a carga pelas mesmas 24 h |
+| Desengatada (média) | sem cavalo há 3 dias |
+| Rastreador sem sinal (sensor) | carga em rota sem posição há mais de 12 h |
+
+**Km:** o da torre **nunca** vem de `embarques_cargas_rastreio_kpi` — o gate de 25/09 mostrou que
+ela diverge da tela do mapa em 184 de 407 viagens. Km rastreado e margem do agregado entram
+depois, pela mesma função da tela.
+
+`TORRE_AGORA` (env, ISO em UTC) congela o "agora" — só para ver a torre numa base de lab; em
+produção fica ausente. A torre ficou guardada na branch `torre-controle` de 25/09 a 29/09 (o
+`main` tinha o commit e o revert dele); voltou revertendo o revert, em `59f9721`.
 
 
 ---
@@ -1626,6 +1708,11 @@ Resultado Final   = Pós Investimento - Retiradas
 - [x] **`EMBARQUES_AUTO_DEFASAGEM=0` + disparo do diário após cada refresh** (§27.12) — no ar desde 20/09; a carga passou a nascer no mesmo dia do carregamento
 - [x] **Aba de Coletas no menu, no Início e na landing** — a página existia e não havia como chegar nela
 - [ ] **Status `Programada`** (a carga nasce na ordem comandada) e o endereço do cadastro `locais` como âncora de chegada
+- [x] **Entrega agendada na ordem de coleta** (29/09/2026) — lida da observação ("AGENDA 02/10"), coluna na aba de ordens; truck sem carreta classificado pelo cadastro
+- [x] **Torre de controle** (`/embarques/torre`, 29/09/2026) — atraso pela entrega agendada da ordem; sem ela, 600 km/dia
+- [ ] **Torre: "Esperando no cliente"** com régua abaixo das 24 h do robô (hoje nunca acende) e conferir "parada na estrada > 2 h" na base real
+- [ ] **Torre: km rastreado e margem do agregado** pela mesma função da tela do mapa
+- [ ] **Levar a entrega agendada da ordem para a carga** quando o robô a cria
 - [ ] `KM FALTANDO` em carga entregue e `KM RASTREADOR —` na perna 1 de um desengate (§24.6)
 - [x] **Publicar no Power BI as 3 colunas novas de tarifas** (`icms_incluso`, `pedagio_incluso`, `prazo_recebimento`) — já publicadas; cards e "Total + Impostos" ativos
 - [x] **Análise por Veículo** (cavalo/carreta/motorista/proprietário) com custo real da frota (pedágio + combustível + folha + manutenção/seguro/rastreador) e **drawer de detalhe** por carga; normalização de placa Mercosul
@@ -1648,7 +1735,8 @@ Resultado Final   = Pós Investimento - Retiradas
 - [x] **Conferência CIOT** (CTRB × manifesto × CIOT, aba `/ciot` + WhatsApp) — preparada, desligada (`CIOT_CONFERENCIA`/`CIOT_ENVIO`)
 - [x] **Projeção financeira** (`/projecao`, 26/09/2026) — DRE de 12 meses na régua do DRE, faixa calibrada às cegas, visão do SSW e escada de compromissos
 - [x] **Fix do donut do DRE** — detalhamento agrupado por grupo+subgrupo (26/09/2026)
-- [ ] **Projeção: camada comercial, cenários salvos e congelamento no dia 10**
+- [x] **Projeção: custo por natureza** (Administrativo e Financeiro, 29/09/2026) e **foto diária** (`projecao_fotos`)
+- [ ] **Projeção: tela de acerto das fotos** (a 1ª comparação possível: out/2026, em dez/2026) e cenários salvos — camada comercial manual descartada
 - [x] **Relatório semanal 5100 por e-mail** (`R5100_ENVIO`) — segunda 08:00 BRT, semana seg–dom recortada por `emissao`, planilha com a coluna `cte` derivada da NF do histórico (83% de cobertura)
 - [ ] **PGR fase 2**: ranking por motorista, evolução mês a mês e CSV
 - [x] **Consolidação diária placa+dia** (`embarques_rastreio_dia`) — odômetro real, km vazio e dias parados sobrevivendo à retenção
