@@ -87,7 +87,8 @@ def agrupar_episodios(pontos):
 def velocidade_sustentada(pontos, ini, fim):
     """Média do trecho por deslocamento ÷ tempo, no intervalo do episódio.
 
-    INFORMATIVA, não é critério de classificação: usa haversine, então
+    INFORMATIVA, não é critério de classificação nem número exibido (ver
+    `pico_exibido`): um salto de posição falsa a infla sem limite. Usa haversine, então
     **subestima 5–15%** (a estrada é mais longa que a reta). Serve para
     distinguir "cruzou 20 min a 98" de "tocou 111 numa descida".
 
@@ -114,22 +115,22 @@ def velocidade_sustentada(pontos, ini, fim):
     return int(round(km / horas))
 
 
-def pico_exibido(vel_max, vel_sustentada):
-    """Pico a mostrar = max(leitura, sustentada). Regra geral, não exceção.
+def pico_exibido(vel_max, vel_sustentada=None):
+    """Pico a mostrar = a LEITURA do aparelho. Nunca a sustentada.
 
-    As duas colunas são **piso** do pico real, não "uma medida e uma
-    estimativa":
-      - a leitura é instantânea, então o pico do intervalo é ≥ leitura;
-      - a sustentada usa haversine (subestima 5–15%) e é uma média, e o máximo
-        de qualquer função é ≥ sua média — logo o pico real é ≥ sustentada.
+    O relatório vira advertência para motorista, então só mostra velocidade que
+    o aparelho mediu. A regra antiga era max(leitura, sustentada), com a tese de
+    que a sustentada seria "piso" do pico real — e ela só é piso quando as
+    posições são verdadeiras. Quando o aparelho congela (repete posição e
+    odômetro parados) e depois acorda 20–30 km adiante, o salto vira velocidade:
+    GZQ3080 em 29/09 saiu 176 com leitura de 100 (31 km em 304 s, odômetro +0);
+    GZQ3A40 em 18/09 saiu 1.511 com leitura de 109. A leitura é instantânea e
+    erra para baixo, que é o lado certo de errar numa advertência.
 
-    Mostrar o maior dos dois é o número mais correto disponível, e erra sempre
-    para baixo: se o motorista contestar, a resposta é "no mínimo X". Na
-    prática só muda o caso raro em que a amostragem perdeu o pico verdadeiro
-    (11/08: 1 de 41). `vel_max` e `vel_sustentada` seguem crus na tabela, então
-    a auditoria de onde saiu o número continua possível.
+    `vel_sustentada` segue crua na tabela, só para auditoria; o parâmetro fica
+    na assinatura por compatibilidade com quem chama.
     """
-    return max(vel_max or 0, vel_sustentada or 0)
+    return vel_max or 0
 
 
 def resumir_episodio(ep, pontos_placa):

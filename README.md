@@ -1512,7 +1512,7 @@ continua sendo a do aparelho, 2–5 min).
 - **Limiar 95, teto 130** (anti-ruído: houve equipamento marcando 214 km/h constante por 19 min).
 - **Episódio** = registros a menos de 10 min entre si.
 - **"Nº de registros", nunca "tempo acima"** — cada leitura é um instante, não um intervalo. Somar seria inventar número.
-- **Pico exibido = `max(leitura, sustentada)`**. As duas são *piso* do valor real (a leitura é instantânea; a média usa haversine, que subestima 5–15%, e o máximo é ≥ a média). Erra sempre para baixo. `vel_max` e `vel_sustentada` ficam crus na tabela para auditoria.
+- **Pico exibido = a leitura do aparelho (`vel_max`), nunca a sustentada.** O relatório gera advertência, então só mostra velocidade medida. A regra antiga era `max(leitura, sustentada)` e inventou 176, 150 e até 1.511 km/h: quando o aparelho congela (posição e odômetro parados) e acorda 20–30 km adiante, o salto vira velocidade na média (30/09/2026). `vel_sustentada` fica crua na tabela só para auditoria.
 - **Sustentado** = 2+ registros no mesmo episódio. A média do trecho é coluna informativa, não critério.
 
 ### Situação de carga — provada por posição, nunca por data
