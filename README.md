@@ -1632,6 +1632,27 @@ Definido em `server.py:MAPA_DRE` — mapeia cada `descr_evento` para um Grupo + 
 | Investimento | Investimentos (CDC, FINAME, Consórcio, Imobilizado) |
 | Retirada | Retiradas de sócios |
 
+### Exceção por lançamento: carro particular de sócio (01/10/2026)
+
+O `MAPA_DRE` classifica por **evento**, mas os financiamentos de carro particular dos sócios
+caem no mesmo evento dos financiamentos da frota (`INVESTIMENTO- CDC`, `INVESTIMENTO -
+CONSORCIO`). Por decisão do diretor eles são **Retirada**, não investimento da empresa, em
+**todas as competências** que tiverem. A regra fica em `RETIRADA_LANCAMENTOS` (por `numlancto`):
+`82376` BYD e `58352` Tiguan (Cleiton), `46244` Rampage (Alex), `46243` Amarok (Cleivon).
+
+- No DRE eles aparecem como o evento **sintético** `RETIRADA - VEICULO PARTICULAR DE SOCIO`
+  (não existe no SSW). O drill e o CSV de despesas entendem esse nome e tiram os 4 dos
+  eventos originais.
+- Toda consulta que agrupa o 477 pelo `MAPA_DRE` passa por `_dax_477_por_evento` (DRE,
+  detalhamento, Projeção). O drill passa por `_dax_filtro_dre`. **Consulta nova que agrupe o
+  477 por evento tem de usar esses helpers**, senão a régua diverge entre as telas.
+- Efeito: ~R$ 23 mil/mês saem de Investimento e entram em Retiradas (R$ 888 mil de 02/2023 a
+  09/2026). O **Resultado Final não muda**; só o Pós Investimento sobe. Na Projeção as
+  parcelas futuras (~R$ 347 mil até abr/2029) saem do contratado e da escada de compromissos.
+- **O Power BI não sabe disso**: a `classificacao_dre` do dataset continua dizendo Investimento.
+  Na comparação com o BI, o DRE do app diverge nessas duas linhas, e só nelas.
+- A Análise por Veículo não é afetada: nenhum dos 4 está em `FIN_CAVALO`/`FIN_CARRETA`.
+
 ### Fórmulas da DRE
 ```
 Receita Líquida   = Receita Bruta - Deduções

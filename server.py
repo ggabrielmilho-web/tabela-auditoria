@@ -2608,7 +2608,67 @@ MAPA_DRE = {
     'RETIRADA SOCIOS': ('Retirada', 'Retirada'),
     'RETIRADA PATRICIA': ('Retirada', 'Retirada'),
     'MANUTENCAO DE MAQUINAS E EQUIPAMENTOS': ('Retirada', 'Retirada'),
+    # Evento SINTÉTICO — não existe no SSW; é o destino de RETIRADA_LANCAMENTOS (abaixo)
+    'RETIRADA - VEICULO PARTICULAR DE SOCIO': ('Retirada', 'Retirada'),
 }
+
+# Carro particular de sócio pago pela empresa: o SSW lança no mesmo evento dos
+# financiamentos da frota (INVESTIMENTO- CDC / INVESTIMENTO - CONSORCIO), então a
+# regra não cabe no MAPA_DRE (que é por evento) — é por LANÇAMENTO, em todas as
+# competências que ele tiver. Decisão do diretor em 01/10/2026: é retirada, não
+# investimento da empresa. Para incluir outro, basta o numlancto aqui.
+RETIRADA_LANCAMENTOS = {
+    '82376': 'BYD — Cleiton (CDC Safra)',
+    '58352': 'Tiguan Allspace — Cleiton (CDC Itaucard)',
+    '46244': 'Rampage — Alex (consórcio BB, cota 7681)',
+    '46243': 'Amarok — Cleivon (consórcio BB, cota 5688)',
+}
+EVENTO_RETIRADA_VEICULO = 'RETIRADA - VEICULO PARTICULAR DE SOCIO'
+_D477 = "'public consulta_despesas_477'"
+
+
+def _dax_lanc_retirada():
+    """Condição DAX: o lançamento é um dos de RETIRADA_LANCAMENTOS (numlancto é TEXTO)."""
+    lista = '{' + ', '.join(f'"{n}"' for n in RETIRADA_LANCAMENTOS) + '}'
+    return f'{_D477}[numlancto] IN {lista}'
+
+
+def _dax_evento_dre():
+    """O evento como o DRE o enxerga: o do SSW, ou o sintético para os lançamentos reclassificados."""
+    return f'IF({_dax_lanc_retirada()}, "{EVENTO_RETIRADA_VEICULO}", {_D477}[descr_evento])'
+
+
+def _dax_477_por_evento(filtro, extras=(), valor='Total'):
+    """Soma de vlr_final do 477 por evento DO DRE (+ colunas `extras`), sob o `filtro` DAX.
+
+    Toda consulta que agrupa o 477 para classificar pelo MAPA_DRE passa por aqui — senão
+    a reclassificação por lançamento valeria numa tela e não na outra."""
+    cols = ''.join(f', "{c}", {_D477}[{c}]' for c in extras)
+    chaves = ''.join(f', [{c}]' for c in extras)
+    return (f'EVALUATE GROUPBY(SELECTCOLUMNS(FILTER({_D477}, {filtro}), '
+            f'"descr_evento", {_dax_evento_dre()}{cols}, "_v", {_D477}[vlr_final]), '
+            f'[descr_evento]{chaves}, "{valor}", SUMX(CURRENTGROUP(), [_v]))')
+
+
+def _dax_filtro_dre(grupo=None, evento=None):
+    """Filtro DAX das linhas do 477 de um evento ou grupo DO DRE (drill e CSV de despesas).
+    None = sem filtro de evento/grupo."""
+    lanc = _dax_lanc_retirada()
+    if evento:
+        if evento == EVENTO_RETIRADA_VEICULO:
+            return lanc
+        ev = evento.replace('"', '""')
+        return f'{_D477}[descr_evento] = "{ev}" && NOT ({lanc})'
+    if grupo:
+        eventos = [e for e, (g, _) in MAPA_DRE.items() if g == grupo]
+        if not eventos:
+            return None
+        lista = '{ ' + ', '.join(f'"{e}"' for e in eventos) + ' }'
+        f = f'({_D477}[descr_evento] IN {lista} && NOT ({lanc}))'
+        if EVENTO_RETIRADA_VEICULO in eventos:
+            f = f'({f} || {lanc})'
+        return f
+    return None
 
 # Filtragem das tabelas (via Power BI DAX, igual /api/tarifas e /api/auditoria):
 # - despesas: filtra pela coluna REF (formato 'YYYY/MM') — competência
@@ -2698,13 +2758,7 @@ def _calcular_dre_periodo(start_date, end_date):
     grupos = {'Deduções': 0.0, 'Operacional': 0.0, 'Administrativo': 0.0,
               'Financeiro': 0.0, 'Impostos': 0.0, 'Investimento': 0.0, 'Retirada': 0.0}
     if refs:
-        dax_despesas = (
-            f'EVALUATE CALCULATETABLE('
-            f'SUMMARIZE(\'public consulta_despesas_477\', '
-            f'\'public consulta_despesas_477\'[descr_evento], '
-            f'"Total", SUM(\'public consulta_despesas_477\'[vlr_final])), '
-            f'\'public consulta_despesas_477\'[REF] IN {_dax_lista_refs(refs)})'
-        )
+        dax_despesas = _dax_477_por_evento(f'{_D477}[REF] IN {_dax_lista_refs(refs)}')
         result = execute_dax(token, dax_despesas, dataset_id=CONFIG['dre_dataset_id'])
         rows = result.get('results', [{}])[0].get('tables', [{}])[0].get('rows', [])
         data = clean_rows(rows)
@@ -2897,20 +2951,11 @@ def _query_despesas_periodo(start, end, grupo=None, evento=None):
 
     filtro_ref = f"'public consulta_despesas_477'[REF] IN {_dax_lista_refs(refs)}"
 
-    if evento:
-        dax = (
-            f'EVALUATE FILTER(\'public consulta_despesas_477\', '
-            f'{filtro_ref} && \'public consulta_despesas_477\'[descr_evento] = "{evento}")'
-        )
-    elif grupo:
-        eventos = [e for e, (g, _) in MAPA_DRE.items() if g == grupo]
-        if not eventos:
-            return [], []
-        lista_eventos = '{ ' + ', '.join(f'"{e}"' for e in eventos) + ' }'
-        dax = (
-            f'EVALUATE FILTER(\'public consulta_despesas_477\', '
-            f'{filtro_ref} && \'public consulta_despesas_477\'[descr_evento] IN {lista_eventos})'
-        )
+    filtro_dre = _dax_filtro_dre(grupo, evento)
+    if (grupo or evento) and not filtro_dre:
+        return [], []
+    if filtro_dre:
+        dax = f'EVALUATE FILTER(\'public consulta_despesas_477\', {filtro_ref} && {filtro_dre})'
     else:
         dax = f'EVALUATE FILTER(\'public consulta_despesas_477\', {filtro_ref})'
 
@@ -2967,13 +3012,7 @@ def api_dre_detalhamento():
         return jsonify({'ok': True, 'subgrupos': []})
 
     try:
-        dax = (
-            f'EVALUATE CALCULATETABLE('
-            f'SUMMARIZE(\'public consulta_despesas_477\', '
-            f'\'public consulta_despesas_477\'[descr_evento], '
-            f'"Total", SUM(\'public consulta_despesas_477\'[vlr_final])), '
-            f'\'public consulta_despesas_477\'[REF] IN {_dax_lista_refs(refs)})'
-        )
+        dax = _dax_477_por_evento(f'{_D477}[REF] IN {_dax_lista_refs(refs)}')
         token = get_token()
         result = execute_dax(token, dax, dataset_id=CONFIG['dre_dataset_id'])
         rows = result.get('results', [{}])[0].get('tables', [{}])[0].get('rows', [])
@@ -3105,9 +3144,8 @@ def _projecao_dados():
     # ── despesa fechada, no grão grupo|subcategoria|evento (o motor projeta cada linha pela natureza) ──
     refs = [m.replace('-', '/') for m in pj.meses_entre(f'{_PROJECAO_DESDE}-01', ult_custo)]
     linhas_hist = {}
-    for r in _dax_dre(
-            f"EVALUATE CALCULATETABLE(SUMMARIZE({D},{D}[REF],{D}[descr_evento],"
-            f"\"v\",SUM({D}[vlr_final])),{D}[REF] IN {_dax_lista_refs(refs)})"):
+    for r in _dax_dre(_dax_477_por_evento(f"{D}[REF] IN {_dax_lista_refs(refs)}",
+                                          extras=('REF',), valor='v')):
         ev = r.get('descr_evento')
         if ev not in MAPA_DRE:
             continue
@@ -3121,9 +3159,10 @@ def _projecao_dados():
     # regex abaixo descarta. Sem teto de propósito — a escada vai até 2036.
     contratos, visao_ssw = {}, {}
     primeiro_aberto = pj.mes_add(ult_custo, 1).replace('-', '/')
-    for r in _dax_dre(
-            f"EVALUATE CALCULATETABLE(SUMMARIZE({D},{D}[REF],{D}[descr_evento],{D}[sit_des],"
-            f"{D}[historico_despesa],\"v\",SUM({D}[vlr_final])),{D}[REF] >= \"{primeiro_aberto}\")"):
+    # (o carro de sócio reclassificado vira Retirada aqui também: sai do "contratado" e da escada)
+    for r in _dax_dre(_dax_477_por_evento(f"{D}[REF] >= \"{primeiro_aberto}\"",
+                                          extras=('REF', 'sit_des', 'historico_despesa'),
+                                          valor='v')):
         ref, ev = str(r.get('REF') or ''), r.get('descr_evento')
         if not re.fullmatch(r'\d{4}/\d{2}', ref) or ev not in MAPA_DRE:
             continue
@@ -4556,13 +4595,9 @@ def api_dre_despesas_csv():
         for (y, m, _, _, _) in meses:
             ref = f"{y:04d}/{m:02d}"
             dax = f'EVALUATE FILTER(\'public consulta_despesas_477\', \'public consulta_despesas_477\'[REF] = "{ref}"'
-            if evento:
-                dax += f' && \'public consulta_despesas_477\'[descr_evento] = "{evento}"'
-            elif grupo:
-                eventos = [e for e, (g, _) in MAPA_DRE.items() if g == grupo]
-                if eventos:
-                    lista = '{ ' + ', '.join(f'"{e}"' for e in eventos) + ' }'
-                    dax += f' && \'public consulta_despesas_477\'[descr_evento] IN {lista}'
+            filtro_dre = _dax_filtro_dre(grupo, evento)
+            if filtro_dre:
+                dax += f' && {filtro_dre}'
             dax += ')'
 
             try:
