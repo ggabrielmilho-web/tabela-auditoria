@@ -370,7 +370,11 @@ function frota(d) {
       <td class="mono dim">${c.posicao_idade_h == null ? 'sem posição' : 'há ' + fmtIdade(c.posicao_idade_h)}</td></tr>`).join('')}</table>`;
   }).join('');
   document.querySelectorAll('#baldes .ver').forEach(el => el.onclick = () => {
-    const k = 'bd:' + el.dataset.b; ABERTOS.has(k) ? ABERTOS.delete(k) : ABERTOS.add(k); frota(DADOS);
+    // um balde aberto por vez: abrir outro fecha o anterior (os 'emb:' da produtividade ficam)
+    const k = 'bd:' + el.dataset.b, ja = ABERTOS.has(k);
+    [...ABERTOS].filter(x => x.startsWith('bd:')).forEach(x => ABERTOS.delete(x));
+    if (!ja) ABERTOS.add(k);
+    frota(DADOS);
   });
   document.querySelectorAll('#baldes-det .placa').forEach(el => el.onclick = () => irPara(el.dataset.p));
 }
