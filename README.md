@@ -1073,6 +1073,20 @@ Análise de receita e **custo real** por veículo/pessoa (`/veiculos`, `server.p
 ### Painel lateral (drawer)
 Clicar em qualquer linha abre o detalhe (`/api/veiculos/detalhe`), **reconciliado com a linha** (respeita o filtro de tipo): cargas, abastecimentos detalhados, pedágios, **manutenção real** (itens identificados pela placa no `historico_despesa` — match de texto, cobertura parcial), relacionamentos (carretas/cavalos/motoristas/rotas, **com o proprietário de cada veículo**) e, em motorista/proprietário, **quebra por veículo**. Proprietário reconcilia pela base **cavalo** (não soma cavalo+carreta para evitar dupla contagem).
 
+### Recorte Cliente — custo por km da placa (02/10/2026, aprovado pela diretoria)
+Margem por cliente (raiz de CNPJ, grupo econômico). Viagem com vários tomadores é dividida pela proporção do `valor_frete` dos CTRCs (receita, km e custo na mesma fração). Custo de frota em duas etapas (`_custo_km_cliente`):
+
+| | etapa 1 — até a placa | etapa 2 — até a viagem |
+|---|---|---|
+| cavalo (só Frota) | o da visão Cavalo+Frota (diesel/ARLA/pedágio/financiamento pela placa; pessoal, seguro e rastreador igual por placa), **exceto manutenção e pneu, por km** | R$/km da placa × km da viagem |
+| carreta (Rizza, Frota ou Agregado) | manutenção, pneu e financiamento **por km** entre as carretas que rodaram (financiamento sem de-para contrato→placa ainda) | R$/km × km da viagem |
+
+- **km** = km de rota (`rotas_km`, cai no `distancia_km`), só viagem carregada: o km vazio fica embutido no R$/km e o custo da placa fecha 100% nas viagens dela. Base = **toda** viagem Frota/Agregado do mês, independe do filtro de tipo.
+- Cavalo sem km de rota no mês (set/26: `BXI8A65`) distribui o custo pelas próprias viagens pela receita.
+- Custo de veículo parado está nos pools e é pago pelos que rodaram (decisão de 02/10: ociosidade não é separada).
+- **Por que mudou:** a taxa única sobre receita dava a mesma margem de Frota a todo cliente (set/26: 28,6%) e escondia quem paga pouco por km (Heinz 18,8% → 11,5%). Ponto de equilíbrio da frota em set/26 ≈ R$ 7,00 por km carregado.
+- Painel lateral: cavalos com km e R$/km; cargas com cavalo, custo e margem por viagem.
+
 > **Pendência conhecida**: o Km/L usa o hodômetro do ValeCard (digitado pelo motorista, sujo) → pode distorcer; por isso **KM Rota e KM Abast. aparecem lado a lado** para tornar o número auditável. O km confiável virá do **GPS do rastreamento** numa próxima fase.
 
 ---

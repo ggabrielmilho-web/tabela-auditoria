@@ -241,7 +241,7 @@
   </div>
 
 
-  <p class="hint">Na FROTA o pagamento de frete é R$ 0 (veículo próprio). Em Agregado/Carreteiro o pagamento é desdobrado em <b>Pagamento</b> (frete líquido que o motorista embolsa) + <b>Retenção</b> (SEST/INSS/IRRF) + <b>Pedágio</b> (vale-pedágio repassado, que ele não ganha) — os três somam o frete cheio, então o <b>Resultado não muda</b>, é só separação visual. Em <b>Cavalo + só Frota</b> o resultado já desconta o custo real (pedágio, combustível, ARLA, pessoal, manutenção, seguro, rastreador, pneu e financiamento). Em <b>Cliente</b> a margem desconta frete a terceiros + custo de frota (cavalo+carreta) alocado por receita.</p>
+  <p class="hint">Na FROTA o pagamento de frete é R$ 0 (veículo próprio). Em Agregado/Carreteiro o pagamento é desdobrado em <b>Pagamento</b> (frete líquido que o motorista embolsa) + <b>Retenção</b> (SEST/INSS/IRRF) + <b>Pedágio</b> (vale-pedágio repassado, que ele não ganha) — os três somam o frete cheio, então o <b>Resultado não muda</b>, é só separação visual. Em <b>Cavalo + só Frota</b> o resultado já desconta o custo real (pedágio, combustível, ARLA, pessoal, manutenção, seguro, rastreador, pneu e financiamento). Em <b>Cliente</b> a margem desconta frete a terceiros + custo de frota por <b>km da placa</b>: o custo do mês de cada cavalo e carreta ÷ km que ela rodou × km da viagem.</p>
 
   <div class="table-wrapper">
     <div class="table-scroll">
@@ -1142,7 +1142,8 @@ function renderDrawerCliente(d) {
   ], d.por_tipo));
 
   if (d.cavalos && d.cavalos.length) html += dSec('Cavalos que atenderam', d.cavalos.length, miniTable([
-    { h: 'Cavalo', f: r => esc(r.placa) }, { h: 'Receita', f: r => fmtBRL(r.receita) }, { h: 'Custo alocado', f: r => fmtBRL(r.custo) },
+    { h: 'Cavalo', f: r => esc(r.placa) }, { h: 'KM', f: r => fmtInt(r.km) }, { h: 'R$/km', f: r => r.rkm ? fmtBRL2(r.rkm) : '—' },
+    { h: 'Receita', f: r => fmtBRL(r.receita) }, { h: 'Custo alocado', f: r => fmtBRL(r.custo) },
   ], d.cavalos));
 
   if (d.rotas && d.rotas.length) html += dSec('Top rotas', d.rotas.length, miniTable([
@@ -1156,8 +1157,9 @@ function renderDrawerCliente(d) {
   if (d.cargas) html += dSec('Cargas', d.cargas.length, miniTable([
     { h: 'Data', f: r => fmtData(r.data) }, { h: 'CTRC', f: r => esc(r.ctrc) },
     { h: 'Tipo', f: r => `<span class="pill-sm ${r.tipo}">${esc(r.tipo)}</span>` },
-    { h: 'Rota', f: r => esc((r.origem || '—') + ' → ' + (r.destino || '—')) },
+    { h: 'Rota', f: r => esc((r.origem || '—') + ' → ' + (r.destino || '—')) }, { h: 'Cavalo', f: r => esc(r.cavalo || '') },
     { h: 'Receita', f: r => fmtBRL(r.receita) }, { h: 'KM', f: r => fmtInt(r.km) },
+    { h: 'Custo frota', f: r => r.custo ? fmtBRL(r.custo) : '—' }, { h: 'Margem', f: r => fmtPct(r.margem) },
   ], d.cargas));
 
   document.getElementById('drawerBody').innerHTML = html;
