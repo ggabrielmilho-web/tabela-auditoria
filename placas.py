@@ -47,6 +47,42 @@ def eh_mercosul(placa):
     return bool(_RE_MERCOSUL.fullmatch(limpar(placa)))
 
 
+def sql_chave(coluna):
+    """Expressão SQL que leva `coluna` à CHAVE Mercosul — a mesma regra de `mercosul()`.
+
+    A placa gravada e mostrada é a do SSW (03/10/2026: GZQ3080 continua GZQ3080); a chave
+    só serve para comparar duas grafias do mesmo veículo dentro do SQL."""
+    return ("CASE WHEN substring(upper(trim({c})) from 5 for 1) BETWEEN '0' AND '9' "
+            "THEN overlay(upper(trim({c})) placing "
+            "chr(65 + substring(upper(trim({c})) from 5 for 1)::int) from 5 for 1) "
+            "ELSE upper(trim({c})) END").format(c=coluna)
+
+
+def rotulos(cruas):
+    """{chave Mercosul: placa a MOSTRAR}, a partir das grafias cruas vistas na fonte.
+
+    A placa mostrada é sempre uma que a fonte tem — nunca a chave convertida (03/10/2026:
+    GZQ3080 aparecia como GZQ3A80, placa que não existe). `cruas` vem em ordem de preferência
+    (a mais recente primeiro). Se a própria Mercosul aparece crua, ela é a placa — é a mesma
+    regra de colisão do cadastro (GZV1A50 real × GZV1050 de outro dono)."""
+    vistas = {}
+    for c in cruas or ():
+        c = limpar(c)
+        if c:
+            vistas.setdefault(mercosul(c), []).append(c)
+    return {k: (k if k in v else v[0]) for k, v in vistas.items()}
+
+
+_RE_PLACA_TEXTO = re.compile(r'\b[A-Z]{3}[0-9][A-Z0-9][0-9]{2}\b')
+
+
+def trocar_no_texto(texto, mapa):
+    """Troca, dentro de um texto pronto, cada placa pela do `mapa` (chave → placa real)."""
+    if not texto or not mapa:
+        return texto
+    return _RE_PLACA_TEXTO.sub(lambda m: mapa.get(mercosul(m.group(0)), m.group(0)), texto)
+
+
 def grafias(placa):
     """As grafias possíveis da mesma placa no dado bruto: Mercosul + antiga."""
     s = limpar(placa)

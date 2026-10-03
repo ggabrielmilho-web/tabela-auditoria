@@ -380,7 +380,9 @@ def _veiculo(placa, cadastro):
     if not pn:
         return None
     c = cadastro.get(pn, {})
-    return {'placa': pn, 'modelo': c.get('modelo') or None,
+    # Grava a placa COMO ESTÁ NO MANIFESTO (03/10/2026). A Mercosul `pn` é só a chave do
+    # cadastro: gravá-la inventava placa (GZQ3080 virava GZQ3A80, que não existe no SSW).
+    return {'placa': _placas.limpar(placa), 'modelo': c.get('modelo') or None,
             'proprietario': c.get('proprietario') or None,
             'eh_rizza': bool(c.get('eh_rizza')), 'tipo': c.get('tipo') or ''}
 
@@ -645,12 +647,12 @@ def _ja_lancada(cur, carga):
 
     cur.execute("""
         SELECT numero FROM embarques_cargas
-        WHERE cavalo_placa = %s
+        WHERE cavalo_placa = ANY(%s)
           AND data_carregamento BETWEEN %s AND %s
           AND COALESCE(criada_por_robo, FALSE) = FALSE
           AND status <> 'Cancelada'
         LIMIT 1
-    """, (carga['cavalo']['placa'],
+    """, (_placas.grafias(carga['cavalo']['placa']),
           carga['data_carregamento'] - timedelta(days=1),
           carga['data_carregamento'] + timedelta(days=1)))
     r = cur.fetchone()
@@ -858,14 +860,16 @@ def fechar_pendentes(cur, manifestos, candidatas=None, ctrcs=None):
         # Com a CONTINUAÇÃO ligada (§24) o eixo também é a carreta: o manifesto novo do
         # cavalo com outra carreta vira DESENGATE (`desengatar_por_cavalo`), não `Entregue`.
         if modelo_carreta_ligado() or _ec.ligado():
+            # = ANY(grafias): a carga guarda a placa do SSW (ou a digitada); casa as duas formas
             carreta = _placa(man.get('placa_carreta'))
             if carreta:
-                alvos = [('(c.carreta1_placa=%s OR c.carreta2_placa=%s)', (carreta, carreta))]
+                g = _placas.grafias(carreta)
+                alvos = [('(c.carreta1_placa=ANY(%s) OR c.carreta2_placa=ANY(%s))', (g, g))]
             else:
                 cavalo = _placa(man.get('placa_cavalo'))
                 if not cavalo:
                     continue
-                alvos = [('(c.cavalo_placa=%s)', (cavalo,))]
+                alvos = [('(c.cavalo_placa=ANY(%s))', (_placas.grafias(cavalo),))]
         else:
             # Comportamento de PRODUÇÃO (chave desligada): qualquer placa do manifesto
             # contra qualquer papel da carga. É o que erra nos 12 casos de troca de cavalo,
@@ -874,8 +878,9 @@ def fechar_pendentes(cur, manifestos, candidatas=None, ctrcs=None):
             for bruta in (man.get('placa_cavalo'), man.get('placa_carreta')):
                 p = _placa(bruta)
                 if p:
-                    alvos.append(('(c.cavalo_placa=%s OR c.carreta1_placa=%s OR c.carreta2_placa=%s)',
-                                  (p, p, p)))
+                    g = _placas.grafias(p)
+                    alvos.append(('(c.cavalo_placa=ANY(%s) OR c.carreta1_placa=ANY(%s) OR c.carreta2_placa=ANY(%s))',
+                                  (g, g, g)))
 
         for filtro, args in alvos:
             cur.execute("""
@@ -1115,7 +1120,7 @@ def dedup_veiculo(cur, ctrbs):
         grupos = defaultdict(list)
         for placa, cid, dt, ctrb_k in cur.fetchall():
             emissao = str((ctrbs.get(ctrb_k) or {}).get('em') or '')
-            grupos[placa].append((dt, emissao, cid))
+            grupos[_placa(placa)].append((dt, emissao, cid))   # chave: as duas grafias juntas
         for placa, itens in grupos.items():
             if len(itens) < 2:
                 continue

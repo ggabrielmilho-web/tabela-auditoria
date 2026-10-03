@@ -89,6 +89,10 @@ cur.execute("""
 por_car = {}
 for r in cur.fetchall():
     por_car.setdefault(placas.mercosul(r[2]) or r[2], []).append(r)
+# a ORDER BY do SQL é pelo TEXTO da placa: com as duas grafias da mesma carreta (GZQ3080 do
+# SSW e GZQ3A80 gravada antes de 03/10) a ordem por data quebrava entre os dois blocos
+for _l in por_car.values():
+    _l.sort(key=lambda r: (r[7], r[0]))
 
 from collections import Counter
 desc = Counter()

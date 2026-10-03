@@ -731,6 +731,16 @@ def _jornada_dados(ini, fim):
                           'fontes': sorted(v['fontes'])} for v in fora.values()),
                         key=lambda x: -x['dias'])
 
+    # A escala casa tudo pela CHAVE Mercosul (manifesto, ValeCard, GPS e viagens falam grafias
+    # diferentes); o que sai para a tela e para o RH é a placa REAL — a do manifesto do SSW, senão
+    # a do ValeCard. A chave convertida é uma placa que não existe (GZQ3A80 para a GZQ3080), e é
+    # a placa que a empresa de jornada usa para buscar a telemetria (03/10/2026).
+    rot = placas.rotulos(
+        [x for r in sorted(mfs, key=lambda r: str(r.get('d') or ''), reverse=True) for x in (r.get('cav'), r.get('car'))]
+        + [r.get('placa') for r in vcs])
+    esc = _placa_real_na_saida(esc, rot)
+    fora_lista = _placa_real_na_saida(fora_lista, rot)
+
     dados = {
         'ok': True, 'inicio': ini.isoformat(), 'fim': fim.isoformat(), 'ate': ate.isoformat(),
         'motoristas': esc['motoristas'], 'compartilhadas': esc['compartilhadas'],
@@ -1342,6 +1352,18 @@ def _geo_cidade_uf(centroides, cidade_uf):
     return centroides.get((geocoding.normalizar_cidade(cid), uf.strip().upper()))
 
 
+def _placa_real_na_saida(obj, rot):
+    """Troca, numa resposta pronta (dict/list aninhados), toda placa pela placa real do `rot`
+    ({chave Mercosul: placa da fonte}) — campos `placa`/`placas` e placas dentro de textos."""
+    if isinstance(obj, dict):
+        return {k: (placas.trocar_no_texto(v, rot) if isinstance(v, str) else _placa_real_na_saida(v, rot))
+                for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [placas.trocar_no_texto(v, rot) if isinstance(v, str) else _placa_real_na_saida(v, rot)
+                for v in obj]
+    return obj
+
+
 def sincronizar_manifestos_pgr(dias=None):
     """Auditoria Receita (Power BI) → pgr_manifestos, já geocodificado.
 
@@ -1377,8 +1399,9 @@ def sincronizar_manifestos_pgr(dias=None):
             dt = str(r.get('dt') or '')[:10]
             if not dt:
                 continue
-            cav = _placa_mercosul(r.get('cav')) or None
-            car = _placa_mercosul(r.get('car')) or None
+            # grava a placa do SSW (03/10/2026); o PGR casa pelas duas grafias
+            cav = placas.limpar(r.get('cav')) or None
+            car = placas.limpar(r.get('car')) or None
             if not cav and not car:
                 continue
             chave = (r.get('manif'), dt, cav, car)
@@ -3404,7 +3427,8 @@ def _cadastro_veiculos(token):
         if p in cad and not (eh_merc and not cad_merc.get(p)):
             continue  # mantém a atual, salvo quando a nova é Mercosul genuína e a atual não era
         cad[p] = {'proprietario': r.get('proprietario'), 'tipo': r.get('tipo'),
-                  'disponivel': r.get('disponivel'), 'modelo': r.get('modelo')}
+                  'disponivel': r.get('disponivel'), 'modelo': r.get('modelo'),
+                  'placa_ssw': raw}   # a placa como está no SSW — é ela que se mostra
         cad_merc[p] = eh_merc
     _cache_set('cadastro_veiculos', cad)
     return cad
@@ -4226,6 +4250,14 @@ def api_veiculos_analise():
         for a in saida:
             a['prop_cavalo'] = '' if a['tipo'] == 'FROTA' else (cadastro.get(a['dim'], {}).get('proprietario') or '')
 
+    # O rótulo da linha é a placa do SSW, não a chave Mercosul que juntou as duas grafias
+    # (GZQ3080 aparecia como GZQ3A80, placa que não existe — 03/10/2026). Fica por último:
+    # custo, cadastro e proprietário acima são buscados pela chave.
+    if dim in ('cavalo', 'carreta'):
+        rot = placas.rotulos(r.get('dim') for r in linhas)
+        for a in saida:
+            a['dim'] = rot.get(a['dim'], a['dim'])
+
     return jsonify({'ok': True, 'dim': dim, 'meses': meses_comp,
                     'tipos': tipos, 'rows': saida, 'count': len(saida),
                     'custos_frota': custos_frota, 'custos_carreta': custos_carreta,
@@ -4350,12 +4382,13 @@ def _veiculos_detalhe_cliente(token, valor, meses_comp, meses_set, tipos, tipos_
         return (r / c['receita']) if c['receita'] else 0.0
     cargas_out = sorted(({'data': c.get('data'), 'ctrc': c.get('ctrc'), 'tipo': c.get('tipo'),
                           'origem': c.get('origem'), 'destino': c.get('destino'), 'cliente': nome_disp,
-                          'cavalo': _placa_mercosul(c.get('cavalo')) if c.get('cavalo') else '',
+                          'cavalo': placas.limpar(c.get('cavalo')) if c.get('cavalo') else '',
                           'receita': round(c['receita'], 2), 'km': round(c['km'], 1),
                           'custo': round(c['custo_cavalo'] + c['custo_carreta'], 2), 'margem': _margem(c)}
                          for c in cargas), key=lambda x: str(x.get('data') or ''))
 
-    cavalos_rows = [{'placa': a['placa'], 'km': round(a['km'], 1), 'rkm': round(a['rkm'], 2),
+    rot = placas.rotulos(v.get('cavalo') for v in vrows)   # a placa do SSW, não a chave
+    cavalos_rows = [{'placa': rot.get(a['placa'], a['placa']), 'km': round(a['km'], 1), 'rkm': round(a['rkm'], 2),
                      'receita': round(a['receita'], 2), 'custo': round(a['custo'], 2)} for a in cavalos.values()]
     return {'ok': True, 'dim': 'cliente', 'valor': valor, 'nome': nome_disp, 'meses': meses_comp,
             'kpis': {'receita': round(receita, 2), 'frete': round(frete_terceiros, 2),
@@ -4516,7 +4549,7 @@ def api_veiculos_detalhe():
         # ── PERFIL (cadastro) — placa dims ──
         if dim in ('cavalo', 'carreta'):
             cad = _cadastro_veiculos(token)
-            out['perfil'] = cad.get(valor) or {}
+            out['perfil'] = cad.get(_placa_mercosul(valor)) or {}   # a linha mostra a placa do SSW
 
         # ── QUEBRA POR VEÍCULO — motorista e proprietário ──
         if dim in ('motorista', 'proprietario'):
@@ -4530,7 +4563,7 @@ def api_veiculos_detalhe():
                         raw = r.get('placa_cavalo') or r.get('placa_carreta')
                         if not raw:
                             continue
-                        veic.append({'placa': _placa_mercosul(raw), 'tipo': tp,
+                        veic.append({'placa': placas.limpar(raw), 'tipo': tp,
                                      'receita': round(float(r.get('rec') or 0), 2), 'km': round(float(r.get('km') or 0), 1),
                                      'viagens': int(r.get('v') or 0)})
                 out['veiculos'] = sorted(veic, key=lambda x: -x['receita'])
@@ -4549,7 +4582,7 @@ def api_veiculos_detalhe():
                     # carreta usa atividade como carreta; cavalo/cavalo trucado/truck usam atividade como placa_cavalo
                     src = ativ_car if v.get('tipo') == 'CARRETA' else ativ_cav
                     a = src.get(p, {})
-                    veic.append({'placa': p, 'tipo': v.get('tipo'), 'modelo': v.get('modelo'), 'disponivel': v.get('disponivel'),
+                    veic.append({'placa': v.get('placa_ssw') or p, 'tipo': v.get('tipo'), 'modelo': v.get('modelo'), 'disponivel': v.get('disponivel'),
                                  'receita': round(a.get('rec', 0.0), 2), 'km': round(a.get('km', 0.0), 1), 'viagens': int(a.get('v', 0))})
                 out['veiculos'] = sorted(veic, key=lambda x: -x['receita'])
                 # headline = soma dos veículos-tração do dono (cavalo/truck), igual à tabela que resolve pelo placa_cavalo
@@ -5993,7 +6026,11 @@ def _buscar_conflitos(cpf, placas, exclude_id=0):
                 })
 
         if placas:
-            ph = ','.join(['%s'] * len(placas))
+            # as DUAS grafias de cada placa: quem lança à mão digita a do SSW (GZQ3080) e a carga
+            # do robô gravada antes de 03/10 tem a convertida (GZQ3A80) — a igualdade exata não
+            # avisava que a carreta já estava em outra carga ativa
+            gr = sorted({g for p in placas for g in _placa_grafias(p)})
+            ph = ','.join(['%s'] * len(gr))
             cav_ph = ','.join(['%s'] * len(ativas_cav))
             car_ph = ','.join(['%s'] * len(ativas_carreta))
             # Cavalo só conflita em status "duros"; carreta conflita também em Desengatada.
@@ -6010,15 +6047,17 @@ def _buscar_conflitos(cpf, placas, exclude_id=0):
                   {_f24}
                 ORDER BY data_carregamento DESC
                 LIMIT 10
-            """, (exclude_id, *placas, *ativas_cav, *placas, *placas, *ativas_carreta))
+            """, (exclude_id, *gr, *ativas_cav, *gr, *gr, *ativas_carreta))
             for r in cur.fetchall():
                 cid, num, st, dt, cav, c1, c2 = r
                 dt_iso = dt.isoformat() if dt else None
+                k_cav, k_c1, k_c2 = (_placa_mercosul(x) if x else '' for x in (cav, c1, c2))
                 for placa in placas:
+                    k = _placa_mercosul(placa)
                     # cavalo só é conflito se a carga ainda está nos status duros
-                    if cav == placa and st in ativas_cav:
+                    if k_cav == k and st in ativas_cav:
                         conflitos.append({'tipo': 'cavalo',  'recurso': placa, 'carga_id': cid, 'numero': num, 'status': st, 'data_carregamento': dt_iso})
-                    if (c1 == placa or c2 == placa) and st in ativas_carreta:
+                    if (k_c1 == k or k_c2 == k) and st in ativas_carreta:
                         conflitos.append({'tipo': 'carreta', 'recurso': placa, 'carga_id': cid, 'numero': num, 'status': st, 'data_carregamento': dt_iso})
         return conflitos
     finally:

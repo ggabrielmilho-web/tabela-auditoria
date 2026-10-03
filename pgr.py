@@ -308,6 +308,8 @@ def _manifestos_candidatos(cur, placas_norm, dia):
     """
     if not placas_norm:
         return {}
+    # o cache guarda a placa do SSW (03/10/2026); a busca e o índice são pela chave Mercosul
+    gr = sorted({g for p in placas_norm for g in placas.grafias(p)})
     cur.execute("""
         SELECT placa_cavalo, placa_carreta, manifesto, data_ref, origem, destino,
                origem_lat, origem_lng, destino_lat, destino_lng,
@@ -315,16 +317,15 @@ def _manifestos_candidatos(cur, placas_norm, dia):
         FROM pgr_manifestos
         WHERE (placa_cavalo = ANY(%s) OR placa_carreta = ANY(%s))
           AND data_ref BETWEEN %s - 25 AND %s + 1
-    """, (list(placas_norm), list(placas_norm), dia, dia))
+    """, (gr, gr, dia, dia))
     idx = {}
     for r in cur.fetchall():
         m = {'manifesto': r[2], 'data_ref': r[3], 'origem': r[4], 'destino': r[5],
              'o_lat': r[6], 'o_lng': r[7], 'd_lat': r[8], 'd_lng': r[9],
              'tomador': r[10], 'motorista': r[11], 'tipo_operacao': r[12],
              'placa_cavalo': r[0], 'placa_carreta': r[1]}
-        for p in (r[0], r[1]):
-            if p:
-                idx.setdefault(p, []).append(m)
+        for p in {placas.mercosul(x) for x in (r[0], r[1]) if x}:
+            idx.setdefault(p, []).append(m)
     return idx
 
 
@@ -890,26 +891,30 @@ def opcoes_filtro(cur, meses):
         SELECT placa, tipo_veiculo, placa_cavalo, placa_carreta, motorista
         FROM pgr_eventos WHERE to_char(dia, 'YYYY-MM') = ANY(%s)
     """, (list(meses),))
-    # Tudo normalizado em Mercosul: a placa do evento vem crua do GPS (às vezes
-    # na grafia antiga) e a do manifesto já vem normalizada, então sem isto o
-    # mesmo veículo aparecia DUAS vezes na lista (HIF2439 e HIF2E39) e escolher
-    # uma perderia os eventos da outra.
-    cavalos, carretas, motoristas = set(), set(), {}
-    for placa, tipo, cav, car, mot in cur.fetchall():
-        t = (tipo or '').upper()
-        if t == 'CAVALO':
-            cavalos.add(placas.mercosul(placa))
-        elif t in ('CARRETA', 'TRUCK'):
-            carretas.add(placas.mercosul(placa))
-        if cav:
-            cavalos.add(placas.mercosul(cav))
-        if car:
-            carretas.add(placas.mercosul(car))
-        if mot:
-            motoristas[mot] = nome_pessoa(mot)
+    # Uma entrada por VEÍCULO (chave Mercosul), senão o mesmo aparecia duas vezes (HIF2439 e
+    # HIF2E39) e escolher uma perderia os eventos da outra. O que se MOSTRA é a placa real:
+    # a do GPS primeiro (é o aparelho no caminhão), senão a do manifesto — nunca a chave
+    # convertida, que é uma placa que não existe (03/10/2026). O filtro casa as duas grafias.
+    cavalos, carretas, motoristas = {}, {}, {}
+    linhas = cur.fetchall()
+    for fonte in ('gps', 'manifesto'):
+        for placa, tipo, cav, car, mot in linhas:
+            t = (tipo or '').upper()
+            if fonte == 'gps':
+                if placa and t == 'CAVALO':
+                    cavalos.setdefault(placas.mercosul(placa), placas.limpar(placa))
+                elif placa and t in ('CARRETA', 'TRUCK'):
+                    carretas.setdefault(placas.mercosul(placa), placas.limpar(placa))
+                if mot:
+                    motoristas[mot] = nome_pessoa(mot)
+            else:
+                if cav:
+                    cavalos.setdefault(placas.mercosul(cav), placas.limpar(cav))
+                if car:
+                    carretas.setdefault(placas.mercosul(car), placas.limpar(car))
     return {
-        'cavalos': sorted(cavalos),
-        'carretas': sorted(carretas),
+        'cavalos': sorted(cavalos.values()),
+        'carretas': sorted(carretas.values()),
         'motoristas': [{'valor': k, 'label': v}
                        for k, v in sorted(motoristas.items(), key=lambda x: x[1] or '')],
     }

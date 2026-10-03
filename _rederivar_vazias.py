@@ -87,6 +87,10 @@ cur.execute("""SELECT c.id, c.numero, c.carreta1_placa, c.data_carregamento,
 por_car = defaultdict(list)
 for r in cur.fetchall():
     por_car[pl.mercosul(r[2]) or r[2]].append(r)
+# a ORDER BY do SQL é pelo TEXTO da placa: com as duas grafias da mesma carreta a ordem por
+# data quebrava entre os dois blocos (03/10/2026)
+for _l in por_car.values():
+    _l.sort(key=lambda r: (r[3], r[0]))
 
 # ── os pares consecutivos (A, B) e a janela que cada um define
 pares = defaultdict(list)                       # (carreta, org, dst) -> [(ini, fim, A, B)]

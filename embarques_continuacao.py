@@ -25,6 +25,8 @@ import os
 import logging
 from datetime import datetime, timedelta
 
+import placas as _pl   # chave Mercosul só para COMPARAR; a placa gravada é a do SSW
+
 _logger = logging.getLogger('embarques_continuacao')
 
 RAIO_DESTINO_KM = float(os.getenv('EMBARQUES_CONTINUACAO_RAIO_DESTINO', '25'))
@@ -256,13 +258,13 @@ def desengatar_por_cavalo(cur, manifestos):
         if not cav or not car or not dt:
             continue
         cur.execute("""SELECT id, numero, status, carreta1_placa FROM embarques_cargas c
-                        WHERE c.cavalo_placa = %s AND COALESCE(c.carreta1_placa,'') <> %s
+                        WHERE c.cavalo_placa = ANY(%s) AND NOT (COALESCE(c.carreta1_placa,'') = ANY(%s))
                           AND COALESCE(c.criada_por_robo, FALSE) = TRUE
                           AND c.status IN ('Aberta','Em rota','No destino')
                           AND c.data_carregamento <= %s
                           AND """ + (SQL_MAN % 'c.manifesto_origem') + """ <> %s
                           AND c.continua_em IS NULL""",
-                    (cav, car, dt, _norm(man.get('CHAVE_MANIFESTO')) or ''))
+                    (_pl.grafias(cav), _pl.grafias(car), dt, _norm(man.get('CHAVE_MANIFESTO')) or ''))
         for cid, numero, status, carreta in cur.fetchall():
             dia_b = datetime.combine(dt, datetime.min.time())
             local, p, km = _local_do_desengate(cur, cid, carreta, desde=dia_b)
@@ -329,7 +331,7 @@ def ligar_continuacoes(cur, ctrcs, ctrbs):
             continue
         (aid, anum, astatus, acav, acar, adt, actrb, _, alocal, acheg, aconc, aauto) = A
         (bid, bnum, bcav, bcar, bdt, bctrb, bsaida) = B
-        if not acar or acar != bcar:
+        if not acar or _pl.mercosul(acar) != _pl.mercosul(bcar or ''):
             n['transbordo (carreta trocou) — sem ligação'] += 1     # fora do desenho (§24)
             continue
         dias = (bdt - adt).days if (adt and bdt) else 99
@@ -342,9 +344,9 @@ def ligar_continuacoes(cur, ctrcs, ctrbs):
             mesma_rota = len(pontas) == 2 and pontas[0] == pontas[1] and pontas[0][0] is not None
         # fim da janela de A = a carreta saindo com B (ou o dia do manifesto B)
         fim = aconc or bsaida or datetime.combine(bdt, datetime.min.time())
-        if acav == bcav and dias <= 1 and mesma_rota:
+        if _pl.mercosul(acav or '') == _pl.mercosul(bcav or '') and dias <= 1 and mesma_rota:
             novo, motivo = 'Cancelada', 'reemitido'
-        elif acav != bcav:
+        elif _pl.mercosul(acav or '') != _pl.mercosul(bcav or ''):
             novo, motivo = 'Desengatada', 'desengate'
         else:
             novo, motivo = 'Continuada', 'continuou_no_hub'

@@ -331,11 +331,16 @@ def _ultima_posicao(cur, placa, t, janela_h=168):
 
 def frota(cur, t, cargas, ordens, dias=30):
     """Estado de cada carreta que teve carga (Frota/Agregado) nos últimos `dias`."""
-    cur.execute("""SELECT DISTINCT carreta1_placa FROM embarques_cargas
+    cur.execute("""SELECT carreta1_placa, MAX(criado_em) FROM embarques_cargas
                     WHERE carreta1_placa IS NOT NULL AND carreta1_placa <> ''
-                      AND NOT COALESCE(viagem_vazia, FALSE) AND criado_em BETWEEN %s AND %s""",
+                      AND NOT COALESCE(viagem_vazia, FALSE) AND criado_em BETWEEN %s AND %s
+                    GROUP BY 1 ORDER BY 2 DESC""",
                 (t - timedelta(days=dias), t))
-    carretas = sorted({pl.mercosul(r[0]) for r in cur.fetchall() if pl.mercosul(r[0])})
+    cruas = [r[0] for r in cur.fetchall()]
+    # chave Mercosul junta as duas grafias; o que se MOSTRA é a placa da carga (a do SSW) —
+    # a chave convertida é uma placa que não existe (GZQ3A80 para a GZQ3080, 03/10/2026)
+    rot = pl.rotulos(cruas)
+    carretas = sorted({pl.mercosul(c) for c in cruas if pl.mercosul(c)})
     base = _base_patio(cur)
     ativa_por = {pl.mercosul(c['carreta']): c for c in cargas if c['etapa'] in ATIVAS and c['carreta']}
     coleta_por = {pl.mercosul(o['carreta']): o for o in ordens
@@ -379,7 +384,7 @@ def frota(cur, t, cargas, ordens, dias=30):
                 est = 'pátio' if no_patio else 'parada fora'
         balde = _balde(cur, grupo, est, p, t, c)
         cont[(grupo, est)] += 1
-        linhas.append({'carreta': p, 'grupo': grupo, 'estado': est, 'carga': c['numero'] if c else None,
+        linhas.append({'carreta': rot.get(p, p), 'chave': p, 'grupo': grupo, 'estado': est, 'carga': c['numero'] if c else None,
                        'carga_id': c['id'] if c else None, 'cavalo': c['cavalo'] if c else None,
                        'motorista': c['motorista'] if c else None,
                        'rota': f"{c['origem'] or '?'} → {c['destino'] or '?'}" if c else None,
@@ -397,7 +402,7 @@ def frota(cur, t, cargas, ordens, dias=30):
             'baldes': [{'id': b, 'n': sum(baldes[b].values()),
                         'detalhe': [{'estado': k, 'n': v} for k, v in baldes[b].most_common()]} for b in BALDES],
             'livres_por_cidade': [{'cidade': k, 'n': v} for k, v in livres_cidade.most_common()],
-            'carretas': linhas}
+            'carretas': linhas, '_rotulos': rot}
 
 
 # OS QUATRO BALDES DA FROTA (25/09, pedido do Gabriel): doze estados técnicos viraram as três
@@ -546,7 +551,7 @@ def proximas(cur, t, frota_):
 
 
 # ── linha do tempo da frota (36 h, em blocos de 1 h) ───────────────────────────────────────
-def linha_do_tempo(cur, t, carretas, horas=36):
+def linha_do_tempo(cur, t, carretas, horas=36, rotulos=None):
     """Por carreta, um estado por hora: carregada (pelas DATAS das cargas) × movimento (GPS).
     Mesma separação do "agora": documento diz carregada/vazia, GPS diz rodando/parada."""
     ini = t - timedelta(hours=horas)
@@ -596,7 +601,7 @@ def linha_do_tempo(cur, t, carretas, horas=36):
                 ocio += 1
             else:
                 break
-        linhas.append({'carreta': p, 'blocos': blocos, 'ocioso_h': ocio})
+        linhas.append({'carreta': (rotulos or {}).get(p, p), 'blocos': blocos, 'ocioso_h': ocio})
     linhas.sort(key=lambda l: -l['ocioso_h'])
     return {'horas': horas, 'inicio': base_h.isoformat(), 'linhas': linhas}
 
@@ -669,7 +674,7 @@ def montar(cur, dia=None, agora=None):
         'caixas': caixas(t, cargas, ordens, retrato),
         'frota': fr,
         'excecoes': excecoes(cur, t, cargas, ordens, fr),
-        'linha_do_tempo': linha_do_tempo(cur, t, [f['carreta'] for f in fr['carretas']]),
+        'linha_do_tempo': linha_do_tempo(cur, t, [f['chave'] for f in fr['carretas']], rotulos=fr.pop('_rotulos')),
         'produtividade': {**produtividade(cur, t, ordens, fr), 'pontualidade': pontualidade(t, cargas)},
     }
     if not retrato:

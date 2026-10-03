@@ -67,6 +67,30 @@ O detalhe de cada item está no `HANDOFF-EMBARQUES-AUTONOMO.md`, §27 em diante.
 - **O teto de 3 da reconciliação fica como está**: zero sumiço de manifesto em 11 comparações
   intradiárias, em três dias de fita (§27.13 nº 3).
 
+### O que mudou em 03/10, e por quê — a placa é a do SSW
+
+- **Nenhuma tela grava ou mostra placa inventada.** O robô convertia a placa do manifesto
+  para Mercosul antes de gravar (GZQ3080 virava GZQ3A80): uma placa que não existe no SSW,
+  na 3S nem no caminhão. Em 30/09 eram **447 das 836 cargas do robô** (534 campos). A
+  conversão continua só como **chave** para casar as duas grafias do mesmo veículo
+  (`placas.mercosul`, `placas.grafias`, `placas.sql_chave`); o que se grava e se mostra é a do
+  documento (`placas.rotulos` escolhe o rótulo; placa que o próprio SSW tem em Mercosul fica
+  Mercosul).
+- **Toda comparação de placa entre registros passou a usar a chave** (`= ANY(grafias)` no
+  SQL, `mercosul()` no Python): robô (fechamento por manifesto novo, conflito com manual,
+  dedup), continuação, aferidor, worker, PGR, conflito do lançamento manual. O conflito
+  manual comparava texto exato e **não avisava** carreta já em carga ativa quando a pessoa
+  digitava a outra grafia (92 casos no lab).
+- Telas: torre, Veículos (rótulo, perfil, veículos do motorista/proprietário, cargas do
+  cliente), PGR (filtros) e Jornada (inclusive textos de alerta e planilha do RH).
+- Retroativo: `_retro_placa_ssw.py` (dry-run / `--aplicar`) — a placa do próprio manifesto de
+  cada carga do robô; perna vazia e carga de manifesto cancelado pela grafia mais recente do
+  veículo; carga manual não é tocada; refaz o cache `pgr_manifestos`. Log como
+  `Correção placa SSW`.
+- **Gate (lab do dump de 30/09, ciclo real 30/09→03/10):** banco com placa convertida × banco
+  com o retroativo, código antigo × novo — 1.290 cargas, todos os campos, destinos, log e
+  aferidor **idênticos** pela chave; Jornada e PGR idênticos; torre idêntica com o mesmo banco.
+
 ### O resto do quadro
 
 - **3S de volta desde 08/09/2026** (o corte comercial de 07/09 durou um dia). 93 veículos

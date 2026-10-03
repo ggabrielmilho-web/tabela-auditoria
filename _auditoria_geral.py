@@ -446,14 +446,17 @@ if cur.fetchone():
 # (C-662 / V-130, 17/09/26: manifesto dizia HMV3G86 (em Goias), a viagem foi com a QXF1I45).
 # A 1a versao usava so o cavalo carimbado na perna (o de B) e acusava 44 — quase tudo perna de
 # outro cavalo ou LACUNA de 9 dias cobrindo cargas provadas.
-cur.execute("""
+# placa comparada pela CHAVE (pl.sql_chave): a carga guarda a grafia do SSW e a perna/carga
+# antiga pode ter a outra grafia do mesmo veículo (03/10/2026)
+_k = pl.sql_chave
+cur.execute(f"""
     SELECT c.numero, c.carreta1_placa, v.numero, v.carreta1_placa
       FROM embarques_cargas c
       JOIN embarques_cargas v ON v.viagem_vazia AND COALESCE(v.criada_por_robo, FALSE)
-       AND v.cavalo_placa = c.cavalo_placa AND v.carreta1_placa <> c.carreta1_placa
+       AND {_k('v.cavalo_placa')} = {_k('c.cavalo_placa')} AND {_k('v.carreta1_placa')} <> {_k('c.carreta1_placa')}
        AND v.data_saida_real IS NOT NULL AND v.data_conclusao IS NOT NULL
-      JOIN embarques_cargas a ON a.carreta1_placa = v.carreta1_placa AND COALESCE(a.viagem_vazia, FALSE) = FALSE
-       AND a.cavalo_placa = v.cavalo_placa AND a.data_conclusao = v.data_saida_real
+      JOIN embarques_cargas a ON {_k('a.carreta1_placa')} = {_k('v.carreta1_placa')} AND COALESCE(a.viagem_vazia, FALSE) = FALSE
+       AND {_k('a.cavalo_placa')} = {_k('v.cavalo_placa')} AND a.data_conclusao = v.data_saida_real
      WHERE c.id = ANY(%s) AND COALESCE(c.viagem_vazia, FALSE) = FALSE AND c.carreta1_placa IS NOT NULL
        AND c.no_local_desde IS NULL
        AND COALESCE(c.data_saida_real, c.data_carregamento::timestamp) < v.data_conclusao

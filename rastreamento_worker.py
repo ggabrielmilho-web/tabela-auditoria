@@ -456,7 +456,7 @@ def _consolidar_kpi(cur, carga_id, final=False):
     # Carreta sem trilha na janela (rastreador mudo): consolida pelo CAVALO, senão o KPI
     # final gravaria distância nula. Hoje isso não aparece na tela (o endpoint ignora o
     # persistido quando cai no cavalo), mas deixa lixo no banco.
-    if len(rows) < 2 and cavalo_placa and (cavalo_placa or '').strip().upper() != placa:
+    if len(rows) < 2 and cavalo_placa and placas.mercosul(cavalo_placa) != placas.mercosul(placa or ''):
         alt = _pontos((cavalo_placa or '').strip().upper())
         if len(alt) >= 2:
             _logger.info(f'[Carga {carga_id}] KPI: carreta {placa} sem trilha — consolidando pelo cavalo {cavalo_placa}')
@@ -943,7 +943,7 @@ def _purgar_posicoes_antigas(cur):
               SELECT 1
               FROM embarques_cargas c,
                    LATERAL unnest(ARRAY[c.cavalo_placa, c.carreta1_placa, c.carreta2_placa]) AS p
-              WHERE p = h.placa
+              WHERE """ + placas.sql_chave('p') + """ = """ + placas.sql_chave('h.placa') + """
                 AND c.status NOT IN ('Entregue', 'Cancelada')
                 AND h.data_posicao >= COALESCE(c.inicio_viagem, c.data_saida_real, c.criado_em)
           )
