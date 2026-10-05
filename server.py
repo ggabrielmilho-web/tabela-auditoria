@@ -8749,6 +8749,19 @@ if __name__ == '__main__':
     else:
         print("ℹ️  Fita documental desligada (EMBARQUES_FITA)")
 
+    # Coleta da Insignia GR — a gerenciadora de risco: SMs (inclusive TERCEIROS, que a 3S não vê),
+    # posição/odômetro do cavalo, paradas, macros do motorista, rota planejada e locais. Só LÊ a
+    # Insignia (`insignia.chamar` recusa operação de escrita) e grava `insignia_*`, que nada no app
+    # lê ainda. Nasce desligada: `INSIGNIA_COLETA=true` + INSIGNIA_USER/SENHA/TOKEN.
+    import insignia_coleta as _insig
+    if _insig.ligado():
+        import threading as _th_i
+        _th_i.Thread(target=_insig.loop, daemon=True, name='InsigniaColeta').start()
+        print(f"✅ Coleta Insignia LIGADA (a cada {os.getenv('INSIGNIA_INTERVALO_SEG', '60')} s; paradas a cada "
+              f"{os.getenv('INSIGNIA_PARADAS_MIN', '60')} min; backfill {os.getenv('INSIGNIA_BACKFILL_DIAS', '30')} d)")
+    else:
+        print("ℹ️  Coleta Insignia desligada (INSIGNIA_COLETA)")
+
     # Foto diária da Projeção — guarda o que a tela previu e a provisão do financeiro
     # (que some quando o real chega), para medir o acerto depois. Só lê o BI e grava a
     # própria tabela; nasce ligada, `PROJECAO_FOTO=false` desliga.

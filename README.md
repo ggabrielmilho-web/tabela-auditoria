@@ -30,6 +30,7 @@ O detalhe de cada item está no `HANDOFF-EMBARQUES-AUTONOMO.md`, §27 em diante.
 | `EMBARQUES_MODELO_CARRETA` | **ausente = false** | Fase D, ainda não medido com dado novo |
 | `EMBARQUES_SENSOR_CAVALO` | **true** desde 24/09 | carreta que fala pouco empresta saída/chegada do cavalo que esteve na origem — só preenche ou antecipa (`2df2d86`) |
 | `EMBARQUES_RAIO_PERNA` | **true** desde 25/09 | perna curta: ponto só conta para a ponta de que está mais perto — o pátio da origem deixa de virar chegada (§27.18) |
+| `INSIGNIA_COLETA` | **ausente = false** (código pronto em 05/10) | coleta da Insignia GR: SMs (inclusive terceiros), posição/odômetro do cavalo, paradas, macros do motorista, rota planejada e locais → `insignia_*`; nada no app lê ainda |
 | `RASTREAMENTO_PURGA_POSICOES` | **ausente = false** desde 25/09 | as posições de GPS **não são mais apagadas** aos 30 dias (~5 MB/dia, ~1,8 GB/ano). `RASTREAMENTO_RETENCAO_DIAS` segue valendo só para a janela da consolidação e o corte do backfill |
 | `RASTREAMENTO_SYNC_AUTO` | **nasce desligada** (21/09) | sincroniza o cadastro `embarques_veiculos_rastreio` sozinho: por **lacuna** (placa que o worker vê e o cadastro não conhece — consulta local, sem cota) + **garantia de 24 h**. Sem ela, o cadastro só anda quando alguém clica no Admin, e veículo novo na 3S fica invisível **para a tela** com a viagem correndo (§27.13 nº 2) |
 
@@ -119,6 +120,7 @@ gabarito do `_replay_producao.py`. Os simuladores não viram dois bugs que o rob
 | desligar a continuação | `EMBARQUES_CONTINUACAO=false` |
 | desfazer o que a continuação gravou | `_snapshot_embarques.py restaurar snap_X --chave --aplicar` (por id; nunca as tabelas de posição) |
 | desligar a fita documental | `EMBARQUES_FITA=false` (as tabelas ficam; só a aba de ordens as lê) |
+| desligar a coleta da Insignia | `INSIGNIA_COLETA=false` (as tabelas `insignia_*` ficam; nada no app as lê) |
 | religar o desengate por GPS | `EMBARQUES_DESENGATE_CAVALO=true` — **medido e reprovado em 19/09**, §27.9 |
 | desligar o sync automático do cadastro | `RASTREAMENTO_SYNC_AUTO=false` (o botão do Admin continua funcionando) |
 | comparar código com o estado anterior | tags `modelo-manual-2026-09`, `estudo-embarques-2026-09-08`, `pre-continuacao-2026-09-11`, `pre-lab-2026-09-15`, `pre-patio-2026-09-18`, `pre-cadastro-2026-09-21` |
@@ -318,6 +320,10 @@ Tabela Auditoria/
 ├── _fita_documentos.py          # retrato do BI por refresh (`fita_documentos`) + agendador (EMBARQUES_FITA)
 ├── _locais.py                   # `locais_fontes` + view `locais` (CNPJ → endereço), alimentada pela fita
 ├── _programacao.py              # `embarques_programacao`: ordens com estado derivado
+│
+│   # ── Insignia GR (gerenciadora de risco — 2ª fonte de rastreamento, cobre terceiros) ──
+├── insignia.py                  # cliente SOAP SÓ LEITURA (recusa operação que não seja Get_)
+├── insignia_coleta.py           # coleta → `insignia_*` + thread (INSIGNIA_COLETA)
 ├── embarques-ordens.html        # Página /embarques/ordens (ordens de coleta, estado e entrega agendada)
 ├── torre.py                     # Torre de controle: a consulta única `montar(cur, dia, agora)` (só leitura)
 ├── embarques-torre.html         # Página /embarques/torre
@@ -410,6 +416,16 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 | `PGR_HORA_BRT` | Horário do job diário em **Brasília** (`HH:MM`) | `06:35` |
 | `PGR_JANELA_DISPARO_MIN` | Tolerância p/ disparar após o horário (restart) | `30` |
 | `BACKFILL_ESPACO_SEG` | Segundos entre chamadas do backfill (~6/min) | `10` |
+
+### Insignia GR (coleta — `insignia_coleta.py`)
+| Variável | Descrição | Default |
+|---|---|---|
+| `INSIGNIA_COLETA` | Liga a thread de coleta | `false` |
+| `INSIGNIA_USER` / `INSIGNIA_SENHA` / `INSIGNIA_TOKEN` | Credenciais do web service (fornecidas pela Insignia; **nunca no repositório**) | — |
+| `INSIGNIA_CNPJ_UNIDADE` | Unidade de negócios = CNPJ da Rizza Transp | `02572512000158` |
+| `INSIGNIA_INTERVALO_SEG` | Ciclo das SMs abertas e da posição/odômetro — a cadência do worker da 3S. A Insignia não tem histórico de posições: o que não for pego ao vivo se perde | `60` |
+| `INSIGNIA_PARADAS_MIN` | Intervalo mínimo entre buscas de paradas por placa | `60` |
+| `INSIGNIA_BACKFILL_DIAS` | Paradas para trás na 1ª vez que a placa aparece (a API só alcança 30) | `30` |
 
 ### Lançamento automático de embarques (robô do manifesto SSW)
 | Variável | Descrição | Default |
