@@ -1545,6 +1545,29 @@ def embarques_ordens_page():
     return send_from_directory('.', 'embarques-ordens.html')
 
 
+# ── Manifestos sem ordem de coleta (06/10/26, pedido do gerente) ──────────────────────
+# Todo manifesto deveria nascer de uma ordem do 157. Mesma régua de ligação do robô
+# (`manifestos_sem_ordem`), só leitura; recalcula quando o BI atualiza.
+@app.route('/embarques/sem-ordem')
+@page_required('embarques')
+def embarques_sem_ordem_page():
+    return send_from_directory('.', 'embarques-sem-ordem.html')
+
+
+@app.route('/api/embarques/sem-ordem')
+@page_required('embarques')
+def api_embarques_sem_ordem():
+    import manifestos_sem_ordem
+    conn = get_db()
+    try:
+        return jsonify({'ok': True, **manifestos_sem_ordem.montar(get_token(), conn,
+                                                                  forcar=request.args.get('refresh') == '1')})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+    finally:
+        conn.close()
+
+
 @app.route('/embarques/torre')
 @page_required('embarques')
 def embarques_torre_page():
@@ -1584,11 +1607,23 @@ def api_embarques_ordens():
     dia = (request.args.get('dia') or '').strip() or None
     embarcador = (request.args.get('embarcador') or '').strip() or None
     estado = (request.args.get('estado') or '').strip() or None
+    import _programacao
     conn = get_db(); cur = conn.cursor()
     try:
         cur.execute("SELECT to_regclass('embarques_programacao') IS NOT NULL")
         if not cur.fetchone()[0]:
             return jsonify({'ordens': [], 'cards': {}, 'embarcadores': [], 'atualizado_em': None})
+        # FUSO (06/10/26): o limite e os carimbos do 157 são hora de Brasília sem fuso; sem
+        # declarar isso, o jsonify os mandava como "GMT" e a tela mostrava tudo 3 h antes
+        # (NOD-000136: limite 10:00 no SSW, 07:00 na tela, "vencida há 2 h" às 09:35). O
+        # SELECT devolve cada um com o fuso certo e o navegador converte sozinho.
+        # O ESTADO também é recalculado aqui na parte que só depende do relógio (o limite
+        # passou): a tabela só é regravada a cada refresh do BI, e entre 20 h e 02 h a ordem
+        # ficaria "aguardando" horas depois de vencer. Mesma regra do `derivar_estado`.
+        agora = _programacao.agora_brt()
+        tab = ("(SELECT p.*, CASE WHEN p.estado IN ('aguardando manifesto', 'sem veículo') "
+               "AND p.limite_em < %s THEN 'vencida sem documento' ELSE p.estado END AS estado_v "
+               "FROM embarques_programacao p) q")
         where, args = ['sumiu_em IS NULL'], []
         if dia:
             # o "dia" da ordem: limite de coleta; sem limite, o dia em que foi comandada/cadastrada
@@ -1596,7 +1631,7 @@ def api_embarques_ordens():
         if embarcador:
             where.append("embarcador = %s"); args.append(embarcador)
         if estado:
-            where.append("estado = %s"); args.append(estado)
+            where.append("estado_v = %s"); args.append(estado)
         # `tipo_frota` nasce na tabela só quando a fita roda a primeira rodada depois do deploy
         # de 21/09 (o DDL mora em `_programacao.atualizar`). Citá-la antes disso derrubava a
         # API inteira com 500 e a aba ficava em "carregando…" — aconteceu em produção no
@@ -1608,33 +1643,36 @@ def api_embarques_ordens():
         cur.execute("SELECT 1 FROM information_schema.columns WHERE table_name='embarques_programacao' "
                     "AND column_name='agendamento'")
         _ag = 'agendamento, obs' if cur.fetchone() else 'NULL::date AS agendamento, NULL::varchar AS obs'
+        brt = lambda c: f"({c} AT TIME ZONE 'America/Sao_Paulo') AS {c}"        # carimbo do SSW
+        srv = lambda c: f"({c} AT TIME ZONE current_setting('TimeZone')) AS {c}"  # NOW() do banco
         cur.execute(f"""
-            SELECT coleta_origem, unidade, numero, tipo, situacao_ssw, situacao_em, limite_em, {_ag},
-                   cadastrada_em, cadastrada_por, comandada_em, comandada_por, coletada_em, coletada_por,
-                   cancelada_em, solicitante, motorista, cavalo, carreta,
+            SELECT coleta_origem, unidade, numero, tipo, situacao_ssw, {brt('situacao_em')}, {brt('limite_em')}, {_ag},
+                   {brt('cadastrada_em')}, cadastrada_por, {brt('comandada_em')}, comandada_por,
+                   {brt('coletada_em')}, coletada_por,
+                   {brt('cancelada_em')}, solicitante, motorista, cavalo, carreta,
                    reme_nome, reme_endereco, reme_cidade, dest_nome, dest_cidade, dest_uf,
-                   ctrc_gerado, manifesto, carga_id, carga_numero, carga_status, carga_via, embarcador, estado,
-                   {_tf}, primeira_vez, ultima_vez
-              FROM embarques_programacao
+                   ctrc_gerado, manifesto, carga_id, carga_numero, carga_status, carga_via, embarcador,
+                   estado_v AS estado, {_tf}, {srv('primeira_vez')}, {srv('ultima_vez')}
+              FROM {tab}
              WHERE {' AND '.join(where)}
-             ORDER BY CASE estado WHEN 'vencida sem documento' THEN 0 WHEN 'aguardando manifesto' THEN 1
-                                  WHEN 'sem veículo' THEN 2 WHEN 'documento emitido' THEN 3
-                                  WHEN 'carga' THEN 4 ELSE 5 END,
-                      limite_em NULLS LAST, comandada_em
-        """, args)
+             ORDER BY CASE estado_v WHEN 'vencida sem documento' THEN 0 WHEN 'aguardando manifesto' THEN 1
+                                    WHEN 'sem veículo' THEN 2 WHEN 'documento emitido' THEN 3
+                                    WHEN 'carga' THEN 4 ELSE 5 END,
+                      q.limite_em NULLS LAST, q.comandada_em
+        """, [agora] + args)
         cols = [d[0] for d in cur.description]
         ordens = [dict(zip(cols, r)) for r in cur.fetchall()]
         # cards: contagem por estado do MESMO dia/embarcador, ignorando o filtro de estado — senão
         # clicar num card faz os outros sumirem e o total repetir o número (15/09/26)
         where_c = [w for w in where if not w.startswith('estado')]
         args_c = [a for w, a in zip([w for w in where if '%s' in w], args) if not w.startswith('estado')]
-        cur.execute(f"SELECT estado, count(*) FROM embarques_programacao WHERE {' AND '.join(where_c)} GROUP BY 1", args_c)
+        cur.execute(f"SELECT estado_v, count(*) FROM {tab} WHERE {' AND '.join(where_c)} GROUP BY 1", [agora] + args_c)
         cards = {e: n for e, n in cur.fetchall()}
-        cur.execute("SELECT count(*) FROM embarques_programacao WHERE sumiu_em IS NULL AND estado='vencida sem documento'")
+        cur.execute(f"SELECT count(*) FROM {tab} WHERE sumiu_em IS NULL AND estado_v='vencida sem documento'", [agora])
         cards['vencidas_total'] = cur.fetchone()[0]
         cur.execute("SELECT DISTINCT embarcador FROM embarques_programacao WHERE embarcador IS NOT NULL ORDER BY 1")
         embs = [r[0] for r in cur.fetchall()]
-        cur.execute("SELECT max(ultima_vez) FROM embarques_programacao")
+        cur.execute("SELECT max(ultima_vez) AT TIME ZONE current_setting('TimeZone') FROM embarques_programacao")
         atual = cur.fetchone()[0]
         return jsonify({'ordens': ordens, 'cards': cards, 'embarcadores': embs,
                         'atualizado_em': atual.isoformat() if atual else None})

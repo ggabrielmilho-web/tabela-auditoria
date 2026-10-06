@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Manifestos sem ordem — Rizza Log</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%2338bdf8'/%3E%3Ctext x='50' y='72' font-family='Arial,sans-serif' font-size='68' font-weight='900' text-anchor='middle' fill='%230a0e17'%3ER%3C/text%3E%3C/svg%3E">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0e17; --surface: #111827; --surface2: #1a2235; --border: #1e293b;
+    --text: #e2e8f0; --text-dim: #94a3b8; --accent: #38bdf8; --accent2: #818cf8;
+    --green: #34d399; --red: #f87171; --orange: #fb923c; --yellow: #fbbf24;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+  .dashboard { padding: 20px; max-width: 1700px; margin: 0 auto; animation: fadeUp 0.4s ease; }
+  .top-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; flex-wrap: wrap; gap: 12px; }
+  .top-bar h1 { font-size: 1.35rem; font-weight: 700; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .meta { font-size: 0.78rem; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; }
+  .btn-sm { padding: 8px 18px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); font-family: 'DM Sans', sans-serif; font-weight: 500; font-size: 0.82rem; border-radius: 8px; cursor: pointer; text-decoration: none; display: inline-block; }
+  .btn-sm:hover { border-color: var(--accent); color: var(--accent); }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin-bottom: 16px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; cursor: pointer; transition: border-color .15s; }
+  .card:hover, .card.on { border-color: var(--accent); }
+  .card .k { font-size: 0.66rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-dim); font-weight: 600; }
+  .card .v { font-size: 1.5rem; font-weight: 700; font-family: 'JetBrains Mono', monospace; margin-top: 4px; }
+  .card .s { font-size: 0.7rem; color: var(--text-dim); margin-top: 2px; }
+  .card.sem .v { color: var(--red); } .card.cte .v { color: var(--green); } .card.placa .v { color: var(--accent); }
+  .card.cont .v, .card.total .v { color: var(--text-dim); }
+
+  .filtros-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; margin-bottom: 16px; }
+  .filtros-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 12px; align-items: end; }
+  .ff label { display: block; font-size: 0.7rem; color: var(--text-dim); margin-bottom: 4px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em; }
+  .ff input, .ff select { width: 100%; padding: 7px 10px; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 0.8rem; }
+  .ff input[type="date"] { color-scheme: dark; }
+
+  .table-wrapper { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .table-scroll { overflow-x: auto; max-height: calc(100vh - 380px); overflow-y: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.78rem; white-space: nowrap; }
+  thead th { position: sticky; top: 0; background: var(--surface2); padding: 10px 12px; text-align: left; font-weight: 600; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); border-bottom: 1px solid var(--border); z-index: 2; }
+  tbody tr:hover { background: rgba(56,189,248,0.04); }
+  tbody tr:nth-child(even) { background: rgba(255,255,255,0.012); }
+  td { padding: 8px 12px; border-bottom: 1px solid var(--border); color: var(--text); max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+  .mono { font-family: 'JetBrains Mono', monospace; font-size: 0.74rem; }
+  .dim { color: var(--text-dim); }
+  .badge { padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; white-space: nowrap; }
+  .b-sem { background: rgba(248,113,113,0.15); color: var(--red); }
+  .b-cte { background: rgba(52,211,153,0.15); color: var(--green); }
+  .b-placa { background: rgba(56,189,248,0.15); color: var(--accent); }
+  .b-cont { background: rgba(148,163,184,0.15); color: var(--text-dim); }
+  .b-hoje { background: rgba(251,191,36,0.15); color: var(--yellow); }
+  .t-Frota { background: rgba(52,211,153,0.15); color: var(--green); }
+  .t-Agregado { background: rgba(129,140,248,0.15); color: var(--accent2); }
+  .t-Terceiro { background: rgba(251,191,36,0.15); color: var(--yellow); }
+  .lig { color: var(--accent); text-decoration: none; } .lig:hover { text-decoration: underline; }
+  .info-vazio { padding: 40px; text-align: center; color: var(--text-dim); }
+  .nota { font-size: 0.72rem; color: var(--text-dim); margin-top: 8px; line-height: 1.5; }
+</style>
+</head>
+<body>
+<div class="dashboard">
+  <div class="top-bar">
+    <div>
+      <h1>📭 Manifestos sem ordem de coleta</h1>
+      <div class="meta" id="meta">carregando… (a primeira consulta ao BI leva alguns segundos)</div>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      <span data-nav-menu data-nav-style="btn-wrap" data-nav-active="semordem"></span>
+      <a href="/logout" style="text-decoration:none;"><button class="btn-sm">Sair</button></a>
+    </div>
+  </div>
+
+  <div class="cards" id="cards"></div>
+
+  <div class="filtros-card">
+    <div class="filtros-grid">
+      <div class="ff"><label>Emitido de</label><input type="date" id="f-de"></div>
+      <div class="ff"><label>até</label><input type="date" id="f-ate"></div>
+      <div class="ff"><label>Unidade</label><select id="f-un"><option value="">todas</option></select></div>
+      <div class="ff"><label>Tipo</label>
+        <select id="f-tipo"><option value="">todos</option><option>Frota</option><option>Agregado</option><option>Terceiro</option></select></div>
+      <div class="ff"><label>Buscar</label><input type="text" id="f-q" placeholder="manifesto, placa, motorista, cliente"></div>
+      <div class="ff"><label>&nbsp;</label><button class="btn-sm" onclick="desenhar()">Aplicar</button></div>
+      <div class="ff"><label>&nbsp;</label><button class="btn-sm" onclick="limpar()">Limpar</button></div>
+      <div class="ff"><label>&nbsp;</label><button class="btn-sm" onclick="csv()">⬇ CSV</button></div>
+    </div>
+    <div class="nota">
+      Todo manifesto deveria nascer de uma <b>ordem de coleta (SSW 157)</b>. A ligação é a mesma que o robô usa:
+      <b>pelo CTe</b> (o CTe do manifesto foi gerado pela ordem — exata) ou, se não houver, <b>pela placa</b>
+      (ordem com o mesmo cavalo e carreta, comandada de 3 dias antes a 1 dia depois da emissão).
+      <b>Continuação</b> é a 2ª perna de um desengate: a ordem é da 1ª perna, então não entra na lista.
+      Manifesto de <span class="badge b-hoje">hoje</span> pode ainda ganhar a ordem no próximo refresh do BI.
+    </div>
+  </div>
+
+  <div class="table-wrapper">
+    <div class="table-scroll">
+      <table>
+        <thead><tr>
+          <th>Manifesto</th><th>Situação</th><th>Emissão</th><th title="emissão do CTRB, que sai junto com o manifesto (o manifesto não tem hora no BI)">CTRB</th>
+          <th>Unidade</th><th>Tipo</th><th>Cliente</th><th>Origem → destino</th><th>Conjunto</th><th>Motorista</th><th>Ordem</th><th>Carga</th>
+        </tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+      <div class="info-vazio" id="vazio" style="display:none;">Nenhum manifesto para o filtro.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const SIT = {
+  sem_ordem:   {txt: 'sem ordem',            cls: 'b-sem',   card: 'sem'},
+  ordem_cte:   {txt: 'ordem pelo CTe',       cls: 'b-cte',   card: 'cte'},
+  ordem_placa: {txt: 'ordem pela placa',     cls: 'b-placa', card: 'placa'},
+  continuacao: {txt: 'continuação',          cls: 'b-cont',  card: 'cont'},
+};
+let DADOS = [], SITUACAO = 'sem_ordem';
+const $ = id => document.getElementById(id);
+const esc = t => String(t ?? '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+// datas do BI são hora de Brasília sem fuso: formatar pelo texto, sem passar por Date (que
+// converteria de fuso e erraria em 3 h — o defeito que a aba de Coletas teve até 06/10)
+const dia = s => s ? `${s.slice(8,10)}/${s.slice(5,7)}` : '—';
+const diaHora = s => s ? `${s.slice(8,10)}/${s.slice(5,7)} ${s.slice(11,16)}` : '—';
+const hojeBrt = () => new Date().toLocaleDateString('sv-SE', {timeZone: 'America/Sao_Paulo'});
+
+function filtrados(ignorarSituacao) {
+  const de = $('f-de').value, ate = $('f-ate').value, un = $('f-un').value, tipo = $('f-tipo').value;
+  const q = $('f-q').value.trim().toUpperCase();
+  return DADOS.filter(l =>
+    (!de || (l.emissao || '') >= de) && (!ate || (l.emissao || '') <= ate) &&
+    (!un || l.unidade === un) && (!tipo || l.tipo === tipo) &&
+    (ignorarSituacao || !SITUACAO || l.situacao === SITUACAO) &&
+    (!q || [l.manifesto, l.cavalo, l.carreta, l.motorista, l.cliente, l.ctrb, l.ordem]
+            .some(v => String(v || '').toUpperCase().includes(q))));
+}
+
+function desenhar() {
+  const base = filtrados(true);
+  const n = k => base.filter(l => l.situacao === k).length;
+  const sem = base.filter(l => l.situacao === 'sem_ordem');
+  const porTipo = t => sem.filter(l => l.tipo === t).length;
+  const exigem = base.filter(l => l.situacao !== 'continuacao').length;
+  const card = (k, cls, rotulo, v, sub) =>
+    `<div class="card ${cls} ${SITUACAO === k ? 'on' : ''}" onclick="SITUACAO=SITUACAO==='${k}'?'':'${k}';desenhar()">
+       <div class="k">${rotulo}</div><div class="v">${v}</div>${sub ? `<div class="s">${sub}</div>` : ''}</div>`;
+  $('cards').innerHTML =
+    card('sem_ordem', 'sem', 'Sem ordem', sem.length,
+         `${exigem ? Math.round(sem.length / exigem * 100) : 0}% · Frota ${porTipo('Frota')} · Agregado ${porTipo('Agregado')} · Terceiro ${porTipo('Terceiro')}`) +
+    card('ordem_cte', 'cte', 'Ordem pelo CTe', n('ordem_cte'), 'ligação exata') +
+    card('ordem_placa', 'placa', 'Ordem pela placa', n('ordem_placa'), 'cavalo + carreta + data') +
+    card('continuacao', 'cont', 'Continuação', n('continuacao'), 'ordem é da 1ª perna') +
+    card('', 'total', 'Manifestos', base.length, 'no filtro');
+
+  const rows = filtrados(false).sort((a, b) => (b.emissao || '').localeCompare(a.emissao || '') || (b.manifesto).localeCompare(a.manifesto));
+  $('vazio').style.display = rows.length ? 'none' : 'block';
+  // o último dia com manifesto no BI: filtrar "hoje" antes do refresh trazer o dia volta vazio,
+  // e sem dizer isso parece que o filtro não aplicou
+  const ultimo = DADOS.reduce((m, l) => (l.emissao || '') > m ? l.emissao : m, '');
+  $('vazio').textContent = `Nenhum manifesto para o filtro.${ultimo ? ` O último manifesto no BI é de ${dia(ultimo)}.` : ''}`;
+  $('tbody').innerHTML = rows.map(l => {
+    const s = SIT[l.situacao] || {txt: l.situacao, cls: ''};
+    const ordem = l.ordem ? `${esc(l.ordem)} <span class="dim">${esc(l.ordem_embarcador || '')}</span>` : '—';
+    const carga = l.carga_numero ? `<a class="lig" href="/embarques/cargas/${l.carga_id}/mapa" target="_blank">${esc(l.carga_numero)}</a> <span class="dim">${esc(l.carga_status || '')}</span>` : '<span class="dim">—</span>';
+    return `<tr>
+      <td class="mono">${esc(l.manifesto)}</td>
+      <td><span class="badge ${s.cls}">${s.txt}</span>${l.hoje ? ' <span class="badge b-hoje" title="emitido hoje: a ordem ou o CTe podem chegar no próximo refresh do BI">hoje</span>' : ''}</td>
+      <td class="mono">${dia(l.emissao)}</td>
+      <td class="mono" title="${esc(l.ctrb || '')}">${l.ctrb_emissao ? diaHora(l.ctrb_emissao) : '—'} <span class="dim">${esc(l.ctrb_por || '')}</span></td>
+      <td>${esc(l.unidade || '—')}</td>
+      <td>${l.tipo ? `<span class="badge t-${l.tipo}">${l.tipo}</span>` : '<span class="dim">—</span>'}</td>
+      <td title="${esc(l.cliente || '')}">${esc((l.cliente || '—').slice(0, 26))}${l.subcontratacao ? ' <span class="dim" title="subcontratação recebida (CTe SUBC)">· subc</span>' : ''}${l.n_cte ? '' : ' <span class="dim">· sem CTe</span>'}</td>
+      <td>${esc(l.origem || '—')} <span class="dim">→</span> ${esc(l.destino || '—')}</td>
+      <td class="mono">${esc(l.cavalo || '—')}/${esc(l.carreta || '—')}</td>
+      <td title="${esc(l.motorista || '')}">${esc((l.motorista || '—').split(' ').slice(0, 2).join(' '))}</td>
+      <td class="mono">${ordem}</td>
+      <td>${carga}</td>
+    </tr>`;
+  }).join('');
+}
+
+function limpar() {
+  $('f-de').value = $('f-de').min; $('f-ate').value = hojeBrt();
+  $('f-un').value = ''; $('f-tipo').value = ''; $('f-q').value = ''; SITUACAO = 'sem_ordem';
+  desenhar();
+}
+
+function csv() {
+  const cols = ['manifesto','situacao','emissao','ctrb','ctrb_emissao','ctrb_por','unidade','unidade_destino','tipo','cliente',
+                'subcontratacao','n_cte','origem','destino','cavalo','carreta','motorista','ordem','ordem_embarcador','carga_numero','carga_status'];
+  const q = v => { const s = String(v ?? ''); return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+  const linhas = [cols.join(';'), ...filtrados(false).map(l => cols.map(c => q(l[c])).join(';'))];
+  const blob = new Blob(['﻿' + linhas.join('\n')], {type: 'text/csv;charset=utf-8'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = `manifestos-sem-ordem-${hojeBrt()}.csv`; a.click();
+}
+
+async function carregar() {
+  const r = await fetch('/api/embarques/sem-ordem'); const d = await r.json();
+  if (!d.ok) { $('meta').textContent = 'erro: ' + (d.error || r.status); return; }
+  DADOS = d.linhas;
+  const uns = [...new Set(DADOS.map(l => l.unidade).filter(Boolean))].sort();
+  $('f-un').innerHTML = '<option value="">todas</option>' + uns.map(u => `<option>${u}</option>`).join('');
+  $('f-de').value = d.desde; $('f-de').min = d.desde; $('f-ate').value = hojeBrt();
+  $('meta').textContent = `desde ${dia(d.desde)} · ${DADOS.length} manifestos · BI atualizado ${diaHora(d.bi_atualizado)}`;
+  desenhar();
+}
+['f-de','f-ate','f-un','f-tipo'].forEach(id => $(id).addEventListener('change', desenhar));
+$('f-q').addEventListener('input', desenhar);
+carregar();
+</script>
+<script src="/nav-perms.js"></script>
+</body>
+</html>

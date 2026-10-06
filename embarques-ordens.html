@@ -113,7 +113,8 @@ function horasAtraso(o){
   if(!o.limite_em || o.estado==='carga' || o.estado==='cancelada' || o.estado==='documento emitido') return null;
   const h=(Date.now()-new Date(o.limite_em))/36e5; return h>0?h:null;
 }
-function hoje(){ const d=new Date(); return d.toISOString().slice(0,10); }
+// o dia de Brasília, não o de UTC: com toISOString, depois das 21 h a aba abria no dia seguinte
+function hoje(){ return new Date().toLocaleDateString('sv-SE',{timeZone:'America/Sao_Paulo'}); }
 // Frota / Agregado / Terceiro pela MESMA regra do robô (par de placas do manifesto contra o
 // cadastro). Terceiro fica em "documento emitido" para sempre: o robô só lança Frota e Agregado,
 // e sem rastreador da casa não há como dizer se saiu de viagem.

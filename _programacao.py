@@ -21,7 +21,20 @@ Nada aqui é lido por régua nenhuma do app (raio, rota, KPI, status de carga).
 """
 import re
 import unicodedata
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
+
+# FUSO (06/10/26): os carimbos do 157 (limite, cadastrada, comandada, coletada, cancelada,
+# situacao_em) são HORA DE BRASÍLIA sem fuso — as ordens nascem das 7 às 18 h, com o vale do
+# almoço, e o BI confere ao minuto com o SSW (NOD-000136: limite 10:00 no SSW e no BI). O
+# container roda em UTC, então comparar com `datetime.now()` vencia a ordem 3 h antes do
+# limite. `primeira_vez`/`ultima_vez`/`sumiu_em` são NOW() do Postgres, que é UTC.
+BRT = timedelta(hours=3)
+
+
+def agora_brt():
+    """O instante atual no relógio do SSW (Brasília, sem fuso) — independe do TZ da máquina."""
+    return datetime.utcnow() - BRT
+
 
 DDL = """
 CREATE TABLE IF NOT EXISTS embarques_programacao (
@@ -191,7 +204,7 @@ def atualizar(conn, dados, cadastro=None):
     # manifesto, senao so a primeira ordem que casou mostra a carga (UDI-164/UDI-182, 15/09/26)
     cur.execute("SELECT manifesto_origem, id, numero, status FROM embarques_cargas WHERE manifesto_origem IS NOT NULL AND COALESCE(viagem_vazia, FALSE) = FALSE")
     por_man = {_norm(r[0]): r[1:] for r in cur.fetchall()}
-    agora = datetime.now()
+    agora = agora_brt()                 # o limite é hora de Brasília — ver BRT no topo
     vistas = set()
     n = 0
     for r in dados.get('coleta', {}).values():

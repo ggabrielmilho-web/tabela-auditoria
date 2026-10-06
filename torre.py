@@ -208,19 +208,28 @@ def _estado_ordem_em(o, t):
     return 'sem veículo'
 
 
+def _utc(col):
+    """Carimbo do 157 (hora de Brasília sem fuso) → UTC sem fuso, o relógio da torre. Até
+    06/10/26 a torre lia o limite como se fosse UTC: a coleta vencia 3 h antes e o texto da
+    exceção mostrava o limite 3 h adiantado (`- BRT` em cima de um valor que já era BRT)."""
+    return f"(({col} AT TIME ZONE 'America/Sao_Paulo') AT TIME ZONE 'UTC')"
+
+
 def _ordens_do_dia(cur, t):
     cur.execute("SELECT to_regclass('embarques_programacao') IS NOT NULL")
     if not cur.fetchone()[0]:
         return []
     ini, fim = _dia_brt(t)
-    cur.execute("""
-        SELECT p.coleta_origem, p.limite_em, p.cadastrada_em, p.comandada_em, p.coletada_em,
-               p.cancelada_em, p.ctrc_gerado, p.embarcador, p.cavalo, p.carreta, p.reme_cidade,
+    cur.execute(f"""
+        SELECT p.coleta_origem, {_utc('p.limite_em')}, {_utc('p.cadastrada_em')}, {_utc('p.comandada_em')},
+               {_utc('p.coletada_em')}, {_utc('p.cancelada_em')},
+               p.ctrc_gerado, p.embarcador, p.cavalo, p.carreta, p.reme_cidade,
                p.dest_cidade, COALESCE(p.tipo_frota, ''), c.criado_em, c.numero, p.ultima_vez
           FROM embarques_programacao p
           LEFT JOIN embarques_cargas c ON c.id = p.carga_id
          WHERE p.primeira_vez <= %s
-           AND ((p.cadastrada_em >= %s AND p.cadastrada_em < %s) OR (p.limite_em >= %s AND p.limite_em < %s))
+           AND (({_utc('p.cadastrada_em')} >= %s AND {_utc('p.cadastrada_em')} < %s)
+                OR ({_utc('p.limite_em')} >= %s AND {_utc('p.limite_em')} < %s))
     """, (t, ini, fim, ini, fim))
     cols = ('coleta', 'limite', 'cadastrada', 'comandada', 'coletada', 'cancelada', 'ctrc',
             'embarcador', 'cavalo', 'carreta', 'origem', 'destino', 'tipo', 'carga_criada',
@@ -238,11 +247,11 @@ def _ordens_proximas(cur, t, horas=PROXIMAS_H):
     cur.execute("SELECT to_regclass('embarques_programacao') IS NOT NULL")
     if not cur.fetchone()[0]:
         return []
-    cur.execute("""
+    cur.execute(f"""
         SELECT coleta_origem, carreta, COALESCE(tipo_frota, '')
           FROM embarques_programacao
          WHERE sumiu_em IS NULL AND estado IN ('aguardando manifesto', 'sem veículo')
-           AND limite_em >= %s AND limite_em < %s
+           AND {_utc('limite_em')} >= %s AND {_utc('limite_em')} < %s
     """, (t, t + timedelta(hours=horas)))
     return [{'coleta': a, 'carreta': b, 'tipo': c} for a, b, c in cur.fetchall()]
 

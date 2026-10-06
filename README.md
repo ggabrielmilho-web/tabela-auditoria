@@ -139,6 +139,7 @@ a imagem antiga (21/08/2026).
 - **Mapa / Rastreamento** (`/embarques/mapa`, `/embarques/cargas/<id>/mapa`) — Mapa em tempo real (Leaflet): posição dos veículos e trajeto de cada carga, rota planejada **origem → cidades de rota → destinos** (completa, multi-ponto), KPIs de viagem **ao vivo** (vel. máx/média, km, tempos) e **Data de saída** no painel da carga. Fluxo de status automático **Aberta → Em rota → No destino → Entregue** (`No destino` = parado na cidade da descarga há +60 min), com desvio **Desengatada** (carreta carregada largada no destino). **Rastreia pela carreta** (carreta1 → cavalo → carreta2 — o GPS costuma estar na carreta). **Reconstrói o trajeto** mesmo em lançamento tardio: detecta a saída da origem pelo GPS (por distância, pois o 3S erra o nome da cidade) e persiste em `inicio_viagem`. Mapa geral tem filtro **🔌 Desengatadas** e marcador próprio. **Salto impossível**: a linha do GPS QUEBRA no trecho que o veículo não pode ter feito (velocidade implícita acima do teto físico, ou odômetro negando o deslocamento) — duas bolinhas âmbar marcam as pontas do buraco, e o km desse trecho sai do `KM PERCORRIDOS`, mas segue medido pelo `KM RASTREADOR` (o odômetro é cumulativo no aparelho e não depende da posição). Régua única em `embarques_regua.py`
 
 - **Ordens de coleta** (`/embarques/ordens`) — cada ordem de coleta do SSW (157) com estado **derivado do documento** (vencida sem documento · aguardando manifesto · sem veículo · documento emitido · carga · cancelada), a carga ligada, a classificação **Frota/Agregado/Terceiro** pela régua do robô (truck sem carreta classificado pelo cadastro TRUCK/TOCO) e a coluna **Entrega agendada**, lida da observação da ordem ("AGENDA 02/10"). Ver Módulo Embarques
+- **Sem ordem** (`/embarques/sem-ordem`, 06/10/2026, pedido do gerente) — manifestos emitidos desde 01/09 **sem ordem de coleta**, Frota, Agregado e Terceiro. Ligação manifesto ↔ ordem pela mesma régua do robô (`embarques_coleta`): pelo CTe (`ctrc_gerado`, exata) ou pela placa (cavalo + carreta, −3 d a +1 d). A 2ª perna de desengate/continuação fica fora (a ordem é da 1ª). Cards por situação, filtros, CSV e a hora do CTRB (o manifesto não tem hora no BI). Só leitura; `manifestos_sem_ordem.py` recalcula quando o BI atualiza (`SEM_ORDEM_DESDE` muda o início)
 - **Torre de controle** (`/embarques/torre`) — o "agora" da operação num painel só, igual para todos e só leitura: relógios de GPS/documentos/robô, caixas com estoque + fluxo do dia + idade, frota em quatro baldes (trabalhando · livres para carga · precisa olhar · sem sinal), exceções com a regra que disparou, mapa, próximas 12 h, linha do tempo de 36 h e produtividade do dia. **Atraso pela entrega agendada** da ordem de coleta; sem ela, pelos 600 km/dia. Modo **retrato** de um dia anterior. Ver Módulo Embarques
 
 ### Restrito a admins
@@ -536,6 +537,7 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 - `GET /embarques/relatorio` — Relatório de cargas
 - `GET /embarques/<id>/editar` — Edição de carga
 - `GET /embarques/ordens` — Ordens de coleta (0157) com estado derivado · API `GET /api/embarques/ordens?dia=&embarcador=&estado=`
+- `GET /embarques/sem-ordem` — Manifestos sem ordem de coleta · API `GET /api/embarques/sem-ordem[?refresh=1]` (aba `embarques`)
 - `GET /embarques/torre` — Torre de controle · API `GET /api/embarques/torre` (ao vivo) ou `?dia=AAAA-MM-DD` (retrato daquele dia à meia-noite)
 - `GET /embarques/mapa` — Mapa geral de rastreamento
 - `GET /embarques/cargas/<id>/mapa` — Mapa de uma carga
@@ -879,6 +881,14 @@ do 157 (`sumiu_em`), que é o histórico que o SSW não tem.
 **O estado é derivado do documento**, porque a situação do SSW não fecha sozinha (só Uberlândia
 marca COLETADA): cancelada → carga (existe carga do robô ligada) → documento emitido (CTe gerado)
 → aguardando manifesto / vencida sem documento (COMANDADA, pelo limite) → sem veículo.
+
+**⚠ Fuso (corrigido em 06/10/26).** Os carimbos do 157 (`limite_em`, `cadastrada_em`, `comandada_em`,
+`coletada_em`…) são **hora de Brasília sem fuso**; `primeira_vez`/`ultima_vez` são `NOW()` do banco (UTC).
+Até 06/10 a ordem vencia 3 h antes do limite (comparada com o relógio UTC do container), a tela mostrava
+os horários 3 h antes (o jsonify os rotulava "GMT") e a torre lia os mesmos campos como UTC. Agora:
+`_programacao.agora_brt()` no estado, `AT TIME ZONE 'America/Sao_Paulo'` no SELECT da API e `torre._utc()`.
+A API também recalcula na leitura a transição que só depende do relógio (limite passou → vencida), porque
+a tabela só é regravada a cada refresh do BI.
 
 **Frota / Agregado / Terceiro** pela mesma régua do robô (`embarques_auto.classificar`), com as
 placas do manifesto quando ele existe. Sem manifesto, só classifica com cavalo **e** carreta —
