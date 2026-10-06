@@ -182,7 +182,7 @@ function desenhar() {
 }
 
 function limpar() {
-  $('f-de').value = $('f-de').min; $('f-ate').value = hojeBrt();
+  $('f-de').value = hojeBrt(); $('f-ate').value = hojeBrt();
   $('f-un').value = ''; $('f-tipo').value = ''; $('f-q').value = ''; SITUACAO = 'sem_ordem';
   desenhar();
 }
@@ -203,7 +203,8 @@ async function carregar() {
   DADOS = d.linhas;
   const uns = [...new Set(DADOS.map(l => l.unidade).filter(Boolean))].sort();
   $('f-un').innerHTML = '<option value="">todas</option>' + uns.map(u => `<option>${u}</option>`).join('');
-  $('f-de').value = d.desde; $('f-de').min = d.desde; $('f-ate').value = hojeBrt();
+  // abre no dia vigente (pedido de 06/10); o histórico desde 01/09 continua a um filtro de distância
+  $('f-de').min = d.desde; $('f-de').value = hojeBrt(); $('f-ate').value = hojeBrt();
   $('meta').textContent = `desde ${dia(d.desde)} · ${DADOS.length} manifestos · BI atualizado ${diaHora(d.bi_atualizado)}`;
   desenhar();
 }
