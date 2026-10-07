@@ -152,11 +152,16 @@ async function carregar(){
   document.getElementById('vazio').style.display=d.ordens.length?'none':'block';
   d.ordens.forEach(o=>{
     const h=horasAtraso(o);
-    const doc = [o.ctrc_gerado ? `CTe ${o.ctrc_gerado}` : null, o.manifesto ? `man ${o.manifesto}` : null].filter(Boolean).join(' · ') || '—';
+    // manifesto pela régua única (a mesma da aba Sem ordem): pelo CTe (exata) ou pela placa (reserva)
+    const doc = [o.ctrc_gerado ? `CTe ${o.ctrc_gerado}` : null,
+                 o.manifesto ? `man ${o.manifesto}${o.manifesto_via==='placa' ? ' <span class="dim" title="sem CTe na ordem: ligada pelo cavalo/carreta e pela data (reserva), a mesma régua da aba Sem ordem">· pela placa</span>' : ''}` : null
+                ].filter(Boolean).join(' · ') || '—';
+    // ordem aberta do mesmo cavalo que perdeu o manifesto para outra ordem: provável duplicidade
+    const dup = o.duplicada_de ? ` <span class="badge e-semveic" title="o manifesto deste cavalo ficou com a ${o.duplicada_de}; esta ordem provavelmente está em duplicidade e pode ser cancelada no SSW">duplicada? ${o.duplicada_de}</span>` : '';
     const carga = o.carga_numero ? `<a class="lig" href="/embarques/cargas/${o.carga_id}/mapa" target="_blank" title="ligada pela ${o.carga_via==='cte'?'chave do CTe (exata)':'placa do conjunto + data (reserva)'}">${o.carga_numero}</a> <span class="dim">${o.carga_status||''}${o.carga_via==='placa'?' · por placa':''}</span>` : '—';
     tb.innerHTML += `<tr>
       <td class="mono">${o.coleta_origem}</td>
-      <td><span class="badge ${CLS[o.estado]||''}">${o.estado}</span></td>
+      <td><span class="badge ${CLS[o.estado]||''}">${o.estado}</span>${dup}</td>
       <td class="mono">${fmt(o.limite_em)}</td>
       <td class="mono ${h?'atraso':''}">${h? (h>=48? Math.round(h/24)+' d' : Math.round(h)+' h') : ''}</td>
       <td>${o.embarcador||'—'}</td>

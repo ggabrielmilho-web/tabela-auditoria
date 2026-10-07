@@ -11,8 +11,11 @@ marca COLETADA (andre/stenio), a CAR nunca marca; em 15/09 havia 89 ordens COMAN
 vencido, inclusive uma que já era manifesto do dia anterior. O que fecha uma ordem é o documento:
 
     cancelada              cancelada_em preenchido
-    carga (C-xxx)          existe carga do robô com coleta_origem = esta ordem
-    documento emitido      ctrc_gerado preenchido (CTe existe; a carga nasce no diário seguinte)
+    carga (C-xxx)          existe carga do robô para o manifesto desta ordem
+    documento emitido      ctrc_gerado preenchido, OU um manifesto ligado a ela pela régua única
+                           (`manifestos_sem_ordem.ligar`: pelo CTe ou pela placa, uma ordem por
+                           manifesto). Até 07/10/26 só o CTe contava, e a ordem de Terceiro ligada
+                           pela placa ficava "vencida sem documento" para sempre
     aguardando manifesto   COMANDADA com veículo, limite ainda não venceu
     vencida sem documento  COMANDADA/CADASTRADA, limite venceu, nada emitido
     sem veículo            CADASTRADA / PRE-CADAST (ainda sem conjunto)
@@ -65,6 +68,10 @@ ALTER TABLE embarques_programacao ADD COLUMN IF NOT EXISTS tipo_frota VARCHAR(10
 -- ordem ("AGENDA 02/10"). `agendamento` é a data lida dali; `obs` guarda o texto para conferência.
 ALTER TABLE embarques_programacao ADD COLUMN IF NOT EXISTS agendamento DATE;
 ALTER TABLE embarques_programacao ADD COLUMN IF NOT EXISTS obs VARCHAR(300);
+-- Régua única (07/10/26): por onde o manifesto foi ligado ('cte'|'placa') e, na ordem que ficou
+-- sem manifesto, a ordem do mesmo cavalo que o levou (provável ordem em duplicidade).
+ALTER TABLE embarques_programacao ADD COLUMN IF NOT EXISTS manifesto_via VARCHAR(10);
+ALTER TABLE embarques_programacao ADD COLUMN IF NOT EXISTS duplicada_de VARCHAR(20);
 CREATE INDEX IF NOT EXISTS ix_prog_limite ON embarques_programacao (limite_em);
 CREATE INDEX IF NOT EXISTS ix_prog_estado ON embarques_programacao (estado);
 """
@@ -126,7 +133,7 @@ def derivar_estado(r, agora):
         return 'cancelada'
     if r.get('carga_id'):
         return 'carga'
-    if r.get('ctrc_gerado'):
+    if r.get('ctrc_gerado') or r.get('manifesto'):
         return 'documento emitido'
     sit = str(r.get('situacao_ssw') or '')
     lim = r.get('limite_em')
@@ -176,10 +183,13 @@ def _eh_rigido(placa, cadastro):
     return bool(v) and _tipo_cavalo(v) == 'Truck'
 
 
-def atualizar(conn, dados, cadastro=None):
-    """`dados` = dict da fita (coleta + cte + manifesto). Upsert por ordem; liga manifesto (via CTe)
-    e carga (via embarques_cargas.coleta_origem); marca `sumiu_em` na ordem que saiu do relatório.
-    `cadastro` = `embarques_auto.carregar_cadastro(token)`; sem ele o `tipo_frota` fica em branco."""
+def atualizar(conn, dados, cadastro=None, ligacoes=None):
+    """`dados` = dict da fita (coleta + cte + manifesto). Upsert por ordem; liga manifesto e carga;
+    marca `sumiu_em` na ordem que saiu do relatório.
+    `cadastro` = `embarques_auto.carregar_cadastro(token)`; sem ele o `tipo_frota` fica em branco.
+    `ligacoes` = `manifestos_sem_ordem.ligacoes(token)`, a régua única (a mesma da aba Sem ordem).
+    Sem ela (BI fora nesta rodada) a ligação cai no CTe da própria ordem e a ligação pela placa
+    que a rodada anterior já sabia é PRESERVADA — uma rodada ruim não desfaz o que a boa achou."""
     import placas as pl
     from _locais import cnpj14
     from embarques_auto import _norm
@@ -205,18 +215,38 @@ def atualizar(conn, dados, cadastro=None):
     cur.execute("SELECT manifesto_origem, id, numero, status FROM embarques_cargas WHERE manifesto_origem IS NOT NULL AND COALESCE(viagem_vazia, FALSE) = FALSE")
     por_man = {_norm(r[0]): r[1:] for r in cur.fetchall()}
     agora = agora_brt()                 # o limite é hora de Brasília — ver BRT no topo
+    anterior = {}
+    if ligacoes is None:
+        cur.execute("SELECT coleta_origem, manifesto, manifesto_via, duplicada_de FROM embarques_programacao")
+        anterior = {r[0]: r[1:] for r in cur.fetchall()}
     vistas = set()
     n = 0
     for r in dados.get('coleta', {}).values():
         k = f"{r.get('unidade')}-{r.get('numero')}"[:20]
         vistas.add(k)
         ctrc = _s(r.get('ctrc_gerado'), 20)
-        cg = cargas.get(k)
-        # manifesto: pelo CTe da coleta; sem CTe, o da carga ligada (ligacao por placa)
-        man = _norm(cte[ctrc].get('primeiro_manifesto')) if ctrc and ctrc in cte else (cg[4] if cg and cg[4] else None)
-        if not cg and man and man in por_man:
-            cid_, num_, st_ = por_man[man]
-            cg = (cid_, num_, st_, 'manifesto', man)
+        dup = None
+        if ligacoes is not None:
+            # régua única: o manifesto desta ordem e, por ele, a carga do robô
+            man, via = ligacoes['por_ordem'].get(k, (None, None))
+            dup = ligacoes['concorrentes'].get(k, (None,))[0]
+            cg = None
+            if man and man in por_man:
+                cid_, num_, st_ = por_man[man]
+                cg = (cid_, num_, st_, via, man)
+        else:
+            cg = cargas.get(k)
+            # manifesto: pelo CTe da coleta; sem CTe, o da carga ligada (ligacao por placa)
+            man = _norm(cte[ctrc].get('primeiro_manifesto')) if ctrc and ctrc in cte else (cg[4] if cg and cg[4] else None)
+            via = 'cte' if man and ctrc and ctrc in cte else (cg[3] if cg else None)
+            ant = anterior.get(k)
+            if not man and ant and ant[0]:
+                man, via, dup = ant
+            elif ant:
+                dup = ant[2]
+            if not cg and man and man in por_man:
+                cid_, num_, st_ = por_man[man]
+                cg = (cid_, num_, st_, 'manifesto', man)
         row = {
             'coleta_origem': k, 'unidade': _s(r.get('unidade'), 5), 'numero': _s(r.get('numero'), 10), 'tipo': _s(r.get('tipo'), 20),
             'situacao_ssw': _s(r.get('situacao'), 20), 'situacao_em': _dt(r.get('situacao_em')), 'limite_em': _dt(r.get('limite_em')),
@@ -229,7 +259,8 @@ def atualizar(conn, dados, cadastro=None):
             'reme_cnpj': cnpj14(r.get('reme_cnpj')), 'reme_nome': _s(r.get('reme_nome'), 160), 'reme_endereco': _s(r.get('reme_endereco'), 200),
             'reme_cep': _s(r.get('reme_cep'), 9), 'reme_cidade': _s(r.get('reme_cidade'), 80),
             'dest_cnpj': cnpj14(r.get('dest_cnpj')), 'dest_nome': _s(r.get('dest_nome'), 160), 'dest_cidade': _s(r.get('dest_cidade'), 80), 'dest_uf': _s(r.get('dest_uf'), 2),
-            'ctrc_gerado': ctrc, 'manifesto': man,
+            'ctrc_gerado': ctrc, 'manifesto': man, 'manifesto_via': via if man else None,
+            'duplicada_de': dup if not man else None,
             'carga_id': cg[0] if cg else None, 'carga_numero': cg[1] if cg else None, 'carga_status': cg[2] if cg else None,
             'carga_via': cg[3] if cg else None,
             'embarcador': _s(r.get('comandada_por') or r.get('cadastrada_por'), 40),

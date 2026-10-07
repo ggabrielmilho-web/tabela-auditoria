@@ -7,7 +7,9 @@ e a carga não tinha:
 
     coleta_origem     unidade-numero da ordem de coleta (chave do 157)
     coleta_via        como se achou: 'cte' (ctrc_gerado → primeiro_manifesto, exata) ou 'placa'
-                      (cavalo + janela de data, reserva — 10 discordâncias em 142 na §25.6)
+                      (cavalo + janela de data, reserva — 10 discordâncias em 142 na §25.6).
+                      Desde 07/10/26 a ligação é a RÉGUA ÚNICA `manifestos_sem_ordem.ligar` (a
+                      mesma das abas Sem ordem e Coletas): uma ordem cobre um manifesto só
     embarcador        quem cadastrou/comandou a coleta (renato · pablo · rafael). NÃO é o
                       `solicitante`, que é o cliente
     origem_cnpj / destino_cnpj       o estabelecimento (14 dígitos) de coleta e de entrega
@@ -128,6 +130,14 @@ def ligar(cur, token, ini, fim):
     n = Counter()
     coletas, por_ctrc, por_man = carregar(token, ini - timedelta(days=15))
     tem_locais = _tem_locais(cur)
+    # a régua única manifesto ↔ ordem; se ela falhar (BI fora), a regra antiga como reserva
+    try:
+        import manifestos_sem_ordem
+        regua = manifestos_sem_ordem.ligacoes(token)['por_manifesto']
+        ordem_por_chave = {manifestos_sem_ordem.chave_ordem(r): r for r in coletas}
+    except Exception as exc:
+        _logger.warning('régua manifesto × ordem indisponível, usando a regra antiga: %s', exc)
+        regua = None
     por_placa = defaultdict(list)
     for r in coletas:
         p = pl.mercosul(str(r.get('veiculo') or '').strip())
@@ -151,12 +161,16 @@ def ligar(cur, token, ini, fim):
         ctes = por_man.get(mn, [])
         # ── a ordem de coleta desta carga
         coleta, via = None, None
-        for r in coletas:
+        if regua is not None:
+            ko, via = regua.get(mn, (None, None))
+            coleta = ordem_por_chave.get(ko) if ko else None
+            via = via if coleta else None
+        for r in (coletas if regua is None else ()):
             c = str(r.get('ctrc_gerado') or '').strip()
             if c and c in por_ctrc and _norm(por_ctrc[c].get('primeiro_manifesto')) == mn:
                 coleta, via = r, 'cte'
                 break
-        if not coleta and cav:
+        if regua is None and not coleta and cav:
             # reserva: cavalo E carreta iguais (o cavalo faz outra coleta no mesmo dia — só o
             # par fecha), dentro da janela de data
             for r in por_placa.get(pl.mercosul(cav), []):

@@ -154,7 +154,7 @@ a imagem antiga (21/08/2026).
 - **Mapa / Rastreamento** (`/embarques/mapa`, `/embarques/cargas/<id>/mapa`) — Mapa em tempo real (Leaflet): posição dos veículos e trajeto de cada carga, rota planejada **origem → cidades de rota → destinos** (completa, multi-ponto), KPIs de viagem **ao vivo** (vel. máx/média, km, tempos) e **Data de saída** no painel da carga. Fluxo de status automático **Aberta → Em rota → No destino → Entregue** (`No destino` = parado na cidade da descarga há +60 min), com desvio **Desengatada** (carreta carregada largada no destino). **Rastreia pela carreta** (carreta1 → cavalo → carreta2 — o GPS costuma estar na carreta). **Reconstrói o trajeto** mesmo em lançamento tardio: detecta a saída da origem pelo GPS (por distância, pois o 3S erra o nome da cidade) e persiste em `inicio_viagem`. Mapa geral tem filtro **🔌 Desengatadas** e marcador próprio. **Salto impossível**: a linha do GPS QUEBRA no trecho que o veículo não pode ter feito (velocidade implícita acima do teto físico, ou odômetro negando o deslocamento) — duas bolinhas âmbar marcam as pontas do buraco, e o km desse trecho sai do `KM PERCORRIDOS`, mas segue medido pelo `KM RASTREADOR` (o odômetro é cumulativo no aparelho e não depende da posição). Régua única em `embarques_regua.py`
 
 - **Ordens de coleta** (`/embarques/ordens`) — cada ordem de coleta do SSW (157) com estado **derivado do documento** (vencida sem documento · aguardando manifesto · sem veículo · documento emitido · carga · cancelada), a carga ligada, a classificação **Frota/Agregado/Terceiro** pela régua do robô (truck sem carreta classificado pelo cadastro TRUCK/TOCO) e a coluna **Entrega agendada**, lida da observação da ordem ("AGENDA 02/10"). Ver Módulo Embarques
-- **Sem ordem** (`/embarques/sem-ordem`, 06/10/2026, pedido do gerente) — manifestos emitidos desde 01/09 **sem ordem de coleta**, Frota, Agregado e Terceiro. Ligação manifesto ↔ ordem pela mesma régua do robô (`embarques_coleta`): pelo CTe (`ctrc_gerado`, exata) ou pela placa (cavalo + carreta, −3 d a +1 d). A 2ª perna de desengate/continuação fica fora (a ordem é da 1ª). Cards por situação, filtros, CSV e a hora do CTRB (o manifesto não tem hora no BI). Só leitura; `manifestos_sem_ordem.py` recalcula quando o BI atualiza (`SEM_ORDEM_DESDE` muda o início)
+- **Sem ordem** (`/embarques/sem-ordem`, 06/10/2026, pedido do gerente) — manifestos emitidos desde 01/09 **sem ordem de coleta**, Frota, Agregado e Terceiro. Ligação manifesto ↔ ordem pela régua única (`manifestos_sem_ordem.ligar`, a mesma da aba Coletas e do robô): pelo CTe (`ctrc_gerado`, exata) ou pela placa (cavalo + carreta, −3 d a +1 d), uma ordem para um manifesto só. A 2ª perna de desengate/continuação fica fora (a ordem é da 1ª). Cards por situação, filtros, CSV e a hora do CTRB (o manifesto não tem hora no BI). Só leitura; `manifestos_sem_ordem.py` recalcula quando o BI atualiza (`SEM_ORDEM_DESDE` muda o início)
 - **Torre de controle** (`/embarques/torre`) — o "agora" da operação num painel só, igual para todos e só leitura: relógios de GPS/documentos/robô, caixas com estoque + fluxo do dia + idade, frota em quatro baldes (trabalhando · livres para carga · precisa olhar · sem sinal), exceções com a regra que disparou, mapa, próximas 12 h, linha do tempo de 36 h e produtividade do dia. **Atraso pela entrega agendada** da ordem de coleta; sem ela, pelos 600 km/dia. Modo **retrato** de um dia anterior. Ver Módulo Embarques
 
 ### Restrito a admins
@@ -912,8 +912,20 @@ refresh do BI. Guarda os instantes que o SSW sobrescreve e a ordem que sai da ja
 do 157 (`sumiu_em`), que é o histórico que o SSW não tem.
 
 **O estado é derivado do documento**, porque a situação do SSW não fecha sozinha (só Uberlândia
-marca COLETADA): cancelada → carga (existe carga do robô ligada) → documento emitido (CTe gerado)
+marca COLETADA): cancelada → carga (existe carga do robô ligada) → documento emitido (CTe gerado,
+ou manifesto ligado pela régua única)
 → aguardando manifesto / vencida sem documento (COMANDADA, pelo limite) → sem veículo.
+
+**Régua única manifesto ↔ ordem (07/10/26).** A aba Coletas, a aba Sem ordem e o robô
+(`embarques_coleta`) ligam pela MESMA função, `manifestos_sem_ordem.ligar`: primeiro pelo CTe
+(exata); depois pela placa (mesmo cavalo, carreta compatível, −3 d a +1 d, ordem não cancelada),
+**uma ordem para um manifesto só** — o CTe reserva primeiro e, entre ordens livres, vence a mais
+próxima da emissão do CTRB. Antes, a aba Coletas só reconhecia o CTe (ordem de Terceiro ligada pela
+placa ficava "vencida sem documento" para sempre — 4 só em 07/10) e a placa reaproveitava ordem já
+usada (46 manifestos de 01/09 a 07/10 "cobertos" por ordem de outro). A ordem aberta do mesmo
+cavalo que perdeu o manifesto para outra ordem sai marcada **"duplicada?"** (`duplicada_de`). A fita
+recebe a régua de `manifestos_sem_ordem.ligacoes` (mesmo cache da aba); se ela falhar numa rodada,
+a ligação cai no CTe e o que a rodada anterior achou pela placa é preservado.
 
 **⚠ Fuso (corrigido em 06/10/26).** Os carimbos do 157 (`limite_em`, `cadastrada_em`, `comandada_em`,
 `coletada_em`…) são **hora de Brasília sem fuso**; `primeira_vez`/`ultima_vez` são `NOW()` do banco (UTC).

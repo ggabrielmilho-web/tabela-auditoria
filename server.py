@@ -1644,6 +1644,10 @@ def api_embarques_ordens():
         cur.execute("SELECT 1 FROM information_schema.columns WHERE table_name='embarques_programacao' "
                     "AND column_name='agendamento'")
         _ag = 'agendamento, obs' if cur.fetchone() else 'NULL::date AS agendamento, NULL::varchar AS obs'
+        # régua única (07/10/26): manifesto_via/duplicada_de — mesma guarda
+        cur.execute("SELECT 1 FROM information_schema.columns WHERE table_name='embarques_programacao' "
+                    "AND column_name='manifesto_via'")
+        _mv = 'manifesto_via, duplicada_de' if cur.fetchone() else 'NULL::varchar AS manifesto_via, NULL::varchar AS duplicada_de'
         brt = lambda c: f"({c} AT TIME ZONE 'America/Sao_Paulo') AS {c}"        # carimbo do SSW
         srv = lambda c: f"({c} AT TIME ZONE current_setting('TimeZone')) AS {c}"  # NOW() do banco
         cur.execute(f"""
@@ -1652,7 +1656,7 @@ def api_embarques_ordens():
                    {brt('coletada_em')}, coletada_por,
                    {brt('cancelada_em')}, solicitante, motorista, cavalo, carreta,
                    reme_nome, reme_endereco, reme_cidade, dest_nome, dest_cidade, dest_uf,
-                   ctrc_gerado, manifesto, carga_id, carga_numero, carga_status, carga_via, embarcador,
+                   ctrc_gerado, manifesto, {_mv}, carga_id, carga_numero, carga_status, carga_via, embarcador,
                    estado_v AS estado, {_tf}, {srv('primeira_vez')}, {srv('ultima_vez')}
               FROM {tab}
              WHERE {' AND '.join(where)}
