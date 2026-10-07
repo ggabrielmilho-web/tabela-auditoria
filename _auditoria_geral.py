@@ -36,6 +36,7 @@ from dotenv import load_dotenv
 load_dotenv('.env')
 import geocoding
 import embarques_regua as regua, placas as pl
+import fontes_gps
 
 # A REGUA E IMPORTADA, nao copiada: aferidor e motor tem de decidir chegada do MESMO jeito.
 # Enquanto cada um tinha a sua, o placar F1 oscilou 13 -> 32 -> 17 -> 38 (secao 20.6).
@@ -96,8 +97,8 @@ def pontos(placa, ini, fim):
     k = (pl.mercosul(placa), ini, fim)
     if k in _cache:
         return _cache[k]
-    cur.execute("""SELECT data_posicao,latitude,longitude,velocidade,odometer
-                     FROM embarques_posicoes_historico
+    cur.execute(f"""SELECT data_posicao,latitude,longitude,velocidade,odometer
+                     FROM {fontes_gps.historico(cur)} h
                     WHERE placa=ANY(%s) AND data_posicao>=%s AND data_posicao<%s
                     ORDER BY data_posicao""",
                 (pl.grafias(str(placa).strip().upper()), ini, fim))
@@ -375,7 +376,15 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
                 # deixam de ser entregas nao provadas, mas deixam de ser encerramentos
                 # inexplicados, que e outra coisa e leva a outra acao.
                 _doc = [n for dt_, n in prox_carreta.get(pl.mercosul(c1 or ''), []) if dt_ > dcarg]
-                if _doc:
+                # SM da Insignia encerrada no destino com a placa muda (06/10/26): o FIM DE
+                # VIAGEM é o motorista encerrando a viagem lá — lastro documental, como o
+                # manifesto novo, e também não é entrega provada.
+                if motivo == 'sm_encerrada':
+                    add(num, 'F1d', 'media',
+                        f'ENTREGA NAO PROVADA (encerramento tem lastro): a GR encerrou a SM '
+                        f'no destino e a placa ficou muda; aproximacao maxima do GPS {mind:.0f} km',
+                        f'motivo=sm_encerrada · destino={dcid}')
+                elif _doc:
                     add(num, 'F1d', 'media',
                         f'ENTREGA NAO PROVADA (encerramento tem lastro): aproximacao maxima '
                         f'do destino {mind:.0f} km, mas a carreta saiu em manifesto novo',
@@ -408,7 +417,10 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
                     # definicao. A carreta chega ao ponto de recarga e ESPERA — a V-2026-000017
                     # esperou 23 dias — e isso nao e recorte errado, e o significado do campo.
                     # Medir perna com regua de carga fabricou 7 achados de uma vez em 09/09/26.
-                    if not vazia:
+                    # ...nem na SM da Insignia encerrada com a placa muda (06/10/26): ali a conclusao
+                    # e o FIM DE VIAGEM declarado, porque o ponto 24 h depois nunca vem — mesma
+                    # regua do motor (`fontes_gps.encerramento_sm`), senao as duas brigam (§20.6).
+                    if not vazia and motivo != 'sm_encerrada':
                         add(num, 'F3', 'media',
                             f'RECORTE ERRADO: fechou {str(conc)[:16]}, {erro:.0f} h longe do '
                             f'instante com lastro ({ref})', f'chegada={str(cheg)[:16]}')

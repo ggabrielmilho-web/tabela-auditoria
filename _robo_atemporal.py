@@ -46,6 +46,7 @@ import psycopg2
 from dotenv import load_dotenv
 load_dotenv('.env')
 import geocoding, placas as pl
+import fontes_gps
 import embarques_regua as regua
 from embarques_regua import (perto_com_parada, RAIO_CHEGADA, RAIO_METRO,
                              RAIO_ORIGEM, RAIO_SAIDA_DESTINO, PARADA_MIN_H, PARADO_KMH,
@@ -122,8 +123,8 @@ for k in prox:
 def serie(placa, ini, fim):
     if not placa:
         return []
-    cur.execute("""SELECT data_posicao,latitude,longitude,velocidade,odometer
-                     FROM embarques_posicoes_historico
+    cur.execute(f"""SELECT data_posicao,latitude,longitude,velocidade,odometer
+                     FROM {fontes_gps.historico(cur)} h
                     WHERE placa=ANY(%s) AND data_posicao>=%s AND data_posicao<%s
                     ORDER BY data_posicao""",
                 (pl.grafias(str(placa).strip().upper()), ini, fim))
@@ -198,6 +199,18 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
         resumo['cega — sem posicao, nada a decidir'] += 1
         continue
 
+    _n_pts_orig = len(pts)   # o emprestimo do cavalo compara contra a serie ORIGINAL da carreta
+    # ── CARRETA CONGELADA NA 3S (LAB 07/10/26) — atras de EMBARQUES_CARRETA_CONGELADA.
+    # Repeticao de posicao com odometro parado ENQUANTO a SM da Insignia diz que o cavalo
+    # engatado estava longe: o trecho repetido nao e evidencia, e o cavalo tapa. Ver
+    # fontes_gps.descongelar (C-1363, C-1276).
+    if sensor and sensor.startswith('carreta') and cav and fontes_gps.congelada_ligado():
+        _pts2, _ntir, _npos = fontes_gps.descongelar(cur, sensor.split(':', 1)[1], cav, pts,
+                                                     serie(cav, ini, fim), dcarg)
+        if _ntir:
+            pts = _pts2
+            resumo['carreta congelada: trechos trocados pelo cavalo da SM'] += 1
+
     # As listas carregam a VELOCIDADE junto desde 09/09/26: sem ela o raio estrito nao
     # consegue separar "chegou e parou" de "cruzou a borda do anel a 80 km/h".
     # O LADO DA PERNA (EMBARQUES_RAIO_PERNA) vive em `_pontas`: em perna curta, ponto mais
@@ -232,7 +245,7 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
     _pcav, _cav_vale = None, False
     if SENSOR_CAVALO and sensor and sensor.startswith('carreta') and cav and ola is not None:
         _pcav = serie(cav, ini, fim)
-        if _pcav and len(_pcav) > SENSOR_CAVALO_FATOR * max(1, len(pts)):
+        if _pcav and len(_pcav) > SENSOR_CAVALO_FATOR * max(1, _n_pts_orig):
             _dorg_cav, _, _ = _pontas(_pcav, ola, oln, dla, dln)
             _cav_vale = bool(_dorg_cav) and min(k for _, k, _v in _dorg_cav) <= RAIO_ORIGEM
             if _cav_vale:
@@ -384,7 +397,42 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
     n_conc, n_motivo = None, None
     if n_cheg:
         depois = [(d, k) for d, k, v in d_dst_validos if d > n_cheg]
-        saiu_dst = next((d for d, k in depois if k > RAIO_SAIDA_DESTINO), None)
+        # ── SAIDA DO DESTINO COERENTE (LAB 07/10/26) — atras de EMBARQUES_SAIDA_DESTINO_COERENTE.
+        # A chegada pode vir do CAVALO (emprestada/antecipada) enquanto `depois` e a serie da
+        # CARRETA. Se a carreta nunca esteve no destino (aparelho congelado a 549 km, C-1276),
+        # o 1o ponto dela "fora do raio" vira "saiu do destino" 2 min depois de chegar.
+        # Duas guardas: (1) chegada provada pelo cavalo -> a saida tambem e medida no cavalo;
+        # (2) so sai do destino quem ESTEVE nele: a serie precisa ter ponto no raio de saida
+        # depois da chegada e antes do ponto de saida.
+        if os.getenv('EMBARQUES_SAIDA_DESTINO_COERENTE', 'false').lower() in ('1', 'true', 'sim'):
+            if como_cheg and '+cavalo' in como_cheg and cav:
+                _pc = _pcav if _pcav is not None else serie(cav, ini, fim)
+                _, _dcv, _ = _pontas(_pc, ola, oln, dla, dln) if _pc else (None, [], None)
+                _dep = [(d, k) for d, k, v in _dcv if d > n_cheg and (teto is None or d <= teto)]
+                if _dep:
+                    depois = _dep
+                    resumo['saida do destino medida no cavalo (chegada era dele)'] += 1
+            # o "la" e onde ELE parou: chegada de metropole a 41 km tem de sair de 41 km, nao de
+            # 30 — senao o proximo ponto, parado no mesmo lugar, ja conta como saida (C-1166,
+            # C-1183, C-1190, C-1209, C-1258: conclusao 1 min depois da chegada).
+            _kc = min((k for d, k, v in d_dst_validos if d >= n_cheg), default=None)
+            _raio_s = max(RAIO_SAIDA_DESTINO, (_kc + 10.0) if _kc is not None and _kc != float('inf') else 0)
+            if _raio_s > RAIO_SAIDA_DESTINO:
+                resumo['saida do destino: raio relativo a parada de metropole'] += 1
+            _esteve = False
+            _dep2 = []
+            for d, k in depois:
+                if k <= _raio_s:
+                    _esteve = True
+                elif not _esteve:
+                    continue
+                _dep2.append((d, k))
+            if len(_dep2) != len(depois):
+                resumo['saida do destino: pontos de quem nunca esteve la ignorados'] += 1
+            depois = _dep2
+        else:
+            _raio_s = RAIO_SAIDA_DESTINO
+        saiu_dst = next((d for d, k in depois if k > _raio_s), None)
         ultima = depois[-1][0] if depois else n_cheg
         # §4.3: "sai do destino OU fica 24 h nele" — o que vier PRIMEIRO. Ate 17/09/26 a saida
         # vencia sempre: carreta que descarregou e ficou 5 dias estacionada no patio (ou no
@@ -395,6 +443,26 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
             n_conc, n_motivo = saiu_dst, 'gps_saiu_do_destino'
         elif (ultima - n_cheg).total_seconds()/3600 >= DWELL_H:
             n_conc, n_motivo = n_cheg + timedelta(hours=DWELL_H), 'gps_dwell_destino'
+
+    # ── SM DA INSIGNIA ENCERRADA E A PLACA MUDOU (06/10/26) — atrás de EMBARQUES_SM_ENCERRAMENTO.
+    # As duas regras acima precisam VER um ponto depois da chegada. Carga rastreada pela
+    # Insignia (o sensor é o cavalo, que a 3S não vê) perde o sinal quando a GR encerra a SM
+    # no destino, e a carga ficava em `No destino` (ou `Aberta`) para sempre — 3 de 7 terceiros
+    # no lab. Decisão do Gabriel: placa MUDA depois do encerramento conclui no FIM DE VIAGEM;
+    # placa que continua posicionando segue a regra de hoje. A macro de chegada no destino
+    # também vale como chegada quando o GPS não a marcou. Motivo próprio, `entregue_auto` FALSE:
+    # é fim de viagem declarado, não entrega provada.
+    # Perna vazia fica fora: ela não tem evento próprio (a janela é da rederivação) e a SM é
+    # sempre da viagem CARREGADA — no lab a regra pegou a V-2026-000299 pela SM da C-1305.
+    if not n_conc and not vazia and sensor and sensor.startswith('cavalo') and fontes_gps.encerramento_ligado():
+        _enc = fontes_gps.encerramento_sm(cur, cav, dcarg, HOJE,
+                                          dest=(dla, dln) if dla is not None else None)
+        if _enc and (n_cheg or _enc['chegada']) and _enc['conclusao']:
+            if not n_cheg:
+                n_cheg, como_cheg = _enc['chegada'], 'macro_insignia'
+                resumo['chegada declarada pela macro (Insignia)'] += 1
+            n_conc, n_motivo = max(_enc['conclusao'], n_cheg), 'sm_encerrada'
+            resumo['concluida: SM encerrada e placa muda'] += 1
 
     # ── manifesto novo da MESMA CARRETA encerra a anterior
     #
@@ -516,8 +584,28 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
         # A discordancia nao some — ela vira achado do aferidor (F3), que e onde deve estar.
         _dia = n_motivo in ('manifesto_novo_sem_gps', 'manifesto_novo_carreta')
         _tem_hora = dconc.time() != _time()
-        if erro_h > 24 and not (_dia and _tem_hora):     # recorte errado: corrige o instante
+        # CONCLUSAO TRAVADA NA CHEGADA (LAB 07/10/26) — atras de EMBARQUES_CONCLUSAO_TRAVADA.
+        # A coerencia trava a conclusao na chegada quando a chegada anda para frente e ainda nao
+        # ha conclusao derivada; depois, a de 24 h no destino difere EXATAMENTE 24 h e a guarda
+        # acima (> 24) nunca a reescreve. Conclusao a menos de 1 h da chegada e a assinatura;
+        # medido no lab de 07/10: 43 de 45 eram prematuras (o veiculo ficou 3 a 48 h no destino).
+        _travada = (os.getenv('EMBARQUES_CONCLUSAO_TRAVADA', 'false').lower() in ('1', 'true', 'sim')
+                    and nolocal is not None and dconc is not None and not _dia
+                    and timedelta(0) <= dconc - nolocal < timedelta(hours=1)
+                    and n_conc - dconc > timedelta(hours=1))
+        if _travada:
             campos['data_conclusao'] = n_conc
+            resumo['conclusao travada na chegada: reescrita'] += 1
+        elif erro_h > 24 and not (_dia and _tem_hora):     # recorte errado: corrige o instante
+            campos['data_conclusao'] = n_conc
+        elif erro_h > 1 and os.getenv('EMBARQUES_LAB_MEDIR_CONCLUSAO', 'false').lower() in ('1', 'true', 'sim'):
+            # so medicao (LAB 07/10/26): a regua deriva outra conclusao, mas a guarda de 24 h nao reescreve
+            resumo['conclusao derivada difere 1-24 h da gravada (NAO reescrita)'] += 1
+            detalhe.append({'carga': num, 'status_antes': status, 'status_depois': status, 'sensor': sensor,
+                            'chegada': str(n_cheg)[:16] if n_cheg else '', 'como': como_cheg or '',
+                            'saida': str(n_saida)[:16] if n_saida else '',
+                            'conclusao': f'{str(n_conc)[:16]} (gravada {str(dconc)[:16]})',
+                            'motivo': (n_motivo or '') + ' [so medicao]', 'campos': ''})
 
     # ── COERENCIA TEMPORAL: saida <= chegada <= conclusao. Nao e refinamento, e o que
     # impede a tela de montar janela negativa — o trajeto de carga entregue vai ate a

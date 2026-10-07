@@ -311,8 +311,9 @@ def detectar_inicio_viagem(placa, origem_cidade, origem_uf, data_carregamento, c
     # na grafia antiga) e `placa` pode chegar em Mercosul — sem isso a saída da
     # origem nunca era detectada e a carga ficava presa em 'Aberta'.
     import placas as _placas
+    import fontes_gps
     cur.execute(
-        f"""SELECT data_posicao FROM embarques_posicoes_historico
+        f"""SELECT data_posicao FROM {fontes_gps.historico(cur)} h
             WHERE placa = ANY(%s) AND data_posicao BETWEEN %s AND %s AND ({' OR '.join(cond)})
             ORDER BY data_posicao DESC LIMIT 1""",
         [_placas.grafias(placa), bound, agora] + params

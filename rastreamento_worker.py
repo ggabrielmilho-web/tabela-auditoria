@@ -25,6 +25,7 @@ from dotenv import load_dotenv
 import tres_s_client
 import geocoding
 import placas
+import fontes_gps
 
 load_dotenv()
 
@@ -105,11 +106,11 @@ def _placa_tracking(cavalo_placa, carreta1_placa, carreta2_placa, cur, apenas_ca
         # Devolver a grafia DA 3S (e não a da carga) é o que faz o resto do
         # worker funcionar sem alteração: posições, KPIs e detecção buscam em
         # embarques_posicoes_*, que também está na grafia da 3S.
-        cur.execute("SELECT placa FROM embarques_veiculos_rastreio WHERE placa = ANY(%s)",
-                    (placas.grafias(p),))
-        r = cur.fetchone()
+        # Fontes (06/10/26): a 3S primeiro, a Insignia para placa que a 3S não rastreia (com
+        # a chave EMBARQUES_FONTE_INSIGNIA) — `fontes_gps`. Desligada, é a consulta de antes.
+        r = fontes_gps.placa_rastreada(cur, p)
         if r:
-            return r[0]
+            return r
     return None
 
 
@@ -122,9 +123,9 @@ def _pos_fresca(cur, placa):
         return None
     # ANY(grafias): a posição está na grafia da 3S e `p` vem da carga, que pode
     # estar em Mercosul (ver _placa_tracking).
-    cur.execute("""
+    cur.execute(f"""
         SELECT latitude, longitude, cidade, uf, data_posicao, velocidade
-        FROM embarques_posicoes_atuais
+        FROM {fontes_gps.atuais(cur)} pa
         WHERE placa = ANY(%s) AND data_posicao >= (NOW() AT TIME ZONE 'UTC') - %s::interval
         ORDER BY data_posicao DESC LIMIT 1
     """, (placas.grafias(p), f'{FRESCOR_H} hours'))
@@ -144,8 +145,8 @@ def _esteve_no_destino(cur, placa, centroide_dest, raio_km, desde):
     # Bounding-box generosa (graus) p/ limitar a varredura; refina com km_entre.
     m_lat = raio_km / 111.0
     m_lng = raio_km / 90.0   # folga p/ cos(lat) no Brasil (~0.9–0.96)
-    cur.execute("""
-        SELECT latitude, longitude FROM embarques_posicoes_historico
+    cur.execute(f"""
+        SELECT latitude, longitude FROM {fontes_gps.historico(cur)} h
         WHERE placa = ANY(%s) AND data_posicao >= %s
           AND latitude BETWEEN %s AND %s AND longitude BETWEEN %s AND %s
     """, (placas.grafias(p), desde, dlat - m_lat, dlat + m_lat, dlng - m_lng, dlng + m_lng))
@@ -275,14 +276,17 @@ def _persistir_posicoes(cur, posicoes_raw):
 
 def _n_ciclos_fora_cidade(cur, placa, cidade_referencia, n):
     """True se as últimas N posições da placa estão FORA da cidade de referência."""
-    cur.execute("""
-        SELECT cidade FROM embarques_posicoes_historico
+    cur.execute(f"""
+        SELECT cidade FROM {fontes_gps.historico(cur)} h
         WHERE placa = ANY(%s)
         ORDER BY data_posicao DESC
         LIMIT %s
     """, (placas.grafias(placa), n))
     rows = cur.fetchall()
     if len(rows) < n:
+        return False
+    # sem nome (a Insignia não manda cidade) não é "fora da cidade": não saber não é ter saído
+    if any(r[0] is None for r in rows):
         return False
     cidade_norm = geocoding.normalizar_cidade(cidade_referencia)
     return all(geocoding.normalizar_cidade(r[0]) != cidade_norm for r in rows)
@@ -291,8 +295,8 @@ def _n_ciclos_fora_cidade(cur, placa, cidade_referencia, n):
 def _n_ciclos_fora_raio(cur, placa, centroide, raio_km, n):
     """True se as últimas N posições da placa estão a > raio_km do centroide.
     Confirmação por DISTÂNCIA (não por nome, que o 3S erra)."""
-    cur.execute("""
-        SELECT latitude, longitude FROM embarques_posicoes_historico
+    cur.execute(f"""
+        SELECT latitude, longitude FROM {fontes_gps.historico(cur)} h
         WHERE placa = ANY(%s) ORDER BY data_posicao DESC LIMIT %s
     """, (placas.grafias(placa), n))
     rows = cur.fetchall()
@@ -328,7 +332,7 @@ def _saiu_da_cidade(cur, placa, pos_cidade, cidade_ref, uf_ref, centroide_ref, r
         if geocoding.normalizar_cidade(pos_cidade) == geocoding.normalizar_cidade(cidade_ref):
             return False
         return _n_ciclos_fora_cidade(cur, placa, cidade_ref, CICLOS_CONFIRMACAO)
-    cur.execute("SELECT latitude, longitude FROM embarques_posicoes_atuais "
+    cur.execute(f"SELECT latitude, longitude FROM {fontes_gps.atuais(cur)} pa "
                 "WHERE placa = ANY(%s) ORDER BY data_posicao DESC LIMIT 1",
                 (placas.grafias(placa),))
     r = cur.fetchone()
@@ -337,7 +341,9 @@ def _saiu_da_cidade(cur, placa, pos_cidade, cidade_ref, uf_ref, centroide_ref, r
     d = geocoding.km_entre(float(r[0]), float(r[1]), centroide_ref[0], centroide_ref[1])
     if d is None:
         return False
-    nome_mudou = geocoding.normalizar_cidade(pos_cidade) != geocoding.normalizar_cidade(cidade_ref)
+    # sem nome (a Insignia não manda cidade): nome desconhecido não é nome que mudou — senão
+    # o raio de saída cairia de 30 para RAIO_CONFIRMACAO_KM só por faltar o rótulo
+    nome_mudou = pos_cidade is not None and         geocoding.normalizar_cidade(pos_cidade) != geocoding.normalizar_cidade(cidade_ref)
     saiu = (nome_mudou and d > RAIO_CONFIRMACAO_KM) or (d > raio_saida_km)
     if not saiu:
         return False
@@ -444,9 +450,9 @@ def _consolidar_kpi(cur, carga_id, final=False):
     fim = no_local_desde or data_conclusao or datetime.utcnow()
 
     def _pontos(p):
-        cur.execute("""
+        cur.execute(f"""
             SELECT latitude, longitude, velocidade, data_posicao
-            FROM embarques_posicoes_historico
+            FROM {fontes_gps.historico(cur)} h
             WHERE placa = ANY(%s) AND data_posicao BETWEEN %s AND %s
             ORDER BY data_posicao
         """, (placas.grafias(p), inicio, fim))
@@ -602,9 +608,9 @@ def _processar_cargas(cur):
             cur.execute("UPDATE embarques_cargas SET inicio_viagem=%s WHERE id=%s", (iv, carga_id))
             inicio_viagem = iv
 
-        cur.execute("""
+        cur.execute(f"""
             SELECT latitude, longitude, cidade, uf, data_posicao, velocidade
-            FROM embarques_posicoes_atuais WHERE placa = ANY(%s)
+            FROM {fontes_gps.atuais(cur)} pa WHERE placa = ANY(%s)
             ORDER BY data_posicao DESC LIMIT 1
         """, (placas.grafias(placa),))
         r = cur.fetchone()

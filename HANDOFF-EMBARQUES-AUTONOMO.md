@@ -1,6 +1,12 @@
 # Handoff — Painel de Embarques autônomo
 
-**Estado em 25/09/2026 — ⚠ COMECE PELA §27.18** (perna curta: o lado da perna na decisão de chegada, atrás de `EMBARQUES_RAIO_PERNA`; e o registro do `2df2d86` de 23/09).
+**07/10/2026 — leia antes a §29:** o worker, o motor e o aferidor ganharam (no working tree, sem commit, atrás
+de chave) a Insignia como 2ª fonte de GPS — a régua de §24.5 vale para subir. O detalhe mora no
+`HANDOFF-INSIGNIA.md` §14. E a âncora de destino da §28.13 tem candidata melhor: o cadastro de locais da GR.
+
+**Estado em 02/10/2026 — ⚠ COMECE PELA §28.13 (ONDE PARAMOS)**, depois §28.12 e §28.5. Laboratório completo da régua por âncora do cliente (chegou no cliente / saiu do cliente / saiu do carregamento), com defesas contra o GPS congelado e replay ao vivo — **nada em produção ainda**; próximo passo = proposta de implantação (campos separados, chave `EMBARQUES_ANCORA`) para o Gabriel revisar. Em produção só entrou DADO: retroativo dos CNPJs e do cadastro `locais` (30/09, snapshot `snap_20260930_1252`).
+
+**Antes disso — 25/09/2026, §27.18** (perna curta: o lado da perna na decisão de chegada, atrás de `EMBARQUES_RAIO_PERNA`; e o registro do `2df2d86` de 23/09).
 
 **Antes disso — 20/09/2026, §27.12.** O diário passou a rodar **após cada refresh
 do BI** e com **defasagem 0** (a carga nasce no dia do carregamento) — no ar desde 20/09, com
@@ -5182,8 +5188,355 @@ consolidação diária e o corte de veículo inativo do backfill da 3S — subir
 histórico inteiro todo dia e gastaria cota com placa morta. Teste no lab: chave ausente apaga 0;
 `true` apaga 36.312 (o comportamento antigo).
 
-**Retroativo dos CNPJs (medido no lab, NÃO aplicado):** `embarques_coleta.ligar` com janela
+**Retroativo dos CNPJs (medido no lab; APLICADO em produção em 30/09, §28.3):** `embarques_coleta.ligar` com janela
 19/08 → hoje leva a cobertura de 107 para 308 cargas com `destino_cnpj` e de 44% para 66% das
 cargas com âncora possível (CNPJs com 2+ chegadas provadas: 12/48 → 42/112). Das 246 chegadas
 provadas com CNPJ, 218 ainda tinham GPS no dump de 23/09. Comando com dry-run/`APLICAR=1` na
 conversa de 25/09; próximo passo proposto: gravar o ponto de parada (lat/lng) junto da chegada.
+
+## 28. Endereço como âncora — medido de novo, e o retroativo APLICADO em produção (30/09/2026)
+
+**Ponto de partida (tela do Gabriel):** `C-2026-001221`, Uberlândia → Uberlândia, "Documento sem
+saída" há 37 h. O documento está certo (manifesto UDI → FEC, CTRB 027527 desde a 1ª rodada, 15,4 t):
+é **entrega local**. A carreta HOA0J28 dormiu no pátio (9,2 km do cliente) e foi à Mart Minas
+(Rua Cleone Cairo Gomes, 777) às 07 h de 29/09 e de 30/09 — **0,27–0,33 km** do ponto do Maps.
+Com origem = destino não existe "saída" (a cidade inteira cabe nos 30 km, e o `lado` da §27.18
+empata). Só 2 cargas assim em 2 meses. O achado maior veio junto: a `C-2026-001015`
+(Extrema → Uberlândia, mesmo cliente) está `Entregue` com chegada **estrita a 9,1 km do cliente —
+no pátio da Rizza**.
+
+### 28.1 A §27.13 mediu a coisa errada, duas vezes
+
+1. `_pontos_provados_local.py` tem `--perfil perigoso` por default: o teste de 21/09 só olhou
+   rodovia/KM, sem número e CEP `-000`. **Endereço urbano normal nunca tinha sido medido.**
+2. A "parada provada" era a parada MAIS LONGA num raio de 60 km do centroide — em cidade com
+   pátio, é o caminhão dormindo no pátio. A régua media o pátio, não o cliente.
+
+`_medir_endereco.py` (novo, só leitura + Geocoding com cache) pergunta direto: **algum caminhão de
+uma carga para este CNPJ ficou parado ≥ 10 min a ≤ 0,5 km do ponto do Maps?** Só julga a ponta que
+já aconteceu (destino só em `Entregue`/`No destino`/`Desengatada`; origem só com saída).
+Guarda de cidade: município do Maps = do cadastro — que **corta a cidade em 17 caracteres**
+("APARECIDA DE GOIA"), então cortado vale o prefixo.
+
+### 28.2 O resultado (lab `rizza_lab_0930`, depois dos dois retroativos)
+
+| destino, endereço "bom" (número, não rodovia, CEP ≠ -000), carga entregue | n |
+|---|---|
+| julgadas | 195 |
+| parou ≤ 0,5 km do Maps | 106 (54%) |
+| ≤ 2 km | 134 (69%) |
+
+Por CNPJ (80): **52 Maps certo em todas** (95 pontas) · 6 certo com exceções = transbordo/pátio (47)
+· **5 erro CONSISTENTE** — sede ≠ doca, ex. STO Atacadista Brasília 6 cargas todas a 3,7 km — que o
+aprendizado pelo GPS corrige (18) · 7 espalhado (25) · 10 com uma carga só. **~82% das pontas com
+endereço bom têm âncora utilizável.** Endereço bom = 444 das 830 pontas de carga com CNPJ.
+
+**Origem NÃO serve:** 52/175 ≤ 0,5 km. O `origem_cnpj` vem de `coleta.reme_cnpj` = remetente fiscal.
+
+**As chegadas de hoje:** nas cargas de CNPJ confirmado, só **48%** foram registradas no cliente;
+33% a mais de 2 km (pátio, fila de agendamento; Casas Guanabara a 37 km).
+
+### 28.3 Retroativo APLICADO em produção (30/09, ~12:55)
+
+Snapshot antes: **`snap_20260930_1252`**. Dois passos, os dois batendo 1:1 com o lab:
+
+| passo | o quê | resultado |
+|---|---|---|
+| cadastro | `_locais.atualizar` com os CTes desde 01/08 (3.837) + 404 coletas — só acrescenta texto | `locais` 575 → **1.150** (1.135 com rua) |
+| vínculo | `embarques_coleta.ligar(cur, tok, 19/08, hoje)`, dry-run `APLICAR=0` e depois `APLICAR=1` | destino_cnpj 181 → **382** · origem 225 → **455** · coleta 197 → **291** |
+
+Log conferido: só `origem_cnpj` 230 · `destino_cnpj` 201 · `coleta_origem` 94 · `embarcador` 94.
+Nenhuma régua lê essas colunas (§21.4) — nada de status/data/rota mudou.
+
+### 28.4 Desenho acordado (nada escrito)
+
+- **Google só dá lat/lng**; rota continua no ORS. Guardar `place_id` (termos: coordenada só 30 dias).
+- **Só destino**, endereço bom, guarda de cidade, raio **2 km**; aprendizado: 2 descargas provadas no
+  mesmo ponto substituem o Maps; sem âncora = centroide como hoje. Atrás de chave, lab antes.
+- Resolve a viagem local (C-1221) e a chegada no pátio (C-1015) com a mesma peça.
+- Enquanto isso: rótulo "viagem local" na torre no lugar do "Documento sem saída" (só tela) — proposto,
+  sem ok ainda.
+- Cache de estudo em `_estudo_2026-09-30/geocode_cache.json` — não commitar. **Decisão do Gabriel (07/10/26): NÃO apagar — as coordenadas do Google vão ser guardadas no nosso banco.** Aviso registrado: os termos da Google Maps Platform só permitem cache de lat/lng por 30 dias (o `place_id` pode ficar para sempre); guardar a coordenada descumpre o contrato e arrisca suspensão da chave (a mesma do `preencher_km_google.py`). Alternativa oferecida e não adotada até aqui: guardar para sempre só o ponto CONFIRMADO pelo nosso GPS e o local da GR, com o Google como palpite inicial + `place_id`. Não commitar o arquivo de cache (dado de cliente).
+
+### 28.5 Cobertura com TODAS as fontes — `_medir_cobertura_ancora.py` (30/09/2026)
+
+Cada carga do robô (desde 19/08) recebe a âncora de destino pela 1ª camada disponível, usando SÓ
+descargas de cargas concluídas ANTES do carregamento dela; julga se o caminhão parou ≥ 10 min no
+ponto. Aprendizado = ≥ 2 cargas anteriores paradas a ≤ 1 km entre si, a ≤ 60 km do destino, fora de
+pátio/posto (célula onde ≥ 5 carretas dormem em ≥ 10 noites, salvo se for endereço de cliente — 4
+células excluídas).
+
+| camada (todas, 535) | cobre | acum. | ≤ 0,5 km | ≤ 2 km |
+|---|---|---|---|---|
+| T1 aprendido CNPJ | 20% | 20% | 90% | 94% |
+| T2 Maps endereço bom | 32% | 52% | 47% | 64% |
+| T3 aprendido cliente+cidade (Martins) | 13% | 65% | 79% | 79% |
+| T4 Maps endereço ruim | 13% | 78% | 33% | 54% |
+| nada → centroide | 22% | — | 13% | 22% |
+| **total com âncora** | **78%** | | 62% | 73% |
+
+Desde 15/09 (histórico mais maduro, 209 cargas): **cobertura 91%, 82% a ≤ 2 km** (T1 já cobre 40%).
+Sem a Martins: 83% / 70%. Só a Martins: 63% / 86% (T3 resolve 44% dela).
+O T2 cai frente à §28.2 porque o T1 fica com os clientes recorrentes (os melhores); o T4 é fraco
+(54%) — usar só com raio maior ou não usar. Cuidado: o T1 aprende "onde o caminhão PARA perto do
+cliente", que pode ser o ponto de espera do agendamento — para CHEGADA serve; para descarga, não
+é prova.
+
+### 28.6 Laboratório da régua por âncora — rodada 1 (`_lab_ancora.py`, 30/09/2026)
+
+Lab `rizza_lab_0930`, 535 cargas do robô desde 19/08, âncoras da §28.5 (só evidência anterior).
+Régua nova **ADITIVA**: onde a âncora confirma, o instante preciso; onde não, vale a de hoje —
+com isso **0 status recuam** (a 1ª versão substituía e recuava 111 `Entregue → Em rota`).
+
+- Chegada no cliente detectada em 61% das 331 entregues ancoradas; mediana igual à de hoje, 40 cargas
+  chegam DEPOIS (> 1 h — hoje "chega" ao entrar nos 20 km). Entrega iniciada nova: −0,7 h (mediana).
+- Por que não achou (129): 56 âncora nunca a < 5 km (errada/outro destino) · 20 sem GPS · **19 a
+  D2 descartou chegada verdadeira** · 16 a 2–5 km · 10 a 1–2 km (raio 1 km curto) · 8 pouco tempo.
+- **Gabarito oc. 01 NÃO serve de relógio** (aviso do Gabriel, confirmado): baixa − chegada = +12 a
+  +17 h de mediana; o canhoto é digitalizado ~8 dias depois. Só como sanidade ("entregue antes de
+  chegar": hoje 3, nova 2). O filtro "data da ocorrência" da tela 031 é a data de INCLUSÃO (§ robô
+  031 corrigido: conferência e escopo da carga por `incluida_em`).
+- Bateria de falhas (cada régua contra ela mesma): congelado no cliente faz a régua de HOJE chegar
+  cedo em 64–84%; nova c/ D2 ~20%, s/ D2 ~98%. **Congelado depois de sair do cliente (F7)**: a
+  entrega atrasa em 54% c/ D2 e 46% perdem a chegada — a D2 joga fora o bloco inteiro.
+- Próxima rodada: D2 com ODÔMETRO (o `sem_posicao_falsa` descarta o odômetro da série — manter),
+  D3 = cortar a cauda congelada e estimar a saída pelo odômetro do ponto seguinte, raio 2 km,
+  15/19/35 de agosto para pontualidade.
+
+### 28.7 Rodada 2 — D2 com odômetro, D3 e raio 1/2/5 km (30/09/2026)
+
+`limpa()` = `sem_posicao_falsa` mantendo o odômetro; falha simulada repete o odômetro congelado.
+D2 "vizinho": entrada no bloco vale se QUALQUER um dos 3 pontos anteriores chega de forma possível.
+D3: bloco que termina em salto → corta a cauda congelada (mesma lat/lng + mesmo odômetro) e estima a
+saída pelo odômetro do ponto seguinte (÷ 50 km/h). Saídas em `_estudo_2026-09-30/lab_[ABCD].txt`.
+
+| | A 1 km D2 simples | B 1 km viz.+D3 | C 2 km viz.+D3 | D 5 km viz.+D3 |
+|---|---|---|---|---|
+| chegada no cliente detectada (331) | 57% | 62% | 66% | **69%** |
+| saída do cliente detectada | 43% | 48% | 50% | 48% |
+| chegada nova > 1 h depois da de hoje | 37 | 40 | 33 | 22 |
+| D2 descartou chegada real | 32 | 15 | 17 | 18 |
+| status recuando | 0 | 0 | 0 | 0 |
+| F2 congelado no cliente: HOJE / nova | 87% / 8% | 87% / 7% | 88% / 7% | 89% / 5% |
+| F6 congelado 90 min antes: HOJE / nova | 68% / 10% | 68% / 12% | 81% / 8% | 81% / 5% |
+| F7 congelado após sair: atrasa / PERDE | 53% / **47%** | 64% / 1% | 62% / 3% | 56% / 1% |
+| F4 sinal perdido: perde chegada | 20% | 17% | 18% | 9% |
+
+- **A régua de HOJE é a mais frágil ao aparelho congelado** (64–89% de chegada falsa antecipada);
+  a D2 com odômetro derruba isso para 5–12% — e vale aplicar à régua de hoje também.
+- D3 acaba com a perda da chegada (47% → 1–3%); o instante da saída fica incerto (entre o início da
+  cauda e a estimativa do odômetro) → registrar como JANELA, não como ponto.
+- As 56 "nunca a < 5 km" não mudam com o raio: 38 são T2 (Maps) — cliente cujo CNPJ não é para onde a
+  carga foi —, 14 T3, 4 T1; 11 são Martins subc. Na régua aditiva caem na régua de hoje.
+- 5 km absorve a fila (espera detectada cai de 60 para 43 cargas): sugestão = DOIS eventos, "chegando"
+  (≤ 5 km) e "no cliente" (≤ 2 km).
+- Agendamento (oc. 15) é raro: 8 CTes em agosto, 4 em setembro, 19/35 zero em agosto — pontualidade
+  não é mensurável com esse dado.
+
+### 28.8 Rodada 3 — dois níveis: "chegando" (5 km) e "no cliente" (2 km) (30/09/2026)
+
+`--r-chegada 2 --r-chegando 5 --d2 vizinho --d3` → `_estudo_2026-09-30/lab_E.txt`.
+Chegando (2+ pontos a ≤ 5 km, D2) 72% · no cliente 66% · pelo menos um 72% das 331 entregues ancoradas.
+**20 cargas chegam na região e nunca no cliente** (transbordo/doca longe/âncora deslocada).
+**Fila na porta praticamente não existe**: chegando → no cliente, mediana 0,1 h, > 1 h em só 3%.
+0 incoerências, 0 status recuando; robustez do "chegando" igual à do "no cliente" (4–5% sob falha
+com D2). Leitura: o 2º nível não mede espera — serve de rótulo "na região do cliente" para as 20.
+
+### 28.9 A D2 na régua de HOJE causaria regressão — NÃO subir como está (30/09/2026)
+
+`_lab_d2_hoje.py`: 463 cargas do robô entregues desde 19/08, trilha REAL sem falha.
+Com a D2 (bloco dentro dos 60 km descartado se a entrada é impossível): 378 iguais, **23 chegadas
+SOMEM** (5,7% das que existem). Ganho com falha simulada: congelado 30 min na cidade 97% → 9% cedo;
+congelado 90 min antes 98% → 37%. O ganho não paga a regressão.
+
+Os três mecanismos (abertos carga a carga):
+- **Rastreador da carreta DORMINDO**: C-510, 281 km em 16 h (18 km/h) com odômetro Δ 0 — o odômetro
+  da carreta não conta enquanto dorme, então o teste do odômetro chama de impossível uma perna real.
+  O odômetro só é testemunha em intervalo CURTO.
+- **Um ponto falso na borda da região apaga o bloco inteiro**: C-841 (50 km em 5 min a 55 km do
+  destino) e C-637 (147 km em 6 min a 45 km) — com zona de 60 km, a chegada verdadeira está no MESMO
+  bloco que o ponto falso de entrada e vai junto. Na âncora (2 km) o bloco é pequeno e o efeito
+  menor, mas é a mesma causa das 15–18 chegadas reais descartadas nas rodadas 2–3.
+- C-1055: salto falso a 284 km contaminando o "vizinho".
+
+Redesenho a testar (D2b): congelado = REPETIÇÃO (≥ 2 pontos com mesma lat/lng e odômetro parado)
+seguida/precedida de perna impossível; remover só os pontos repetidos, nunca o bloco da região; teste
+do odômetro só com Δt < 30 min. Meta: 0 chegada perdida na trilha limpa.
+
+### 28.10 D2b (repetição, sem odômetro) e o congelamento REAL (30/09/2026)
+
+`_lab_d2_hoje.py` (régua de hoje) e `lab_F/G` (âncora, `--d2 b|bodo`):
+- **Odômetro não acrescenta nada**: `b` (sem) e `bodo` (só Δt < 30 min) dão o mesmo resultado nas duas
+  réguas → tirar o odômetro da chegada; ele fica no km rodado (§23.3), onde provou valor.
+- Régua de HOJE + D2b: 11 chegadas somem + 3 mudam (era 23 com a D2 de bloco) — ainda regressão.
+- Âncora + D2b: "no cliente" sobe 66% → **71%**, "chegando" 72% → **76%**, D2 descarta só 2 reais
+  (era 17); sob falha simulada fica em 19–27% (era 7–8% com a D2 de bloco).
+- **A falha simulada F2/F6 (congelar EM CIMA do cliente no meio da viagem) não é física**: o aparelho
+  congela ONDE o caminhão estava. Medido nos dados reais (497 cargas do robô desde 19/08): 394
+  repetições com salto na borda — **315 "congelou onde estava e depois pulou"** (224 na estrada, **51 na
+  origem, 40 no destino**), 60 "entrou por salto", 19 as duas; duração mediana 3,3 h.
+  → O risco real do congelamento é a **SAÍDA atrasada** (entrega iniciada na origem, entrega
+  realizada no destino — ~18% das cargas), não a chegada falsa (8 casos de entrada por salto no
+  destino). A próxima rodada deve atacar a saída, registrada como janela.
+
+### 28.11 A saída com o aparelho congelado — janela (30/09/2026, `_lab_saida.py`)
+
+Congelamento = repetição (>= 2 pontos mesma posição) cuja saída é salto impossível pela velocidade.
+Janela = [início da repetição, reaparecimento − distância ÷ 110 km/h]; estimada = ÷ 60 km/h, presa na
+janela. Gabarito = CAVALO com rastreador próprio que estava junto no início (só 27% dos cavalos têm).
+
+| | origem (entrega iniciada) | destino (entrega realizada) |
+|---|---|---|
+| cargas com congelamento (de 497) | 45 (9%) | 18 (4%) |
+| largura da janela | mediana 4,8 h · p90 33,6 h | 4,3 h · p90 33,6 h |
+| régua de hoje dentro da janela | 27 | 9 |
+| régua de hoje DEPOIS (atrasada) | 18 — mediana 1,9 h, p90 17,5 h | 0 |
+| régua de hoje ANTES da janela | 2 | 9 (fechou por 24 h com o caminhão ainda lá) |
+| gabarito cavalo: real dentro da janela | **3 de 3** | **3 de 3** |
+| erro da estimada / da régua de hoje | 0,1 h / 1,9 h (mediana) | 5,0 h / **25,6 h** |
+
+Amostra do gabarito pequena (6), mas coerente: a JANELA sempre contém a saída real; a estimada serve na
+origem, não no destino (o caminhão para depois de sair do cliente e a média de 60 km/h erra).
+C-1055 (destino) e C-1106 (origem) são o MESMO congelamento — sair do cliente é começar a próxima.
+
+### 28.12 Replay AO VIVO (`_lab_replay.py`, 30/09/2026) — campos SEPARADOS, não sobrescrita
+
+Relógio de gravação: `lab_vis` = max(data_posicao) acumulado pelo `id` (tabela criada no lab). Ao vivo
+entram 35–50% dos pontos em ≤ 15 min; 25–32% só > 12 h depois (backfill). A cada 3 h, 399 cargas
+entregues desde 27/08, as réguas rodam só com os pontos já visíveis.
+
+**Bug que só o replay mostra (corrigido no `_lab_ancora`)**: a saída da origem era o último ponto do
+bloco de presença — ao vivo, com o caminhão AINDA carregando, isso é o ponto de agora (42% de saída
+provisória errada). Agora exige ponto visível fora (raio + 1 km) e 30 min observados sem voltar; o
+mesmo "30 min observados" na saída do cliente. Resultado final do lab completo idêntico (lab_H = lab_F).
+
+| provisório > 1 h diferente do final | HOJE | NOVA sobrescrevendo | **ÂNCORA em campo próprio** |
+|---|---|---|---|
+| saída | 8% | 14% | 9% |
+| chegada | 14% | 18% | **3%** |
+| entrega | 9% | 24% | **5%** |
+| status recuando entre refreshes | 6,5% | 7,3% | **3,8%** |
+| atraso mediano p/ aparecer (saída/chegada/entrega) | 2,2/1,5/1,7 h | 2,3/1,3/1,7 h | 2,7/2,1/2,9 h |
+
+Sobrescrever o evento de hoje pelo da âncora cria a "correção" que a tela mostra como erro. **Desenho:
+campos separados** — "chegou na cidade" / "saída" / "conclusão" continuam a régua de hoje, intocados;
+"saiu do carregamento", "no cliente", "saiu do cliente" são campos NOVOS que só aparecem com prova.
+Custo: aparecem ~0,5–1 h mais tarde (dwell 10 min + 30 min observados + GPS ao vivo esparso).
+O vai-e-volta de 6,5% da régua de HOJE já existe — investigar à parte.
+
+### 28.13 ONDE PARAMOS — estado em 02/10/2026 e como retomar
+
+**Nada da régua por âncora está em produção. Nenhum código de produção foi alterado nesta frente.**
+O que foi para produção em 30/09 foi só DADO: o retroativo do cadastro `locais` (575 → 1.150) e do
+vínculo dos CNPJs nas cargas (destino 181 → 382, origem 225 → 455, coleta 197 → 291), conferido no
+log (só `origem_cnpj`, `destino_cnpj`, `coleta_origem`, `embarcador`). Volta: `snap_20260930_1252`.
+
+**A régua recomendada pelo laboratório (para escrever a proposta de implantação):**
+
+| evento | régua | quando não há prova |
+|---|---|---|
+| entrega iniciada | saiu do ponto de carregamento aprendido (2 km), ponto visível fora (+1 km) e 30 min observados sem voltar; janela se o aparelho congelou | campo vazio; vale a saída de hoje (30 km) |
+| chegou no cliente | ≥ 10 min, ≥ 2 pontos parados a ≤ 2 km da âncora, D2b | campo vazio; vale a chegada de hoje (20/60 km) |
+| na região do cliente | rótulo: 2+ pontos a ≤ 5 km sem encostar (20 cargas) | — |
+| saiu do cliente | > 3 km, 30 min observados sem voltar; janela se congelou | campo vazio; vale a conclusão de hoje |
+
+- Âncora de destino, em ordem: T1 aprendido pelo CNPJ (≥ 2 descargas anteriores a ≤ 1 km entre si)
+  → T2 Maps com endereço bom + guarda de cidade → T3 aprendido por tomador + cidade (resolve a
+  Martins subcontratação). T4 (Maps com endereço ruim) NÃO usar. Pátio/posto (célula onde ≥ 5
+  carretas dormem em ≥ 10 noites) nunca ensina descarga. Âncora de origem: O1 CNPJ / O2 tomador+cidade
+  aprendidos (o `origem_cnpj` é remetente fiscal — Maps na origem não serve).
+- D2b: tira só REPETIÇÕES de posição (≥ 2 pontos) cuja entrada ou saída é salto impossível pela
+  velocidade. **Sem odômetro** (o da carreta para de contar quando ela dorme — C-510).
+- **CAMPOS SEPARADOS** (replay §28.12): a régua de hoje fica intocada nos campos atuais; os eventos
+  novos vão em colunas novas e só aparecem com prova. Sobrescrever é o que gerava "correção" na tela.
+- Atrás de chave nova (`EMBARQUES_ANCORA`), aditivo (§0), receita da §24.7.
+
+**Números de referência (lab `rizza_lab_0930`, cargas do robô desde 19/08):** âncora de destino em
+65% das cargas (79% desde 15/09); "no cliente" detectado em 71% das entregues com âncora; 0 status
+recuando; ao vivo, horário provisório errado 3% (chegada) e 5% (entrega) contra 14% e 9% da régua de
+hoje; aparece ~0,5–1 h mais tarde. Saída com aparelho congelado: janela contém a real em 6 de 6 (cavalo).
+
+**Decidido / descartado (não reabrir sem dado novo):**
+- D2 de bloco e D2 na régua de HOJE: **não sobem** (apagam 23 e 11 chegadas reais — §28.9/28.10).
+- Odômetro na chegada: descartado (b = bodo). Fica no km rodado.
+- Fila na porta do cliente quase não existe (mediana 6 min): "chegando" não mede espera.
+- Baixa de entrega do SSW (oc. 01) **não é relógio** (12–17 h depois da chegada; canhoto ~8 d) —
+  só sanidade. Agendamento (oc. 15) é raro demais para pontualidade (8 CTes em ago, 4 em set).
+- `endereco_entrega`/`bairro_entrega` existem só no dataset do DRE; levá-los ao dataset principal
+  muda ~5 cargas (o endereço já estava certo — 59/78 iguais). Arrumação, não ganho.
+- Google Maps scraper (kit): não usar — viola termos, bloqueia IP, e a Geocoding oficial já basta.
+
+**Próximos passos, em ordem (todos aguardam o "pode fazer" do Gabriel):**
+1. Escrever a **proposta de implantação** (colunas novas, chave, ordem de ligar, gates) para revisão.
+2. Investigar o **vai-e-volta de 6,5% da régua de HOJE** (status recua entre refreshes, §28.12) —
+   existe sem âncora nenhuma.
+3. Torre: trocar "Documento sem saída" por "viagem local" quando origem = destino (só tela, C-1221).
+4. Pendências de dado: C-2026-001013 segue `Entregue` a 624 km do destino (§27.13).
+
+**Artefatos (nada commitado nesta frente; o cache do Google NÃO vai para o git; decisão de 07/10: guardar as coordenadas, ver §28.4):**
+
+| arquivo / objeto | o que é |
+|---|---|
+| `_medir_endereco.py` | perfil do endereço, geocodificação com cache, Maps × parada real |
+| `_medir_cobertura_ancora.py` | cobertura T1–T4 sem olhar o futuro (§28.5) |
+| `_lab_ancora.py` | o laboratório: âncoras, eventos novos, defesas D2/D2b/D3, gabarito, bateria F1–F8 |
+| `_lab_d2_hoje.py` | defesas aplicadas à régua de hoje — regressão × ganho (§28.9–28.10) |
+| `_lab_saida.py` | saída com aparelho congelado → janela, gabarito pelo cavalo (§28.11) |
+| `_lab_replay.py` | replay ao vivo pelo relógio de gravação (§28.12) |
+| `_estudo_2026-09-30/` | `geocode_cache.json` (Google — guardar, decisão de 07/10; ver §28.4), `cte_manifesto.json`, saídas `lab_[A-H].txt`, `replay*.txt`, CSVs |
+| banco local `rizza_lab_0930` | dump de produção de 30/09 + retroativos + tabela `lab_vis` (relógio de gravação) |
+| banco local da Rizza, `ocorrencias_031` | oc. 01 de ago+set (2.318 baixas) e 15/19/35 de ago+set |
+| `../emb_20260930.dump` | o dump (dado de cliente — fora de qualquer repositório) |
+
+Para rodar qualquer script do lab: `START_WORKER=false EMBARQUES_AUTO=false PGR_SYNC_CADASTRO=false
+RASTREAMENTO_SYNC_AUTO=false EMBARQUES_FITA=false DB_NAME=rizza_lab_0930 python -X utf8 <script>`.
+Configuração recomendada do `_lab_ancora.py`: `--r-chegada 2 --r-chegando 5 --d2 b`.
+
+### 28.14 A 3S: carreta muda NÃO descarrega depois, e o "buraco" diário é da 3S, não do worker (05/10/2026)
+
+**Carreta muda (teste em 05/10, 64 chamadas `/HistoricoPosicao`):** 13 casos de setembro em que a
+carreta ficou 24 h a 20 dias calada e reapareceu 108–616 km adiante. Nos **9 casos de aparelho**,
+a 3S **não tem nenhum ponto** do trecho até hoje (404 "posição não encontrada") — a promessa de
+"descarregar tudo quando o sinal volta" não se cumpriu nesses aparelhos (HNH1302 24–27/09, HMV3D38
+11–19/09, QXG2647 ×4, HDI9D05, TZD5A42). Não é retenção: a 3S ainda devolve 03/09.
+Nos **4 casos da semana do NOSSO apagão (03–08/09, §23)** a 3S TEM os pontos (99, 81, 79, 58) e o
+nosso banco não — recuperável com `backfill_historico.py 2026-09-03 2026-09-08` dentro do container,
+**antes de ~08/10** (retenção da 3S ~35 dias). PENDENTE de ok do Gabriel.
+
+**O "worker parado" de ~50 min, várias vezes ao dia:** medido pelo relógio de gravação (posição que
+entra ≤ 15 min depois do seu horário), 170 buracos > 20 min de 26/08 a 29/09 e 8 em 03–05/10, com a
+duração crescendo (47 → 53 → 57 min). Duas suspeitas derrubadas pelo dado: a consolidação diária
+(`consolidado_em` não bate) e a sincronização de 12 h do PGR (horários não batem). O
+`embarques_3s_log` decidiu: **durante o buraco o worker chamou `/ListaUltimaPosicaoVeiculos` a cada
+minuto e recebeu HTTP 200** (56/56, 57/57; hora normal = 60/60). **É a 3S devolvendo posição velha
+por ~1 h** (fila dela atrasada), não o nosso worker. Exceção: 05/10 15:56 teve 38 de 57 chamadas e
+timeouts de 30 s — um pedaço foi nosso. O backfill da madrugada recupera a maior parte; o que se perde
+é o AO VIVO (torre, chegada ao vivo) por ~1 h, algumas vezes por dia. Levar à 3S com os horários.
+A Insignia (HANDOFF-INSIGNIA) é a 2ª fonte ao vivo para frota/agregado (cavalo) nesses buracos.
+
+Armadilha registrada: o worker loga com `logging` em INFO e o servidor não configura o logging — nada
+do worker aparece no `docker service logs` (só WARNING+). Quem quer o batimento do worker lê o
+`embarques_3s_log`.
+
+
+## 29. 06/10/2026 — coletas, "Sem ordem" e a Insignia entrando no motor
+
+**Em produção (commitado e no ar):**
+- `b838ce3` — **fuso das ordens de coleta.** Os carimbos do 157 são hora de Brasília sem fuso; a ordem vencia
+  3 h antes do limite (comparada com o relógio UTC do container), a aba mostrava os horários 3 h antes
+  (o jsonify os rotulava "GMT") e a torre lia os mesmos campos como UTC (UDI-000265: "documento emitido" às
+  12:00 quando só foi coletada às 14:03). Agora `_programacao.agora_brt()`, `AT TIME ZONE` na API e
+  `torre._utc()`. A API recalcula na leitura "limite passou → vencida".
+- `b838ce3` + `9043d62` — **aba `/embarques/sem-ordem`**: manifestos desde 01/09 sem ordem de coleta (Frota,
+  Agregado e Terceiro), pela régua de ligação do robô (CTe exato, placa como reserva); abre no dia vigente.
+
+**No laboratório (working tree, sem commit) — `HANDOFF-INSIGNIA.md` §8–§14:** `fontes_gps.py` e as chaves
+`EMBARQUES_FONTE_INSIGNIA*` / `EMBARQUES_SM_ENCERRAMENTO`. Mexe em `rastreamento_worker.py`,
+`_robo_atemporal.py`, `_auditoria_geral.py`, `embarques_auto.py`, `geocoding.py`, `embarques_continuacao.py` e
+`server.py` — por isso o gate da §24.5 (robô REAL dia a dia na base local) vale antes de subir. Com as chaves
+desligadas, motor e aferidor saem idênticos ao último commit.
+
+**Para a §28.13 (âncora de destino):** o cadastro de locais da Insignia (`insignia_locais`, ponto + raio
+curados pela GR) cobre **75% das cargas desde 01/09** pelo `destino_cnpj`, e a carreta parou a **≤ 0,5 km do
+ponto em 71%** (≤ 2 km em 80%) em 196 cargas entregues — contra 54% / 69% do Maps com endereço bom (§28.2).
+Candidata à 1ª camada da âncora, antes do T1 aprendido (`HANDOFF-INSIGNIA.md` §7).

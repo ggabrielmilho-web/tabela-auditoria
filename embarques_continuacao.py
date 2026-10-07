@@ -132,13 +132,14 @@ def parada_carreta(cur, placa, ate=None, dias=7):
     import placas as pl
     import geocoding as g
     ate = ate or datetime.utcnow()
-    cur.execute("""SELECT data_posicao, latitude, longitude, cidade, velocidade FROM embarques_posicoes_historico
+    import fontes_gps
+    cur.execute(f"""SELECT data_posicao, latitude, longitude, cidade, velocidade FROM {fontes_gps.historico(cur)} h
                     WHERE placa = ANY(%s) AND data_posicao <= %s AND data_posicao >= %s
                     ORDER BY data_posicao DESC LIMIT 3000""",
                 (pl.grafias(placa), ate, ate - timedelta(days=dias)))
     pts = cur.fetchall()
     if not pts:
-        cur.execute("SELECT data_posicao, latitude, longitude, cidade, velocidade FROM embarques_posicoes_atuais "
+        cur.execute(f"SELECT data_posicao, latitude, longitude, cidade, velocidade FROM {fontes_gps.atuais(cur)} pa "
                     "WHERE placa = ANY(%s) ORDER BY data_posicao DESC LIMIT 1", (pl.grafias(placa),))
         r = cur.fetchone()
         return (r[0], float(r[1]), float(r[2]), r[3], r[0], r[4]) if r else None

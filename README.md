@@ -9,7 +9,7 @@ URL de produção: **https://rizza.carvalhoia.com**
 
 ---
 
-## Estado atual do rastreamento e do robô (21/09/2026)
+## Estado atual do rastreamento e do robô (atualizado em 07/10/2026)
 
 **Antes de commitar ou subir qualquer coisa deste repositório, leia esta seção.**
 O detalhe de cada item está no `HANDOFF-EMBARQUES-AUTONOMO.md`, §27 em diante.
@@ -30,7 +30,7 @@ O detalhe de cada item está no `HANDOFF-EMBARQUES-AUTONOMO.md`, §27 em diante.
 | `EMBARQUES_MODELO_CARRETA` | **ausente = false** | Fase D, ainda não medido com dado novo |
 | `EMBARQUES_SENSOR_CAVALO` | **true** desde 24/09 | carreta que fala pouco empresta saída/chegada do cavalo que esteve na origem — só preenche ou antecipa (`2df2d86`) |
 | `EMBARQUES_RAIO_PERNA` | **true** desde 25/09 | perna curta: ponto só conta para a ponta de que está mais perto — o pátio da origem deixa de virar chegada (§27.18) |
-| `INSIGNIA_COLETA` | **ausente = false** (código pronto em 05/10) | coleta da Insignia GR: SMs (inclusive terceiros), posição/odômetro do cavalo, paradas, macros do motorista, rota planejada e locais → `insignia_*`; nada no app lê ainda |
+| `INSIGNIA_COLETA` | **true** desde 05/10 (`e5d90bc`) | coleta da Insignia GR: SMs (inclusive terceiros), posição/odômetro do cavalo, paradas, macros do motorista, rota planejada e locais → `insignia_*`. Em produção nada no app lê ainda — a leitura (`fontes_gps.py`) está só no laboratório, ver abaixo |
 | `RASTREAMENTO_PURGA_POSICOES` | **ausente = false** desde 25/09 | as posições de GPS **não são mais apagadas** aos 30 dias (~5 MB/dia, ~1,8 GB/ano). `RASTREAMENTO_RETENCAO_DIAS` segue valendo só para a janela da consolidação e o corte do backfill |
 | `RASTREAMENTO_SYNC_AUTO` | **nasce desligada** (21/09) | sincroniza o cadastro `embarques_veiculos_rastreio` sozinho: por **lacuna** (placa que o worker vê e o cadastro não conhece — consulta local, sem cota) + **garantia de 24 h**. Sem ela, o cadastro só anda quando alguém clica no Admin, e veículo novo na 3S fica invisível **para a tela** com a viagem correndo (§27.13 nº 2) |
 
@@ -91,6 +91,21 @@ O detalhe de cada item está no `HANDOFF-EMBARQUES-AUTONOMO.md`, §27 em diante.
 - **Gate (lab do dump de 30/09, ciclo real 30/09→03/10):** banco com placa convertida × banco
   com o retroativo, código antigo × novo — 1.290 cargas, todos os campos, destinos, log e
   aferidor **idênticos** pela chave; Jornada e PGR idênticos; torre idêntica com o mesmo banco.
+
+### Commitado em 07/10/2026, chaves DESLIGADAS — a Insignia como 2ª fonte de GPS
+
+Tudo atrás de chaves que nascem desligadas; com elas desligadas o motor e o
+aferidor saem **idênticos byte a byte** ao último commit (gate refeito por worktree). Detalhe e
+números no `HANDOFF-INSIGNIA.md` §8–§14 — **comece pela §14 (onde paramos)**.
+
+| chave | o que faz |
+|---|---|
+| `EMBARQUES_FONTE_INSIGNIA` | a camada `fontes_gps.py` passa a ler a 3S **e** a Insignia: cada fonte na sua tabela, uma leitura só; placa que a 3S rastreia continua só 3S |
+| `EMBARQUES_FONTE_INSIGNIA_ESCOPO` | `terceiro` (padrão) = só cavalo de carga Terceiro · `todas` = qualquer placa que a 3S não rastreia |
+| `EMBARQUES_FONTE_INSIGNIA_ODOMETRO` | odômetro da Insignia em km (Autotrac ÷ 100, Omnilink ÷ 1.000, Onixsat × 1; zero e aparelho travado = NULL) |
+| `EMBARQUES_FONTE_INSIGNIA_BURACO` | tapa-buraco por tempo: placa nas DUAS fontes recebe o ponto da Insignia onde a 3S calou |
+| `EMBARQUES_SM_ENCERRAMENTO` | carga pela Insignia que fica MUDA depois que a GR encerra a SM conclui no FIM DE VIAGEM (`sm_encerrada`, não é entrega provada) |
+| `EMBARQUES_AUTO_TIPOS=…,Terceiro` | o robô abre Terceiro **só com SM** na Insignia (`fontes_gps.tem_sm`) |
 
 ### O resto do quadro
 
@@ -325,6 +340,7 @@ Tabela Auditoria/
 │   # ── Insignia GR (gerenciadora de risco — 2ª fonte de rastreamento, cobre terceiros) ──
 ├── insignia.py                  # cliente SOAP SÓ LEITURA (recusa operação que não seja Get_)
 ├── insignia_coleta.py           # coleta → `insignia_*` + thread (INSIGNIA_COLETA)
+├── fontes_gps.py                # 3S + Insignia como UMA leitura; cada fonte na sua tabela
 ├── embarques-ordens.html        # Página /embarques/ordens (ordens de coleta, estado e entrega agendada)
 ├── torre.py                     # Torre de controle: a consulta única `montar(cur, dia, agora)` (só leitura)
 ├── embarques-torre.html         # Página /embarques/torre
@@ -427,6 +443,20 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 | `INSIGNIA_INTERVALO_SEG` | Ciclo das SMs abertas e da posição/odômetro — a cadência do worker da 3S. A Insignia não tem histórico de posições: o que não for pego ao vivo se perde | `60` |
 | `INSIGNIA_PARADAS_MIN` | Intervalo mínimo entre buscas de paradas por placa | `60` |
 | `INSIGNIA_BACKFILL_DIAS` | Paradas para trás na 1ª vez que a placa aparece (a API só alcança 30) | `30` |
+| `INSIGNIA_POS_SM_H` | *(sem chave: vale no deploy)* Horas que a coleta segue o CAVALO depois que a SM fecha — separa "continua posicionando" (LPX-4J71) de "ficou mudo" (`ER0121`) | `48` |
+
+### Fontes de GPS (`fontes_gps.py` — HANDOFF-INSIGNIA §9–§15)
+| Variável | Descrição | Default |
+|---|---|---|
+| `EMBARQUES_FONTE_INSIGNIA` | Liga a leitura unificada 3S + Insignia nos leitores que decidem carga (worker, motor, aferidor, robô, continuação, mapa). Desligada = idêntico ao de antes | `false` |
+| `EMBARQUES_FONTE_INSIGNIA_ESCOPO` | `terceiro` ou `todas` | `terceiro` |
+| `EMBARQUES_FONTE_INSIGNIA_ODOMETRO` | Usa o odômetro da Insignia convertido para km | `false` |
+| `EMBARQUES_FONTE_INSIGNIA_BURACO` | A Insignia tapa o buraco da 3S na mesma placa (±15 min andando, ±75 parado; posição atual se 30+ min mais nova) | `false` |
+| `EMBARQUES_SM_ENCERRAMENTO` | Conclusão pelo FIM DE VIAGEM quando a placa fica muda depois da SM (exige a fonte ligada) | `false` |
+| `EMBARQUES_CARRETA_CONGELADA` | LAB 07/10 — carreta da 3S congelada durante a SM vira buraco tapado pelo cavalo (exige a fonte com escopo `todas`) | `false` |
+| `EMBARQUES_SAIDA_DESTINO_COERENTE` | LAB 07/10 — saída do destino medida no mesmo aparelho da chegada e relativa à parada de metrópole | `false` |
+| `EMBARQUES_CONCLUSAO_TRAVADA` | LAB 07/10 — reescreve a conclusão travada na chegada (43/45 prematuras) | `false` |
+| `EMBARQUES_LAB_MEDIR_CONCLUSAO` | só instrumento de laboratório | `false` |
 
 ### Lançamento automático de embarques (robô do manifesto SSW)
 | Variável | Descrição | Default |
@@ -442,7 +472,7 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 | `EMBARQUES_AUTO_MAX_DESTINOS` | Acima disso é distribuição → 1 destino + observação | `8` |
 | `EMBARQUES_AUTO_DESTINOS_CTRC` | Admite a cidade do CTRC como destino (batem em só 69%) | `false` |
 | `EMBARQUES_AUTO_FILIAIS` | JSON sigla→`Cidade/UF`, usado só quando não há CTRB | `{}` |
-| `EMBARQUES_MODELO_CARRETA` | **⛔ CONGELADA** — liga o modelo carreta-cêntrico no fechamento (manifesto novo só da mesma carreta, dedup com prova de chegada, reanálise de pendências). Depende do GPS, que está fora do ar desde 07/09/26. **Não ligar antes de ler a seção "CONGELADO" no topo** | `false` |
+| `EMBARQUES_MODELO_CARRETA` | **⛔ CONGELADA** — liga o modelo carreta-cêntrico no fechamento (manifesto novo só da mesma carreta, dedup com prova de chegada, reanálise de pendências). Ficou congelada quando a 3S cortou o acesso (07/09); a 3S voltou em 08/09, mas a fase D nunca foi medida com dado novo. **Antes de ligar, ver §19 e §21.11 do HANDOFF-EMBARQUES** | `false` |
 | `EMBARQUES_AUTO_REANALISE` | Sub-chave da anterior: revisita pendência com evidência posterior | `true` |
 | `EMBARQUES_AUTO_JANELA_REANALISE_DIAS` | Até onde a reanálise olha para trás (a retenção de GPS é ~30 d) | `30` |
 | `EMBARQUES_AUTO_DWELL_ENTREGA_H` | Horas paradas no destino que valem como entrega, quando não há saída | `24` |
@@ -797,7 +827,9 @@ Detalhes da Fase 1 estão em [`PLANO-EMBARQUES.md`](PLANO-EMBARQUES.md).
 ### Lançamento automático a partir do manifesto (`embarques_auto.py`)
 
 O time operacional não foi treinado para lançar, e a carga já existe no SSW —
-o robô abre a carga sozinho a partir do **manifesto**, 1×/dia, em D-1.
+o robô abre a carga sozinho a partir do **manifesto** — desde 20/09 **após cada refresh do BI**
+(~8×/dia) e com defasagem 0 (a carga nasce no dia do carregamento), com a janela das 16:30 como
+garantia diária. Os números abaixo são do desenho original (1×/dia, D-1).
 
 **Por que o manifesto e não o CTRB:** o manifesto é emitido quando o motorista
 sai (ele viaja com o documento na mão); o CTRB é a OS de pagamento. Medido em
@@ -968,6 +1000,7 @@ Acompanhamento GPS dos veículos em rota, com mapa em tempo real e automação d
 - **`ors_client.py`** — OpenRouteService (`/v2/directions/driving-hgv`). Retorna polyline + distância + duração. `tracar_rota_multi(pontos)` traça a rota **multi-ponto** (origem → cidades de rota → destinos). Free tier: 2.000 chamadas/dia.
 - **`geocoding.py`** — distância Haversine, normalização de nome de cidade (uppercase sem acento) e geocoder por centroide IBGE.
 - **`rastreamento_worker.py`** — thread daemon dentro do processo Flask.
+- **`fontes_gps.py`** *(atrás de `EMBARQUES_FONTE_INSIGNIA`)* — os leitores que decidem carga trocam o nome da tabela da 3S por `historico(cur)` / `atuais(cur)` / `placa_rastreada()`. Cada fonte continua fato bruto na própria tabela; a 3S é a principal e a Insignia entra para placa que a 3S não vê (e, com `…_BURACO`, onde a 3S calou). **Backfill, consolidação diária, PGR e sincronização do cadastro continuam só na 3S** — por isso a Insignia não entra no PGR nem gasta cota da 3S. Coluna `fonte` ∈ `3s` · `insignia` · `ins_buraco`.
 
 ### Ciclo do worker (a cada `RASTREAMENTO_INTERVALO`, default 60s)
 1. Busca a última posição de todos os veículos (3S real ou simulador) → UPSERT em `embarques_posicoes_atuais` + INSERT em `embarques_posicoes_historico`.
@@ -978,7 +1011,7 @@ Acompanhamento GPS dos veículos em rota, com mapa em tempo real e automação d
    - **Saída do destino** = **entrega automática** (`No destino`/`Em rota`/`Desengatada` → `Entregue`, marca `entregue_auto`, consolida o KPI final). Confirmada por distância (`RASTREAMENTO_RAIO_SAIDA_DESTINO`, default 60 km — raio maior p/ não bugar em grande centro). Em carga **`Desengatada`** o worker rastreia **só a carreta** (o cavalo foi liberado e pode estar em outra viagem), então é a saída da carreta carregada que finaliza a carga
    - **Cálculo da rota planejada** (ORS, multi-ponto): origem → **cidades de rota** → todos os destinos. Calculado 1× quando ainda não há rota; o "km faltando" é derivado da posição atual projetada sobre a rota completa (não recalcula truncando)
 3. Eventos exigem `RASTREAMENTO_CICLOS_CONFIRMACAO` ciclos consecutivos fora do `RASTREAMENTO_RAIO_KM` para serem confirmados (evita falso positivo).
-4. 1×/dia, **nesta ordem**: consolida o dia em `embarques_rastreio_dia` e **só então** purga o histórico além de `RASTREAMENTO_RETENCAO_DIAS`. Invertido, o dado não volta — a 3S serve ~35 dias de histórico (ver Consolidação diária).
+4. 1×/dia, **nesta ordem**: consolida o dia em `embarques_rastreio_dia` e **só então** purga o histórico além de `RASTREAMENTO_RETENCAO_DIAS` — a purga só roda com `RASTREAMENTO_PURGA_POSICOES=true`; **desligada desde 25/09** (a âncora por endereço precisa de meses de ponto de parada). Invertido, o dado não volta — a 3S serve ~35 dias de histórico (ver Consolidação diária).
 
 O worker só inicia se `START_WORKER=true`. O modo (SIMULADO/REAL) é impresso no boot.
 
@@ -996,7 +1029,8 @@ O worker só inicia se `START_WORKER=true`. O modo (SIMULADO/REAL) é impresso n
 
 ### Consolidação diária (`embarques_rastreio_dia`)
 
-O histórico de posições é purgado aos 30 dias, e **a 3S só serve ~35 dias** — medido em
+O histórico de posições era purgado aos 30 dias — **desde 25/09 a purga está desligada**
+(`RASTREAMENTO_PURGA_POSICOES` ausente = false) — e **a 3S só serve ~35 dias**, medido em
 04/09/2026: pedir 31/07 respondia, 28/07 devolvia `404`, e pedir 01/07→01/08 numa
 chamada só voltava sem erro trazendo apenas 30 e 31/07. Passou disso, o dado não existe
 em lugar nenhum. Julho/2026 se perdeu exatamente assim.

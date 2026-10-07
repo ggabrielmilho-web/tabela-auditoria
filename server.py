@@ -17,6 +17,7 @@ import psycopg2
 import requests
 import pgr
 import placas
+import fontes_gps
 import verda_painel
 from flask import Flask, Response, jsonify, send_from_directory, request, session, redirect, url_for, send_file, stream_with_context
 from flask_cors import CORS
@@ -6552,6 +6553,8 @@ def api_embarques_cargas_list():
     # Ordem de coleta / embarcador / local (15/09/26): idem — só cita as colunas quando existem.
     import embarques_coleta as _co
     _c15 = get_db(); _cur15 = _c15.cursor(); _col = _co.colunas_existem(_cur15); _cur15.close(); _c15.close()
+    # fontes de GPS (06/10/26): a 3S, e a Insignia para placa que a 3S não rastreia (chave)
+    _cg = get_db(); _curg = _cg.cursor(); _gps_atuais = fontes_gps.atuais(_curg); _curg.close(); _cg.close()
     _cols24 += (""" c.coleta_origem, c.coleta_via, c.embarcador, c.origem_cnpj, c.destino_cnpj,
                c.origem_endereco, c.destino_endereco,""" if _col else """
                NULL::text AS coleta_origem, NULL::text AS coleta_via, NULL::text AS embarcador,
@@ -6559,6 +6562,37 @@ def api_embarques_cargas_list():
                NULL::text AS destino_endereco,""")
     _placa_mede = ("CASE WHEN c.status = 'Desengatada' THEN c.carreta1_placa "
                    "ELSE COALESCE(NULLIF(trim(c.carreta1_placa),''), c.cavalo_placa) END")
+
+    # TERCEIRO COM A FONTE DA INSIGNIA (07/10/26). A carreta do terceiro nao tem 3S e a GR so
+    # rastreia o CAVALO, entao medir pela carreta do documento dava idade NULA — e nulo alarma:
+    # todo terceiro em viagem aparecia "rastreio defasado" com posicao de minutos (C-1406, lab
+    # de 07/10). Aqui a placa que mede e a que TEM posicao, na ordem do worker (`_placa_tracking`:
+    # carreta1 -> cavalo -> carreta2; Desengatada so a carreta). Chave desligada, ou carga que nao
+    # e Terceiro: o SQL de sempre — frota e agregado nao mudam.
+    def _gps_da_carga(campo, padrao):
+        if not fontes_gps.ligado():
+            return padrao
+        _pp = _pn('pa.placa')
+        return f"""(CASE WHEN c.tipo_operacao = 'Terceiro' THEN
+                 (SELECT {campo} FROM {_gps_atuais} pa
+                   WHERE {_pp} IN ({_pn('c.carreta1_placa')}, {_pn('c.cavalo_placa')}, {_pn('c.carreta2_placa')})
+                     AND (c.status <> 'Desengatada' OR {_pp} = {_pn('c.carreta1_placa')})
+                   ORDER BY CASE WHEN {_pp} = {_pn('c.carreta1_placa')} THEN 1
+                                 WHEN {_pp} = {_pn('c.cavalo_placa')} THEN 2 ELSE 3 END,
+                            pa.data_posicao DESC LIMIT 1)
+               ELSE {padrao} END)"""
+    _idade_sql = _gps_da_carga(
+        "EXTRACT(EPOCH FROM ((NOW() AT TIME ZONE 'UTC') - pa.data_posicao)) / 3600.0",
+        f"""(SELECT EXTRACT(EPOCH FROM ((NOW() AT TIME ZONE 'UTC') - pa.data_posicao)) / 3600.0
+                  FROM {_gps_atuais} pa
+                 WHERE {_pn('pa.placa')} = {_pn(_placa_mede)}
+                 ORDER BY pa.data_posicao DESC LIMIT 1)""")
+    _lat_sql = _gps_da_carga('pa.latitude', f"""(SELECT pa.latitude FROM {_gps_atuais} pa
+                 WHERE {_pn('pa.placa')} = {_pn("COALESCE(NULLIF(c.carreta1_placa,''), c.cavalo_placa)")}
+                 ORDER BY pa.data_posicao DESC LIMIT 1)""")
+    _lng_sql = _gps_da_carga('pa.longitude', f"""(SELECT pa.longitude FROM {_gps_atuais} pa
+                 WHERE {_pn('pa.placa')} = {_pn("COALESCE(NULLIF(c.carreta1_placa,''), c.cavalo_placa)")}
+                 ORDER BY pa.data_posicao DESC LIMIT 1)""")
 
     sql = f"""
         SELECT c.id, c.numero, c.status, c.tipo_operacao, c.viagem_vazia,
@@ -6585,10 +6619,7 @@ def api_embarques_cargas_list():
                -- so `carreta1_placa` devolvia NULL em todo truck, e NULL alarma: os 29 trucks
                -- da base (todos com saida pelo GPS) apareciam como "carreta sem GPS".
                -- Desengatada segue so na carreta: o cavalo foi liberado (apenas_carreta).
-               (SELECT EXTRACT(EPOCH FROM ((NOW() AT TIME ZONE 'UTC') - pa.data_posicao)) / 3600.0
-                  FROM embarques_posicoes_atuais pa
-                 WHERE {_pn('pa.placa')} = {_pn(_placa_mede)}
-                 ORDER BY pa.data_posicao DESC LIMIT 1) AS rastreio_carreta_idade_h,
+               {_idade_sql} AS rastreio_carreta_idade_h,
                (NULLIF(trim(c.carreta1_placa),'') IS NULL) AS rastreio_sem_carreta,
                -- Posicao ATUAL da placa que mede (carreta, com o cavalo de reserva). Serve
                -- para separar dois casos que hoje moram no mesmo balde 'Aberta' e pedem
@@ -6597,12 +6628,8 @@ def api_embarques_cargas_list():
                -- cuja PLACA NUNCA ESTEVE NA ORIGEM, que e documento errado — o aferidor
                -- conta 22 dessas (V1). Le `embarques_posicoes_atuais`, uma linha por placa:
                -- nao varre historico, entao nao pesa na tela do operacional.
-               (SELECT pa.latitude FROM embarques_posicoes_atuais pa
-                 WHERE {_pn('pa.placa')} = {_pn("COALESCE(NULLIF(c.carreta1_placa,''), c.cavalo_placa)")}
-                 ORDER BY pa.data_posicao DESC LIMIT 1) AS _pos_lat,
-               (SELECT pa.longitude FROM embarques_posicoes_atuais pa
-                 WHERE {_pn('pa.placa')} = {_pn("COALESCE(NULLIF(c.carreta1_placa,''), c.cavalo_placa)")}
-                 ORDER BY pa.data_posicao DESC LIMIT 1) AS _pos_lng,
+               {_lat_sql} AS _pos_lat,
+               {_lng_sql} AS _pos_lng,
                c.origem_latitude AS _org_lat, c.origem_longitude AS _org_lng,
                (
                  SELECT string_agg(d.cidade || '/' || d.uf, '; ' ORDER BY d.ordem)
@@ -7501,8 +7528,9 @@ def api_rastreamento_posicoes():
     eh_rizza = args.get('eh_rizza')
     q = (args.get('q') or '').strip()
 
+    _cg = get_db(); _curg = _cg.cursor(); _gps_atuais = fontes_gps.atuais(_curg); _curg.close(); _cg.close()
     base_join = f"""
-        FROM embarques_posicoes_atuais p
+        FROM {_gps_atuais} p
         LEFT JOIN embarques_veiculos_rastreio v ON v.placa = p.placa
         LEFT JOIN LATERAL (
             SELECT id, numero, status, cliente_nome, motorista_nome, cavalo_proprietario, cavalo_eh_rizza,
@@ -7792,10 +7820,10 @@ def api_rastreamento_trajeto(carga_id):
             # ANY(grafias): a posição é gravada na grafia CRUA da 3S (42 das 94
             # placas vêm na antiga) e a carga pode estar em Mercosul. Com
             # igualdade exata o trajeto vinha vazio e o mapa mostrava 0 km.
-            cur.execute("""
+            cur.execute(f"""
                 SELECT data_posicao, latitude, longitude, velocidade, ignicao, cidade, uf,
                        odometer
-                FROM embarques_posicoes_historico
+                FROM {fontes_gps.historico(cur)} h
                 WHERE placa = ANY(%s) AND data_posicao BETWEEN %s AND %s
                 ORDER BY data_posicao
             """, (placas.grafias(placa), inicio, fim))
@@ -8185,8 +8213,8 @@ def api_rastreamento_trajeto(carga_id):
         if _fechada_sem_prova:
             _rvp0 = str((rastreado_via or {}).get('placa') or '').strip().upper()
             if _rvp0:
-                cur.execute("""SELECT data_posicao, latitude, longitude, velocidade, cidade, uf
-                                 FROM embarques_posicoes_historico
+                cur.execute(f"""SELECT data_posicao, latitude, longitude, velocidade, cidade, uf
+                                 FROM {fontes_gps.historico(cur)} h
                                 WHERE placa = ANY(%s) AND data_posicao > %s
                                 ORDER BY data_posicao""",
                             (placas.grafias(_rvp0), carga['data_conclusao']))
@@ -8198,9 +8226,9 @@ def api_rastreamento_trajeto(carga_id):
         if (not carga.get('data_conclusao')) or _fechada_sem_prova:
             _rvp = str((rastreado_via or {}).get('placa') or '').strip().upper()
             if _rvp:
-                cur.execute("""
+                cur.execute(f"""
                     SELECT data_posicao, latitude, longitude, velocidade, ignicao, cidade, uf
-                      FROM embarques_posicoes_atuais WHERE placa = ANY(%s)
+                      FROM {fontes_gps.atuais(cur)} pa WHERE placa = ANY(%s)
                      ORDER BY data_posicao DESC LIMIT 1
                 """, (placas.grafias(_rvp),))
                 _pa = cur.fetchone()

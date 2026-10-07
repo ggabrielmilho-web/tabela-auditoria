@@ -1035,9 +1035,10 @@ def _serie_destino(cur, placa, dla, dln, desde, ate_dias=45, origem=None):
     uma carga esquecida em aberto arrastaria o histórico inteiro da placa toda madrugada."""
     if not placa:
         return []
-    cur.execute("""
+    import fontes_gps
+    cur.execute(f"""
         SELECT data_posicao, latitude, longitude, velocidade
-          FROM embarques_posicoes_historico
+          FROM {fontes_gps.historico(cur)} h
          WHERE placa = ANY(%s) AND data_posicao >= %s AND data_posicao < %s
          ORDER BY data_posicao
     """, (_placas.grafias(str(placa).strip().upper()), desde, desde + timedelta(days=ate_dias)))
@@ -1291,6 +1292,21 @@ def executar(dia=None, dry_run=False, token=None, conn=None):
     fechou_conn = conn is None
     conn = conn or get_db()
     cur = conn.cursor()
+    # TERCEIRO só com SM na Insignia (06/10/26, HANDOFF-INSIGNIA §8). Só age se Terceiro estiver
+    # em EMBARQUES_AUTO_TIPOS. A SM é o que dá GPS ao terceiro (a 3S não o vê), e 75% dos
+    # manifestos de terceiro nunca têm o seguinte da mesma carreta: sem SM a carga nasceria
+    # 'Aberta' e nada a tiraria de lá. Só 4 de 19 terceiros de 02–06/10 tinham SM.
+    if any(c['tipo_operacao'] == 'Terceiro' for c in cargas):
+        import fontes_gps
+        _ficam = []
+        for c in cargas:
+            if c['tipo_operacao'] == 'Terceiro' and not fontes_gps.tem_sm(
+                    cur, (c.get('cavalo') or {}).get('placa'), (c.get('carreta1') or {}).get('placa'),
+                    c['data_carregamento']):
+                descartes['Terceiro sem SM na Insignia'] += 1
+                continue
+            _ficam.append(c)
+        cargas = _ficam
     resumo = {'ok': True, 'janela': [ini.isoformat(), fim.isoformat()],
               'manifestos': len(manifestos), 'candidatas': len(cargas),
               'criadas': 0, 'puladas': Counter(), 'descartes': descartes,

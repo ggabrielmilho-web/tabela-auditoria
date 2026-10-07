@@ -204,6 +204,9 @@ CREATE TABLE IF NOT EXISTS insignia_locais (
     atualizado_em   TIMESTAMP NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_insignia_locais_cnpj ON insignia_locais (cnpj);
+-- odômetro que NÃO varia com o veículo andando (06/10/26: AXT6E87 manda 1043208320 sempre).
+-- Marcado pela coleta; `fontes_gps` não usa o odômetro dessa placa.
+ALTER TABLE insignia_placas ADD COLUMN IF NOT EXISTS odometro_travado BOOLEAN;
 """
 
 
@@ -368,6 +371,23 @@ def _gravar_paradas(cur, placa, serial, paradas, agora):
     return n
 
 
+def marcar_odometro(cur, agora):
+    """Marca a placa cujo odômetro NÃO anda com o veículo andando — aparelho que não reporta
+    (AXT6E87, 06/10/26: o mesmo 1043208320 por 531 km). Critério: nas últimas 24 h, ≥ 20 pontos
+    EM MOVIMENTO (> 10 km/h) e no máximo 2 valores distintos de odômetro (zeros fora). Parado
+    não conta: odômetro constante com o caminhão parado é o certo. Uma vez por rodada, para a
+    camada de leitura não varrer histórico a cada consulta."""
+    cur.execute("""
+        UPDATE insignia_placas pl SET odometro_travado = x.travado
+          FROM (SELECT placa_chave,
+                       count(*) FILTER (WHERE velocidade > 10 AND odometro <> 0) >= 20
+                       AND count(DISTINCT odometro) FILTER (WHERE velocidade > 10 AND odometro <> 0) <= 2 AS travado
+                  FROM insignia_posicoes WHERE em >= %s GROUP BY 1) x
+         WHERE x.placa_chave = pl.placa_chave
+           AND pl.odometro_travado IS DISTINCT FROM x.travado""", (agora - timedelta(hours=24),))
+    return cur.rowcount
+
+
 # ── a rodada ────────────────────────────────────────────────────────────────────
 def rodada(conn, agora=None, paradas_min=None, backfill_dias=None):
     """Uma rodada completa. Cada bloco tem o próprio try: falha em um não impede os outros
@@ -410,8 +430,17 @@ def rodada(conn, agora=None, paradas_min=None, backfill_dias=None):
         conn.rollback()
         r['erros'].append(f'viagens: {exc}')
 
-    # 2. posição + odômetro de todas as placas das SMs abertas (cavalo e carretas)
+    # 2. posição + odômetro de todas as placas das SMs abertas (cavalo e carretas) — e do CAVALO
+    #    das SMs encerradas há menos de INSIGNIA_POS_SM_H (48 h). Teste de 06/10/26: depois que a
+    #    SM fecha, parte dos veículos continua visível (LPX-4J71 respondeu no dia seguinte) e parte
+    #    vira ER0121 (DPB-4G53, ESU-8J86). Quem continua visível fecha a carga pela regra de hoje
+    #    (saiu do destino / 24 h lá); quem fica mudo é o que o motor conclui pelo FIM DE VIAGEM
+    #    (`fontes_gps.encerramento_sm`). Sem seguir a placa, toda SM encerrada pareceria muda.
     try:
+        cur.execute("""SELECT placa_cavalo FROM insignia_sm
+                        WHERE encerrada_em IS NOT NULL AND encerrada_em >= %s AND placa_cavalo IS NOT NULL""",
+                    (agora - timedelta(hours=int(os.getenv('INSIGNIA_POS_SM_H', '48'))),))
+        placas_abertas += [x[0] for x in cur.fetchall()]
         placas_u = sorted({I.placa_api(p) for p in placas_abertas})
         for i in range(0, len(placas_u), 50):
             for p in I.posicoes(placas_u[i:i + 50]):
@@ -434,6 +463,13 @@ def rodada(conn, agora=None, paradas_min=None, backfill_dias=None):
     except Exception as exc:
         conn.rollback()
         r['erros'].append(f'posicoes: {exc}')
+
+    try:
+        marcar_odometro(cur, agora)
+        conn.commit()
+    except Exception as exc:
+        conn.rollback()
+        r['erros'].append(f'odometro: {exc}')
 
     # 3. rota planejada das SMs que ainda não têm
     try:
