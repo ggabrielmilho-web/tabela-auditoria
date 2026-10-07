@@ -457,6 +457,7 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 | `EMBARQUES_SAIDA_DESTINO_COERENTE` | LAB 07/10 — saída do destino medida no mesmo aparelho da chegada e relativa à parada de metrópole | `false` |
 | `EMBARQUES_CONCLUSAO_TRAVADA` | LAB 07/10 — reescreve a conclusão travada na chegada (43/45 prematuras) | `false` |
 | `EMBARQUES_LAB_MEDIR_CONCLUSAO` | só instrumento de laboratório | `false` |
+| `EMBARQUES_PERNA_CONTINUACAO` | a rederivação cancela a perna vazia cuja carga A foi ligada DEPOIS a uma continuação e cuja carga B é essa continuação (a perna não existiu) | `false` |
 
 ### Lançamento automático de embarques (robô do manifesto SSW)
 | Variável | Descrição | Default |

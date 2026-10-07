@@ -85,8 +85,10 @@ cur.execute("""SELECT c.id, c.numero, c.carreta1_placa, c.data_carregamento,
                   AND c.carreta1_placa IS NOT NULL AND c.carreta1_placa <> ''
                 ORDER BY c.carreta1_placa, c.data_carregamento, c.id""")
 por_car = defaultdict(list)
+REAL = {}                                       # numero -> (id, continua_em) das cargas reais
 for r in cur.fetchall():
     por_car[pl.mercosul(r[2]) or r[2]].append(r)
+    REAL[r[1]] = (r[0], r[8])
 # a ORDER BY do SQL é pelo TEXTO da placa: com as duas grafias da mesma carreta a ordem por
 # data quebrava entre os dois blocos (03/10/2026)
 for _l in por_car.values():
@@ -108,7 +110,7 @@ for car, lst in por_car.items():
 # ── as pernas existentes
 cur.execute("""SELECT c.id, c.numero, c.carreta1_placa, c.data_carregamento,
                       c.data_saida_real, c.inicio_viagem, c.data_conclusao,
-                      c.origem_cidade, d.cidade, c.distancia_planejada_km, c.observacoes
+                      c.origem_cidade, d.cidade, c.distancia_planejada_km, c.observacoes, c.status
                  FROM embarques_cargas c
                  LEFT JOIN LATERAL (SELECT cidade FROM embarques_cargas_destinos x
                                      WHERE x.carga_id = c.id ORDER BY x.ordem LIMIT 1) d ON TRUE
@@ -119,7 +121,42 @@ PERNAS = cur.fetchall()
 
 resumo, mudancas, detalhe = Counter(), [], []
 
-for pid, num, car, dcar, dsai, iviag, dconc, org, dst, dist, obs in PERNAS:
+# PERNA DE CONTINUACAO (07/10/26) — atras de EMBARQUES_PERNA_CONTINUACAO.
+# Quando a carga A e ligada a uma continuacao (§24: outro cavalo levou a MESMA carreta com a MESMA
+# mercadoria) depois de a perna A -> B ja ter nascido, e B e justamente essa continuacao, a perna
+# nao existiu: a carreta nunca ficou vazia. O gerador deixa de criar perna para carga ligada, mas
+# a que ja existia ficava. Medido em producao em 07/10: 7 pernas assim (6.485 km de km vazio
+# fabricado) — 6 do lote retroativo de 11/09 e a V-335 (a ligacao da C-1275 so chegou depois do
+# conserto do 455 na virada do mes). Status `Cancelada` (a perna some das contas, a historia
+# fica no log); so quando a B da perna e EXATAMENTE a continuacao de A (a V-101, cuja B e outra
+# carga, fica).
+import re as _re
+PERNA_CONT = os.getenv('EMBARQUES_PERNA_CONTINUACAO', 'false').lower() in ('1', 'true', 'sim')
+MOTIVO_CONT = 'CANCELADA: a carga A seguiu na carreta (continuacao) — a perna nao existiu'
+
+
+def _perna_de_continuacao(obs):
+    m = _re.search(r'Vazia reconstruida:\s*(C-\d{4}-\d{6})\s*->\s*(C-\d{4}-\d{6})', obs or '')
+    if not m:
+        return None
+    a, b = REAL.get(m.group(1)), REAL.get(m.group(2))
+    return (m.group(1), m.group(2)) if a and b and a[1] is not None and a[1] == b[0] else None
+
+
+for pid, num, car, dcar, dsai, iviag, dconc, org, dst, dist, obs, pst in PERNAS:
+    if PERNA_CONT and pst != 'Cancelada':
+        _pc = _perna_de_continuacao(obs)
+        if _pc:
+            resumo['PERNAS CANCELADAS: A seguiu em B (continuacao)'] += 1
+            mudancas.append((pid, num, {'status': 'Cancelada',
+                                        'observacoes': ((obs + ' | ') if obs else '') + MOTIVO_CONT}))
+            detalhe.append({'perna': num, 'situacao': 'cancelada: continuacao', 'de': _pc[0], 'para': _pc[1],
+                            'ini_atual': str(dsai or iviag)[:16], 'ini_novo': '',
+                            'fim_atual': str(dconc)[:16], 'fim_novo': ''})
+            continue
+    if PERNA_CONT and pst == 'Cancelada':
+        resumo['ja cancelada — nao se rederiva'] += 1
+        continue
     if not car:
         resumo['sem carreta — nao se pareia'] += 1
         continue
@@ -233,9 +270,9 @@ if not A.aplicar:
 n = 0
 for pid, num, campos in mudancas:
     cur.execute("""SELECT data_carregamento, data_saida_real, inicio_viagem, data_conclusao,
-                          observacoes FROM embarques_cargas WHERE id=%s""", (pid,))
+                          observacoes, status FROM embarques_cargas WHERE id=%s""", (pid,))
     antes = dict(zip(['data_carregamento', 'data_saida_real', 'inicio_viagem', 'data_conclusao',
-                      'observacoes'], cur.fetchone()))
+                      'observacoes', 'status'], cur.fetchone()))
     sets = ', '.join(f'{k}=%s' for k in campos)
     cur.execute(f"UPDATE embarques_cargas SET {sets}, atualizado_em=NOW() WHERE id=%s",
                 list(campos.values()) + [pid])

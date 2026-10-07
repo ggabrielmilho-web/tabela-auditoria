@@ -7309,7 +7309,9 @@ def api_embarques_kpis():
               COUNT(*) FILTER (WHERE status = 'Desengatada')            AS desengatadas,
               -- Vazias do mes: o km de reposicionamento que fechou no periodo. Conta pela
               -- `data_conclusao` igual as entregues, para as duas falarem do mesmo mes.
-              COUNT(*) FILTER (WHERE COALESCE(viagem_vazia, FALSE)
+              -- Perna CANCELADA nao conta: e a perna que nao existiu (a carga A seguiu na mesma
+              -- carreta — continuacao, 07/10/26). Antes o card a somava como km vazio.
+              COUNT(*) FILTER (WHERE COALESCE(viagem_vazia, FALSE) AND status <> 'Cancelada'
                                AND date_trunc('month', data_conclusao) = date_trunc('month', (NOW() AT TIME ZONE 'America/Sao_Paulo')::date)) AS vazias_mes
             FROM embarques_cargas
         """)

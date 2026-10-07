@@ -576,3 +576,74 @@ transação com ROLLBACK — nada gravado. Escopo `terceiro`.
   `Desengatada` só a carreta). Chave desligada ou F/A: o SQL de sempre, por construção (o ramo padrão é o texto
   antigo). Gate pela rota real, 1.002 cargas, chave OFF × ON (`lab/lista_gate.py`): **mudam só os 5 terceiros**
   (F/A só +0,1 h de relógio entre as rodadas); a C-1406 deixa de ser "rastreio defasado" (idade 3,3 h).
+
+### 15.9 Produção — o pacote 1 no ar (07/10/2026, tarde)
+
+`8f1e9dd` deployado; ligados pela CLI: `EMBARQUES_FONTE_INSIGNIA=true` (escopo `terceiro`) +
+`EMBARQUES_AUTO_TIPOS=Frota,Agregado,Terceiro`, depois `EMBARQUES_SM_ENCERRAMENTO=true`. Snapshot antes.
+Nasceram 3 terceiros (os de 02/10 ficam fora — a janela de produção começa em 03/10): C-1406 (NWD) e C-1407
+(RYR) com saída/chegada **iguais às do lab**; C-1405 (DPB) fechada primeiro por `manifesto_novo` (07/10 00:00) e,
+com a SM ligada, corrigida para chegada 05/10 14:14 UTC (`macro_insignia`, ABERTURA DE BAÚ) e conclusão 18:08 UTC
+(`sm_encerrada`) — exatamente o lab. Escritas em F/A nas 3 h seguintes: progressão normal (cargas novas,
+chegadas, conclusões por 24 h), nenhuma carga antiga reescrita.
+
+**A C-1406 ensinou uma coisa sobre a regra da SM.** A GR encerrou a SM 35 min depois da chegada (14:04 → 14:39
+BRT) e o caminhão SEGUIU PARADO no cliente (a tela mostrou posição "há 2 min" no destino, 22 h depois). Como a
+coleta passou a seguir a placa depois da SM (`INSIGNIA_POS_SM_H`, entrou neste deploy), a placa "continua
+posicionando" e a régua de hoje decide (24 h no destino) — o certo. Sem o seguimento ela teria fechado 35 min
+depois de chegar. Lição: encerramento de SM colado na chegada merece a mesma desconfiança do FIM colado na
+chegada (§15.4); a conclusão pela SM só deve valer quando a placa de fato some. Medir com mais casos.
+(Eu cheguei a propor "muda = sem ponto nas 2 h depois do encerramento" — retirado: os 21 h sem ponto eram a
+coleta que ainda não seguia a placa, não o caminhão mudo.)
+
+KM RASTREADOR "—" nos terceiros: `EMBARQUES_FONTE_INSIGNIA_ODOMETRO` segue desligada (validada no lab, §11–§12).
+Cidade da posição atual "—/—": a Insignia não manda cidade, só referência em texto.
+
+### 15.10 A V-2026-000335 e a virada do mês no 455 (07/10/2026, noite)
+
+Perna vazia sem GPS nenhum (Parnamirim → Vitória da Conquista, 12,6 h, 1.460 km) investigada com o Gabriel:
+- **A perna não existiu.** C-1275 (CYB3713 + QXC5834, Jundiaí → Parnamirim) parou em Dantilândia/BA (05–07/10);
+  o QQA7443 engatou a carreta lá (Insignia: parado no MESMO ponto 07/10 14:30–16:42 UTC) e seguiu como C-1409
+  para Parnamirim — mesmo peso (9.953 kg) e valor (R$ 375.010,15) nos dois manifestos = mesma mercadoria.
+  A C-1275 tinha sido fechada por `manifesto_novo` e o gerador fabricou a perna entre A e B.
+- **Por que não ligou: o 455 só pedia "dia 1º até hoje".** O carregador apaga e regrava o período; o CTe de
+  30/09 (NOD007635-0) nunca mais foi relido depois de 01/10, e o BI ficou com o último manifesto velho enquanto
+  o SSW já tinha UDI029530-2 (provado baixando o 455 de 30/09 a 07/10 no banco local). Idem NOD007638-4
+  (C-1282 → C-1350). Levantamento de todos os robôs: o 073 tinha o mesmo defeito (upsert, CTRB não relido);
+  916 e 031 têm "dia 1º" com impacto baixo; o 0157 já tratava a virada; os demais pegam ano ou base inteira.
+- **Corrigido no servidor** (`C:\Automacoes\SSW_Python`, troca feita pelo Gabriel): 455 e 073 com
+  `min(dia 1º, hoje − 10 dias)` — a regra do `ssw_0157_leitor.periodo_extracao`. Simulado em 730 dias (máx. 31
+  dias de janela, nunca menos que a regra antiga) e rodado de verdade sem argumentos (local: 455 apagou 485 e
+  inseriu 669 sem duplicar; 073 upsert sem duplicar). Em produção a carga das 16:22 começou em 28/09, os dois
+  CTes passaram a UDI029530-2 / UDI029494-2 e a rodada seguinte ligou **C-1275 → C-1409** e **C-1282 → C-1350**
+  e preencheu o cliente de 6 cargas. Armadilha: o 455 que estava no servidor NÃO tinha o modo de período por
+  argumento — `python "ssw_relatorio 455.py" 30/09/2026 07/10/2026` foi ignorado e rodou 01/10.
+- **Pernas fabricadas por continuação, canceladas** (snapshot `snap_20261007_1937`; log autor
+  `Correcao (continuacao)`): V-027, V-033, V-067, V-069, V-118, V-120, V-335 — em todas a carga B da perna É a
+  continuação de A; **6.485 km de km vazio que não existiu**. O motor e a rederivação ignoram `Cancelada`; o
+  gerador conta a cancelada na trava anti-duplicata, então não recria.
+- **Pendentes:** V-2026-000101 (C-641 → C-657, mas a continuação da C-641 é a C-684 — investigar); regra na
+  rederivação para retirar sozinha a perna cuja carga A é ligada depois (laboratório).
+- **Perna vazia pelo cavalo** (pergunta do Gabriel, `_estudo_2026-10-07/perna_cavalo.py`, 306 pernas): quando o
+  cavalo passa pelas duas pontas na janela ele nunca errou (51/51 com a carreta concordando); o risco é o cavalo
+  de B, que pode ter vindo de outro lugar buscar a carreta (2 de 5). A regra do mapa (§17.3 nº 3: cavalo só se
+  fez a perna) é a certa e já existe; ganho hoje pequeno (5 de 48 pernas com carreta cega) — cresce com a Insignia.
+
+### 15.11 Perna de continuação cancelada sozinha — `EMBARQUES_PERNA_CONTINUACAO` (07/10/2026)
+
+Medido em produção (37 continuações ligadas): 21 ligam na MESMA rodada em que a carga B nasce (0,0 h — a
+ligação vem antes do gerador de pernas, então nunca há perna fabricada); 14 ligaram dias depois, todas no lote
+retroativo de 11/09; a C-1282 (86 h) e a C-1275 foram a virada do mês no 455. Esperar para gerar a perna não
+mudaria nada no caso normal → a rede certa é desfazer quando a ligação chega atrasada.
+
+`_rederivar_vazias.py`, atrás de `EMBARQUES_PERNA_CONTINUACAO` (nasce desligada): perna cuja carga A tem
+`continua_em` e cuja carga B (da observação "Vazia reconstruida: A -> B") é EXATAMENTE essa continuação →
+`Cancelada` + motivo na observação + log (autor `Rederivacao de vazias`). Perna já cancelada não se rederiva.
+Gates (lab `rizza_lab_1007` / clone `_p`): E0 chave off idêntico byte a byte (saída e CSV); chave on cancela
+V-027/033/069/118/120 — as mesmas canceladas à mão — e deixa a V-101; cenário montado (C-1140 ligada à C-1400)
+cancela a V-332; negativo (C-1258 ligada a outra carga) deixa a V-331; 2ª passada 0; `rodar_pos_diario`
+completo com ponto fixo na 1ª rodada, gerador sem recriar nada; aferidor 472 × 472, nenhum achado entrou/saiu.
+Em produção a rederivação olha 28 dias: cobre os casos novos; os antigos já foram cancelados à mão.
+
+**Card "Vazias no mês"** contava perna `Cancelada` (só filtrava `viagem_vazia`) — agora `status <> 'Cancelada'`
+(`api_embarques_kpis`). Lab: 40 → 39 no clone com 1 cancelada, 40 → 40 sem; demais cards iguais.
