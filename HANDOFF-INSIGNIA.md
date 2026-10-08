@@ -647,3 +647,14 @@ Em produção a rederivação olha 28 dias: cobre os casos novos; os antigos já
 
 **Card "Vazias no mês"** contava perna `Cancelada` (só filtrava `viagem_vazia`) — agora `status <> 'Cancelada'`
 (`api_embarques_kpis`). Lab: 40 → 39 no clone com 1 cancelada, 40 → 40 sem; demais cards iguais.
+
+### 15.12 KM PERCORRIDOS "—" em carga recém-saída (08/10/2026)
+
+A 1ª carga de terceiro (C-2026-001417, rota de 1.410 km, 2 h de viagem) mostrou KM PERCORRIDOS e KM RASTREADOR
+"—". Não era a Insignia: a trava de "janela curta" do `_kpi_plausibilidade` (criada em 09/09 para a C-648,
+conclusão fabricada) não olhava se a carga estava FECHADA, e em carga aberta o fim da janela é o agora
+(`server.py`, `fim = ... or utcnow()`) — toda carga em rota ficava sem km durante os primeiros 5% do tempo
+cabível (~4 h numa rota de 1.400 km), terceiro ou não. Conserto: a trava só vale com `concluida`. Gates: função
+isolada (aberta 2 h → mostra; fechada sem chegada → esconde; fechada com chegada → mostra) e KPI pela rota real
+das 333 cargas do lab, código antigo × novo: **0 diferenças**, as 18 escondidas por janela seguem escondidas.
+Junto: `EMBARQUES_FONTE_INSIGNIA_ODOMETRO=true` em produção (o KM RASTREADOR dos terceiros).

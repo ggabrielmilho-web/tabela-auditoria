@@ -7795,7 +7795,7 @@ def _kpi_sanidade(kpi, origem, destinos, concluida=True):
     return kpi
 
 
-def _kpi_plausibilidade(kpi, inicio, fim, km_rota, chegou=True):
+def _kpi_plausibilidade(kpi, inicio, fim, km_rota, chegou=True, concluida=True):
     """Não atribui km quando a JANELA é grande demais para a viagem caber nela.
 
     É a mesma trava que o gerador de viagens vazias já usa (§12.5 do handoff): janela
@@ -7830,7 +7830,13 @@ def _kpi_plausibilidade(kpi, inicio, fim, km_rota, chegou=True):
         #
         # Medido em agosto/setembro: barra 5 cargas (janelas de 0 a 1,1 h para rotas de 24 a
         # 982 km) e não toca em nenhuma com chegada provada.
-        if not chegou and dias < cabivel * 0.05:
+        #
+        # SO EM CARGA FECHADA (08/10/26). Em carga aberta o `fim` e o AGORA, entao a janela e o
+        # tempo de viagem ate aqui — e toda carga recem-saida parecia "conclusao fabricada": a
+        # C-2026-001417 (rota de 1.410 km, 2 h de viagem) mostrava KM PERCORRIDOS "—". A trava
+        # escondia o km de TODA carga em rota durante os primeiros 5% do tempo cabivel (~4 h numa
+        # rota de 1.400 km). O caso que a motivou (C-648) era carga ENTREGUE.
+        if concluida and not chegou and dias < cabivel * 0.05:
             kpi = dict(kpi)
             for campo in ('distancia_km', 'km_odometro'):
                 if kpi.get(campo) is not None:
@@ -8488,7 +8494,8 @@ def api_rastreamento_trajeto(carga_id):
                                   concluida=carga.get('data_conclusao') is not None),
                     carga.get('data_saida_real') or carga.get('inicio_viagem'), fim,
                     carga.get('distancia_planejada_km'),
-                    chegou=carga.get('no_local_desde') is not None),
+                    chegou=carga.get('no_local_desde') is not None,
+                    concluida=carga.get('data_conclusao') is not None),
                 carga.get('distancia_planejada_km'),
                 carga.get('no_local_desde') is not None),
         }
