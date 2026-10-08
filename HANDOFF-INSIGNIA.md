@@ -852,6 +852,11 @@ formal, confirmado: 74 de 76 CTes `SUBC REC FORM LISO`). Fora da regra = ALERTA 
   com valor real). Isenção virou lista (`ISENTOS`, + `EMBARQUES_SM_ISENTOS`). Caso HKE0675 (C-1402): SM 211360
   era Extrema → Uberlândia (perna 1, cavalo HIF2439); a perna 2 com outro cavalo não tem SM na unidade — a
   central provavelmente abriu no cavalo errado; e a GR cadastra o cavalo na grafia antiga (HKE-0675).
+- **Coleta segue também o cavalo da ORDEM DE COLETA** (08/10, `placas_de_cargas`, dentro de `INSIGNIA_COLETA_CARGAS`):
+  OCs abertas que ainda não viraram carga (aguardando manifesto · documento emitido · vencida sem documento), com
+  limite de −1 a +3 dias. Medido: OC antes da saída em 206/229 cargas (mediana 19 h); 196/293 cargas nasciam com o
+  caminhão já fora. +14 cavalos no instante do dump de 08/10. Caso que motivou: C-1436 (saiu 10:08, nosso 1º ponto
+  11:56 a 57 km — só as paradas da GR mostravam a saída). Na C-1436 nem a OC ajudaria: foi cadastrada 11:54.
 - **Placa divergente no cadastro da GR** (08/10): `insignia_coleta.checar_grafia_gr` — placa com ER0022 é perguntada
   1×/dia na OUTRA grafia (antiga × Mercosul); se a GR conhece, grava `insignia_placas.placa_gr` e passa a pedir
   posição/paradas por ela. A aba de SM ganha o RÓTULO "⚠ placa antiga na GR" (`embarques_sm.placa_gr_divergente`,

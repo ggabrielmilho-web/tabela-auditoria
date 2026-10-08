@@ -537,6 +537,22 @@ def placas_de_cargas(cur, agora):
                           AND left(payload->>'data_emissao', 10) >= %s""",
                     (agora - timedelta(days=1), (agora - timedelta(days=dias)).strftime('%Y-%m-%d')))
         pls |= {x[0] for x in cur.fetchall() if x[0]}
+    # Cavalo das ORDENS DE COLETA abertas (08/10/26): a OC vem antes da saída em 90% das cargas (206 de
+    # 229 desde 15/09, mediana 19 h antes) e o manifesto/a carga, em 196 de 293, só depois de o caminhão
+    # sair — sem isto a coleta começa a seguir o cavalo já na estrada e a saída da origem nunca é vista
+    # (C-2026-001436: saiu 10:08, primeiro ponto nosso 11:56 a 57 km). Só OC que ainda não virou carga
+    # (a carga ativa já entra acima), com cavalo, limite de coleta de 1 dia atrás a 3 dias à frente
+    # (carimbos do 157 são hora de Brasília). Em 23% o cavalo da OC não é o da viagem — o do manifesto
+    # entra também, então a OC soma, nunca substitui.
+    cur.execute("SELECT to_regclass('embarques_programacao') IS NOT NULL")
+    if cur.fetchone()[0]:
+        agora_brt = agora - timedelta(hours=3)
+        cur.execute("""SELECT DISTINCT cavalo FROM embarques_programacao
+                        WHERE sumiu_em IS NULL AND COALESCE(cavalo, '') <> ''
+                          AND estado IN ('aguardando manifesto', 'documento emitido', 'vencida sem documento')
+                          AND COALESCE(limite_em, comandada_em, cadastrada_em) BETWEEN %s AND %s""",
+                    (agora_brt - timedelta(days=1), agora_brt + timedelta(days=3)))
+        pls |= {x[0] for x in cur.fetchall() if x[0]}
     return sorted(p for p in pls if _chave(p))
 
 
