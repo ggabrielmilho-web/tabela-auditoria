@@ -1569,6 +1569,163 @@ def api_embarques_sem_ordem():
         conn.close()
 
 
+# ── Conformidade de SM (08/10/26) — `embarques_sm.py` ─────────────────────────────────
+# Uma linha por manifesto: o que a regra da gerenciadora exige (RJ → SM; > R$ 150 mil → SM;
+# terceiro até 150 mil → sinal; Martins isenta) contra o que a Insignia mostra. A tabela é
+# recalculada a cada rodada da fita; a tela só LÊ — exceto a validação do responsável, que é o
+# que valida a régua antes de o alerta de WhatsApp ligar. Abrir SM pela API: preparado, não ligado.
+@app.route('/embarques/sm')
+@page_required('embarques')
+def embarques_sm_page():
+    return send_from_directory('.', 'embarques-sm.html')
+
+
+_SM_UTC = ('saida_real', 'sm_inicio', 'sm_encerrada_em', 'sinal_ultimo', 'calculado_em', 'primeira_vez',
+           'estado_desde', 'sumiu_em', 'validado_em', 'alerta_enviado_em', 'disponibilidade_em', 'sm_solicitada_em')
+
+
+def _sm_json(row):
+    """Carimbos da tabela são UTC sem fuso: vão com 'Z' para o navegador mostrar em Brasília."""
+    out = {}
+    for k, v in row.items():
+        if k in _SM_UTC and v is not None:
+            out[k] = v.isoformat() + 'Z'
+        elif hasattr(v, 'isoformat'):
+            out[k] = v.isoformat()
+        elif v.__class__.__name__ == 'Decimal':
+            out[k] = float(v)
+        else:
+            out[k] = v
+    return out
+
+
+@app.route('/api/embarques/sm')
+@page_required('embarques')
+def api_embarques_sm():
+    import embarques_sm
+    a = request.args
+    conn = get_db(); cur = conn.cursor()
+    try:
+        cur.execute("SELECT to_regclass('embarques_sm') IS NOT NULL")
+        if not cur.fetchone()[0]:
+            return jsonify({'ok': True, 'linhas': [], 'cards': {}, 'atualizado_em': None,
+                            'estados': embarques_sm.ESTADOS, 'limite': embarques_sm.LIMITE_VALOR})
+        where, args = ['1=1'], []
+        if a.get('desde'):
+            where.append('data_emissao >= %s'); args.append(a['desde'])
+        if a.get('ate'):
+            where.append('data_emissao <= %s'); args.append(a['ate'])
+        if a.get('tipo'):
+            where.append('tipo = %s'); args.append(a['tipo'])
+        if a.get('exige'):
+            where.append('exige = %s'); args.append(a['exige'])
+        if a.get('validacao') == 'pendente':
+            where.append("severidade IN ('alerta', 'atencao') AND validacao IS NULL")
+        elif a.get('validacao'):
+            where.append('validacao = %s'); args.append(a['validacao'])
+        if a.get('cancelados') != '1':
+            where.append('sumiu_em IS NULL')
+        if a.get('q'):
+            q = f"%{a['q'].strip().upper()}%"
+            where.append("(manifesto_exibir ILIKE %s OR cavalo ILIKE %s OR carreta ILIKE %s OR motorista ILIKE %s "
+                         "OR carga_numero ILIKE %s OR proprietario ILIKE %s OR CAST(sm AS TEXT) LIKE %s "
+                         "OR cliente ILIKE %s OR oc ILIKE %s OR oc_embarcador ILIKE %s)")
+            args.extend([q] * 10)
+        # cards: os MESMOS filtros, menos estado/severidade — clicar num card não faz os outros sumirem
+        cur.execute(f"SELECT estado, count(*) FROM embarques_sm WHERE {' AND '.join(where)} GROUP BY 1", args)
+        cards = dict(cur.fetchall())
+        cur.execute(f"""SELECT count(*) FROM embarques_sm WHERE {' AND '.join(where)}
+                          AND severidade IN ('alerta', 'atencao') AND validacao IS NULL""", args)
+        cards['_pendentes_validacao'] = cur.fetchone()[0]
+        if a.get('estado'):
+            where.append('estado = ANY(%s)'); args.append(a['estado'].split(','))
+        if a.get('severidade'):
+            where.append('severidade = ANY(%s)'); args.append(a['severidade'].split(','))
+        cur.execute(f"""
+            SELECT manifesto, manifesto_exibir, data_emissao, unidade_origem, cavalo, carreta, motorista, proprietario,
+                   cliente, oc, oc_embarcador, pagador_cnpj,
+                   tipo, tipo_fonte, carga_id, carga_numero, carga_status, saida_real, valor_cte, valor_manifesto,
+                   n_ctes, n_ctes_martins, uf_destinos, rio, exige, motivos, sm, sm_status, sm_inicio,
+                   sm_encerrada_em, sm_conjunto, sm_link, sm_atraso_h, sinal_pontos, sinal_ultimo,
+                   estado, severidade, detalhe, calculado_em, estado_desde, sumiu_em,
+                   validacao, validacao_obs, validado_por, validado_em,
+                   disponibilidade IS NOT NULL AS tem_disponibilidade, sm_solicitada_em
+              FROM embarques_sm WHERE {' AND '.join(where)}
+             ORDER BY CASE severidade WHEN 'alerta' THEN 0 WHEN 'atencao' THEN 1 WHEN 'pendente' THEN 2 ELSE 3 END,
+                      data_emissao DESC, manifesto_exibir""", args)
+        cols = [d[0] for d in cur.description]
+        linhas = [_sm_json(dict(zip(cols, r))) for r in cur.fetchall()]
+        cur.execute("SELECT max(calculado_em) FROM embarques_sm")
+        atual = cur.fetchone()[0]
+        return jsonify({'ok': True, 'linhas': linhas, 'cards': cards,
+                        'atualizado_em': atual.isoformat() + 'Z' if atual else None,
+                        'estados': embarques_sm.ESTADOS, 'limite': embarques_sm.LIMITE_VALOR,
+                        # a coluna "Ação" da tela já existe; abrir SM pela API entra quando isto virar True
+                        'solicitar_sm_ligado': False})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+    finally:
+        cur.close(); conn.close()
+
+
+@app.route('/api/embarques/sm/<manifesto>')
+@page_required('embarques')
+def api_embarques_sm_detalhe(manifesto):
+    conn = get_db(); cur = conn.cursor()
+    try:
+        cur.execute("SELECT * FROM embarques_sm WHERE manifesto = %s", (manifesto,))
+        r = cur.fetchone()
+        if not r:
+            return jsonify({'ok': False, 'error': 'manifesto não encontrado'}), 404
+        linha = _sm_json(dict(zip([d[0] for d in cur.description], r)))
+        # as SMs da unidade com o mesmo cavalo ou carreta, ±5 dias — para o responsável ver o que existe
+        sms = []
+        cur.execute("SELECT to_regclass('insignia_sm') IS NOT NULL")
+        if cur.fetchone()[0]:
+            cur.execute("""SELECT sm, placa_cavalo, carretas, condutor_nome, status, valor_carga, criada_em, inicio,
+                                  encerrada_em, link_sm
+                             FROM insignia_sm
+                            WHERE (placa_cavalo_chave = %s OR %s = ANY(string_to_array(COALESCE(carretas_chave, ''), ',')))
+                              AND COALESCE(criada_em, inicio) BETWEEN %s::date - 5 AND %s::date + 6
+                            ORDER BY COALESCE(criada_em, inicio)""",
+                        (linha['cavalo'] or '', linha['carreta'] or '', linha['data_emissao'], linha['data_emissao']))
+            for s in cur.fetchall():
+                sms.append({'sm': s[0], 'cavalo': s[1], 'carretas': s[2], 'condutor': s[3], 'status': s[4],
+                            'valor': float(s[5]) if s[5] is not None else None,
+                            'criada_em': s[6].isoformat() + 'Z' if s[6] else None,
+                            'inicio': s[7].isoformat() + 'Z' if s[7] else None,
+                            'encerrada_em': s[8].isoformat() + 'Z' if s[8] else None, 'link': s[9]})
+        # a mesma SM casada com outro manifesto (continuação, ou SM da viagem vizinha)
+        outros = []
+        if linha.get('sm'):
+            cur.execute("SELECT manifesto, manifesto_exibir, data_emissao, estado FROM embarques_sm "
+                        "WHERE sm = %s AND manifesto <> %s ORDER BY data_emissao", (linha['sm'], manifesto))
+            outros = [{'manifesto': o[0], 'exibir': o[1], 'data': o[2].isoformat(), 'estado': o[3]} for o in cur.fetchall()]
+        cur.execute("SELECT em, autor, campo, antes, depois FROM embarques_sm_log WHERE manifesto = %s ORDER BY em DESC LIMIT 50",
+                    (manifesto,))
+        log = [{'em': l[0].isoformat() + 'Z', 'autor': l[1], 'campo': l[2], 'antes': l[3], 'depois': l[4]} for l in cur.fetchall()]
+        return jsonify({'ok': True, 'linha': linha, 'sms': sms, 'mesma_sm': outros, 'log': log})
+    finally:
+        cur.close(); conn.close()
+
+
+@app.route('/api/embarques/sm/<manifesto>/validacao', methods=['POST'])
+@page_required('embarques')
+def api_embarques_sm_validar(manifesto):
+    import embarques_sm
+    d = request.get_json(silent=True) or {}
+    conn = get_db()
+    try:
+        embarques_sm.validar(conn, manifesto, (d.get('validacao') or '').strip(), d.get('obs'), session.get('nome'))
+        return jsonify({'ok': True})
+    except KeyError:
+        return jsonify({'ok': False, 'error': 'manifesto não encontrado'}), 404
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    finally:
+        conn.close()
+
+
 @app.route('/embarques/torre')
 @page_required('embarques')
 def embarques_torre_page():

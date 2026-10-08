@@ -33,6 +33,9 @@
     // Manifestos que saíram sem ordem de coleta (pedido do gerente, 06/10/26). Mesma
     // permissão das Coletas. 📭 é Emoji 1.0 (glifo no Windows 10).
     { id: 'semordem',      page: 'embarques',     href: '/embarques/sem-ordem', label: '📭 Sem ordem' },
+    // Conformidade de SM com a regra da gerenciadora (08/10/26). Mesma permissão de Embarques.
+    // 🛡 é Emoji 1.0 (glifo no Windows 10).
+    { id: 'sm',            page: 'embarques',     href: '/embarques/sm',      label: '🛡 SM' },
     // Torre de controle (25/09/26): o "agora" da operação num painel só — estoque, fluxo do
     // dia, frota, exceções. Mesma permissão de Embarques; painel igual para todos.
     { id: 'torre',         page: 'embarques',     href: '/embarques/torre',   label: '🛰️ Torre' },
@@ -72,7 +75,7 @@
   // Grupos da barra E dos cards do /inicio — uma lista só, para os dois não divergirem
   // no dia em que alguém mover uma aba de grupo.
   var GRUPOS = [
-    { nome: 'Operação',   abas: ['torre', 'embarques', 'ordens', 'semordem', 'mapa', 'pgr', 'jornada', 'ciot', 'veiculos', 'verda'] },
+    { nome: 'Operação',   abas: ['torre', 'embarques', 'ordens', 'semordem', 'sm', 'mapa', 'pgr', 'jornada', 'ciot', 'veiculos', 'verda'] },
     { nome: 'Comercial',  abas: ['tarifas', 'faturamento', 'contratos'] },
     { nome: 'Financeiro', abas: ['auditoria', 'dre', 'projecao', 'despesas', 'conhecimentos', 'contabil'] },
     { nome: 'Sistema',    abas: ['reuniao', 'admin', 'uso'] }

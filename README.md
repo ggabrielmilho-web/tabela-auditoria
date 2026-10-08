@@ -441,6 +441,22 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 | `PGR_JANELA_DISPARO_MIN` | Tolerância p/ disparar após o horário (restart) | `30` |
 | `BACKFILL_ESPACO_SEG` | Segundos entre chamadas do backfill (~6/min) | `10` |
 
+### Conformidade de SM (`embarques_sm.py`, aba `/embarques/sm`)
+
+Recalculada a cada rodada da fita documental (`EMBARQUES_FITA`) — sem chave própria: só lê o BI e a
+Insignia e grava `embarques_sm` / `embarques_sm_log`. Regra: destino RJ → SM; valor (soma do
+`valor_mercadoria` dos CTes) > limite → SM; Terceiro até o limite → sinal do cavalo na GR;
+Frota/Agregado até o limite → nada; Martins (pagador raiz 18485037) isenta.
+
+| Variável | Descrição | Default |
+|---|---|---|
+| `EMBARQUES_SM_LIMITE_VALOR` | limite de valor da carga que exige SM | `150000` |
+| `EMBARQUES_SM_SM_DESDE` | antes disso, manifesto sem SM achada é "sem dado" (a coleta de SM começou 05/10/26) | `2026-10-06` |
+| `EMBARQUES_SM_SINAL_DESDE` | idem para o sinal do cavalo sem SM (`INSIGNIA_COLETA_CARGAS` desde 08/10/26) | `2026-10-08` |
+
+Backfill / conferência à mão: `python -X utf8 embarques_sm.py --desde AAAA-MM-DD` (lê o BI, grava a tabela).
+Abrir SM pela API: **preparado, não ligado** (colunas e lugar na tela já existem; o embarcador da viagem é o CNPJ do pagador do frete, `pagador_cnpj`). Alerta por WhatsApp: fora por ora — só as colunas `alerta_*` reservadas.
+
 ### Insignia GR (coleta — `insignia_coleta.py`)
 | Variável | Descrição | Default |
 |---|---|---|
@@ -645,6 +661,12 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 - `POST /api/admin/users` — cria usuário
 - `PATCH /api/admin/users/<id>` — atualiza usuário
 - `DELETE /api/admin/users/<id>` — remove usuário
+
+### Conformidade de SM (`@page_required('embarques')`)
+- `GET /embarques/sm` — a aba
+- `GET /api/embarques/sm?desde=&ate=&estado=&severidade=&tipo=&exige=&validacao=&q=&cancelados=1` — linhas + cards por estado (os cards ignoram o filtro de estado/severidade)
+- `GET /api/embarques/sm/<manifesto>` — detalhe: CTes, SMs da unidade com o mesmo cavalo/carreta (±5 d), a mesma SM em outro manifesto, histórico
+- `POST /api/embarques/sm/<manifesto>/validacao` `{validacao: confirmado|falso_alerta|justificado|'', obs}` — validação do responsável, com log
 
 ### Embarques (todos sob `@login_required`)
 - `GET /api/embarques/motoristas` — motoristas (`public motoristas_047` via DAX, cache 5min). CPF é a chave única

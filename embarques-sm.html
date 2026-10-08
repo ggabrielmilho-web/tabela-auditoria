@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Conformidade de SM — Rizza Log</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%2338bdf8'/%3E%3Ctext x='50' y='72' font-family='Arial,sans-serif' font-size='68' font-weight='900' text-anchor='middle' fill='%230a0e17'%3ER%3C/text%3E%3C/svg%3E">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0e17; --surface: #111827; --surface2: #1a2235; --border: #1e293b;
+    --text: #e2e8f0; --text-dim: #94a3b8; --accent: #38bdf8; --accent2: #818cf8;
+    --green: #34d399; --red: #f87171; --orange: #fb923c; --yellow: #fbbf24; --gray: #64748b;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+  .dashboard { padding: 20px; max-width: 1800px; margin: 0 auto; animation: fadeUp 0.4s ease; }
+  .top-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; flex-wrap: wrap; gap: 12px; }
+  .top-bar h1 { font-size: 1.35rem; font-weight: 700; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .meta { font-size: 0.78rem; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; }
+  .btn-sm { padding: 8px 16px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); font-family: 'DM Sans', sans-serif; font-weight: 500; font-size: 0.82rem; border-radius: 8px; cursor: pointer; text-decoration: none; display: inline-block; }
+  .btn-sm:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-sm:disabled { opacity: .45; cursor: not-allowed; border-color: var(--border); color: var(--text-dim); }
+  .btn-pri { background: rgba(56,189,248,0.15); border-color: rgba(56,189,248,0.4); color: var(--accent); }
+
+  /* a regra, sempre à vista */
+  .regra { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 10px 14px; margin-bottom: 14px; font-size: 0.78rem; }
+  .regra .r-tit { color: var(--text-dim); font-weight: 600; text-transform: uppercase; font-size: 0.68rem; letter-spacing: .05em; margin-right: 4px; }
+  .regra .r { background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 3px 9px; }
+  .regra .r b { color: var(--accent); }
+  .regra .aviso { margin-left: auto; color: var(--yellow); font-size: 0.74rem; }
+
+  /* cards por severidade */
+  .sevcards { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; margin-bottom: 14px; }
+  .sevcard { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; cursor: pointer; transition: border-color .15s, transform .15s; position: relative; overflow: hidden; }
+  .sevcard::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--c); }
+  .sevcard:hover { transform: translateY(-1px); }
+  .sevcard.on { border-color: var(--c); }
+  .sevcard .k { font-size: 0.68rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-dim); font-weight: 600; }
+  .sevcard .v { font-size: 1.9rem; font-weight: 700; font-family: 'JetBrains Mono', monospace; color: var(--c); margin: 2px 0 6px; }
+  .sevcard .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+  .chip { font-size: 0.68rem; padding: 2px 7px; border-radius: 4px; background: var(--surface2); border: 1px solid var(--border); color: var(--text-dim); cursor: pointer; white-space: nowrap; }
+  .chip:hover, .chip.on { border-color: var(--c, var(--accent)); color: var(--text); }
+  .sevcard.alerta { --c: var(--red); } .sevcard.atencao { --c: var(--orange); }
+  .sevcard.pendente { --c: var(--gray); } .sevcard.ok { --c: var(--green); }
+  .sevcard.alerta.pulsa .v { animation: pulsa 1.6s ease-in-out infinite; }
+  @keyframes pulsa { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
+
+  .filtros-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; margin-bottom: 14px; }
+  .filtros-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 12px; align-items: end; }
+  .ff label { display: block; font-size: 0.68rem; color: var(--text-dim); margin-bottom: 4px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em; }
+  .ff input, .ff select { width: 100%; padding: 7px 10px; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 0.8rem; }
+  .ff input[type="date"] { color-scheme: dark; }
+  .ff.chk label { display: flex; gap: 6px; align-items: center; text-transform: none; font-size: 0.78rem; cursor: pointer; margin: 0 0 8px; }
+  .ff.chk input { width: auto; }
+  .botoes { display: flex; gap: 8px; }
+
+  .table-wrapper { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .table-head { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--border); font-size: 0.78rem; color: var(--text-dim); }
+  .table-scroll { overflow-x: auto; max-height: calc(100vh - 420px); min-height: 280px; overflow-y: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.78rem; white-space: nowrap; }
+  thead th { position: sticky; top: 0; background: var(--surface2); padding: 9px 11px; text-align: left; font-weight: 600; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); border-bottom: 1px solid var(--border); z-index: 2; }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover { background: rgba(56,189,248,0.05); }
+  tbody tr.sel { background: rgba(56,189,248,0.10); }
+  tbody tr.sev-alerta td:first-child { box-shadow: inset 3px 0 0 var(--red); }
+  tbody tr.sev-atencao td:first-child { box-shadow: inset 3px 0 0 var(--orange); }
+  td { padding: 8px 11px; border-bottom: 1px solid var(--border); max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
+  .mono { font-family: 'JetBrains Mono', monospace; font-size: 0.74rem; }
+  .dim { color: var(--text-dim); }
+  .num { text-align: right; }
+  .badge { padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; white-space: nowrap; display: inline-block; }
+  .s-alerta { background: rgba(248,113,113,0.16); color: var(--red); }
+  .s-atencao { background: rgba(251,146,60,0.15); color: var(--orange); }
+  .s-pendente { background: rgba(100,116,139,0.18); color: var(--text-dim); }
+  .s-ok { background: rgba(52,211,153,0.13); color: var(--green); }
+  .t-Frota { background: rgba(52,211,153,0.13); color: var(--green); }
+  .t-Agregado { background: rgba(129,140,248,0.15); color: var(--accent2); }
+  .t-Terceiro { background: rgba(251,191,36,0.14); color: var(--yellow); }
+  .mot { font-size: 0.66rem; padding: 1px 6px; border-radius: 3px; margin-right: 3px; background: var(--surface2); border: 1px solid var(--border); }
+  .mot.rio { color: var(--accent); border-color: rgba(56,189,248,.4); }
+  .mot.valor { color: var(--yellow); border-color: rgba(251,191,36,.35); }
+  .mot.terceiro { color: var(--orange); border-color: rgba(251,146,60,.35); }
+  .mot.martins { color: var(--text-dim); }
+  .v-confirmado { color: var(--red); } .v-falso_alerta { color: var(--green); } .v-justificado { color: var(--accent2); }
+  .lig { color: var(--accent); text-decoration: none; } .lig:hover { text-decoration: underline; }
+  .info-vazio { padding: 40px; text-align: center; color: var(--text-dim); }
+  .tag-breve { font-size: 0.62rem; color: var(--text-dim); border: 1px dashed var(--border); border-radius: 4px; padding: 1px 5px; margin-left: 4px; }
+
+  /* gaveta de detalhe */
+  .veu { position: fixed; inset: 0; background: rgba(0,0,0,.45); opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 40; }
+  .veu.on { opacity: 1; pointer-events: auto; }
+  .gaveta { position: fixed; top: 0; right: 0; height: 100vh; width: min(640px, 100vw); background: var(--surface); border-left: 1px solid var(--border); transform: translateX(100%); transition: transform .25s ease; z-index: 50; display: flex; flex-direction: column; }
+  .gaveta.on { transform: none; }
+  .g-head { padding: 16px 18px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
+  .g-head h2 { font-size: 1.1rem; font-family: 'JetBrains Mono', monospace; }
+  .g-head .sub { font-size: 0.78rem; color: var(--text-dim); margin-top: 4px; }
+  .g-body { padding: 14px 18px 30px; overflow-y: auto; flex: 1; }
+  .sec { margin-bottom: 18px; }
+  .sec h3 { font-size: 0.7rem; text-transform: uppercase; letter-spacing: .06em; color: var(--text-dim); margin-bottom: 8px; font-weight: 600; }
+  .detalhe-box { padding: 10px 12px; border-radius: 8px; font-size: 0.82rem; line-height: 1.4; }
+  .kv { display: grid; grid-template-columns: 150px 1fr; gap: 5px 12px; font-size: 0.8rem; }
+  .kv .k { color: var(--text-dim); }
+  .mini { width: 100%; border-collapse: collapse; font-size: 0.74rem; white-space: normal; }
+  .mini th { text-align: left; color: var(--text-dim); font-weight: 600; font-size: 0.66rem; text-transform: uppercase; padding: 5px 6px; border-bottom: 1px solid var(--border); }
+  .mini td { padding: 5px 6px; border-bottom: 1px solid var(--border); max-width: none; white-space: normal; }
+  .mini tr.casada td { background: rgba(52,211,153,0.07); }
+  .opcoes { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+  .opcao { border: 1px solid var(--border); background: var(--surface2); border-radius: 8px; padding: 7px 11px; cursor: pointer; font-size: 0.78rem; }
+  .opcao.on { border-color: var(--accent); color: var(--accent); }
+  .opcao small { display: block; color: var(--text-dim); font-size: 0.68rem; margin-top: 2px; }
+  textarea { width: 100%; min-height: 64px; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; color: var(--text); padding: 8px; font-family: 'DM Sans', sans-serif; font-size: 0.8rem; resize: vertical; }
+  .futuro { border: 1px dashed var(--border); border-radius: 10px; padding: 12px; }
+  .futuro p { font-size: 0.76rem; color: var(--text-dim); margin-bottom: 8px; line-height: 1.4; }
+  .log li { list-style: none; font-size: 0.74rem; padding: 4px 0; border-bottom: 1px solid var(--border); color: var(--text-dim); }
+  .log li b { color: var(--text); font-weight: 500; }
+  .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--surface2); border: 1px solid var(--border); padding: 9px 16px; border-radius: 8px; font-size: 0.82rem; z-index: 60; display: none; }
+  @media (max-width: 700px) { .dashboard { padding: 12px; } .regra .aviso { margin-left: 0; } .kv { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="dashboard">
+  <div class="top-bar">
+    <div>
+      <h1>🛡 Conformidade de SM</h1>
+      <div class="meta" id="meta">carregando…</div>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      <span data-nav-menu data-nav-style="btn-wrap" data-nav-active="sm"></span>
+      <a href="/logout" style="text-decoration:none;"><button class="btn-sm">Sair</button></a>
+    </div>
+  </div>
+
+  <div class="regra">
+    <span class="r-tit">Regra da gerenciadora</span>
+    <span class="r">destino <b>RJ</b> → SM</span>
+    <span class="r">valor <b>&gt; <span id="lim">R$ 150 mil</span></b> → SM</span>
+    <span class="r"><b>Terceiro</b> até o limite → sinal do cavalo na GR</span>
+    <span class="r"><b>Frota/Agregado</b> até o limite → nada (3S)</span>
+    <span class="r"><b>Martins</b> → isenta</span>
+    <span class="aviso" title="A API da Insignia só enxerga a unidade 02572512000158. Uma SM aberta em outra unidade não aparece aqui — por isso cada alerta pede a validação do responsável.">⚠ SM de outra unidade não aparece — valide os alertas</span>
+  </div>
+
+  <div class="sevcards" id="grupos"></div>
+
+  <div class="filtros-card">
+    <div class="filtros-grid">
+      <div class="ff"><label>Emissão de</label><input type="date" id="fDesde"></div>
+      <div class="ff"><label>até</label><input type="date" id="fAte"></div>
+      <div class="ff"><label>Estado</label><select id="fEstado"><option value="">todos</option></select></div>
+      <div class="ff"><label>Tipo</label>
+        <select id="fTipo"><option value="">todos</option><option>Frota</option><option>Agregado</option><option>Terceiro</option></select></div>
+      <div class="ff"><label>Exige</label>
+        <select id="fExige"><option value="">tudo</option><option value="sm">SM</option><option value="sinal">sinal</option>
+          <option value="nada">nada</option><option value="isento">isento</option><option value="?">indefinido</option></select></div>
+      <div class="ff"><label>Validação</label>
+        <select id="fValid"><option value="">todas</option><option value="pendente">pendente (alerta/atenção)</option>
+          <option value="confirmado">confirmado</option><option value="falso_alerta">falso alerta</option><option value="justificado">justificado</option></select></div>
+      <div class="ff"><label>Busca</label><input id="fQ" placeholder="manifesto, placa, motorista, cliente, OC, SM…"></div>
+      <div class="ff chk"><label><input type="checkbox" id="fCanc"> incluir cancelados</label></div>
+      <div class="ff botoes"><button class="btn-sm btn-pri" onclick="carregar()">Aplicar</button><button class="btn-sm" onclick="limpar()">Limpar</button></div>
+    </div>
+  </div>
+
+  <div class="table-wrapper">
+    <div class="table-head"><span id="contagem">—</span><button class="btn-sm" onclick="exportarCSV()">⬇ CSV</button></div>
+    <div class="table-scroll">
+      <table>
+        <thead><tr>
+          <th>Estado</th><th>Manifesto</th><th>Emissão</th><th>Carga</th><th>Cliente</th><th title="ordem de coleta (SSW 157) e quem a abriu">OC</th><th>Tipo</th><th>Conjunto</th><th>Motorista</th>
+          <th class="num" title="soma do valor da mercadoria (NF) declarado nos CTes do manifesto — é o valor que a regra compara com o limite">Valor NF</th><th>Destino</th><th>Exige</th><th>SM</th><th>Saída</th>
+          <th class="num" title="SM pedida − saída real; positivo = o caminhão rodou descoberto">Atraso SM</th>
+          <th>Validação</th><th>Ação</th>
+        </tr></thead>
+        <tbody id="tbody"><tr><td colspan="17" class="info-vazio">carregando…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="veu" id="veu" onclick="fechar()"></div>
+<aside class="gaveta" id="gaveta" aria-hidden="true">
+  <div class="g-head">
+    <div><h2 id="gTit">—</h2><div class="sub" id="gSub"></div></div>
+    <button class="btn-sm" onclick="fechar()">✕</button>
+  </div>
+  <div class="g-body" id="gBody"></div>
+</aside>
+<div class="toast" id="toast"></div>
+
+<script>
+const GRUPOS = [
+  {sev:'alerta',   nome:'🔴 Alerta máximo', dica:'fora da regra — o seguro não cobre'},
+  {sev:'atencao',  nome:'🟠 Atenção',       dica:'SM existe mas tem problema, ou falta dado'},
+  {sev:'pendente', nome:'⚪ Pendente',      dica:'documento ou dado da GR ainda não chegou'},
+  {sev:'ok',       nome:'🟢 Conforme',      dica:'dentro da regra'},
+];
+let ESTADOS = {}, LINHAS = [], FILTRO_SEV = '', FILTRO_EST = '', ATUAL = null, SOLICITAR = false;
+
+const esc = t => String(t ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+const brl = v => v == null ? '—' : v.toLocaleString('pt-BR', {style:'currency', currency:'BRL', maximumFractionDigits:0});
+const dt = iso => { if(!iso) return '—'; const d = new Date(iso); return isNaN(d) ? '—' : d.toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}); };
+const dia = iso => iso ? iso.slice(8,10) + '/' + iso.slice(5,7) : '—';
+const hojeBR = () => new Date().toLocaleDateString('sv-SE', {timeZone:'America/Sao_Paulo'});
+function toast(msg){ const t = document.getElementById('toast'); t.textContent = msg; t.style.display = 'block'; setTimeout(() => t.style.display = 'none', 2600); }
+
+// padrão: mês vigente (mesma decisão do relatório de cargas — sem período a lista cresce sem fim)
+function mesVigente(){
+  const h = hojeBR();
+  document.getElementById('fDesde').value = h.slice(0,8) + '01';
+  const [y, m] = h.split('-').map(Number);
+  const ult = new Date(y, m, 0).getDate();
+  document.getElementById('fAte').value = h.slice(0,8) + String(ult).padStart(2,'0');
+}
+
+function params(){
+  const p = new URLSearchParams();
+  const v = id => document.getElementById(id).value.trim();
+  if (v('fDesde')) p.set('desde', v('fDesde'));
+  if (v('fAte')) p.set('ate', v('fAte'));
+  if (v('fTipo')) p.set('tipo', v('fTipo'));
+  if (v('fExige')) p.set('exige', v('fExige'));
+  if (v('fValid')) p.set('validacao', v('fValid'));
+  if (v('fQ')) p.set('q', v('fQ'));
+  if (document.getElementById('fCanc').checked) p.set('cancelados', '1');
+  const est = v('fEstado') || FILTRO_EST;
+  if (est) p.set('estado', est); else if (FILTRO_SEV) p.set('severidade', FILTRO_SEV);
+  return p;
+}
+
+async function carregar(){
+  document.getElementById('tbody').innerHTML = '<tr><td colspan="17" class="info-vazio">carregando…</td></tr>';
+  try {
+    const r = await fetch('/api/embarques/sm?' + params(), {credentials:'same-origin'});
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || 'erro');
+    ESTADOS = j.estados || {}; LINHAS = j.linhas; SOLICITAR = !!j.solicitar_sm_ligado;
+    document.getElementById('lim').textContent = brl(j.limite).replace(',00','');
+    popularEstados(); renderCards(j.cards || {}); renderTabela();
+    document.getElementById('meta').textContent = j.atualizado_em
+      ? `recalculado a cada atualização do BI · último: ${dt(j.atualizado_em)}`
+      : 'ainda não calculado — a tabela nasce na primeira rodada da fita depois do deploy';
+  } catch (e) {
+    document.getElementById('tbody').innerHTML = `<tr><td colspan="17" class="info-vazio">Erro: ${esc(e.message)}</td></tr>`;
+  }
+}
+
+function popularEstados(){
+  const sel = document.getElementById('fEstado');
+  if (sel.options.length > 1) return;
+  for (const g of GRUPOS) {
+    const og = document.createElement('optgroup'); og.label = g.nome;
+    for (const [k, [sev, rot]] of Object.entries(ESTADOS)) if (sev === g.sev) {
+      const o = document.createElement('option'); o.value = k; o.textContent = rot; og.appendChild(o);
+    }
+    sel.appendChild(og);
+  }
+}
+
+function renderCards(cards){
+  const el = document.getElementById('grupos');
+  let html = '';
+  for (const g of GRUPOS) {
+    const ests = Object.entries(ESTADOS).filter(([, [s]]) => s === g.sev);
+    const tot = ests.reduce((a, [k]) => a + (cards[k] || 0), 0);
+    const chips = ests.map(([k, [, rot]]) =>
+      `<span class="chip ${FILTRO_EST===k?'on':''}" onclick="event.stopPropagation();filtrarEstado('${k}')">${esc(rot)} · <b>${cards[k]||0}</b></span>`).join('');
+    html += `<div class="sevcard ${g.sev} ${FILTRO_SEV===g.sev?'on':''} ${g.sev==='alerta'&&tot?'pulsa':''}" onclick="filtrarSev('${g.sev}')" title="${esc(g.dica)}">
+      <div class="k">${g.nome}</div><div class="v">${tot}</div><div class="chips">${chips}</div></div>`;
+  }
+  el.innerHTML = html;
+}
+
+function filtrarSev(s){ FILTRO_EST=''; document.getElementById('fEstado').value=''; FILTRO_SEV = FILTRO_SEV===s ? '' : s; carregar(); }
+function filtrarEstado(k){ FILTRO_SEV=''; FILTRO_EST = FILTRO_EST===k ? '' : k; document.getElementById('fEstado').value = FILTRO_EST; carregar(); }
+
+function motivos(l){
+  const m = (l.motivos || '').split(',').filter(Boolean);
+  const exige = {sm:'SM', sinal:'sinal', nada:'—', isento:'isento', '?':'?'}[l.exige] || '—';
+  return `<b>${exige}</b> ` + m.map(x => `<span class="mot ${x}">${x === 'valor' ? '> limite' : x}</span>`).join('');
+}
+function smCel(l){
+  if (!l.sm) return l.exige === 'sinal' && l.sinal_pontos ? `<span class="dim">sinal · ${l.sinal_pontos} pts</span>` : '<span class="dim">—</span>';
+  const conj = l.sm_conjunto && l.sm_conjunto !== 'igual' ? ` <span class="badge s-atencao">${l.sm_conjunto==='so_cavalo'?'só cavalo':'só carreta'}</span>` : '';
+  const link = l.sm_link ? `<a class="lig mono" href="${esc(l.sm_link)}" target="_blank" onclick="event.stopPropagation()">${l.sm}</a>` : `<span class="mono">${l.sm}</span>`;
+  return `${link} <span class="dim">${esc(l.sm_status||'')}</span>${conj}`;
+}
+function validCel(l){
+  if (!l.validacao) return (l.severidade==='alerta'||l.severidade==='atencao') ? '<span class="dim">pendente</span>' : '';
+  const rot = {confirmado:'✔ confirmado', falso_alerta:'✖ falso alerta', justificado:'≈ justificado'}[l.validacao];
+  return `<span class="v-${l.validacao}" title="${esc((l.validado_por||'')+' · '+dt(l.validado_em)+(l.validacao_obs?' — '+l.validacao_obs:''))}">${rot}</span>`;
+}
+function acaoCel(l){
+  const ver = `<button class="btn-sm" style="padding:4px 10px" onclick="event.stopPropagation();abrir('${l.manifesto}')">Ver</button>`;
+  if (l.estado !== 'sem_sm') return ver;
+  // abrir SM pela API: o lugar já existe; liga quando a integração for homologada com a Insignia
+  return ver + ` <button class="btn-sm" style="padding:4px 10px" ${SOLICITAR?'':'disabled'} title="${SOLICITAR?'Solicitar SM na Insignia':'Solicitar SM pela API — em breve'}">🛡 Solicitar SM</button>`;
+}
+
+function renderTabela(){
+  const tb = document.getElementById('tbody');
+  document.getElementById('contagem').textContent = `${LINHAS.length} manifesto${LINHAS.length===1?'':'s'}`;
+  if (!LINHAS.length) { tb.innerHTML = '<tr><td colspan="17" class="info-vazio">Nenhum manifesto para o filtro.</td></tr>'; return; }
+  tb.innerHTML = LINHAS.map(l => {
+    const [sev, rot] = ESTADOS[l.estado] || ['pendente', l.estado];
+    const carga = l.carga_id ? `<a class="lig mono" href="/embarques/cargas/${l.carga_id}/mapa" target="_blank" onclick="event.stopPropagation()">${esc(l.carga_numero)}</a> <span class="dim">${esc(l.carga_status||'')}</span>` : '<span class="dim">sem carga</span>';
+    const tipo = l.tipo ? `<span class="badge t-${l.tipo}" title="${l.tipo_fonte==='carga'?'do robô (carga)':'pelo cadastro de veículos'}">${l.tipo}</span>` : '<span class="dim">?</span>';
+    const dest = (l.uf_destinos||'—') + (l.rio ? ' <span class="mot rio">RJ</span>' : '');
+    const atr = l.sm_atraso_h == null ? '—' : `<span style="color:${l.sm_atraso_h > 1 ? 'var(--orange)' : 'var(--text-dim)'}">${l.sm_atraso_h > 0 ? '+' : ''}${l.sm_atraso_h.toFixed(1)} h</span>`;
+    const canc = l.sumiu_em ? ' <span class="badge s-pendente" title="o manifesto saiu do BI">cancelado</span>' : '';
+    return `<tr class="sev-${sev} ${ATUAL===l.manifesto?'sel':''}" onclick="abrir('${l.manifesto}')" title="${esc(l.detalhe)}">
+      <td><span class="badge s-${sev}">${esc(rot)}</span>${canc}</td>
+      <td class="mono">${esc(l.manifesto_exibir)}</td><td class="mono">${dia(l.data_emissao)}</td>
+      <td>${carga}</td><td title="${esc(l.cliente||'')}">${esc(l.cliente||'—')}</td>
+      <td>${l.oc?`<span class="mono">${esc(l.oc)}</span> <span class="dim">${esc(l.oc_embarcador||'')}</span>`:'<span class="dim">sem OC</span>'}</td><td>${tipo}</td>
+      <td class="mono">${esc(l.cavalo||'—')}${l.carreta?' + '+esc(l.carreta):''}</td>
+      <td title="${esc(l.proprietario||'')}">${esc(l.motorista||'—')}</td>
+      <td class="num mono" title="manifesto: ${brl(l.valor_manifesto)} · ${l.n_ctes} CTe(s)${l.n_ctes_martins?' · '+l.n_ctes_martins+' Martins':''}">${brl(l.valor_cte)}</td>
+      <td>${dest}</td><td>${motivos(l)}</td><td>${smCel(l)}</td>
+      <td class="mono">${dt(l.saida_real)}</td><td class="num mono">${atr}</td>
+      <td>${validCel(l)}</td><td>${acaoCel(l)}</td></tr>`;
+  }).join('');
+}
+
+// ── gaveta ────────────────────────────────────────────────────────────────
+let VALID_ESCOLHA = '';
+async function abrir(man){
+  ATUAL = man; renderTabela();
+  document.getElementById('gaveta').classList.add('on'); document.getElementById('veu').classList.add('on');
+  document.getElementById('gaveta').setAttribute('aria-hidden', 'false');
+  document.getElementById('gBody').innerHTML = '<div class="dim">carregando…</div>';
+  const r = await fetch('/api/embarques/sm/' + encodeURIComponent(man), {credentials:'same-origin'});
+  const j = await r.json();
+  if (!j.ok) { document.getElementById('gBody').innerHTML = `<div class="dim">Erro: ${esc(j.error)}</div>`; return; }
+  renderGaveta(j);
+}
+function fechar(){
+  ATUAL = null; renderTabela();
+  document.getElementById('gaveta').classList.remove('on'); document.getElementById('veu').classList.remove('on');
+  document.getElementById('gaveta').setAttribute('aria-hidden', 'true');
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') fechar(); });
+
+function renderGaveta(j){
+  const l = j.linha, [sev, rot] = ESTADOS[l.estado] || ['pendente', l.estado];
+  VALID_ESCOLHA = l.validacao || '';
+  document.getElementById('gTit').textContent = l.manifesto_exibir;
+  document.getElementById('gSub').innerHTML = `emitido ${dia(l.data_emissao)} · ${esc(l.unidade_origem||'')} · ${l.tipo?`<span class="badge t-${l.tipo}">${l.tipo}</span>`:''}`;
+  const ctes = (l.ctes || []).map(c => `<tr><td class="mono">${esc(c.ctrc)}</td><td>${esc(c.destinatario||'')}<div class="dim">${esc(c.entrega)}</div></td>
+      <td class="dim">${esc(c.pagador||'')}${c.martins?' <span class="mot martins">Martins</span>':''}</td><td class="num mono">${brl(c.valor)}</td></tr>`).join('');
+  const sms = (j.sms || []).map(s => `<tr class="${s.sm===l.sm?'casada':''}"><td class="mono">${s.link?`<a class="lig" href="${esc(s.link)}" target="_blank">${s.sm}</a>`:s.sm}${s.sm===l.sm?' ✔':''}</td>
+      <td class="mono">${esc(s.cavalo||'')}<div class="dim">${esc(s.carretas||'')}</div></td><td>${esc(s.status||'')}<div class="dim">${esc(s.condutor||'')}</div></td>
+      <td class="mono">${dt(s.criada_em)}<div class="dim">${s.encerrada_em?'fim '+dt(s.encerrada_em):''}</div></td><td class="num mono">${brl(s.valor)}</td></tr>`).join('');
+  const dif = l.valor_manifesto && Math.abs(l.valor_manifesto - l.valor_cte) > 1
+    ? ` <span class="dim">(manifesto diz ${brl(l.valor_manifesto)})</span>` : '';
+  const mesma = (j.mesma_sm || []).length
+    ? `<div class="dim" style="margin-top:6px;font-size:.74rem">A mesma SM também casou com: ${j.mesma_sm.map(o => `<a class="lig" href="#" onclick="abrir('${o.manifesto}');return false">${esc(o.exibir)}</a> (${dia(o.data)})`).join(', ')} — continuação ou viagem vizinha.</div>` : '';
+  const log = (j.log || []).map(x => `<li><b>${dt(x.em)}</b> · ${esc(x.autor)} · ${esc(x.campo)}: ${esc(x.antes||'—')} → <b>${esc(x.depois||'—')}</b></li>`).join('');
+  const opcoes = [
+    ['confirmado', '✔ Confirmado', 'rodou mesmo fora da regra'],
+    ['falso_alerta', '✖ Falso alerta', 'tinha SM / a régua errou'],
+    ['justificado', '≈ Justificado', 'exceção autorizada'],
+  ].map(([k, t, s]) => `<div class="opcao ${VALID_ESCOLHA===k?'on':''}" data-v="${k}" onclick="escolher('${k}')">${t}<small>${s}</small></div>`).join('');
+  const disp = l.disponibilidade ? `<pre class="mono" style="white-space:pre-wrap;font-size:.72rem">${esc(JSON.stringify(l.disponibilidade, null, 1))}</pre>` : '';
+
+  document.getElementById('gBody').innerHTML = `
+    <div class="sec"><div class="detalhe-box s-${sev}"><b>${esc(rot)}</b><br>${esc(l.detalhe||'')}</div></div>
+    <div class="sec"><h3>A regra aplicada</h3><div class="kv">
+      <div class="k">Cliente</div><div>${esc(l.cliente||'—')}</div>
+      <div class="k" title="na SM, o embarcador da viagem (sCd_CnpjEmbarcViagem) é o CNPJ de quem paga o frete">Pagador do frete</div><div class="mono">${esc(l.pagador_cnpj||'—')}</div>
+      <div class="k">Ordem de coleta</div><div>${l.oc?`<span class="mono">${esc(l.oc)}</span> · aberta por <b>${esc(l.oc_embarcador||'?')}</b>`:'<span class="dim">sem OC ligada</span>'}</div>
+      <div class="k">Valor NF (CTes)</div><div><b>${brl(l.valor_cte)}</b>${dif}</div>
+      <div class="k">CTes</div><div>${l.n_ctes}${l.n_ctes_martins?` · ${l.n_ctes_martins} da Martins (fora da conta)`:''}</div>
+      <div class="k">Destinos (UF)</div><div>${esc(l.uf_destinos||'—')}${l.rio?' <span class="mot rio">RJ</span>':''}</div>
+      <div class="k">Exige</div><div>${motivos(l)}</div>
+      <div class="k">Conjunto</div><div class="mono">${esc(l.cavalo||'—')} + ${esc(l.carreta||'—')}</div>
+      <div class="k">Motorista</div><div>${esc(l.motorista||'—')} <span class="dim mono">${esc(l.motorista_cpf||'')}</span></div>
+      <div class="k">Proprietário</div><div>${esc(l.proprietario||'—')}</div>
+      <div class="k">Carga</div><div>${l.carga_id?`<a class="lig" href="/embarques/cargas/${l.carga_id}/mapa" target="_blank">${esc(l.carga_numero)}</a> · ${esc(l.carga_status||'')}`:'<span class="dim">o robô não abriu carga</span>'}</div>
+      <div class="k">Saída real</div><div class="mono">${dt(l.saida_real)}</div>
+      ${l.exige==='sinal'?`<div class="k">Sinal do cavalo</div><div>${l.sinal_pontos||0} posição(ões) · última ${dt(l.sinal_ultimo)}</div>`:''}
+      <div class="k">Estado desde</div><div class="mono">${dt(l.estado_desde)}</div>
+    </div></div>
+    <div class="sec"><h3>CTes do manifesto</h3>${ctes?`<table class="mini"><thead><tr><th>CTRC</th><th>Destinatário</th><th>Pagador</th><th class="num">Valor NF</th></tr></thead><tbody>${ctes}</tbody></table>`:'<div class="dim">nenhum CTe ainda</div>'}</div>
+    <div class="sec"><h3>SMs da unidade com este cavalo ou carreta (±5 dias)</h3>${sms?`<table class="mini"><thead><tr><th>SM</th><th>Conjunto</th><th>Status</th><th>Pedida</th><th class="num">Valor</th></tr></thead><tbody>${sms}</tbody></table>`:'<div class="dim">nenhuma SM da unidade 02572512000158 com essas placas</div>'}${mesma}</div>
+    <div class="sec"><h3>Validação do responsável</h3>
+      <div class="opcoes">${opcoes}</div>
+      <textarea id="vObs" placeholder="observação (ex.: SM aberta na unidade X, nº …)">${esc(l.validacao_obs||'')}</textarea>
+      <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+        <button class="btn-sm btn-pri" onclick="salvarValidacao('${l.manifesto}')">Salvar validação</button>
+        ${l.validacao?`<button class="btn-sm" onclick="escolher('');salvarValidacao('${l.manifesto}')">Limpar</button>`:''}
+        <span class="dim" style="font-size:.74rem">${l.validado_por?`por ${esc(l.validado_por)} em ${dt(l.validado_em)}`:''}</span>
+      </div></div>
+    <div class="sec"><h3>Ações na gerenciadora <span class="tag-breve">em breve</span></h3>
+      <div class="futuro">
+        <p><b>Pré-cheque de disponibilidade</b> — vai consultar na Insignia, antes de o caminhão sair, o que impediria abrir a SM (checklist vencido, condutor não cadastrado, rastreador inativo).</p>
+        ${disp}
+        <button class="btn-sm" disabled>🔎 Verificar disponibilidade</button>
+        <p style="margin-top:12px"><b>Solicitar SM pela API</b> — abre a SM na Insignia com os dados do manifesto, sempre com confirmação de quem clicou.</p>
+        <button class="btn-sm" disabled>🛡 Solicitar SM</button>
+        ${l.sm_solicitada_em?`<div class="dim" style="margin-top:6px">solicitada em ${dt(l.sm_solicitada_em)} por ${esc(l.sm_solicitada_por||'')}</div>`:''}
+      </div></div>
+    <div class="sec"><h3>Histórico</h3><ul class="log">${log||'<li>sem histórico</li>'}</ul></div>`;
+}
+function escolher(v){
+  VALID_ESCOLHA = v;
+  document.querySelectorAll('.opcao').forEach(o => o.classList.toggle('on', o.dataset.v === v));
+}
+async function salvarValidacao(man){
+  const obs = document.getElementById('vObs').value;
+  if (!VALID_ESCOLHA && obs.trim()) { toast('Escolha confirmado, falso alerta ou justificado'); return; }
+  const r = await fetch(`/api/embarques/sm/${encodeURIComponent(man)}/validacao`, {
+    method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({validacao: VALID_ESCOLHA, obs})});
+  const j = await r.json();
+  if (!j.ok) { toast('Erro: ' + (j.error || r.status)); return; }
+  toast('Validação salva'); await carregar(); abrir(man);
+}
+
+// ── CSV ───────────────────────────────────────────────────────────────────
+function exportarCSV(){
+  const cab = ['estado','manifesto','emissao','carga','status_carga','cliente','oc','oc_aberta_por','tipo','cavalo','carreta','motorista','proprietario',
+               'pagador_cnpj','valor_nf','valor_manifesto','ctes','ufs','rio','exige','motivos','sm','sm_status','sm_conjunto','sm_pedida',
+               'saida_real','atraso_sm_h','sinal_pontos','detalhe','validacao','validacao_obs','validado_por'];
+  const q = v => { const s = v == null ? '' : String(v); return /[;"\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s; };
+  const linhas = LINHAS.map(l => [(ESTADOS[l.estado]||[])[1]||l.estado, l.manifesto_exibir, l.data_emissao, l.carga_numero, l.carga_status,
+    l.cliente, l.oc, l.oc_embarcador, l.tipo, l.cavalo, l.carreta, l.motorista, l.proprietario, l.pagador_cnpj, l.valor_cte, l.valor_manifesto, l.n_ctes, l.uf_destinos,
+    l.rio ? 'sim' : 'nao', l.exige, l.motivos, l.sm, l.sm_status, l.sm_conjunto, l.sm_inicio, l.saida_real, l.sm_atraso_h,
+    l.sinal_pontos, l.detalhe, l.validacao, l.validacao_obs, l.validado_por].map(q).join(';'));
+  const blob = new Blob(['﻿' + [cab.join(';')].concat(linhas).join('\n')], {type:'text/csv;charset=utf-8'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = `conformidade_sm_${hojeBR()}.csv`; a.click();
+}
+
+function limpar(){
+  ['fEstado','fTipo','fExige','fValid','fQ'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('fCanc').checked = false;
+  FILTRO_SEV = ''; FILTRO_EST = ''; mesVigente(); carregar();
+}
+document.getElementById('fQ').addEventListener('keydown', e => { if (e.key === 'Enter') carregar(); });
+document.getElementById('fEstado').addEventListener('change', e => { FILTRO_EST = e.target.value; FILTRO_SEV = ''; carregar(); });
+
+mesVigente();
+carregar();
+</script>
+<script src="/nav-perms.js"></script>
+</body>
+</html>

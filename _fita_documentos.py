@@ -231,11 +231,28 @@ def rodada(conn, tok, janela_dias=7, retencao_dias=21):
     r = datetime.now().replace(microsecond=0)
     n = gravar(conn, r, dados)
     t, te, tc = _locais.atualizar(conn, dados)
-    np_, est = _programacao.atualizar(conn, dados, cadastro=_cadastro(tok), ligacoes=_ligacoes(tok))
+    cad = _cadastro(tok)
+    np_, est = _programacao.atualizar(conn, dados, cadastro=cad, ligacoes=_ligacoes(tok))
+    sm = _conformidade_sm(conn, tok, dados, cad)
     apagadas = purgar(conn, retencao_dias)
     return {'rodada': r, 'linhas': n, 'locais': t, 'ordens': np_, 'estados': est,
-            'purgadas': apagadas,
+            'purgadas': apagadas, 'sm': sm,
             'fontes': {k: len(v) for k, v in dados.items()}}
+
+
+def _conformidade_sm(conn, tok, dados, cadastro):
+    """Conformidade de SM dos manifestos do retrato (`embarques_sm`, aba /embarques/sm). Só lê o BI e
+    a Insignia e grava a própria tabela; falha aqui não derruba a rodada — a seguinte recalcula."""
+    try:
+        import embarques_sm
+        return embarques_sm.atualizar(conn, tok, manifestos=dados.get('manifesto'), cadastro=cadastro)
+    except Exception as exc:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        print(f'⚠️  Fita: conformidade de SM falhou nesta rodada ({exc})')
+        return None
 
 
 def loop():
@@ -261,6 +278,8 @@ def loop():
                 print(f"✅ Fita: rodada {r['rodada']:%d/%m %H:%M} — {r['linhas']} linhas "
                       f"({' · '.join(f'{k} {v}' for k, v in r['fontes'].items())}) · "
                       f"{r['locais']} locais · {r['ordens']} ordens"
+                      + (f" · SM: {sum(v for k, v in r['sm'].items() if k in ('sem_sm', 'sem_sinal'))} alerta(s)"
+                         if r.get('sm') else '')
                       + (f" · {r['purgadas']} linhas purgadas" if r['purgadas'] else ''))
         except Exception as exc:
             print(f'⚠️  Fita: falha na rodada: {exc}')

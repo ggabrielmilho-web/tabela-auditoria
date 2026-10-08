@@ -827,6 +827,33 @@ cai em três faixas que não se tocam — Autotrac 103–117, Omnilink 1.033–1
 - Gate (lab `rizza_lab_1008_c`, transação com rollback): E0 11.902 pontos idênticos; ficha escondida → 25 certas,
   0 erradas; série de odômetro com a deduzida × com a ficha: 8.391 pontos, 0 diferenças; espaçamento da fila ok.
 
+### 16.4c Aba de conformidade de SM — `/embarques/sm` (08/10/2026)
+
+Pedido do Gabriel: mapear o que tem SM, classificar se DEVIA ter, e deixar pronto para gerar SM pela API.
+**Regra da operação:** destino RJ → SM sempre · valor > R$ 150 mil (soma do `valor_mercadoria` dos CTes do
+manifesto) → SM · Terceiro até 150 mil → só o SINAL do cavalo (tem de ter posição na GR) · Frota/Agregado até
+150 mil → nada · **Martins isenta** (pagador raiz 18485037 — a subcontratação vem com R$ 1 e destino Uberlândia
+formal, confirmado: 74 de 76 CTes `SUBC REC FORM LISO`). Fora da regra = ALERTA MÁXIMO (o PGR do seguro não cobre).
+- `embarques_sm.py` (uma linha por manifesto, recalculada em cada rodada da fita) + `embarques_sm_log`; estados
+  `sem_sm`/`sem_sinal` (alerta) · `sm_tardia`/`sm_divergente`/`valor_desconhecido` (atenção) ·
+  `aguardando_cte`/`sem_dado` · `sm_ok`/`sinal_ok`/`nao_exige`/`isento`.
+- **Casamento SM × manifesto, com os casos que obrigaram:** o instante é o PEDIDO (`criada_em`), não o `inicio`
+  da GR (SM 211360: pedida 03/10 18:50, início 05/10 — parecia 48 h tardia e casava com a viagem SEGUINTE);
+  conjunto igual ±2 d, parcial (só cavalo/só carreta) ±1 d; SM encerrada antes do dia do manifesto não cobre
+  (HIK5A05: SM fechada 07/10, manifesto 08/10 com outra carreta); `prev_inicio` da GR = criação + 24 h, inútil.
+  Saída nossa anterior ao dia do manifesto (saída adiantada, §15.3 C) → atraso não julgado.
+- Medido 01–08/10 (141 manifestos, lab `rizza_lab_1008_smx` com BI real): **13 alerta** (11 sem SM, 2 terceiro
+  sem sinal) · 10 atenção (6 SM pedida 3–31 h depois da saída — C-1381, R$ 1,4 mi, 30,7 h descoberta; 4 conjunto
+  divergente) · 23 Martins · 50 sem dado (antes da coleta). Os 7 de 05–07/10 batem 1 a 1 com a §16.2.
+- Tela: cards por severidade, regra à vista, filtros (mês vigente), CSV, gaveta com CTes / SMs do conjunto /
+  "mesma SM em outro manifesto" / **validação do responsável** (confirmado · falso alerta · justificado, com log —
+  recalcular NÃO apaga) / "Ações na gerenciadora" (pré-cheque e Solicitar SM, **desabilitados**) / histórico.
+- **Embarcador da viagem na SM = CNPJ do PAGADOR do frete** (Gabriel, 08/10) — gravado em `pagador_cnpj`. Colunas
+  Cliente e OC (+ quem abriu) na tela; o card de validação pendente saiu.
+- **Não ligado de propósito:** WhatsApp (fora por ora, talvez nunca — colunas `alerta_*` só reservadas) e abrir
+  SM (colunas `disponibilidade*`, `sm_solicitada*`, `sm_retorno`; API devolve `solicitar_sm_ligado: false`).
+- Limite que a validação existe para pegar: SM aberta em OUTRA unidade da Insignia aparece como "sem SM".
+
 ### 16.5 Pendências, em ordem
 
 1. **Conferir em produção** as chaves de 07–08/10 (`service inspect`) e o 1º terceiro sem SM nascendo com
