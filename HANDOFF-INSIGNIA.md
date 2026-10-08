@@ -658,3 +658,8 @@ cabível (~4 h numa rota de 1.400 km), terceiro ou não. Conserto: a trava só v
 isolada (aberta 2 h → mostra; fechada sem chegada → esconde; fechada com chegada → mostra) e KPI pela rota real
 das 333 cargas do lab, código antigo × novo: **0 diferenças**, as 18 escondidas por janela seguem escondidas.
 Junto: `EMBARQUES_FONTE_INSIGNIA_ODOMETRO=true` em produção (o KM RASTREADOR dos terceiros).
+**Cidade da posição atual (08/10):** a Insignia não manda cidade e o card mostrava "—/—". O endpoint do mapa
+preenche a cidade VAZIA pelo município mais próximo (`geocoding.cidade_por_coord`, `municipios_ibge`, local —
+a função existia e ninguém a chamava). Gate (231 cargas, lab `_b`, antigo × novo): mudam só os 5 terceiros que
+estavam sem cidade; KPI idêntico em todas. É o município de centroide mais próximo: perto de divisa pode dar o
+vizinho (C-1404: Conceição do Jacuípe, colada em Feira de Santana).

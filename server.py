@@ -8394,6 +8394,17 @@ def api_rastreamento_trajeto(carga_id):
 
         # Última posição = a de agora (carga aberta) ou o fim do trajeto da placa rastreada
         ultima = pos_agora or (traj_principal[-1] if traj_principal else None)
+        # Cidade VAZIA (a Insignia não manda o nome — só lat/lng e um texto de referência):
+        # o município mais próximo pelo IBGE, consulta local. Só preenche o que veio vazio; a
+        # cidade que a 3S manda segue intacta (08/10/26, C-2026-001417 mostrava "—/—").
+        if ultima and not ultima.get('cidade') and ultima.get('lat') is not None:
+            try:
+                import geocoding as _geo_cid
+                _cu = _geo_cid.cidade_por_coord(ultima['lat'], ultima['lng'])
+                if _cu:
+                    ultima = dict(ultima, cidade=_cu[0], uf=_cu[1])
+            except Exception:
+                pass
 
         # Rota é sempre origem→destino (completa). O que falta é derivado da posição atual
         # projetada nessa rota — assim a linha do mapa fica completa e o "km faltando" certo.
