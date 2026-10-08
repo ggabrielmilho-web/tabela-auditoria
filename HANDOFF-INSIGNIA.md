@@ -515,7 +515,7 @@ ligar `todas`: a evidência do cavalo não pode passar do início da próxima ca
    `EMBARQUES_SAIDA_CARREGAMENTO` (só junto da congelada).
 2. **O aferidor ainda não tem essas réguas** — antes de subir, a mesma régua nele (§20.6 do HANDOFF-EMBARQUES).
 3. Guarda do cavalo no escopo `todas` (C-1264) antes de ligar.
-4. Rodar o backfill da 3S 03–08/09 (§28.14 do HANDOFF-EMBARQUES) — prazo ~08/10.
+4. ~~Rodar o backfill da 3S 03–08/09 (§28.14 do HANDOFF-EMBARQUES)~~ — **✅ feito em 08/10/2026**.
 
 ### 15.7 A Insignia no laboratório da âncora (§28 do HANDOFF-EMBARQUES) e as macros como régua
 

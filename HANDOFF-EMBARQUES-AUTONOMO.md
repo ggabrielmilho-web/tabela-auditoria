@@ -5501,7 +5501,7 @@ a 3S **não tem nenhum ponto** do trecho até hoje (404 "posição não encontra
 11–19/09, QXG2647 ×4, HDI9D05, TZD5A42). Não é retenção: a 3S ainda devolve 03/09.
 Nos **4 casos da semana do NOSSO apagão (03–08/09, §23)** a 3S TEM os pontos (99, 81, 79, 58) e o
 nosso banco não — recuperável com `backfill_historico.py 2026-09-03 2026-09-08` dentro do container,
-**antes de ~08/10** (retenção da 3S ~35 dias). PENDENTE de ok do Gabriel.
+**antes de ~08/10** (retenção da 3S ~35 dias). **✅ FEITO em 08/10/2026** (Gabriel rodou em produção).
 
 **O "worker parado" de ~50 min, várias vezes ao dia:** medido pelo relógio de gravação (posição que
 entra ≤ 15 min depois do seu horário), 170 buracos > 20 min de 26/08 a 29/09 e 8 em 03–05/10, com a
