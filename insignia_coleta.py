@@ -388,6 +388,38 @@ def marcar_odometro(cur, agora):
     return cur.rowcount
 
 
+def cargas_ligado():
+    """`INSIGNIA_COLETA_CARGAS=true` (08/10/26): a coleta pergunta a posição também do CAVALO de toda
+    carga ativa e dos manifestos recentes, não só das placas em SM aberta."""
+    return os.getenv('INSIGNIA_COLETA_CARGAS', 'false').strip().lower() == 'true'
+
+
+def placas_de_cargas(cur, agora):
+    """Cavalos de toda carga ativa + cavalos dos manifestos emitidos nos últimos
+    INSIGNIA_COLETA_MANIFESTO_DIAS (3) dias (da fita de documentos).
+
+    Por que (08/10/26): a GR rastreia o CAVALO de boa parte dos carreteiros/terceiros SEM SM aberta
+    para a nossa unidade — das 6 ordens de terceiro de 07/10, 5 cavalos tinham paradas e 3 posição
+    ao vivo, nenhum em SM (MQU7E81: carregou no Atacadão Ribeirão Preto e entregou na Nestlé
+    Cordeirópolis, tudo nas paradas da Insignia). E das 64 cargas ativas de 08/10, 23 cavalos tinham
+    posição ao vivo e só 13 estavam em SM: a coleta perguntando só por SM perdia 10. A carreta não
+    entra: a GR só rastreia cavalo (85 placas testadas, 0 carreta encontrada). O manifesto entra para
+    o robô já achar GPS quando a carga nascer (o gate do Terceiro, `fontes_gps.tem_gps`)."""
+    cur.execute("""SELECT DISTINCT cavalo_placa FROM embarques_cargas
+                    WHERE status IN ('Aberta', 'Em rota', 'No destino', 'Desengatada')
+                      AND NOT COALESCE(viagem_vazia, FALSE) AND COALESCE(cavalo_placa, '') <> ''""")
+    pls = {x[0] for x in cur.fetchall()}
+    cur.execute("SELECT to_regclass('fita_documentos') IS NOT NULL")
+    if cur.fetchone()[0]:
+        dias = int(os.getenv('INSIGNIA_COLETA_MANIFESTO_DIAS', '3'))
+        cur.execute("""SELECT DISTINCT payload->>'placa_cavalo' FROM fita_documentos
+                        WHERE fonte = 'manifesto' AND rodada >= %s
+                          AND left(payload->>'data_emissao', 10) >= %s""",
+                    (agora - timedelta(days=1), (agora - timedelta(days=dias)).strftime('%Y-%m-%d')))
+        pls |= {x[0] for x in cur.fetchall() if x[0]}
+    return sorted(p for p in pls if _chave(p))
+
+
 # ── a rodada ────────────────────────────────────────────────────────────────────
 def rodada(conn, agora=None, paradas_min=None, backfill_dias=None):
     """Uma rodada completa. Cada bloco tem o próprio try: falha em um não impede os outros
@@ -441,6 +473,16 @@ def rodada(conn, agora=None, paradas_min=None, backfill_dias=None):
                         WHERE encerrada_em IS NOT NULL AND encerrada_em >= %s AND placa_cavalo IS NOT NULL""",
                     (agora - timedelta(hours=int(os.getenv('INSIGNIA_POS_SM_H', '48'))),))
         placas_abertas += [x[0] for x in cur.fetchall()]
+        if cargas_ligado():
+            _pc = placas_de_cargas(cur, agora)
+            for _p in _pc:                       # entra no cadastro: é ele que a leitura e as paradas usam
+                cur.execute("SELECT 1 FROM insignia_placas WHERE placa_chave = %s", (_chave(_p),))
+                if cur.fetchone():
+                    cur.execute("UPDATE insignia_placas SET ultima_vez = %s WHERE placa_chave = %s", (agora, _chave(_p)))
+                else:
+                    _placa_vista(cur, I.placa_api(_p), 'cavalo', None, agora)
+            placas_abertas += _pc
+            r['placas_cargas'] = len(_pc)
         placas_u = sorted({I.placa_api(p) for p in placas_abertas})
         for i in range(0, len(placas_u), 50):
             for p in I.posicoes(placas_u[i:i + 50]):
@@ -494,10 +536,14 @@ def rodada(conn, agora=None, paradas_min=None, backfill_dias=None):
 
     # 4. paradas: placas rastreadas, de SM aberta ou recém-encerrada, buscadas há mais de `paradas_min`
     try:
-        cur.execute("""
+        # ER0121 = a GR conhece o veículo mas não tem posição nas últimas 12 h (parado/desligado): as
+        # PARADAS dele existem (MJX0E10, 08/10/26: 4 paradas com ER0121). Com a coleta das cargas
+        # ligada elas entram — são a prova de GPS que o gate do Terceiro usa (`fontes_gps.tem_gps`).
+        _er0121 = " OR p.ultimo_codigo = 'ER0121'" if cargas_ligado() else ''
+        cur.execute(f"""
             SELECT p.placa_chave, p.placa, p.paradas_ate
               FROM insignia_placas p
-             WHERE p.rastreada IS NOT FALSE
+             WHERE (p.rastreada IS NOT FALSE{_er0121})
                AND p.ultima_vez >= %s
                AND (p.paradas_ate IS NULL OR p.paradas_ate <= %s)""",
                     (agora - timedelta(days=2), agora - timedelta(minutes=paradas_min)))

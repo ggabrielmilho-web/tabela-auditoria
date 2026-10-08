@@ -1298,12 +1298,17 @@ def executar(dia=None, dry_run=False, token=None, conn=None):
     # 'Aberta' e nada a tiraria de lá. Só 4 de 19 terceiros de 02–06/10 tinham SM.
     if any(c['tipo_operacao'] == 'Terceiro' for c in cargas):
         import fontes_gps
+        # 08/10/26 — com EMBARQUES_TERCEIRO_GPS a prova é GPS do cavalo na Insignia (SM ou não);
+        # sem a chave, a trava de 06/10 (só com SM). O descarte diz qual das duas barrou.
+        _gps = fontes_gps.terceiro_gps_ligado()
+        _teste = fontes_gps.tem_gps if _gps else fontes_gps.tem_sm
+        _rot = 'Terceiro sem GPS na Insignia' if _gps else 'Terceiro sem SM na Insignia'
         _ficam = []
         for c in cargas:
-            if c['tipo_operacao'] == 'Terceiro' and not fontes_gps.tem_sm(
+            if c['tipo_operacao'] == 'Terceiro' and not _teste(
                     cur, (c.get('cavalo') or {}).get('placa'), (c.get('carreta1') or {}).get('placa'),
                     c['data_carregamento']):
-                descartes['Terceiro sem SM na Insignia'] += 1
+                descartes[_rot] += 1
                 continue
             _ficam.append(c)
         cargas = _ficam

@@ -349,6 +349,32 @@ def descongelar(cur, carreta, cavalo, pts_carreta, pts_cavalo, dia_carga=None):
     return novos, len(tirar), len(postos)
 
 
+def terceiro_gps_ligado():
+    """`EMBARQUES_TERCEIRO_GPS=true` (08/10/26): o Terceiro nasce se a Insignia tem GPS do cavalo — com
+    ou sem SM. Sem a chave, a trava é a de 06/10 (só com SM)."""
+    return os.getenv('EMBARQUES_TERCEIRO_GPS', 'false').strip().lower() == 'true'
+
+
+def tem_gps(cur, cavalo, carreta, dia):
+    """A Insignia tem GPS deste conjunto perto deste dia? SM (como antes) OU posição/parada do CAVALO
+    de 1 dia antes do carregamento em diante. A GR rastreia o cavalo de boa parte dos terceiros sem SM
+    aberta para a nossa unidade (08/10/26: 5 de 6 cavalos das ordens de terceiro de 07/10, nenhum em
+    SM) — a SM não é a única prova de que vai haver posição. Exige a coleta seguindo as placas das
+    cargas e manifestos (`insignia_coleta.placas_de_cargas`)."""
+    if tem_sm(cur, cavalo, carreta, dia):
+        return True
+    if not _tem_insignia(cur):
+        return False
+    cav = pl.mercosul(cavalo or '')
+    if not cav:
+        return False
+    desde = dia - timedelta(days=1)
+    cur.execute("""SELECT EXISTS (SELECT 1 FROM insignia_posicoes WHERE placa_chave = %s AND em >= %s)
+                       OR EXISTS (SELECT 1 FROM insignia_paradas WHERE placa_chave = %s AND inicio >= %s)""",
+                (cav, desde, cav, desde))
+    return bool(cur.fetchone()[0])
+
+
 def tem_sm(cur, cavalo, carreta, dia):
     """Existe SM da Insignia para este conjunto perto deste dia? É a trava do Terceiro no robô:
     sem SM não há GPS, e 75% dos manifestos de terceiro nunca têm o seguinte da mesma carreta —

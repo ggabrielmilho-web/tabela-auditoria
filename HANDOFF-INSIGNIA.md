@@ -663,3 +663,29 @@ preenche a cidade VAZIA pelo município mais próximo (`geocoding.cidade_por_coo
 a função existia e ninguém a chamava). Gate (231 cargas, lab `_b`, antigo × novo): mudam só os 5 terceiros que
 estavam sem cidade; KPI idêntico em todas. É o município de centroide mais próximo: perto de divisa pode dar o
 vizinho (C-1404: Conceição do Jacuípe, colada em Feira de Santana).
+
+### 15.13 Terceiro sem SM tem GPS — coleta pelas cargas e trava por GPS (08/10/2026)
+
+**A investigação (dump 08/10 11:45, lab `rizza_lab_1008`):** das 7 ordens de terceiro com limite em 07/10, só
+1 casava com SM (a antiga da ida do DPB4G53); por placa de cavalo OU carreta, sem limite de data, 0 SM nova.
+De 02/10 a 08/10: 4 de 21 ordens de terceiro com SM (19%). A conta só enxerga a unidade 02572512000158 —
+testados 25 CNPJs/CPFs (filiais da Rizza, M A Rizza, Insignia, embarcadores e matrizes, e os proprietários dos
+cavalos tirados da 045): todos ER0044. A API não lista veículos (sem placa: vazio/500; curinga: ER0022).
+**Mas a GR rastreia esses cavalos pela nossa unidade, sem SM:** 5 de 6 com paradas (MQU7E81 carregou no
+Atacadão Ribeirão Preto 07/10 19:17–22:37 BRT e chegou à Nestlé Cordeirópolis 01:38), 3 com posição ao vivo.
+Na 045 os 12 veículos são CARRETEIRO, sem gerenciadora e `rastreado=N`. Das 64 cargas ativas de 08/10, 23
+cavalos com posição ao vivo — 13 em SM, **10 que a coleta perdia**; carreta nenhuma (a GR só rastreia cavalo).
+Pergunta aberta para o Francisco: em que unidade estão as SMs desses veículos (se existem).
+
+**Código (atrás de chave, desligado):**
+- `INSIGNIA_COLETA_CARGAS` (`insignia_coleta.placas_de_cargas`): cavalos das cargas ativas + dos manifestos dos
+  últimos 3 dias (fita) entram no cadastro e na consulta de posição de 60 s; com a chave, ER0121 (sem posição
+  em 12 h) também busca paradas (MJX0E10 tinha 4). Lab, API real: 1ª rodada 30 s (+67 placas, 6.208 paradas
+  de 30 dias), 2ª 37 s, regime **4 s**.
+- `EMBARQUES_TERCEIRO_GPS` (`fontes_gps.tem_gps`): o Terceiro nasce com SM OU posição/parada do cavalo desde 1
+  dia antes do carregamento; o descarte vira "Terceiro sem GPS na Insignia". Robô REAL 06→08/10, braço SM × GPS:
+  **2 → 10 terceiros**; as **1.394 cargas F/A idênticas** nos dois braços.
+- Efeito de ativação medido: terceiro que já estava em viagem antes da coleta ganha chegada no 1º ponto
+  coletado (MQU7E81: 08/10 12:17 × 01:38 real) — sem posição com coordenada antes disso. **Ordem de ligar:
+  `INSIGNIA_COLETA_CARGAS` primeiro, `EMBARQUES_TERCEIRO_GPS` ~5 dias depois** (a janela do robô), quando todo
+  manifesto da janela já é observado desde a emissão.

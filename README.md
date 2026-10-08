@@ -458,6 +458,8 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 | `EMBARQUES_CONCLUSAO_TRAVADA` | LAB 07/10 — reescreve a conclusão travada na chegada (43/45 prematuras) | `false` |
 | `EMBARQUES_LAB_MEDIR_CONCLUSAO` | só instrumento de laboratório | `false` |
 | `EMBARQUES_PERNA_CONTINUACAO` | a rederivação cancela a perna vazia cuja carga A foi ligada DEPOIS a uma continuação e cuja carga B é essa continuação (a perna não existiu) | `false` |
+| `INSIGNIA_COLETA_CARGAS` | a coleta da Insignia pergunta a posição também do CAVALO de toda carga ativa e dos manifestos dos últimos `INSIGNIA_COLETA_MANIFESTO_DIAS` (3) dias — a GR rastreia cavalo de terceiro SEM SM aberta para nós | `false` |
+| `EMBARQUES_TERCEIRO_GPS` | o robô abre Terceiro com GPS do cavalo na Insignia (SM, posição ou parada desde 1 dia antes do carregamento), não só com SM. Ligar ~5 dias DEPOIS da coleta das cargas | `false` |
 
 ### Lançamento automático de embarques (robô do manifesto SSW)
 | Variável | Descrição | Default |
