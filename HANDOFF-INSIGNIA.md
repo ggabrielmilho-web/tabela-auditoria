@@ -809,6 +809,24 @@ NO CLIENTE, FIM DE VIAGEM), destino curado e a rota planejada da GR — não é 
 - Proposta retirada: "muda = sem ponto nas 2 h depois do encerramento" — o buraco era a coleta que não
   seguia a placa, não o caminhão.
 
+### 16.4b Tecnologia deduzida — KM RASTREADOR do terceiro SEM SM (08/10/2026)
+
+A unidade do odômetro depende da tecnologia, e ela só vem na ficha da SM (`sNm_Tecnologia`) — a consulta de
+posição não a traz (conferido no WSDL). Sem SM → odômetro NULL → KM RASTREADOR "—". A coleta passou a DEDUZIR:
+razão Δodômetro / Δkm do GPS nos trechos em movimento (pares ≤ 20 min, ≥ 0,2 km, ≤ 130 km/h, ≥ 10 km no total)
+cai em três faixas que não se tocam — Autotrac 103–117, Omnilink 1.033–1.050, Onixsat 1,1–1,2.
+- Gabarito (placas COM ficha) em produção: **26 certas · 0 erradas**, já com 5 km de movimento; sem SM: 5 de 13
+  estáveis em 08/10 à tarde (HMV3A15, ITD7F37, MQK1G40 Autotrac · HRO1E52 Omnilink · MLV3A53 Onixsat).
+- Achado no caminho: o Autotrac manda, às vezes, a leitura em outra ESCALA (1091448 entre 109144330s — 22 de
+  12.339 leituras, 13 placas). A dedução descarta o par (razão > 5.000); o KM RASTREADOR já o absorvia (teto 110 km/h).
+- Código: `insignia_coleta.deduzir_tecnologia` (pura) + `marcar_tecnologia` (1×/rodada junto do
+  `marcar_odometro`; decidida revista a cada 6 h, sem decisão retentada a cada 30 min) → colunas
+  `insignia_placas.tecnologia_deduzida/_razao/_em`; `fontes_gps._sql_odometro` usa
+  `COALESCE(tecnologia, tecnologia_deduzida)` — a ficha da SM sempre vence. **Sem chave nova**: vale dentro da
+  `EMBARQUES_FONTE_INSIGNIA_ODOMETRO` (desligá-la volta tudo).
+- Gate (lab `rizza_lab_1008_c`, transação com rollback): E0 11.902 pontos idênticos; ficha escondida → 25 certas,
+  0 erradas; série de odômetro com a deduzida × com a ficha: 8.391 pontos, 0 diferenças; espaçamento da fila ok.
+
 ### 16.5 Pendências, em ordem
 
 1. **Conferir em produção** as chaves de 07–08/10 (`service inspect`) e o 1º terceiro sem SM nascendo com

@@ -34,7 +34,7 @@ O detalhe de cada item está no `HANDOFF-EMBARQUES-AUTONOMO.md`, §27 em diante.
 | `EMBARQUES_FONTE_INSIGNIA` (+ `_ESCOPO=terceiro`) | **true** desde 07/10 (`8f1e9dd`) | a Insignia é fonte de GPS para o cavalo de carga **Terceiro** (worker, motor, aferidor, telas) |
 | `EMBARQUES_AUTO_TIPOS` | **Frota,Agregado,Terceiro** desde 07/10 | o robô abre Terceiro (com GPS na Insignia — ver `EMBARQUES_TERCEIRO_GPS`) |
 | `EMBARQUES_SM_ENCERRAMENTO` | **true** desde 07/10 | carga da Insignia que fica MUDA depois que a GR encerra a SM conclui no último FIM DE VIAGEM |
-| `EMBARQUES_FONTE_INSIGNIA_ODOMETRO` | **true** desde 07/10 | KM RASTREADOR do terceiro pelo odômetro da Insignia |
+| `EMBARQUES_FONTE_INSIGNIA_ODOMETRO` | **true** desde 07/10 | KM RASTREADOR do terceiro pelo odômetro da Insignia — desde 08/10 também do terceiro **sem SM** (tecnologia deduzida pelo próprio odômetro) |
 | `EMBARQUES_PERNA_CONTINUACAO` | **true** desde 07/10 (`c5d3d0b`) — conferir | cancela a perna vazia cuja carga A foi ligada depois a uma continuação |
 | `INSIGNIA_COLETA_CARGAS` | **true** desde 08/10 (`74bb0da`) — conferir | a coleta pergunta a posição do cavalo de toda carga ativa e dos manifestos recentes, não só de SM |
 | `EMBARQUES_TERCEIRO_GPS` | **true** desde 08/10 (`f5f57e9`) — conferir | Terceiro nasce com SM **ou** posição vista até o fim do dia do carregamento |
@@ -109,7 +109,7 @@ números no `HANDOFF-INSIGNIA.md` §8–§14 — **comece pela §14 (onde paramo
 |---|---|
 | `EMBARQUES_FONTE_INSIGNIA` | a camada `fontes_gps.py` passa a ler a 3S **e** a Insignia: cada fonte na sua tabela, uma leitura só; placa que a 3S rastreia continua só 3S |
 | `EMBARQUES_FONTE_INSIGNIA_ESCOPO` | `terceiro` (padrão) = só cavalo de carga Terceiro · `todas` = qualquer placa que a 3S não rastreia |
-| `EMBARQUES_FONTE_INSIGNIA_ODOMETRO` | odômetro da Insignia em km (Autotrac ÷ 100, Omnilink ÷ 1.000, Onixsat × 1; zero e aparelho travado = NULL) |
+| `EMBARQUES_FONTE_INSIGNIA_ODOMETRO` | odômetro da Insignia em km (Autotrac ÷ 100, Omnilink ÷ 1.000, Onixsat × 1; zero e aparelho travado = NULL). A tecnologia vem da ficha da SM; placa sem SM usa a `tecnologia_deduzida` pela coleta (razão Δodômetro/Δkm: ~100 / ~1.000 / ~1; 26 de 26 certas contra a ficha) |
 | `EMBARQUES_FONTE_INSIGNIA_BURACO` | tapa-buraco por tempo: placa nas DUAS fontes recebe o ponto da Insignia onde a 3S calou |
 | `EMBARQUES_SM_ENCERRAMENTO` | carga pela Insignia que fica MUDA depois que a GR encerra a SM conclui no FIM DE VIAGEM (`sm_encerrada`, não é entrega provada) |
 | `EMBARQUES_AUTO_TIPOS=…,Terceiro` | o robô abre Terceiro **só com SM** na Insignia (`fontes_gps.tem_sm`) |

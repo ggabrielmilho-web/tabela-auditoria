@@ -207,6 +207,11 @@ CREATE INDEX IF NOT EXISTS ix_insignia_locais_cnpj ON insignia_locais (cnpj);
 -- odômetro que NÃO varia com o veículo andando (06/10/26: AXT6E87 manda 1043208320 sempre).
 -- Marcado pela coleta; `fontes_gps` não usa o odômetro dessa placa.
 ALTER TABLE insignia_placas ADD COLUMN IF NOT EXISTS odometro_travado BOOLEAN;
+-- tecnologia deduzida pelo próprio odômetro, para placa SEM ficha de SM (08/10/26). A da SM
+-- (`tecnologia`) nunca é sobrescrita e tem precedência. A razão fica para auditoria.
+ALTER TABLE insignia_placas ADD COLUMN IF NOT EXISTS tecnologia_deduzida VARCHAR(40);
+ALTER TABLE insignia_placas ADD COLUMN IF NOT EXISTS tecnologia_deduzida_razao NUMERIC(10,2);
+ALTER TABLE insignia_placas ADD COLUMN IF NOT EXISTS tecnologia_deduzida_em TIMESTAMP;
 """
 
 
@@ -388,6 +393,79 @@ def marcar_odometro(cur, agora):
     return cur.rowcount
 
 
+# ── Tecnologia deduzida pelo odômetro (08/10/2026) ───────────────────────────────────────────────
+# A unidade do odômetro depende da tecnologia do rastreador, e a tecnologia só vem na ficha da SM
+# (`sNm_Tecnologia`); a consulta de posição não a traz. Sem ela o odômetro sai NULL e o terceiro
+# SEM SM fica com KM RASTREADOR "—". A razão Δodômetro / Δkm do GPS, nos trechos em movimento, cai
+# em três faixas que não se tocam — Autotrac ~100 (100 m), Omnilink ~1.000 (m), Onixsat ~1 (km).
+# Medido em produção (08/10, 37 placas com a tecnologia da SM como gabarito): 26 certas, 0 erradas,
+# já com 5 km de movimento; as indeterminadas são odômetro travado ou placa que não andou.
+TEC_DT_MAX_H = 20 / 60       # par de pontos consecutivos com no máximo 20 min entre eles
+TEC_KM_MIN_PAR = 0.2         # parado não entra (jitter)
+TEC_VEL_MAX = 130            # salto de posição impossível (posição falsa) não entra
+TEC_RAZAO_MAX = 5000         # leitura em outra escala no meio da série (Autotrac 1091448 entre
+                             # 109144330s): impossível em qualquer unidade — o par não entra
+TEC_KM_MIN = 10              # base mínima de movimento para afirmar
+TEC_JANELA_D = 7
+TEC_REVER_H = 6              # placa já deduzida é revista a cada 6 h (troca de aparelho)
+TEC_RETENTAR_MIN = 30        # sem decisão (não andou 10 km) tenta de novo em 30 min, não a cada rodada
+TEC_FAIXAS = (('ONIXSAT', -0.5, 0.5), ('AUTOTRAC', 1.5, 2.5), ('OMNILINK', 2.5, 3.5))   # log10 da razão
+
+
+def _km(a, b, c, d):
+    import math
+    r = math.radians
+    x = math.sin(r(c - a) / 2) ** 2 + math.cos(r(a)) * math.cos(r(c)) * math.sin(r(d - b) / 2) ** 2
+    return 2 * 6371 * math.asin(math.sqrt(x))
+
+
+def deduzir_tecnologia(pts):
+    """`pts` = [(instante, lat, lng, odometro_cru)] em ordem. Devolve (tecnologia, razão) ou
+    (None, razão|None). Função pura — é ela que o teste exercita."""
+    import math
+    sk = so = 0.0
+    for (t0, la0, lo0, o0), (t1, la1, lo1, o1) in zip(pts, pts[1:]):
+        dt = (t1 - t0).total_seconds() / 3600
+        if not (0 < dt <= TEC_DT_MAX_H) or not o0 or not o1 or None in (la0, lo0, la1, lo1):
+            continue
+        km = _km(float(la0), float(lo0), float(la1), float(lo1))
+        if km < TEC_KM_MIN_PAR or km / dt > TEC_VEL_MAX or o1 < o0 or (o1 - o0) / km > TEC_RAZAO_MAX:
+            continue
+        sk += km
+        so += o1 - o0
+    if sk < TEC_KM_MIN or so <= 0:
+        return None, None
+    razao = so / sk
+    lg = math.log10(razao)
+    return next((n for n, a, b in TEC_FAIXAS if a <= lg < b), None), razao
+
+
+def marcar_tecnologia(cur, agora):
+    """Deduz a tecnologia das placas SEM ficha de SM e grava em `tecnologia_deduzida`. Só escreve
+    quando decide (indeterminada não apaga uma dedução anterior). Quem lê é `fontes_gps._sql_odometro`,
+    atrás da mesma `EMBARQUES_FONTE_INSIGNIA_ODOMETRO` — a dedução só completa o dado dela."""
+    cur.execute("""SELECT placa_chave FROM insignia_placas
+                    WHERE tecnologia IS NULL
+                      AND (tecnologia_deduzida_em IS NULL
+                           OR tecnologia_deduzida_em < %s
+                           OR (tecnologia_deduzida IS NULL AND tecnologia_deduzida_em < %s))""",
+                (agora - timedelta(hours=TEC_REVER_H), agora - timedelta(minutes=TEC_RETENTAR_MIN)))
+    placas = [r[0] for r in cur.fetchall()]
+    n = 0
+    for p in placas:
+        cur.execute("""SELECT em, lat, lng, odometro FROM insignia_posicoes
+                        WHERE placa_chave = %s AND em >= %s ORDER BY em""",
+                    (p, agora - timedelta(days=TEC_JANELA_D)))
+        tec, razao = deduzir_tecnologia(cur.fetchall())
+        # o carimbo vai sempre (é ele que espaça a próxima tentativa); a tecnologia só quando decide
+        cur.execute("""UPDATE insignia_placas SET tecnologia_deduzida = COALESCE(%s, tecnologia_deduzida),
+                              tecnologia_deduzida_razao = COALESCE(%s, tecnologia_deduzida_razao),
+                              tecnologia_deduzida_em = %s
+                        WHERE placa_chave = %s""", (tec, round(razao, 2) if tec else None, agora, p))
+        n += bool(tec)
+    return n
+
+
 def cargas_ligado():
     """`INSIGNIA_COLETA_CARGAS=true` (08/10/26): a coleta pergunta a posição também do CAVALO de toda
     carga ativa e dos manifestos recentes, não só das placas em SM aberta."""
@@ -508,6 +586,7 @@ def rodada(conn, agora=None, paradas_min=None, backfill_dias=None):
 
     try:
         marcar_odometro(cur, agora)
+        marcar_tecnologia(cur, agora)
         conn.commit()
     except Exception as exc:
         conn.rollback()

@@ -74,10 +74,18 @@ def _sql_odometro(cur):
                     "AND column_name = 'odometro_travado'")
         _TABELAS['travado'] = cur.fetchone() is not None
     trav = 'COALESCE(pl.odometro_travado, FALSE) OR ' if _TABELAS['travado'] else ''
+    # Placa sem ficha de SM não tem `tecnologia`: vale a deduzida pela coleta a partir do próprio
+    # odômetro (`insignia_coleta.marcar_tecnologia`, 08/10/26 — 26 de 26 certas contra a da SM).
+    # A da SM tem precedência. Sem a coluna (base antiga), só a da SM, como antes.
+    if 'deduzida' not in _TABELAS:
+        cur.execute("SELECT 1 FROM information_schema.columns WHERE table_name = 'insignia_placas' "
+                    "AND column_name = 'tecnologia_deduzida'")
+        _TABELAS['deduzida'] = cur.fetchone() is not None
+    tec = 'COALESCE(pl.tecnologia, pl.tecnologia_deduzida)' if _TABELAS['deduzida'] else 'pl.tecnologia'
     return (f"(CASE WHEN i.odometro IS NULL OR i.odometro = 0 OR {trav}FALSE THEN NULL "
-            "WHEN pl.tecnologia = 'AUTOTRAC' THEN round(i.odometro / 100.0) "
-            "WHEN pl.tecnologia = 'OMNILINK' THEN round(i.odometro / 1000.0) "
-            "WHEN pl.tecnologia = 'ONIXSAT' THEN i.odometro END)::integer")
+            f"WHEN {tec} = 'AUTOTRAC' THEN round(i.odometro / 100.0) "
+            f"WHEN {tec} = 'OMNILINK' THEN round(i.odometro / 1000.0) "
+            f"WHEN {tec} = 'ONIXSAT' THEN i.odometro END)::integer")
 
 
 def _filtro_insignia(alias='i'):
