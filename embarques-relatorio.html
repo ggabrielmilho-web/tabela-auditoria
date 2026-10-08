@@ -571,11 +571,21 @@
     }
   }
 
+  // Sem período a listagem traz a base inteira e a tela fica pesada: o padrão é o mês vigente
+  // (1º ao último dia, pela data do navegador — o dia da operação é o de Brasília).
+  function periodoMesVigente() {
+    const hoje = new Date();
+    const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    document.getElementById('fStart').value = iso(new Date(hoje.getFullYear(), hoje.getMonth(), 1));
+    document.getElementById('fEnd').value = iso(new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0));
+  }
+
   function limparFiltros() {
     for (const id of ['fStart','fEnd','fTipo','fStatus','fViagem','fCliente','fEmbarcador','fMotorista','fOrigemUF','fDestinoUF','fQ']) {
       document.getElementById(id).value = '';
     }
     document.getElementById('fDataCampo').value = 'carregamento';
+    periodoMesVigente();
     aplicarFiltros();
   }
 
@@ -836,7 +846,9 @@
     }
   });
 
-  // Pré-aplica filtros vindos da URL (ex.: cards da landing → ?status=Em rota)
+  // Pré-aplica filtros vindos da URL (ex.: cards da landing → ?status=Em rota).
+  // Link com filtro vem sem período de propósito: o card "Em rota" tem de mostrar também a
+  // carga carregada no mês passado que ainda roda. Sem filtro na URL, abre no mês vigente.
   function aplicarFiltrosDaURL() {
     const p = new URLSearchParams(window.location.search);
     const map = {
@@ -845,10 +857,13 @@
       embarcador: 'fEmbarcador', motorista: 'fMotorista',
       origem_uf: 'fOrigemUF', destino_uf: 'fDestinoUF', q: 'fQ',
     };
+    let veio = false;
     for (const key in map) {
       const v = p.get(key);
-      if (v !== null) { const el = document.getElementById(map[key]); if (el) el.value = v; }
+      if (v !== null) { const el = document.getElementById(map[key]); if (el) { el.value = v; veio = true; } }
     }
+    // `?destacar=` (nova carga / aviso de conflito) pode apontar para carga ativa de outro mês
+    if (!veio && !p.get('destacar')) periodoMesVigente();
   }
 
   // Init
