@@ -1,5 +1,10 @@
 # Handoff — Insignia GR (2ª fonte de rastreamento)
 
+**Estado em 08/10/2026 — ⚠ COMECE PELA §16 (ONDE PARAMOS: produção, regra de SM, aprendizado, pendências).**
+A Insignia virou fonte de GPS em produção para TERCEIRO (com ou sem SM), com odômetro e cidade; a coleta segue
+o cavalo de toda carga ativa. A regra de rastreio passou a ser: **tem posição, tem rastreamento** — a SM é
+detalhe da GR, não condição.
+
 **07/10/2026 (tarde) — leia a §15**: dump de hoje, 3S CONGELADA (o tapa-buraco não pega), duas falhas do
 motor que não são da Insignia (conclusão travada na chegada: 43 de 45 prematuras; saída de metrópole) e o
 que acontece depois do FIM DE VIAGEM. Quatro chaves novas de laboratório, todas desligadas, E0 idêntico.
@@ -19,7 +24,12 @@ conta de novo. O total real está no `--resumo`.
 
 A Insignia é a **gerenciadora de risco** das cargas da Rizza. Toda carga com SM (solicitação de
 monitoramento) passa por ela: **os terceiros** — que a 3S não vê — e frota/agregado conforme o
-valor da carga. Para frota e agregado ela lê o rastreador do **cavalo** (Autotrac); a 3S lê o da
+valor da carga.
+
+**Regra de SM da operação (Gabriel, 08/10/26 — só para entendimento):** carga do **Rio** → toda com SM;
+**acima de R$ 150 mil** → todo mundo com SM; **terceiro abaixo de R$ 150 mil** → a GR só pega o **sinal**
+(rastreia o cavalo), não abre SM. Medido 05–08/10: >150 mil 19 com SM × 8 sem; ≤150 mil 6 com × 37 sem;
+RIO 4 com × 1 sem (§16.2). **A NOSSA regra não depende disso: tem posição, tem rastreamento.** Para frota e agregado ela lê o rastreador do **cavalo** (Autotrac); a 3S lê o da
 **carreta**: são duas testemunhas independentes do mesmo caminhão.
 
 ## 2. A API (o que não está na documentação)
@@ -698,3 +708,124 @@ saída observada; viagem que já rodava antes da coleta não abre. Testes: MQU7E
 carregamento 08/10 → sim; SYQ6H93/MJX0E10 07/10 → não; ARM8051 (SM) → sim. Robô REAL 06→08/10: abriu só os 2
 com SM (ARM8051, AAW1H70 — iguais à trava antiga), 0 do estoque; cargas F/A idênticas. **Pode ligar junto com a
 coleta.**
+
+
+---
+
+## 16. ONDE PARAMOS — estado em 08/10/2026, a regra de SM e o aprendizado destes dias
+
+### 16.1 Produção
+
+Commits na `main` (chaves também no README, "O que está ligado em produção"):
+
+| commit | o que | chave / estado |
+|---|---|---|
+| `e5d90bc` (05/10) | coleta da Insignia (SMs, posição, paradas, macros, rota, locais) | `INSIGNIA_COLETA=true` |
+| `8f1e9dd` (07/10) | `fontes_gps` (3S + Insignia numa leitura), Terceiro no robô, conclusão pela SM, lista mede pela placa rastreada; chaves de lab desligadas | `EMBARQUES_FONTE_INSIGNIA=true` (escopo `terceiro`), `EMBARQUES_AUTO_TIPOS=Frota,Agregado,Terceiro`, `EMBARQUES_SM_ENCERRAMENTO=true` |
+| — (07/10) | odômetro da Insignia (Autotrac ÷100, Omnilink ÷1.000, Onixsat km; zero/travado = NULL) | `EMBARQUES_FONTE_INSIGNIA_ODOMETRO=true` |
+| `c5d3d0b` (07/10) | perna vazia de continuação cancelada sozinha + card "Vazias no mês" sem cancelada | `EMBARQUES_PERNA_CONTINUACAO=true` (comando passado 07/10 — conferir no `service inspect`) |
+| `12a64f2` (08/10) | trava de "janela curta" do KPI só em carga FECHADA (KM PERCORRIDOS "—" nas primeiras horas) | sem chave |
+| `9294b92` (08/10) | cidade da posição atual pelo município mais próximo quando vier vazia | sem chave |
+| `74bb0da` + `f5f57e9` (08/10) | coleta pelos cavalos das cargas ativas e manifestos recentes; Terceiro com SM OU posição vista até o fim do dia do carregamento | `INSIGNIA_COLETA_CARGAS=true` + `EMBARQUES_TERCEIRO_GPS=true` (comando passado 08/10 — conferir) |
+
+Fora do app: **455 e 073 do SSW** com janela `min(dia 1º, hoje − 10 dias)` na máquina de produção
+(`C:\Automacoes\SSW_Python`, trocados pelo Gabriel em 07/10); **backfill da 3S 03–08/09 feito** (08/10);
+**7 pernas de continuação canceladas à mão** (snapshot `snap_20261007_1937`).
+
+### 16.2 A regra de SM (operação) × o dado
+
+Da operação: **RIO → toda com SM · acima de R$ 150 mil → todo mundo · terceiro abaixo de R$ 150 mil → só
+sinal, sem SM.** Manifestos de 05–08/10 (a coleta de SM existe desde 05/10), por faixa:
+
+| faixa | com SM | sem SM |
+|---|---|---|
+| acima de R$ 150 mil | 19 | 8 |
+| até R$ 150 mil | 6 | 37 |
+| origem RIO | 4 | 1 |
+
+Exceções que valem pergunta à operação/GR (não mudam nada para o sistema): UDI029536-1 (terceiro Pernod,
+R$ 532 mil, MJX0E10) sem SM; agregados de R$ 224–345 mil sem SM (UDI029518-3, 029522-1, 029529-9, 029535-3,
+CAR004627-2); RIO003300-6 (volta do DPB4G53, R$ 16,7 mil) sem SM. Duas "≤150 mil com SM" são a subcontratação
+da Martins, cujo valor formal no manifesto é R$ 1 (§27.17 do HANDOFF-EMBARQUES).
+
+**Por que não importa para a régua:** a GR rastreia o CAVALO pela nossa unidade com ou sem SM (§15.13 — 5 de 6
+cavalos de terceiro de 07/10 sem SM tinham paradas; das 64 cargas ativas de 08/10, 23 cavalos com posição ao
+vivo, 10 fora de SM). A regra do sistema é **tem posição → tem rastreamento**. A SM acrescenta macros (CHEGADA
+NO CLIENTE, FIM DE VIAGEM), destino curado e a rota planejada da GR — não é condição.
+
+### 16.3 Como a Insignia entra no sistema hoje
+
+1. **Coleta (60 s):** SMs abertas + posição/odômetro do cavalo de toda SM aberta (e 48 h depois de fechar),
+   de toda **carga ativa** e de todo **manifesto dos últimos 3 dias**; paradas de hora em hora (30 dias na 1ª
+   vez, inclusive ER0121); cadastro de locais 1×/dia. Regime: ~4 s por rodada.
+2. **Leitura (`fontes_gps`):** para cavalo de carga **Terceiro** que a 3S não rastreia, a série do motor, do
+   worker, do aferidor e das telas vem da Insignia. Frota/agregado seguem só com a 3S (escopo `terceiro`).
+3. **Robô:** Terceiro nasce com SM **ou** posição do cavalo vista até o fim do dia do carregamento — viagem
+   acompanhada desde a origem; o que já rodava antes de a coleta ver não abre. Descarte: "Terceiro sem GPS na
+   Insignia" (ex.: MIL3J52, que a GR não conhece).
+4. **Conclusão:** regra de sempre (saiu do destino / 24 h lá); se a SM fecha e a placa fica MUDA, conclui no
+   último FIM DE VIAGEM (`sm_encerrada`). Com a coleta seguindo a placa, SM encerrada na chegada não fecha
+   cedo (C-1406).
+5. **Tela:** mapa e lista pela placa que tem posição; KM RASTREADOR pelo odômetro; cidade pelo IBGE.
+
+### 16.4 O aprendizado destes dias (05–08/10)
+
+**Sobre a Insignia / a GR**
+- Só rastreia o **cavalo** (85 placas testadas: 0 carreta). Pareamento cavalo × carreta sempre **pela carga
+  da época** (96% assim; 58% com o par de hoje).
+- A conta enxerga **uma unidade** (02572512000158). A API **não lista veículos** e não há operação de
+  "unidades disponíveis"; testados 25 CNPJs/CPFs (filiais, embarcadores, proprietários da 045) → todos ER0044.
+- **Sem SM ainda há GPS:** posição (OK0001) e paradas por placa. ER0121 = conhecido, sem posição em 12 h
+  (paradas existem); ER0022 = a GR não conhece. No SSW (045) esses carreteiros estão `rastreado=N`, sem GR.
+- Horário em BRT (gravamos UTC); placa com hífen; odômetro por tecnologia, com leituras zeradas no meio.
+- **Macros:** CHEGADA NO CLIENTE = chegada (11/12 a ≤ 0,8 km; vem 6–14 min depois de parar; às vezes andando).
+  **FIM DE VIAGEM é misto** (4/7 depois da descarga, 2/7 na chegada; até 4 FIM na mesma SM). A GR encerra a
+  SM de minutos a horas depois — às vezes 35 min depois da chegada, com o caminhão parado lá 22 h (C-1406).
+- Locais da GR como âncora de destino: cobertura 66% → 80%, "no cliente" 74% (79–88% nas semanas recentes);
+  ordem T1 → GR → Maps → T3 (§15.7).
+
+**Sobre a 3S e o motor (valem sem a Insignia)**
+- A 3S **congela**: repete posição e odômetro por horas e depois pula (C-1363, C-1276); o tapa-buraco por
+  tempo não pega. Conserto de lab: `EMBARQUES_CARRETA_CONGELADA` (exige escopo `todas`).
+- **Conclusão travada na chegada** (43/45 prematuras) e **saída de metrópole imediata**: consertos de lab
+  `EMBARQUES_SAIDA_DESTINO_COERENTE` + `EMBARQUES_CONCLUSAO_TRAVADA` (48/56 confirmadas) — falta o aferidor.
+- **Saída adiantada (passagem):** 15/23; `EMBARQUES_SAIDA_CARREGAMENTO` corrige 11, só junto da congelada.
+- **Escopo `todas`** tem efeito colateral (C-1264: cavalo emprestando GPS da carga seguinte) — falta a guarda.
+
+**Sobre documentos e extração**
+- **455 e 073 pediam "dia 1º até hoje":** CTe/CTRB do fim do mês anterior nunca mais era relido →
+  continuação sem ligação (C-1275 → C-1409) e perna vazia fabricada (V-335). Corrigido; 916 e 031 seguem
+  "dia 1º" (impacto baixo). O 455 que estava no servidor não aceitava período por argumento.
+- 21 de 37 continuações ligam na mesma rodada em que B nasce; perna fabricada só veio do lote retroativo de
+  11/09 e da virada do mês → a regra que fecha é cancelar quando a ligação chega atrasada.
+
+**Sobre método (o que custou rodada)**
+- No Windows, `M_base.csv` e `m_base.csv` são o MESMO arquivo; `aux.py` é nome reservado.
+- A cópia do dump chega em blocos: medir o tamanho até estabilizar antes de restaurar (dois arquivos
+  "cortados" eram cópia em andamento). O dump precisa de `clientes` e `auditoria_users` para o robô.
+- Postgres local em BRT (o `NOW()` do worker no lab carimba BRT); produção é UTC.
+- Teste que dá zero na primeira rodada: montar a pré-condição (na base convergida o worker não tinha o que fazer).
+- Trava de KPI que olha "não chegou" precisa olhar também "está fechada" — em carga aberta o fim é o agora.
+- Proposta retirada: "muda = sem ponto nas 2 h depois do encerramento" — o buraco era a coleta que não
+  seguia a placa, não o caminhão.
+
+### 16.5 Pendências, em ordem
+
+1. **Conferir em produção** as chaves de 07–08/10 (`service inspect`) e o 1º terceiro sem SM nascendo com
+   saída observada.
+2. **Pacote 2 do motor** (conclusão travada + saída de metrópole): régua no aferidor + ciclo completo no lab.
+3. **Guarda do cavalo** (C-1264) → escopo `todas` (tapa-buraco para frota/agregado: 21 cavalos com posição
+   na Insignia em 08/10) → carreta congelada → saída de carregamento.
+4. **Proposta de implantação da âncora** com a camada da GR + tabela de coordenadas (decisão: guardar lat/lng).
+5. **Dump ~13/10:** macros como régua (CHEGADA → `No destino`, último FIM → concluída), com mais casos.
+6. Menores: V-101; 916/031 na virada do mês; commitar 455/073 no repositório da Rizza; perguntar ao Francisco
+   em que unidade ficam as SMs de terceiro (e as exceções da §16.2).
+
+### 16.6 Laboratório e artefatos
+
+Bancos locais (nunca por cima): `rizza_lab_1007` (+ `_a/_b/_c1/_c2/_p`), `rizza_lab_1008` (dump 08/10 11:45,
+com `clientes`) + `_c` (coleta real), `_sm`, `_gps`, `_gps2` (braços do robô). Scripts em
+`_estudo_2026-10-07/` (pasta **fora do git e com dado de cliente**): `terceiros_0710.py`,
+`insignia_unidades.py`, `lab/terceiro_gps.py`, `lab/worker_teste.py`, `perna_cavalo.py`, `t4.py`,
+`valida.py`, `pos_fim.py`, `macro_regua.py`, `fim_e_chegada.py`. Credenciais da Insignia no `.env` local
+(gitignorado), salvas em 08/10.

@@ -31,6 +31,13 @@ O detalhe de cada item está no `HANDOFF-EMBARQUES-AUTONOMO.md`, §27 em diante.
 | `EMBARQUES_SENSOR_CAVALO` | **true** desde 24/09 | carreta que fala pouco empresta saída/chegada do cavalo que esteve na origem — só preenche ou antecipa (`2df2d86`) |
 | `EMBARQUES_RAIO_PERNA` | **true** desde 25/09 | perna curta: ponto só conta para a ponta de que está mais perto — o pátio da origem deixa de virar chegada (§27.18) |
 | `INSIGNIA_COLETA` | **true** desde 05/10 (`e5d90bc`) | coleta da Insignia GR: SMs (inclusive terceiros), posição/odômetro do cavalo, paradas, macros do motorista, rota planejada e locais → `insignia_*`. Em produção nada no app lê ainda — a leitura (`fontes_gps.py`) está só no laboratório, ver abaixo |
+| `EMBARQUES_FONTE_INSIGNIA` (+ `_ESCOPO=terceiro`) | **true** desde 07/10 (`8f1e9dd`) | a Insignia é fonte de GPS para o cavalo de carga **Terceiro** (worker, motor, aferidor, telas) |
+| `EMBARQUES_AUTO_TIPOS` | **Frota,Agregado,Terceiro** desde 07/10 | o robô abre Terceiro (com GPS na Insignia — ver `EMBARQUES_TERCEIRO_GPS`) |
+| `EMBARQUES_SM_ENCERRAMENTO` | **true** desde 07/10 | carga da Insignia que fica MUDA depois que a GR encerra a SM conclui no último FIM DE VIAGEM |
+| `EMBARQUES_FONTE_INSIGNIA_ODOMETRO` | **true** desde 07/10 | KM RASTREADOR do terceiro pelo odômetro da Insignia |
+| `EMBARQUES_PERNA_CONTINUACAO` | **true** desde 07/10 (`c5d3d0b`) — conferir | cancela a perna vazia cuja carga A foi ligada depois a uma continuação |
+| `INSIGNIA_COLETA_CARGAS` | **true** desde 08/10 (`74bb0da`) — conferir | a coleta pergunta a posição do cavalo de toda carga ativa e dos manifestos recentes, não só de SM |
+| `EMBARQUES_TERCEIRO_GPS` | **true** desde 08/10 (`f5f57e9`) — conferir | Terceiro nasce com SM **ou** posição vista até o fim do dia do carregamento |
 | `RASTREAMENTO_PURGA_POSICOES` | **ausente = false** desde 25/09 | as posições de GPS **não são mais apagadas** aos 30 dias (~5 MB/dia, ~1,8 GB/ano). `RASTREAMENTO_RETENCAO_DIAS` segue valendo só para a janela da consolidação e o corte do backfill |
 | `RASTREAMENTO_SYNC_AUTO` | **nasce desligada** (21/09) | sincroniza o cadastro `embarques_veiculos_rastreio` sozinho: por **lacuna** (placa que o worker vê e o cadastro não conhece — consulta local, sem cota) + **garantia de 24 h**. Sem ela, o cadastro só anda quando alguém clica no Admin, e veículo novo na 3S fica invisível **para a tela** com a viagem correndo (§27.13 nº 2) |
 

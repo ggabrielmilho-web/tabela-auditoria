@@ -1,5 +1,11 @@
 # Handoff — Painel de Embarques autônomo
 
+**08/10/2026 — leia o `HANDOFF-INSIGNIA.md` §16 (ONDE PARAMOS):** a Insignia é fonte de GPS em produção para
+terceiro (com ou sem SM — a GR rastreia o cavalo; regra: tem posição, tem rastreamento), a coleta segue o cavalo
+de toda carga ativa, o 455/073 do SSW passaram a reler o fim do mês anterior, as pernas vazias de continuação
+são canceladas sozinhas, e o KM PERCORRIDOS deixou de sumir nas primeiras horas de viagem. As correções do motor
+medidas em 07/10 (conclusão travada, saída de metrópole, carreta congelada) seguem desligadas — falta o aferidor.
+
 **07/10/2026 — leia antes a §29:** o worker, o motor e o aferidor ganharam (no working tree, sem commit, atrás
 de chave) a Insignia como 2ª fonte de GPS — a régua de §24.5 vale para subir. O detalhe mora no
 `HANDOFF-INSIGNIA.md` §14. E a âncora de destino da §28.13 tem candidata melhor: o cadastro de locais da GR.
