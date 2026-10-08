@@ -848,6 +848,15 @@ formal, confirmado: 74 de 76 CTes `SUBC REC FORM LISO`). Fora da regra = ALERTA 
 - Tela: cards por severidade, regra à vista, filtros (mês vigente), CSV, gaveta com CTes / SMs do conjunto /
   "mesma SM em outro manifesto" / **validação do responsável** (confirmado · falso alerta · justificado, com log —
   recalcular NÃO apaga) / "Ações na gerenciadora" (pré-cheque e Solicitar SM, **desabilitados**) / histórico.
+- **Evidência Logística isenta, igual à Martins** (Gabriel, 08/10; pagador raiz 07632502, `SUBC FEC FORM CTRC`
+  com valor real). Isenção virou lista (`ISENTOS`, + `EMBARQUES_SM_ISENTOS`). Caso HKE0675 (C-1402): SM 211360
+  era Extrema → Uberlândia (perna 1, cavalo HIF2439); a perna 2 com outro cavalo não tem SM na unidade — a
+  central provavelmente abriu no cavalo errado; e a GR cadastra o cavalo na grafia antiga (HKE-0675).
+- **Placa divergente no cadastro da GR** (08/10): `insignia_coleta.checar_grafia_gr` — placa com ER0022 é perguntada
+  1×/dia na OUTRA grafia (antiga × Mercosul); se a GR conhece, grava `insignia_placas.placa_gr` e passa a pedir
+  posição/paradas por ela. A aba de SM ganha o RÓTULO "⚠ placa antiga na GR" (`embarques_sm.placa_gr_divergente`,
+  estado intacto), aviso na gaveta e filtro. Medido: 1 de 79 ER0022 (HKE-0675). Testado ida e volta: a central
+  corrigiu o cadastro para HKE-0G75 na mesma tarde, e a checagem seguinte desfez o rótulo sozinha.
 - **Embarcador da viagem na SM = CNPJ do PAGADOR do frete** (Gabriel, 08/10) — gravado em `pagador_cnpj`. Colunas
   Cliente e OC (+ quem abriu) na tela; o card de validação pendente saiu.
 - **Não ligado de propósito:** WhatsApp (fora por ora, talvez nunca — colunas `alerta_*` só reservadas) e abrir

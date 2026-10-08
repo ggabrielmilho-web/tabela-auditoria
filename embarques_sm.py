@@ -10,7 +10,8 @@ A REGRA (operação, 08/10/2026):
     valor da carga > R$ 150 mil (soma do `valor_mercadoria` dos CTes do manifesto) → SM, todos
     TERCEIRO até R$ 150 mil → a GR pega só o SINAL do cavalo (sem SM) — tem de haver posição
     Frota/Agregado até R$ 150 mil → nada (a 3S cobre)
-    MARTINS (pagador raiz 18485037, subcontratação) → isenta, mesmo no RJ (decisão de 08/10/26)
+    PAGADORES ISENTOS (raiz do CNPJ do pagador) → sem SM, mesmo no RJ: Martins 18485037 e Evidência
+    Logística 07632502 (decisões de 08/10/26); outros por EMBARQUES_SM_ISENTOS
 Fora da regra o seguro (PGR da gerenciadora) não cobre: é ALERTA MÁXIMO.
 Para abrir SM: o "embarcador da viagem" (sCd_CnpjEmbarcViagem) é o CNPJ do PAGADOR do frete (`pagador_cnpj`).
 
@@ -39,6 +40,21 @@ from datetime import date, datetime, timedelta, timezone
 
 LIMITE_VALOR = float(os.getenv('EMBARQUES_SM_LIMITE_VALOR', '150000'))
 MARTINS_RAIZ = '18485037'
+# Pagadores ISENTOS de SM (decisão da operação), pela raiz do CNPJ do pagador do frete:
+#   Martins (08/10/26) — subcontratação; vem com R$ 1 e destino formal
+#   Evidência Logística (08/10/26) — subcontratação (SUBC FEC FORM CTRC), com valor real
+# Para incluir outro sem deploy: EMBARQUES_SM_ISENTOS="12345678:NOME,87654321:OUTRO" (soma a estes).
+ISENTOS = {MARTINS_RAIZ: 'Martins', '07632502': 'Evidência'}
+for _it in os.getenv('EMBARQUES_SM_ISENTOS', '').split(','):
+    if ':' in _it:
+        _r, _n = _it.split(':', 1)
+        if _r.strip().isdigit():
+            ISENTOS[_r.strip().zfill(8)[:8]] = _n.strip() or _r.strip()
+
+
+def isento_de(cte):
+    """Nome do pagador isento deste CTe, ou None."""
+    return ISENTOS.get(str(cte.get('cnpj_pagador') or '').zfill(14)[:8])
 UF_RIO = 'RJ'
 # SM: a coleta da Insignia existe desde 05/10/26 ~15h BRT. Manifesto anterior a isso sem SM achada é
 # "sem dado", não "sem SM" (a SM pode ter aberto e fechado antes de a coleta existir).
@@ -60,7 +76,7 @@ ESTADOS = {
     'sm_ok':              ('ok', 'SM ok'),
     'sinal_ok':           ('ok', 'Sinal ok (sem SM)'),
     'nao_exige':          ('ok', 'Não exige'),
-    'isento':             ('ok', 'Isento (Martins)'),
+    'isento':             ('ok', 'Isento (pagador dispensado)'),
 }
 
 DDL = """
@@ -81,10 +97,10 @@ CREATE TABLE IF NOT EXISTS embarques_sm (
     carga_status        VARCHAR(20),
     saida_real          TIMESTAMP,                   -- UTC, da carga
     -- a regra
-    valor_cte           NUMERIC(14,2),               -- soma do valor_mercadoria dos CTes (exceto Martins)
+    valor_cte           NUMERIC(14,2),               -- soma do valor_mercadoria dos CTes (exceto pagadores isentos)
     valor_manifesto     NUMERIC(14,2),               -- valor_total_mercadoria do manifesto, para conferência
     n_ctes              INTEGER,
-    n_ctes_martins      INTEGER,
+    n_ctes_martins      INTEGER,                     -- CTes de pagador ISENTO (nome histórico: nasceu só com a Martins)
     uf_destinos         VARCHAR(60),
     rio                 BOOLEAN,
     exige               VARCHAR(10),                 -- sm / sinal / nada / isento / ?
@@ -130,6 +146,8 @@ ALTER TABLE embarques_sm ADD COLUMN IF NOT EXISTS oc VARCHAR(20);
 ALTER TABLE embarques_sm ADD COLUMN IF NOT EXISTS oc_embarcador VARCHAR(60);
 -- o "embarcador da viagem" da SM (sCd_CnpjEmbarcViagem) é o CNPJ do PAGADOR do frete (Gabriel, 08/10/26)
 ALTER TABLE embarques_sm ADD COLUMN IF NOT EXISTS pagador_cnpj VARCHAR(14);
+-- a GR cadastrou o cavalo/carreta na OUTRA grafia (antiga × Mercosul): rótulo, não estado — "cavalo HKE0G75 → GR: HKE-0675"
+ALTER TABLE embarques_sm ADD COLUMN IF NOT EXISTS placa_gr_divergente VARCHAR(80);
 CREATE INDEX IF NOT EXISTS ix_embarques_sm_data ON embarques_sm (data_emissao);
 CREATE INDEX IF NOT EXISTS ix_embarques_sm_estado ON embarques_sm (estado);
 CREATE TABLE IF NOT EXISTS embarques_sm_log (
@@ -182,19 +200,20 @@ def _dia(v):
 def regra(ctes, tipo):
     """`ctes` = lista de dicts com valor_mercadoria / cnpj_pagador / uf_entrega / uf_destinatario.
     Devolve dict com exige ('sm'|'sinal'|'nada'|'isento'|'?'), motivos, valor, rio e contagens."""
-    martins = [c for c in ctes if str(c.get('cnpj_pagador') or '').zfill(14)[:8] == MARTINS_RAIZ]
+    martins = [c for c in ctes if isento_de(c)]      # todos os pagadores isentos, não só a Martins
     resto = [c for c in ctes if c not in martins]
     valor = sum(_num(c.get('valor_mercadoria')) for c in resto)
     ufs = sorted({u for c in resto for u in (c.get('uf_entrega'), c.get('uf_destinatario')) if u})
     rio = UF_RIO in ufs
-    out = {'valor': round(valor, 2), 'rio': rio, 'ufs': ufs, 'n': len(ctes), 'n_martins': len(martins),
+    out = {'valor': round(valor, 2), 'rio': rio, 'ufs': ufs, 'n': len(ctes), 'n_martins': len(martins), 'isentos': [],
            'motivos': [], 'exige': None, 'valor_conhecido': True}
     if not ctes:
         out['exige'] = '?'
         return out
     if not resto:
         out['exige'] = 'isento'
-        out['motivos'] = ['martins']
+        out['motivos'] = ['isento']
+        out['isentos'] = sorted({isento_de(c) for c in martins})
         return out
     # valor formal (≤ R$ 1 em todos) fora da Martins: não dá para dizer se passa de 150 mil
     out['valor_conhecido'] = any(_num(c.get('valor_mercadoria')) > 1 for c in resto)
@@ -219,9 +238,10 @@ def avaliar(r, dia, sm, sinal, saida_real, conjunto):
     if r['exige'] == '?' and r['n'] == 0:
         return 'aguardando_cte', 'nenhum CTe do manifesto chegou ao BI ainda'
     if r['exige'] == 'isento':
-        return 'isento', 'todos os CTes são da Martins (subcontratação) — sem SM por decisão da operação'
+        return 'isento', ('todos os CTes são de pagador isento (' + ', '.join(r.get('isentos') or []) +
+                          ') — sem SM por decisão da operação')
     if r['exige'] == '?':
-        return 'valor_desconhecido', 'CTes com valor formal (≤ R$ 1) fora da Martins — não dá para aplicar o limite de R$ 150 mil'
+        return 'valor_desconhecido', 'CTes com valor formal (≤ R$ 1) fora dos isentos — não dá para aplicar o limite de R$ 150 mil'
     if r['exige'] == 'nada':
         return 'nao_exige', f"Frota/Agregado até R$ {LIMITE_VALOR:,.0f} fora do RJ — a 3S cobre".replace(',', '.')
     if r['exige'] == 'sinal':
@@ -337,12 +357,35 @@ def _ordens(cur):
     return {norm(m): (oc, emb) for m, oc, emb in cur.fetchall()}
 
 
+def _grafias_gr(cur):
+    """chave Mercosul → a grafia que a GR usa, só para as placas que a coleta achou na outra grafia."""
+    if not _tem(cur, 'insignia_placas'):
+        return {}
+    cur.execute("SELECT 1 FROM information_schema.columns WHERE table_name = 'insignia_placas' AND column_name = 'placa_gr'")
+    if not cur.fetchone():
+        return {}
+    cur.execute("SELECT placa_chave, placa_gr FROM insignia_placas WHERE placa_gr IS NOT NULL")
+    return dict(cur.fetchall())
+
+
+def divergencia_gr(grafias_gr, cavalo_ssw, carreta_ssw):
+    """Texto do rótulo quando a GR escreve a placa diferente do SSW (a placa do SSW é a verdade). Função pura."""
+    import placas as pl
+    out = []
+    for papel, p in (('cavalo', cavalo_ssw), ('carreta', carreta_ssw)):
+        if not p:
+            continue
+        gr = grafias_gr.get(pl.mercosul(p) or '')
+        if gr and pl.limpar(gr) != pl.limpar(p):
+            out.append(f'{papel} {pl.limpar(p)} → GR: {gr}')
+    return '; '.join(out)[:80] or None
+
+
 def _tomador(ctes, campo='cliente_pagador'):
     """O tomador mais frequente entre os CTes que não são da Martins (o cliente quando não há carga).
     Com `campo='cnpj_pagador'`, o CNPJ dele — é o embarcador da viagem na SM."""
     from collections import Counter
-    c = Counter(x.get(campo) for x in ctes
-                if x.get(campo) and str(x.get('cnpj_pagador') or '').zfill(14)[:8] != MARTINS_RAIZ)
+    c = Counter(x.get(campo) for x in ctes if x.get(campo) and not isento_de(x))
     if not c:
         c = Counter(x.get(campo) for x in ctes if x.get(campo))
     return c.most_common(1)[0][0] if c else None
@@ -354,7 +397,7 @@ CAMPOS = ('manifesto_exibir', 'data_emissao', 'unidade_origem', 'cavalo', 'carre
           'valor_cte', 'valor_manifesto', 'n_ctes', 'n_ctes_martins', 'uf_destinos', 'rio', 'exige', 'motivos',
           'ctes', 'sm', 'sm_status', 'sm_inicio', 'sm_encerrada_em', 'sm_valor', 'sm_conjunto', 'sm_link',
           'sm_atraso_h', 'sinal_pontos', 'sinal_ultimo', 'estado', 'severidade', 'detalhe',
-          'cliente', 'oc', 'oc_embarcador', 'pagador_cnpj')
+          'cliente', 'oc', 'oc_embarcador', 'pagador_cnpj', 'placa_gr_divergente')
 
 
 def atualizar(conn, tok, manifestos=None, cadastro=None, desde=None, agora=None):
@@ -379,6 +422,7 @@ def atualizar(conn, tok, manifestos=None, cadastro=None, desde=None, agora=None)
     sms = _sms(cur, desde) if _tem(cur, 'insignia_sm') else []
     cargas = _cargas(cur, desde)
     ordens = _ordens(cur)
+    grafias_gr = _grafias_gr(cur)
     vendidas = frozenset()
     if cadastro is not None:
         try:
@@ -426,7 +470,7 @@ def atualizar(conn, tok, manifestos=None, cadastro=None, desde=None, agora=None)
             'rio': r['rio'], 'exige': r['exige'], 'motivos': ','.join(r['motivos']) or None,
             'ctes': json.dumps([{'ctrc': c.get('serie_numero_ctrc'), 'tipo': c.get('tipo_documento'),
                                  'valor': _num(c.get('valor_mercadoria')), 'pagador': c.get('cliente_pagador'),
-                                 'martins': str(c.get('cnpj_pagador') or '').zfill(14)[:8] == MARTINS_RAIZ,
+                                 'martins': bool(isento_de(c)), 'isento': isento_de(c),
                                  'destinatario': c.get('cliente_destinatario'),
                                  'entrega': f"{c.get('cidade_entrega') or ''}/{c.get('uf_entrega') or ''}"}
                                 for c in lista], ensure_ascii=False, default=str),
@@ -438,6 +482,7 @@ def atualizar(conn, tok, manifestos=None, cadastro=None, desde=None, agora=None)
             'cliente': ((cg[7] if cg else None) or _tomador(lista) or '')[:160] or None,
             'oc': (ordens.get(k) or (None, None))[0] or (cg[9] if cg else None),
             'oc_embarcador': (ordens.get(k) or (None, None))[1] or (cg[8] if cg else None),
+            'placa_gr_divergente': divergencia_gr(grafias_gr, m.get('placa_cavalo'), m.get('placa_carreta')),
             'pagador_cnpj': (re.sub(r'\D', '', str(_tomador(lista, 'cnpj_pagador') or '')).zfill(14)
                              if _tomador(lista, 'cnpj_pagador') else None),
         }

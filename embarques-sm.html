@@ -82,7 +82,7 @@
   .mot.rio { color: var(--accent); border-color: rgba(56,189,248,.4); }
   .mot.valor { color: var(--yellow); border-color: rgba(251,191,36,.35); }
   .mot.terceiro { color: var(--orange); border-color: rgba(251,146,60,.35); }
-  .mot.martins { color: var(--text-dim); }
+  .mot.martins, .mot.isento { color: var(--text-dim); }
   .v-confirmado { color: var(--red); } .v-falso_alerta { color: var(--green); } .v-justificado { color: var(--accent2); }
   .lig { color: var(--accent); text-decoration: none; } .lig:hover { text-decoration: underline; }
   .info-vazio { padding: 40px; text-align: center; color: var(--text-dim); }
@@ -138,7 +138,7 @@
     <span class="r">valor <b>&gt; <span id="lim">R$ 150 mil</span></b> → SM</span>
     <span class="r"><b>Terceiro</b> até o limite → sinal do cavalo na GR</span>
     <span class="r"><b>Frota/Agregado</b> até o limite → nada (3S)</span>
-    <span class="r"><b>Martins</b> → isenta</span>
+    <span class="r"><b>Martins</b> e <b>Evidência</b> → isentas</span>
     <span class="aviso" title="A API da Insignia só enxerga a unidade 02572512000158. Uma SM aberta em outra unidade não aparece aqui — por isso cada alerta pede a validação do responsável.">⚠ SM de outra unidade não aparece — valide os alertas</span>
   </div>
 
@@ -158,7 +158,8 @@
         <select id="fValid"><option value="">todas</option><option value="pendente">pendente (alerta/atenção)</option>
           <option value="confirmado">confirmado</option><option value="falso_alerta">falso alerta</option><option value="justificado">justificado</option></select></div>
       <div class="ff"><label>Busca</label><input id="fQ" placeholder="manifesto, placa, motorista, cliente, OC, SM…"></div>
-      <div class="ff chk"><label><input type="checkbox" id="fCanc"> incluir cancelados</label></div>
+      <div class="ff chk"><label><input type="checkbox" id="fCanc"> incluir cancelados</label>
+        <label title="a GR cadastrou o cavalo ou a carreta com a placa na grafia antiga (ou o contrário) — pedir à central para atualizar"><input type="checkbox" id="fGr"> só placa divergente na GR</label></div>
       <div class="ff botoes"><button class="btn-sm btn-pri" onclick="carregar()">Aplicar</button><button class="btn-sm" onclick="limpar()">Limpar</button></div>
     </div>
   </div>
@@ -224,6 +225,7 @@ function params(){
   if (v('fValid')) p.set('validacao', v('fValid'));
   if (v('fQ')) p.set('q', v('fQ'));
   if (document.getElementById('fCanc').checked) p.set('cancelados', '1');
+  if (document.getElementById('fGr').checked) p.set('placa_gr', '1');
   const est = v('fEstado') || FILTRO_EST;
   if (est) p.set('estado', est); else if (FILTRO_SEV) p.set('severidade', FILTRO_SEV);
   return p;
@@ -308,7 +310,8 @@ function renderTabela(){
     const tipo = l.tipo ? `<span class="badge t-${l.tipo}" title="${l.tipo_fonte==='carga'?'do robô (carga)':'pelo cadastro de veículos'}">${l.tipo}</span>` : '<span class="dim">?</span>';
     const dest = (l.uf_destinos||'—') + (l.rio ? ' <span class="mot rio">RJ</span>' : '');
     const atr = l.sm_atraso_h == null ? '—' : `<span style="color:${l.sm_atraso_h > 1 ? 'var(--orange)' : 'var(--text-dim)'}">${l.sm_atraso_h > 0 ? '+' : ''}${l.sm_atraso_h.toFixed(1)} h</span>`;
-    const canc = l.sumiu_em ? ' <span class="badge s-pendente" title="o manifesto saiu do BI">cancelado</span>' : '';
+    const canc = (l.sumiu_em ? ' <span class="badge s-pendente" title="o manifesto saiu do BI">cancelado</span>' : '')
+      + (l.placa_gr_divergente ? ` <span class="badge s-atencao" title="${esc(l.placa_gr_divergente)} — a GR cadastrou com a grafia antiga; pedir atualização à central">⚠ placa antiga na GR</span>` : '');
     return `<tr class="sev-${sev} ${ATUAL===l.manifesto?'sel':''}" onclick="abrir('${l.manifesto}')" title="${esc(l.detalhe)}">
       <td><span class="badge s-${sev}">${esc(rot)}</span>${canc}</td>
       <td class="mono">${esc(l.manifesto_exibir)}</td><td class="mono">${dia(l.data_emissao)}</td>
@@ -316,7 +319,7 @@ function renderTabela(){
       <td>${l.oc?`<span class="mono">${esc(l.oc)}</span> <span class="dim">${esc(l.oc_embarcador||'')}</span>`:'<span class="dim">sem OC</span>'}</td><td>${tipo}</td>
       <td class="mono">${esc(l.cavalo||'—')}${l.carreta?' + '+esc(l.carreta):''}</td>
       <td title="${esc(l.proprietario||'')}">${esc(l.motorista||'—')}</td>
-      <td class="num mono" title="manifesto: ${brl(l.valor_manifesto)} · ${l.n_ctes} CTe(s)${l.n_ctes_martins?' · '+l.n_ctes_martins+' Martins':''}">${brl(l.valor_cte)}</td>
+      <td class="num mono" title="manifesto: ${brl(l.valor_manifesto)} · ${l.n_ctes} CTe(s)${l.n_ctes_martins?' · '+l.n_ctes_martins+' de pagador isento':''}">${brl(l.valor_cte)}</td>
       <td>${dest}</td><td>${motivos(l)}</td><td>${smCel(l)}</td>
       <td class="mono">${dt(l.saida_real)}</td><td class="num mono">${atr}</td>
       <td>${validCel(l)}</td><td>${acaoCel(l)}</td></tr>`;
@@ -348,7 +351,7 @@ function renderGaveta(j){
   document.getElementById('gTit').textContent = l.manifesto_exibir;
   document.getElementById('gSub').innerHTML = `emitido ${dia(l.data_emissao)} · ${esc(l.unidade_origem||'')} · ${l.tipo?`<span class="badge t-${l.tipo}">${l.tipo}</span>`:''}`;
   const ctes = (l.ctes || []).map(c => `<tr><td class="mono">${esc(c.ctrc)}</td><td>${esc(c.destinatario||'')}<div class="dim">${esc(c.entrega)}</div></td>
-      <td class="dim">${esc(c.pagador||'')}${c.martins?' <span class="mot martins">Martins</span>':''}</td><td class="num mono">${brl(c.valor)}</td></tr>`).join('');
+      <td class="dim">${esc(c.pagador||'')}${c.martins?` <span class="mot isento">${esc(c.isento||'isento')}</span>`:''}</td><td class="num mono">${brl(c.valor)}</td></tr>`).join('');
   const sms = (j.sms || []).map(s => `<tr class="${s.sm===l.sm?'casada':''}"><td class="mono">${s.link?`<a class="lig" href="${esc(s.link)}" target="_blank">${s.sm}</a>`:s.sm}${s.sm===l.sm?' ✔':''}</td>
       <td class="mono">${esc(s.cavalo||'')}<div class="dim">${esc(s.carretas||'')}</div></td><td>${esc(s.status||'')}<div class="dim">${esc(s.condutor||'')}</div></td>
       <td class="mono">${dt(s.criada_em)}<div class="dim">${s.encerrada_em?'fim '+dt(s.encerrada_em):''}</div></td><td class="num mono">${brl(s.valor)}</td></tr>`).join('');
@@ -366,12 +369,16 @@ function renderGaveta(j){
 
   document.getElementById('gBody').innerHTML = `
     <div class="sec"><div class="detalhe-box s-${sev}"><b>${esc(rot)}</b><br>${esc(l.detalhe||'')}</div></div>
+    ${l.placa_gr_divergente ? `<div class="sec"><div class="detalhe-box s-atencao"><b>⚠ Placa divergente no cadastro da GR</b><br>
+      ${esc(l.placa_gr_divergente)}. O SSW já usa a placa Mercosul; a Insignia ainda tem o cadastro antigo.
+      Pedir à central para atualizar o veículo na Insignia — uma SM aberta com a placa antiga não casa com o manifesto
+      e a coleta precisa perguntar pela grafia da GR para ter o sinal.</div></div>` : ''}
     <div class="sec"><h3>A regra aplicada</h3><div class="kv">
       <div class="k">Cliente</div><div>${esc(l.cliente||'—')}</div>
       <div class="k" title="na SM, o embarcador da viagem (sCd_CnpjEmbarcViagem) é o CNPJ de quem paga o frete">Pagador do frete</div><div class="mono">${esc(l.pagador_cnpj||'—')}</div>
       <div class="k">Ordem de coleta</div><div>${l.oc?`<span class="mono">${esc(l.oc)}</span> · aberta por <b>${esc(l.oc_embarcador||'?')}</b>`:'<span class="dim">sem OC ligada</span>'}</div>
       <div class="k">Valor NF (CTes)</div><div><b>${brl(l.valor_cte)}</b>${dif}</div>
-      <div class="k">CTes</div><div>${l.n_ctes}${l.n_ctes_martins?` · ${l.n_ctes_martins} da Martins (fora da conta)`:''}</div>
+      <div class="k">CTes</div><div>${l.n_ctes}${l.n_ctes_martins?` · ${l.n_ctes_martins} de pagador isento (fora da conta)`:''}</div>
       <div class="k">Destinos (UF)</div><div>${esc(l.uf_destinos||'—')}${l.rio?' <span class="mot rio">RJ</span>':''}</div>
       <div class="k">Exige</div><div>${motivos(l)}</div>
       <div class="k">Conjunto</div><div class="mono">${esc(l.cavalo||'—')} + ${esc(l.carreta||'—')}</div>
@@ -422,12 +429,12 @@ async function salvarValidacao(man){
 function exportarCSV(){
   const cab = ['estado','manifesto','emissao','carga','status_carga','cliente','oc','oc_aberta_por','tipo','cavalo','carreta','motorista','proprietario',
                'pagador_cnpj','valor_nf','valor_manifesto','ctes','ufs','rio','exige','motivos','sm','sm_status','sm_conjunto','sm_pedida',
-               'saida_real','atraso_sm_h','sinal_pontos','detalhe','validacao','validacao_obs','validado_por'];
+               'saida_real','atraso_sm_h','sinal_pontos','detalhe','placa_gr_divergente','validacao','validacao_obs','validado_por'];
   const q = v => { const s = v == null ? '' : String(v); return /[;"\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s; };
   const linhas = LINHAS.map(l => [(ESTADOS[l.estado]||[])[1]||l.estado, l.manifesto_exibir, l.data_emissao, l.carga_numero, l.carga_status,
     l.cliente, l.oc, l.oc_embarcador, l.tipo, l.cavalo, l.carreta, l.motorista, l.proprietario, l.pagador_cnpj, l.valor_cte, l.valor_manifesto, l.n_ctes, l.uf_destinos,
     l.rio ? 'sim' : 'nao', l.exige, l.motivos, l.sm, l.sm_status, l.sm_conjunto, l.sm_inicio, l.saida_real, l.sm_atraso_h,
-    l.sinal_pontos, l.detalhe, l.validacao, l.validacao_obs, l.validado_por].map(q).join(';'));
+    l.sinal_pontos, l.detalhe, l.placa_gr_divergente, l.validacao, l.validacao_obs, l.validado_por].map(q).join(';'));
   const blob = new Blob(['﻿' + [cab.join(';')].concat(linhas).join('\n')], {type:'text/csv;charset=utf-8'});
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
   a.download = `conformidade_sm_${hojeBR()}.csv`; a.click();
@@ -435,7 +442,7 @@ function exportarCSV(){
 
 function limpar(){
   ['fEstado','fTipo','fExige','fValid','fQ'].forEach(id => document.getElementById(id).value = '');
-  document.getElementById('fCanc').checked = false;
+  document.getElementById('fCanc').checked = false; document.getElementById('fGr').checked = false;
   FILTRO_SEV = ''; FILTRO_EST = ''; mesVigente(); carregar();
 }
 document.getElementById('fQ').addEventListener('keydown', e => { if (e.key === 'Enter') carregar(); });

@@ -446,7 +446,7 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 Recalculada a cada rodada da fita documental (`EMBARQUES_FITA`) — sem chave própria: só lê o BI e a
 Insignia e grava `embarques_sm` / `embarques_sm_log`. Regra: destino RJ → SM; valor (soma do
 `valor_mercadoria` dos CTes) > limite → SM; Terceiro até o limite → sinal do cavalo na GR;
-Frota/Agregado até o limite → nada; Martins (pagador raiz 18485037) isenta.
+Frota/Agregado até o limite → nada; pagadores isentos (raiz do CNPJ do pagador): Martins 18485037 e Evidência Logística 07632502 — outros por `EMBARQUES_SM_ISENTOS="raiz:NOME,..."`.
 
 | Variável | Descrição | Default |
 |---|---|---|
@@ -455,6 +455,7 @@ Frota/Agregado até o limite → nada; Martins (pagador raiz 18485037) isenta.
 | `EMBARQUES_SM_SINAL_DESDE` | idem para o sinal do cavalo sem SM (`INSIGNIA_COLETA_CARGAS` desde 08/10/26) | `2026-10-08` |
 
 Backfill / conferência à mão: `python -X utf8 embarques_sm.py --desde AAAA-MM-DD` (lê o BI, grava a tabela).
+Placa que a GR cadastrou na outra grafia (antiga × Mercosul) vira rótulo "⚠ placa antiga na GR" — a coleta descobre 1×/dia (`checar_grafia_gr`).
 Abrir SM pela API: **preparado, não ligado** (colunas e lugar na tela já existem; o embarcador da viagem é o CNPJ do pagador do frete, `pagador_cnpj`). Alerta por WhatsApp: fora por ora — só as colunas `alerta_*` reservadas.
 
 ### Insignia GR (coleta — `insignia_coleta.py`)

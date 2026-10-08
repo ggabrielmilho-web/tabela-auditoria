@@ -1571,7 +1571,7 @@ def api_embarques_sem_ordem():
 
 # ── Conformidade de SM (08/10/26) — `embarques_sm.py` ─────────────────────────────────
 # Uma linha por manifesto: o que a regra da gerenciadora exige (RJ → SM; > R$ 150 mil → SM;
-# terceiro até 150 mil → sinal; Martins isenta) contra o que a Insignia mostra. A tabela é
+# terceiro até 150 mil → sinal; Martins e Evidência isentas) contra o que a Insignia mostra. A tabela é
 # recalculada a cada rodada da fita; a tela só LÊ — exceto a validação do responsável, que é o
 # que valida a régua antes de o alerta de WhatsApp ligar. Abrir SM pela API: preparado, não ligado.
 @app.route('/embarques/sm')
@@ -1623,6 +1623,8 @@ def api_embarques_sm():
             where.append("severidade IN ('alerta', 'atencao') AND validacao IS NULL")
         elif a.get('validacao'):
             where.append('validacao = %s'); args.append(a['validacao'])
+        if a.get('placa_gr') == '1':
+            where.append('placa_gr_divergente IS NOT NULL')
         if a.get('cancelados') != '1':
             where.append('sumiu_em IS NULL')
         if a.get('q'):
@@ -1643,7 +1645,7 @@ def api_embarques_sm():
             where.append('severidade = ANY(%s)'); args.append(a['severidade'].split(','))
         cur.execute(f"""
             SELECT manifesto, manifesto_exibir, data_emissao, unidade_origem, cavalo, carreta, motorista, proprietario,
-                   cliente, oc, oc_embarcador, pagador_cnpj,
+                   cliente, oc, oc_embarcador, pagador_cnpj, placa_gr_divergente,
                    tipo, tipo_fonte, carga_id, carga_numero, carga_status, saida_real, valor_cte, valor_manifesto,
                    n_ctes, n_ctes_martins, uf_destinos, rio, exige, motivos, sm, sm_status, sm_inicio,
                    sm_encerrada_em, sm_conjunto, sm_link, sm_atraso_h, sinal_pontos, sinal_ultimo,

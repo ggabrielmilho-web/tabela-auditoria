@@ -212,6 +212,10 @@ ALTER TABLE insignia_placas ADD COLUMN IF NOT EXISTS odometro_travado BOOLEAN;
 ALTER TABLE insignia_placas ADD COLUMN IF NOT EXISTS tecnologia_deduzida VARCHAR(40);
 ALTER TABLE insignia_placas ADD COLUMN IF NOT EXISTS tecnologia_deduzida_razao NUMERIC(10,2);
 ALTER TABLE insignia_placas ADD COLUMN IF NOT EXISTS tecnologia_deduzida_em TIMESTAMP;
+-- a GR cadastrou a placa na OUTRA grafia (antiga × Mercosul) que o SSW (08/10/26: HKE-0675 na GR, HKE0G75 no
+-- manifesto). `placa_gr` = a grafia que a GR aceita; a coleta pergunta por ela e a aba de SM avisa a central.
+ALTER TABLE insignia_placas ADD COLUMN IF NOT EXISTS placa_gr VARCHAR(12);
+ALTER TABLE insignia_placas ADD COLUMN IF NOT EXISTS placa_gr_checada_em TIMESTAMP;
 """
 
 
@@ -466,6 +470,44 @@ def marcar_tecnologia(cur, agora):
     return n
 
 
+GRAFIA_REVER_H = 24
+
+
+def checar_grafia_gr(cur, agora):
+    """Placa que a GR respondeu "veículo não encontrado" (ER0022) e tem a outra grafia possível (antiga ×
+    Mercosul) é perguntada de novo nela, 1×/dia. Se a GR conhecer, grava `placa_gr` e passa a usar essa grafia
+    na `placa` — é por ela que a posição e as paradas são pedidas.
+
+    Por que (08/10/26): o SSW converteu o HKE0675 para Mercosul (HKE0G75) e a GR continuou com o cadastro
+    antigo; perguntando pela grafia do SSW, a GR dizia "não encontrado" para um cavalo que ela conhece. Medido
+    em produção: 1 de 79 placas ER0022 — rede de segurança, não regra frequente. A placa do SSW continua sendo
+    a verdade; isto só descobre como a GR a escreveu, para a central corrigir o cadastro lá."""
+    import placas as pl
+    cur.execute("""SELECT placa_chave, placa FROM insignia_placas
+                    WHERE ultimo_codigo = 'ER0022'
+                      AND (placa_gr_checada_em IS NULL OR placa_gr_checada_em < %s)""",
+                (agora - timedelta(hours=GRAFIA_REVER_H),))
+    alvo = {}
+    for chave, placa in cur.fetchall():
+        s = pl.limpar(placa)
+        for g in pl.grafias(s):
+            if g != s:
+                alvo[I.placa_api(g)] = chave
+        cur.execute("UPDATE insignia_placas SET placa_gr_checada_em = %s WHERE placa_chave = %s", (agora, chave))
+    achadas = 0
+    lst = sorted(alvo)
+    for i in range(0, len(lst), 50):
+        for p in I.posicoes(lst[i:i + 50]):
+            cod = str(p.get('sCode', ''))
+            chave = alvo.get(p.get('sPlaca'))
+            if not chave or cod.startswith('ER0022') or not cod:
+                continue
+            cur.execute("UPDATE insignia_placas SET placa_gr = %s, placa = %s, ultimo_codigo = %s WHERE placa_chave = %s",
+                        (_s(p.get('sPlaca'), 12), _s(p.get('sPlaca'), 12), _s(cod, 10), chave))
+            achadas += 1
+    return achadas
+
+
 def cargas_ligado():
     """`INSIGNIA_COLETA_CARGAS=true` (08/10/26): a coleta pergunta a posição também do CAVALO de toda
     carga ativa e dos manifestos recentes, não só das placas em SM aberta."""
@@ -561,7 +603,10 @@ def rodada(conn, agora=None, paradas_min=None, backfill_dias=None):
                     _placa_vista(cur, I.placa_api(_p), 'cavalo', None, agora)
             placas_abertas += _pc
             r['placas_cargas'] = len(_pc)
-        placas_u = sorted({I.placa_api(p) for p in placas_abertas})
+        # placa que a GR cadastrou na outra grafia: pergunta pela grafia dela (`checar_grafia_gr`)
+        cur.execute("SELECT placa_chave, placa_gr FROM insignia_placas WHERE placa_gr IS NOT NULL")
+        _gr = dict(cur.fetchall())
+        placas_u = sorted({_gr.get(_chave(p)) or I.placa_api(p) for p in placas_abertas})
         for i in range(0, len(placas_u), 50):
             for p in I.posicoes(placas_u[i:i + 50]):
                 ok = str(p.get('sCode', '')).startswith('OK') and p.get('sCd_Latitude')
@@ -591,6 +636,13 @@ def rodada(conn, agora=None, paradas_min=None, backfill_dias=None):
     except Exception as exc:
         conn.rollback()
         r['erros'].append(f'odometro: {exc}')
+
+    try:
+        r['grafia_gr'] = checar_grafia_gr(cur, agora)
+        conn.commit()
+    except Exception as exc:
+        conn.rollback()
+        r['erros'].append(f'grafia_gr: {exc}')
 
     # 3. rota planejada das SMs que ainda não têm
     try:
