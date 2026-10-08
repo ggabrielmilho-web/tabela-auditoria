@@ -356,11 +356,16 @@ def terceiro_gps_ligado():
 
 
 def tem_gps(cur, cavalo, carreta, dia):
-    """A Insignia tem GPS deste conjunto perto deste dia? SM (como antes) OU posição/parada do CAVALO
-    de 1 dia antes do carregamento em diante. A GR rastreia o cavalo de boa parte dos terceiros sem SM
-    aberta para a nossa unidade (08/10/26: 5 de 6 cavalos das ordens de terceiro de 07/10, nenhum em
-    SM) — a SM não é a única prova de que vai haver posição. Exige a coleta seguindo as placas das
-    cargas e manifestos (`insignia_coleta.placas_de_cargas`)."""
+    """A Insignia acompanha este conjunto DESDE o carregamento? SM (como antes) OU uma posição do CAVALO
+    vista pela coleta entre o dia anterior e o FIM do dia do carregamento (BRT).
+
+    Por que (08/10/26): a GR rastreia o cavalo de boa parte dos terceiros sem SM aberta para a nossa
+    unidade (5 de 6 cavalos das ordens de terceiro de 07/10, nenhum em SM). Por que a janela: a coleta
+    das cargas (`insignia_coleta.placas_de_cargas`) passa a seguir o cavalo quando o manifesto aparece —
+    viagem NOVA tem ponto no próprio dia e nasce com a saída observada; viagem que já rodava antes de a
+    coleta começar só tem ponto de depois, e nasceria quebrada (chegada no 1º ponto coletado, sem saída,
+    km ~0 — MQU7E81 no lab: 08/10 12:17 × 01:38 real). Paradas NÃO contam: vêm com 30 dias de histórico e
+    deixariam esse estoque passar."""
     if tem_sm(cur, cavalo, carreta, dia):
         return True
     if not _tem_insignia(cur):
@@ -368,10 +373,9 @@ def tem_gps(cur, cavalo, carreta, dia):
     cav = pl.mercosul(cavalo or '')
     if not cav:
         return False
-    desde = dia - timedelta(days=1)
-    cur.execute("""SELECT EXISTS (SELECT 1 FROM insignia_posicoes WHERE placa_chave = %s AND em >= %s)
-                       OR EXISTS (SELECT 1 FROM insignia_paradas WHERE placa_chave = %s AND inicio >= %s)""",
-                (cav, desde, cav, desde))
+    cur.execute("""SELECT EXISTS (SELECT 1 FROM insignia_posicoes WHERE placa_chave = %s
+                                    AND em >= %s::date - 1 AND em < %s::date + interval '1 day 3 hours')""",
+                (cav, dia, dia))
     return bool(cur.fetchone()[0])
 
 

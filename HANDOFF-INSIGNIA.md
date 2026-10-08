@@ -689,3 +689,12 @@ Pergunta aberta para o Francisco: em que unidade estão as SMs desses veículos 
   coletado (MQU7E81: 08/10 12:17 × 01:38 real) — sem posição com coordenada antes disso. **Ordem de ligar:
   `INSIGNIA_COLETA_CARGAS` primeiro, `EMBARQUES_TERCEIRO_GPS` ~5 dias depois** (a janela do robô), quando todo
   manifesto da janela já é observado desde a emissão.
+
+**Ajuste da trava, mesmo dia (`tem_gps`):** o Gabriel quis ligar as duas chaves juntas. Para isso não abrir o
+estoque quebrado, a prova de GPS passou a ser **SM, ou posição do cavalo vista pela coleta entre o dia anterior
+e o FIM do dia do carregamento (BRT)**; paradas não contam (vêm com 30 dias e deixariam o estoque passar).
+Viagem nova: o cavalo entra na coleta quando o manifesto chega à fita e a carga nasce no refresh seguinte, com a
+saída observada; viagem que já rodava antes da coleta não abre. Testes: MQU7E81 carregamento 07/10 → não,
+carregamento 08/10 → sim; SYQ6H93/MJX0E10 07/10 → não; ARM8051 (SM) → sim. Robô REAL 06→08/10: abriu só os 2
+com SM (ARM8051, AAW1H70 — iguais à trava antiga), 0 do estoque; cargas F/A idênticas. **Pode ligar junto com a
+coleta.**
