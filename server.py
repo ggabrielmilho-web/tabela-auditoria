@@ -1984,9 +1984,18 @@ def viagem_page(ref=None):
 @app.route('/api/viagem/busca')
 @page_required('embarques')
 def api_viagem_busca():
+    """?q=&de=AAAA-MM-DD&ate=AAAA-MM-DD&tipo=Frota,Agregado&limite=50 → viagens, total e por_tipo."""
+    a = request.args
+    data = lambda k: a.get(k) if re.fullmatch(r'\d{4}-\d{2}-\d{2}', a.get(k) or '') else None
+    try:
+        limite = min(max(int(a.get('limite') or 50), 1), 500)
+    except ValueError:
+        limite = 50
     conn = get_db()
     try:
-        return jsonify({'ok': True, 'viagens': _viagem.busca(conn.cursor(), (request.args.get('q') or '')[:40])})
+        r = _viagem.busca(conn.cursor(), (a.get('q') or '')[:40], limite=limite, de=data('de'), ate=data('ate'),
+                          tipos=(a.get('tipo') or '').split(','))
+        return jsonify({'ok': True, **r})
     finally:
         conn.close()
 

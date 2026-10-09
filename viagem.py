@@ -610,28 +610,49 @@ def montar(cur, ref):
     }
 
 
-def busca(cur, q='', limite=25):
-    """Busca da página inicial: sem termo, as viagens mais recentes; com termo, nº da carga,
-    manifesto, CTRB, placa ou cliente. Só a âncora aparece (continuação abre a mesma ficha)."""
+TIPOS = ('Frota', 'Agregado', 'Terceiro')
+
+
+def busca(cur, q='', limite=50, de=None, ate=None, tipos=None):
+    """Lista da página inicial. Filtros: termo (nº da carga, cliente, manifesto, CTRB ou placa),
+    período pela data de carregamento (`de`/`ate`, 'AAAA-MM-DD') e tipo. Só a âncora aparece (a
+    continuação abre a mesma ficha). Devolve as viagens, o total e a contagem por tipo — esta SEM
+    o filtro de tipo, para os botões dizerem quanto há em cada um."""
     q = (q or '').strip()
-    filtro, args = '', []
+    conds, args = [], []
     if q:
         d = _doc(q)
-        filtro = """AND (c.numero ILIKE %s OR c.cliente_nome ILIKE %s
+        conds.append("""(c.numero ILIKE %s OR c.cliente_nome ILIKE %s
                          OR regexp_replace(upper(c.manifesto_origem), '[^A-Z0-9]', '', 'g') LIKE %s
                          OR regexp_replace(upper(c.ctrb_origem), '[^A-Z0-9]', '', 'g') LIKE %s
-                         OR c.cavalo_placa = ANY(%s) OR c.carreta1_placa = ANY(%s))"""
+                         OR c.cavalo_placa = ANY(%s) OR c.carreta1_placa = ANY(%s))""")
         g = pl.grafias(d) if len(d) == 7 else [d]
-        args = [f'%{q}%', f'%{q}%', f'%{d}%', f'%{d[:9]}%', g, g]
+        args += [f'%{q}%', f'%{q}%', f'%{d}%', f'%{d[:9]}%', g, g]
+    if de:
+        conds.append('c.data_carregamento >= %s')
+        args.append(de)
+    if ate:
+        conds.append('c.data_carregamento <= %s')
+        args.append(ate)
+    onde = f"""FROM embarques_cargas c
+         WHERE NOT COALESCE(c.viagem_vazia, FALSE) AND c.status <> 'Cancelada'
+           AND NOT EXISTS (SELECT 1 FROM embarques_cargas a WHERE a.continua_em = c.id)
+           {''.join(' AND ' + x for x in conds)}"""
+    cur.execute(f"SELECT c.tipo_operacao, COUNT(*) {onde} GROUP BY 1", args)
+    por_tipo = {t or '?': n for t, n in cur.fetchall()}
+    tipos = [t for t in (tipos or []) if t in TIPOS]
+    if tipos and len(tipos) < len(TIPOS):
+        onde += ' AND c.tipo_operacao = ANY(%s)'
+        args.append(tipos)
+        total = sum(por_tipo.get(t, 0) for t in tipos)
+    else:
+        total = sum(por_tipo.values())
     cur.execute(f"""
         SELECT c.numero, c.tipo_operacao, c.status, c.cliente_nome, c.origem_cidade, c.origem_uf,
                (SELECT d.cidade || '/' || d.uf FROM embarques_cargas_destinos d WHERE d.carga_id = c.id
                  ORDER BY d.ordem DESC LIMIT 1),
                c.data_carregamento, c.cavalo_placa, c.carreta1_placa, c.manifesto_origem, c.continua_em
-          FROM embarques_cargas c
-         WHERE NOT COALESCE(c.viagem_vazia, FALSE) AND c.status <> 'Cancelada'
-           AND NOT EXISTS (SELECT 1 FROM embarques_cargas a WHERE a.continua_em = c.id)
-           {filtro}
+          {onde}
          ORDER BY c.data_carregamento DESC, c.id DESC LIMIT %s""", (*args, limite))
     cols = ('numero', 'tipo', 'status', 'cliente', 'origem_cidade', 'origem_uf', 'destino', 'carregamento',
             'cavalo', 'carreta', 'manifesto', 'continua_em')
@@ -641,7 +662,7 @@ def busca(cur, q='', limite=25):
         x['carregamento'] = _iso(x['carregamento'])
         x['origem'] = f"{x.pop('origem_cidade') or '?'}/{x.pop('origem_uf') or '?'}"
         out.append(x)
-    return out
+    return {'viagens': out, 'total': total, 'por_tipo': por_tipo}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════════════════

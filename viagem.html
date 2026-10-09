@@ -295,7 +295,25 @@
   .exemplos { font-size: .74rem; color: var(--text-faint); margin-top: 10px; }
   .exemplos code { font-family: 'JetBrains Mono', monospace; color: var(--text-dim); background: var(--surface2); border-radius: 5px; padding: 1px 6px; }
   .recentes { margin-top: 28px; }
-  .recentes h2 { font-size: .72rem; text-transform: uppercase; letter-spacing: .1em; color: var(--text-dim); font-weight: 700; margin-bottom: 10px; }
+  .recentes h2 { font-size: .72rem; text-transform: uppercase; letter-spacing: .1em; color: var(--text-dim); font-weight: 700; }
+  .rec-topo { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .rec-topo .conta { font-size: .74rem; color: var(--text-faint); font-family: 'JetBrains Mono', monospace; }
+  .filtros { display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center; margin: 12px 0 14px; padding: 10px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+  .filtro-g { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .filtro-g > b { font-size: .6rem; text-transform: uppercase; letter-spacing: .1em; color: var(--text-faint); font-weight: 700; margin-right: 4px; }
+  .fchip { background: var(--surface2); border: 1px solid var(--border); color: var(--text-dim); font: 600 .74rem 'DM Sans', sans-serif; padding: 5px 11px; border-radius: 999px; cursor: pointer; display: inline-flex; gap: 7px; align-items: center; transition: border-color .15s, color .15s, background .15s; }
+  .fchip:hover { border-color: var(--border2); color: var(--text); }
+  .fchip.on { border-color: var(--accent); color: var(--accent); background: rgba(56,189,248,.08); }
+  .fchip.t-Agregado.on { border-color: rgba(167,139,250,.7); color: #c4b5fd; background: rgba(167,139,250,.08); }
+  .fchip.t-Terceiro.on { border-color: rgba(244,114,182,.7); color: #f9a8d4; background: rgba(244,114,182,.08); }
+  .fchip .q { font-family: 'JetBrains Mono', monospace; font-size: .66rem; color: var(--text-faint); }
+  .fchip.on .q { color: inherit; opacity: .85; }
+  .datas { display: inline-flex; align-items: center; gap: 6px; margin-left: 6px; }
+  .datas input[type=date] { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font: .74rem 'JetBrains Mono', monospace; padding: 4px 8px; color-scheme: dark; }
+  .datas input[type=date]:focus { outline: 0; border-color: var(--accent); }
+  .mais { display: block; margin: 12px auto 0; }
+  .lista-v { transition: opacity .15s; }
+  .lista-v.atualizando { opacity: .45; pointer-events: none; }
   .lista-v { display: grid; gap: 6px; }
   .lv { display: grid; grid-template-columns: 150px minmax(0, 1.2fr) minmax(0, 1.4fr) 110px 120px; gap: 14px; align-items: center; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 10px 14px; color: var(--text); transition: border-color .15s, transform .15s; }
   .lv:hover { border-color: var(--accent); transform: translateX(2px); text-decoration: none; }
@@ -407,30 +425,113 @@ const REF = decodeURIComponent(location.pathname.replace(/^\/viagem\/?/, '').rep
 // ── busca ─────────────────────────────────────────────────────────────────
 $('f-busca').addEventListener('submit', e => { e.preventDefault(); const q = $('q').value.trim(); if (q) location.href = '/viagem/' + encodeURIComponent(q); });
 
+// ── página inicial: a lista com filtro de período e de tipo (o filtro vive na URL) ──
+const hojeBRT = () => new Date().toLocaleDateString('en-CA', { timeZone: TZ });   // 'AAAA-MM-DD' em Brasília
+const somaDias = (iso, n) => { const [y, m, d] = iso.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10); };
+const PERIODOS = {
+  hoje: () => [hojeBRT(), hojeBRT()],
+  '7d': () => [somaDias(hojeBRT(), -6), hojeBRT()],
+  mes: () => [hojeBRT().slice(0, 8) + '01', null],
+  mes_ant: () => { const u = somaDias(hojeBRT().slice(0, 8) + '01', -1); return [u.slice(0, 8) + '01', u]; },
+  tudo: () => [null, null],
+};
+const ROT_PERIODO = { hoje: 'Hoje', '7d': '7 dias', mes: 'Este mês', mes_ant: 'Mês passado', tudo: 'Tudo' };
+const TIPOS = ['Frota', 'Agregado', 'Terceiro'];
+let F = null, ULTIMA = [], SEQ = 0;
+
+function lerFiltro() {
+  const u = new URLSearchParams(location.search);
+  const f = { q: u.get('q') || '', p: u.get('p'), de: u.get('de'), ate: u.get('ate'), limite: 50,
+              tipos: new Set((u.get('tipo') || '').split(',').filter(t => TIPOS.includes(t))) };
+  if (!f.p && !f.de && !f.ate) f.p = 'mes';          // abre no mês corrente, como a Auditoria
+  if (f.p && PERIODOS[f.p]) [f.de, f.ate] = PERIODOS[f.p]();
+  return f;
+}
+
+function gravarFiltro() {
+  const u = new URLSearchParams();
+  if (F.q) u.set('q', F.q);
+  if (F.p) u.set('p', F.p); else { if (F.de) u.set('de', F.de); if (F.ate) u.set('ate', F.ate); }
+  if (F.tipos.size) u.set('tipo', [...F.tipos].join(','));
+  history.replaceState(null, '', '/viagem' + (u.toString() ? '?' + u : ''));
+}
+
 async function entrada() {
   document.title = 'Ficha da viagem — Rizza Log';
+  F = lerFiltro();
   $('app').innerHTML = `
     <section class="entrada">
       <h1 class="reveal">A viagem <em>inteira</em>, numa página.</h1>
       <p class="lead reveal" style="--d:1">Do vazio que trouxe o caminhão até a entrega — percurso, documentos, conformidade e o resultado.</p>
       <form class="busca-grande reveal" style="--d:2" id="f-grande" autocomplete="off">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-        <input id="qg" placeholder="Nº da carga, manifesto, CTRB, CTe ou placa" spellcheck="false" autofocus>
+        <input id="qg" placeholder="Nº da carga, manifesto, CTRB, CTe, placa ou cliente" spellcheck="false" autofocus value="${esc(F.q)}">
         <button>Abrir ficha</button>
       </form>
-      <div class="exemplos reveal" style="--d:3">ex.: <code>C-2026-000870</code> <code>NOD004856-9</code> <code>NOD004822-4</code> <code>HNH1302</code> — a continuação abre a viagem toda</div>
-      <div class="recentes reveal" style="--d:4"><h2 id="rec-h">Viagens recentes</h2><div class="lista-v" id="rec"><div class="carregando"><span class="roda"></span>carregando…</div></div></div>
+      <div class="exemplos reveal" style="--d:3">ex.: <code>C-2026-000870</code> <code>NOD004856-9</code> <code>NOD004822-4</code> <code>HNH1302</code> — a continuação abre a viagem toda; nome de cliente filtra a lista</div>
+      <div class="recentes reveal" style="--d:4">
+        <div class="rec-topo"><h2 id="rec-h">Viagens</h2><span class="conta" id="rec-conta"></span></div>
+        <div class="filtros">
+          <div class="filtro-g" id="f-per"><b>Período</b>
+            ${Object.entries(ROT_PERIODO).map(([k, r]) => `<button type="button" class="fchip" data-p="${k}">${r}</button>`).join('')}
+            <span class="datas" title="data de carregamento"><input type="date" id="f-de" aria-label="de"><span class="faint">→</span><input type="date" id="f-ate" aria-label="até"></span>
+          </div>
+          <div class="filtro-g" id="f-tipo"><b>Tipo</b>
+            ${TIPOS.map(t => `<button type="button" class="fchip t-${t}" data-t="${t}">${t}<span class="q" id="q-${t}"></span></button>`).join('')}
+          </div>
+        </div>
+        <div class="lista-v" id="rec"><div class="carregando"><span class="roda"></span>carregando…</div></div>
+        <button type="button" class="btn-sm mais" id="b-mais" hidden>Mostrar mais</button>
+      </div>
     </section>`;
-  $('f-grande').addEventListener('submit', e => { e.preventDefault(); const q = $('qg').value.trim(); if (q) location.href = '/viagem/' + encodeURIComponent(q); });
+  $('f-per').addEventListener('click', e => {
+    const b = e.target.closest('[data-p]'); if (!b) return;
+    F.p = b.dataset.p; [F.de, F.ate] = PERIODOS[F.p](); F.limite = 50; atualizarLista();
+  });
+  ['f-de', 'f-ate'].forEach(id => $(id).addEventListener('change', () => {
+    F.p = null; F.de = $('f-de').value || null; F.ate = $('f-ate').value || null; F.limite = 50; atualizarLista();
+  }));
+  $('f-tipo').addEventListener('click', e => {
+    const b = e.target.closest('[data-t]'); if (!b) return;
+    const t = b.dataset.t; if (F.tipos.has(t)) F.tipos.delete(t); else F.tipos.add(t);
+    F.limite = 50; atualizarLista();
+  });
+  $('b-mais').addEventListener('click', () => { F.limite += 50; atualizarLista(); });
+  $('f-grande').addEventListener('submit', e => { e.preventDefault(); abrirDaBusca(); });
   let t = null;
-  $('qg').addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => recentes($('qg').value.trim()), 280); });
-  recentes('');
+  $('qg').addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => { F.q = $('qg').value.trim(); F.limite = 50; atualizarLista(); }, 280); });
+  atualizarLista();
 }
 
-async function recentes(q) {
+// Enter: a única viagem da lista abre direto; texto com número (documento, placa) vai para a ficha;
+// nome de cliente só filtra
+function abrirDaBusca() {
+  const q = $('qg').value.trim();
+  if (!q) return;
+  if (ULTIMA.length === 1) location.href = '/viagem/' + encodeURIComponent(ULTIMA[0].numero);
+  else if (/\d/.test(q)) location.href = '/viagem/' + encodeURIComponent(q);
+}
+
+async function atualizarLista() {
+  gravarFiltro();
+  document.querySelectorAll('#f-per [data-p]').forEach(b => b.classList.toggle('on', b.dataset.p === F.p));
+  $('f-de').value = F.de || ''; $('f-ate').value = F.ate || '';
+  document.querySelectorAll('#f-tipo [data-t]').forEach(b => b.classList.toggle('on', F.tipos.has(b.dataset.t)));
+  const u = new URLSearchParams({ limite: F.limite });
+  if (F.q) u.set('q', F.q);
+  if (F.de) u.set('de', F.de);
+  if (F.ate) u.set('ate', F.ate);
+  if (F.tipos.size) u.set('tipo', [...F.tipos].join(','));
+  const seq = ++SEQ;
+  $('rec').classList.add('atualizando');
   try {
-    const j = await api('/api/viagem/busca' + (q ? '?q=' + encodeURIComponent(q) : ''));
-    $('rec-h').textContent = q ? `Viagens com “${q}”` : 'Viagens recentes';
+    const j = await api('/api/viagem/busca?' + u);
+    if (seq !== SEQ) return;   // resposta de um filtro que já mudou
+    $('rec').classList.remove('atualizando');
+    ULTIMA = j.viagens;
+    TIPOS.forEach(t => { $('q-' + t).textContent = n0((j.por_tipo || {})[t] || 0); });
+    $('rec-h').textContent = F.q ? `Viagens com “${F.q}”` : 'Viagens';
+    $('rec-conta').textContent = j.total ? `${n0(j.total)} viage${j.total === 1 ? 'm' : 'ns'}${j.viagens.length < j.total ? ` · mostrando ${n0(j.viagens.length)}` : ''}` : '';
     $('rec').innerHTML = j.viagens.length ? j.viagens.map(v => `
       <a class="lv" href="/viagem/${encodeURIComponent(v.numero)}">
         <span class="n">${esc(v.numero)}</span>
@@ -438,8 +539,13 @@ async function recentes(q) {
         <span class="rt">${esc(v.origem)} → ${esc(v.destino || '?')}</span>
         <span><span class="pill ${stClasse(v.status)}">${esc(v.status)}</span></span>
         <span class="dt">${cal(v.carregamento)} · <span class="chip ${esc(v.tipo)}">${esc(v.tipo || '')}</span></span>
-      </a>`).join('') : '<div class="vazio-tab">Nada encontrado.</div>';
-  } catch (e) { $('rec').innerHTML = `<div class="erro">${esc(e.message)}</div>`; }
+      </a>`).join('') : `<div class="vazio-tab">Nenhuma viagem com esse filtro. <a href="#" id="limpa">Limpar os filtros</a></div>`;
+    const resta = j.total - j.viagens.length;
+    $('b-mais').hidden = resta <= 0;
+    $('b-mais').textContent = `Mostrar mais ${n0(Math.min(50, resta))}`;
+    const l = $('limpa');
+    if (l) l.onclick = e => { e.preventDefault(); F = { q: '', p: 'tudo', de: null, ate: null, tipos: new Set(), limite: 50 }; $('qg').value = ''; atualizarLista(); };
+  } catch (e) { if (seq === SEQ) { $('rec').classList.remove('atualizando'); $('rec').innerHTML = `<div class="erro">${esc(e.message)}</div>`; } }
 }
 
 // ── a ficha ───────────────────────────────────────────────────────────────
