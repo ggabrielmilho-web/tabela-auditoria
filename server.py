@@ -10,6 +10,7 @@ import re
 import html
 import json
 import time
+import threading
 import difflib
 import tempfile
 import functools
@@ -161,17 +162,40 @@ def page_required(page_key):
 
 
 # ── Power BI helpers ──
+# CACHE DO TOKEN (09/10/2026). O token do Azure AD vale ~1 h e era pedido de novo a CADA chamada —
+# de cada tela e de cada um dos 11 robôs. Agora é um por processo, renovado 5 min antes de vencer;
+# um 401 do Power BI (credencial trocada, token revogado) descarta o cache e a consulta tenta 1×
+# de novo (`execute_dax`). É cache de CREDENCIAL, não de dado: toda consulta continua indo ao BI,
+# e um refresh do BI não invalida token nenhum.
+_TOKEN = {'v': None, 'ate': 0.0}
+_TOKEN_TRAVA = threading.Lock()
+_TOKEN_MARGEM_S = 300
+
+
 def get_token():
-    url = f"https://login.microsoftonline.com/{CONFIG['tenant_id']}/oauth2/v2.0/token"
-    data = {
-        'grant_type': 'client_credentials',
-        'client_id': CONFIG['client_id'],
-        'client_secret': CONFIG['client_secret'],
-        'scope': 'https://analysis.windows.net/powerbi/api/.default'
-    }
-    resp = requests.post(url, data=data, timeout=30)
-    resp.raise_for_status()
-    return resp.json()['access_token']
+    with _TOKEN_TRAVA:
+        if _TOKEN['v'] and time.time() < _TOKEN['ate']:
+            return _TOKEN['v']
+        url = f"https://login.microsoftonline.com/{CONFIG['tenant_id']}/oauth2/v2.0/token"
+        data = {
+            'grant_type': 'client_credentials',
+            'client_id': CONFIG['client_id'],
+            'client_secret': CONFIG['client_secret'],
+            'scope': 'https://analysis.windows.net/powerbi/api/.default'
+        }
+        resp = requests.post(url, data=data, timeout=30)
+        resp.raise_for_status()
+        j = resp.json()
+        _TOKEN['v'] = j['access_token']
+        _TOKEN['ate'] = time.time() + int(j.get('expires_in', 3599)) - _TOKEN_MARGEM_S
+        return _TOKEN['v']
+
+
+def _descartar_token(token):
+    """Tira do cache o token que o BI recusou — se outro thread já não o tiver renovado."""
+    with _TOKEN_TRAVA:
+        if _TOKEN['v'] == token:
+            _TOKEN['v'], _TOKEN['ate'] = None, 0.0
 
 
 def execute_dax(token, query, dataset_id=None):
@@ -189,6 +213,11 @@ def execute_dax(token, query, dataset_id=None):
         'serializerSettings': {'includeNulls': True}
     }
     resp = requests.post(url, json=body, headers=headers, timeout=120)
+    if resp.status_code == 401:
+        # token recusado (cache): descarta e tenta uma vez com um novo
+        _descartar_token(token)
+        headers['Authorization'] = f'Bearer {get_token()}'
+        resp = requests.post(url, json=body, headers=headers, timeout=120)
     resp.raise_for_status()
     return resp.json()
 
@@ -8997,10 +9026,11 @@ if __name__ == '__main__':
             ultimo_dia = None
             ultimo_marcador = None
             pos_refresh = embarques_auto.pos_refresh_ligado()
-            # O token é REUSADO entre as checagens do marcador. `get_token()` não tem cache
-            # (é o item do roadmap), e perguntar o marcador de 10 em 10 min pediria 144
-            # autenticações por dia só para descobrir que nada mudou. Aqui ele vale ~45 min e
-            # é descartado em qualquer falha, que é quando pode ter expirado.
+            # O token é REUSADO entre as checagens do marcador. Escrito quando `get_token()` não
+            # tinha cache: perguntar o marcador de 10 em 10 min pedia 144 autenticações por dia
+            # só para descobrir que nada mudou. Desde 09/10/2026 a `get_token()` tem cache
+            # próprio e este ficou redundante — inofensivo, mantido para não mexer no laço.
+            # Aqui ele vale ~45 min e é descartado em qualquer falha.
             _tok = {'v': None, 'ate': None}
 
             def _token():
