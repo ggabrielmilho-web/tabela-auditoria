@@ -1132,7 +1132,7 @@ def _janela_verda():
 
 
 @app.route('/api/verda')
-@login_required
+@page_required('verda')
 def api_verda():
     desde, ate = _janela_verda()
     ambiente = request.args.get('ambiente') or os.getenv('VERDA_AMBIENTE', 'producao')
@@ -1771,7 +1771,7 @@ def embarques_torre_page():
 
 
 @app.route('/api/embarques/torre')
-@login_required
+@page_required('embarques')
 def api_embarques_torre():
     """Torre de controle: a consulta única do `torre.py`. `?dia=AAAA-MM-DD` anterior a hoje
     devolve o RETRATO daquele dia (estado pelas datas, à meia-noite); sem `dia`, AO VIVO.
@@ -1798,7 +1798,7 @@ def api_embarques_torre():
 
 
 @app.route('/api/embarques/ordens')
-@login_required
+@page_required('embarques')
 def api_embarques_ordens():
     dia = (request.args.get('dia') or '').strip() or None
     embarcador = (request.args.get('embarcador') or '').strip() or None
@@ -1900,7 +1900,7 @@ def embarques_mapa_carga_page(carga_id):
 
 
 @app.route('/api/tarifas')
-@login_required
+@page_required('tarifas')
 def tarifas():
     try:
         token = get_token()
@@ -1933,7 +1933,7 @@ def tarifas():
 
 
 @app.route('/api/icms')
-@login_required
+@page_required('tarifas')
 def api_icms():
     """Consulta a matriz de ICMS de transporte por UF (icms_aliquota).
     GET /api/icms?origem=XX&destino=YY -> {aliquota, tipo, isento, observacao}."""
@@ -1976,7 +1976,7 @@ def me():
 
 
 @app.route('/api/status')
-@login_required
+@admin_required
 def status():
     missing = [k for k, v in CONFIG.items() if not v]
     if missing:
@@ -2071,7 +2071,7 @@ def _anexar_proprietarios(token, data):
 
 
 @app.route('/api/auditoria')
-@login_required
+@page_required('auditoria')
 def auditoria():
     try:
         token = get_token()
@@ -6444,7 +6444,7 @@ def _buscar_conflitos(cpf, placas, exclude_id=0):
 
 
 @app.route('/api/embarques/conflitos')
-@login_required
+@page_required('embarques')
 def api_embarques_conflitos():
     cpf = (request.args.get('cpf') or '').strip()
     placas_raw = (request.args.get('placas') or '').strip()
@@ -6462,7 +6462,7 @@ def api_embarques_conflitos():
 
 # ── Leitura DAX: motoristas ─────────────────────────────────────────────
 @app.route('/api/embarques/motoristas')
-@login_required
+@page_required('embarques')
 def api_embarques_motoristas():
     if request.args.get('refresh') != '1':
         cached = _cache_get('motoristas')
@@ -6506,7 +6506,7 @@ def api_embarques_motoristas():
 
 # ── Leitura DAX: veículos ───────────────────────────────────────────────
 @app.route('/api/embarques/veiculos')
-@login_required
+@page_required('embarques')
 def api_embarques_veiculos():
     if request.args.get('refresh') != '1':
         cached = _cache_get('veiculos')
@@ -6561,7 +6561,7 @@ def api_embarques_veiculos():
 
 # ── Clientes (Postgres local) ───────────────────────────────────────────
 @app.route('/api/embarques/clientes')
-@login_required
+@page_required('embarques')
 def api_embarques_clientes_list():
     try:
         conn = get_db()
@@ -6578,7 +6578,7 @@ def api_embarques_clientes_list():
 
 
 @app.route('/api/embarques/clientes', methods=['POST'])
-@login_required
+@page_required('embarques')
 def api_embarques_clientes_create():
     body = request.get_json(silent=True) or {}
     nome = (body.get('nome') or '').strip()
@@ -6642,7 +6642,7 @@ def _validar_carga_payload(b):
 
 
 @app.route('/api/embarques/cargas', methods=['POST'])
-@login_required
+@page_required('embarques')
 def api_embarques_cargas_create():
     b = request.get_json(silent=True) or {}
     erros = _validar_carga_payload(b)
@@ -6822,7 +6822,7 @@ def _aplica_periodo_where(args, where, params):
 
 # ── Cargas: listagem com filtros ────────────────────────────────────────
 @app.route('/api/embarques/cargas')
-@login_required
+@page_required('embarques')
 def api_embarques_cargas_list():
     args = request.args
     where = ["1=1"]
@@ -7078,7 +7078,7 @@ def api_embarques_cargas_list():
 
 # ── Carga: detalhe ──────────────────────────────────────────────────────
 @app.route('/api/embarques/cargas/<int:carga_id>')
-@login_required
+@page_required('embarques')
 def api_embarques_carga_detail(carga_id):
     try:
         conn = get_db(); cur = conn.cursor()
@@ -7133,7 +7133,7 @@ _PATCH_WHITELIST = (
 
 
 @app.route('/api/embarques/cargas/<int:carga_id>', methods=['PATCH'])
-@login_required
+@page_required('embarques')
 def api_embarques_carga_patch(carga_id):
     b = request.get_json(silent=True) or {}
     campos = {k: b[k] for k in b if k in _PATCH_WHITELIST}
@@ -7298,7 +7298,7 @@ def api_embarques_carga_patch(carga_id):
 
 # ── Carga: log de edição ────────────────────────────────────────────────
 @app.route('/api/embarques/cargas/<int:carga_id>/log')
-@login_required
+@page_required('embarques')
 def api_embarques_carga_log(carga_id):
     try:
         conn = get_db(); cur = conn.cursor()
@@ -7321,7 +7321,7 @@ def api_embarques_carga_log(carga_id):
 
 # ── Carga: desengate de carreta carregada (drop-and-hook) ───────────────
 @app.route('/api/embarques/cargas/<int:carga_id>/desengatar', methods=['POST'])
-@login_required
+@page_required('embarques')
 def api_embarques_carga_desengatar(carga_id):
     """Desengata o cavalo+motorista; a carreta carregada segue no destino aguardando
     descarga. Libera cavalo+motorista para nova carga (conflito passa a ignorá-los),
@@ -7393,7 +7393,7 @@ def api_embarques_carga_desengatar(carga_id):
 
 # ── Cargas: CSV streaming ───────────────────────────────────────────────
 @app.route('/api/embarques/cargas/csv')
-@login_required
+@page_required('embarques')
 def api_embarques_cargas_csv():
     args = request.args
     where = ["1=1"]
@@ -7479,7 +7479,7 @@ def api_embarques_cargas_csv():
 
 # ── KPIs da landing ─────────────────────────────────────────────────────
 @app.route('/api/embarques/kpis')
-@login_required
+@page_required('embarques')
 def api_embarques_kpis():
     try:
         conn = get_db(); cur = conn.cursor()
@@ -7546,7 +7546,7 @@ def _tem_col_embarcador():
 
 # ── Lista de embarcadores p/ filtro do relatório: os MESMOS valores que a coluna mostra ─
 @app.route('/api/embarques/embarcadores')
-@login_required
+@page_required('embarques')
 def api_embarques_embarcadores():
     """Até 21/09/26 listava usuários do sistema (criado_por_id), enquanto a coluna do
     relatório mostra o embarcador da ordem de coleta com o criado_por_nome de reserva. A lista
@@ -7857,7 +7857,7 @@ def _pn(coluna):
 
 
 @app.route('/api/rastreamento/posicoes')
-@login_required
+@page_required('embarques')
 def api_rastreamento_posicoes():
     """Lista posições atuais com info da carga ativa (se houver).
     Filtros: carregado=1|0, eh_rizza=1, q (placa/motorista).
@@ -8088,7 +8088,7 @@ def _kpi_sem_chegada(kpi, km_rota, chegou):
 
 
 @app.route('/api/rastreamento/cargas/<int:carga_id>/trajeto')
-@login_required
+@page_required('embarques')
 def api_rastreamento_trajeto(carga_id):
     """Retorna trajeto + rota planejada + KPIs + raios."""
     try:
@@ -8714,7 +8714,7 @@ def api_rastreamento_trajeto(carga_id):
 
 
 @app.route('/api/rastreamento/cargas/<int:carga_id>/confirmar-entrega', methods=['POST'])
-@login_required
+@page_required('embarques')
 def api_rastreamento_confirmar_entrega(carga_id):
     """Confirma manualmente a entrega. status='Entregue', entregue_auto=false.
     Aceita, no corpo (opcional), o cavalo/motorista que efetivou a descarga — usado
