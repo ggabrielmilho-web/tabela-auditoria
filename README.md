@@ -1844,6 +1844,10 @@ Resultado Final   = Pós Investimento - Retiradas
 - Autenticação por sessão Flask (cookie HTTP-only)
 - Senhas com hash via `werkzeug.security.generate_password_hash`
 - Decoradores `@login_required`, `@admin_required` e `@page_required('<aba>')` (permissão por aba; admin bypassa) em todas as rotas sensíveis. As abas concedidas ficam em `auditoria_users.paginas_permitidas` e são carregadas na sessão no login
+- **`/api/dax` é só de admin** (09/10/2026). Era `login_required`: DAX livre no dataset principal, aberto a qualquer usuário — inclusive a quem só tem a aba Contábil. Nenhuma tela chama a rota
+- **Sem CORS** (09/10/2026). Era `CORS(app, supports_credentials=True)` sem lista de origens, que devolvia a origem de quem pedisse com credenciais. Toda tela é deste domínio; o relatório de WhatsApp navega dentro dele
+- **O servidor sobe com `debug=False`** (09/10/2026). Era `True` desde o commit inicial, valendo em produção: exceção não tratada devolvia a página de depuração do Werkzeug. Desligado, o JSON também sai compacto (o debug do Flask 3 indentava tudo)
+- **A rota pública `/mercadolivre/callback` escapa (`html.escape`) tudo que vem de fora** (09/10/2026): `?error=<script>…` rodava script com a sessão de quem clicasse no link
 - Queries SQL parametrizadas (prevenção de SQL injection)
 - DAX queries com escape de strings
 - SSL obrigatório via Traefik + Let's Encrypt

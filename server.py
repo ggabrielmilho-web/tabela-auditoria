@@ -7,6 +7,7 @@ Acesse: http://localhost:5000
 import os
 import io
 import re
+import html
 import json
 import time
 import difflib
@@ -20,7 +21,6 @@ import placas
 import fontes_gps
 import verda_painel
 from flask import Flask, Response, jsonify, send_from_directory, request, session, redirect, url_for, send_file, stream_with_context
-from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
 
@@ -31,7 +31,10 @@ load_dotenv()
 # 24/09/2026). Nenhuma tela usava a rota: todo arquivo servido tem rota própria abaixo.
 app = Flask(__name__, static_folder=None)
 app.secret_key = os.getenv('SECRET_KEY', 'dev-secret-change-me')
-CORS(app, supports_credentials=True)
+# SEM CORS (09/10/2026). Era `CORS(app, supports_credentials=True)`: sem lista de origens, o
+# flask-cors devolve a origem de quem pede — qualquer site recebia Access-Control-Allow-Origin
+# com credenciais. Toda tela é servida por este mesmo domínio e o único consumidor externo (o
+# relatório de WhatsApp) navega dentro dele, então nada precisava de CORS.
 
 # ── Config Power BI ──
 CONFIG = {
@@ -330,6 +333,10 @@ def mercadolivre_callback():
     Fase 1: confirma que a autorização chegou. Se ML_CLIENT_ID/ML_CLIENT_SECRET
     estiverem configurados, já troca o `code` por um access_token e mostra o
     resultado. A persistência do token e o uso da API vêm na fase 2.
+
+    Rota PÚBLICA: todo valor que vem de fora (query string, resposta do ML, texto de exceção)
+    entra na página por `html.escape`. Sem isso, `?error=<script>...` rodava script com a
+    sessão de quem clicasse no link (09/10/2026).
     """
     erro = request.args.get('error')
     code = request.args.get('code')
@@ -339,7 +346,7 @@ def mercadolivre_callback():
         return _ml_page(
             'Autorização negada',
             f"<h1>Autorização não concluída</h1><p>Mercado Livre retornou: "
-            f"<code>{erro}</code></p><p>{desc}</p>"
+            f"<code>{html.escape(erro)}</code></p><p>{html.escape(desc)}</p>"
         ), 400
 
     if not code:
@@ -354,7 +361,7 @@ def mercadolivre_callback():
         return _ml_page(
             'Autorização recebida',
             "<h1>Autorização recebida ✅</h1>"
-            f"<p>Código de autorização:</p><p><code>{code}</code></p>"
+            f"<p>Código de autorização:</p><p><code>{html.escape(code)}</code></p>"
             "<p>Falta configurar <code>ML_CLIENT_ID</code> e "
             "<code>ML_CLIENT_SECRET</code> para trocar por um token.</p>"
         )
@@ -369,13 +376,13 @@ def mercadolivre_callback():
             'redirect_uri':  ML_CONFIG['redirect_uri'],
         }, headers={'Accept': 'application/json'}, timeout=20)
     except Exception as e:
-        return _ml_page('Erro', f"<h1>Falha ao contatar o Mercado Livre</h1><p>{e}</p>"), 502
+        return _ml_page('Erro', f"<h1>Falha ao contatar o Mercado Livre</h1><p>{html.escape(str(e))}</p>"), 502
 
     if resp.status_code != 200:
         return _ml_page(
             'Erro na troca de token',
             f"<h1>Não foi possível gerar o token</h1><p><code>{resp.status_code}</code></p>"
-            f"<p><code>{resp.text}</code></p>"
+            f"<p><code>{html.escape(resp.text)}</code></p>"
         ), resp.status_code
 
     dados = resp.json()
@@ -383,7 +390,7 @@ def mercadolivre_callback():
     return _ml_page(
         'Conectado',
         "<h1>Conta conectada ✅</h1><p>Token gerado com sucesso para o usuário "
-        f"<code>{dados.get('user_id', '?')}</code>.</p>"
+        f"<code>{html.escape(str(dados.get('user_id', '?')))}</code>.</p>"
         "<p>Já dá para usar a API do Mercado Livre.</p>"
     )
 
@@ -2072,7 +2079,8 @@ def auditoria():
 
 
 @app.route('/api/dax', methods=['POST'])
-@login_required
+@admin_required   # DAX livre no dataset principal: com login_required, qualquer usuário (até
+                  # quem só tem a aba Contábil) lia o BI inteiro. Nenhuma tela chama (09/10/2026).
 def dax_query():
     try:
         body = request.get_json()
@@ -9180,4 +9188,9 @@ if __name__ == '__main__':
         print("ℹ️  Worker de rastreamento desligado (START_WORKER != true)")
 
     print(f"\n🌐 Acesse: http://localhost:5000\n")
-    app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
+    # debug=False (09/10/2026): era True desde o commit inicial, e isso valia em PRODUÇÃO (o
+    # Dockerfile roda `python server.py`) — exceção não tratada devolvia a página de depuração
+    # do Werkzeug para a internet. Efeito colateral bom: no Flask 3 o debug indentava todo
+    # JSON; desligado, as respostas grandes (Auditoria) saem compactas.
+    # NÃO trocar por gunicorn com vários workers: os robôs sobem neste bloco __main__.
+    app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
