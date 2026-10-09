@@ -266,6 +266,7 @@ const COR_ESTADO = {
   'carregada:no cliente': '#fbbf24', 'carregada:aguardando saída': '#818cf8', 'carregada:desengatada': '#f472b6',
   'carregada:sem sinal': '#64748b', 'vazia:rodando': '#a78bfa', 'vazia:a caminho da coleta': '#34d399',
   'vazia:pátio': '#475569', 'vazia:parada fora': '#475569', 'vazia:sem sinal': '#334155',
+  'terceiro:livre': '#f0abfc',
 };
 
 // ── render ────────────────────────────────────────────────────────────────────
@@ -337,7 +338,8 @@ const ROTULO = {
   trabalhando: { 'carregada:no cliente': 'no cliente', 'carregada:aguardando saída': 'aguardando saída',
                  'carregada:parada fora': 'parada curta na estrada', 'carregada:parada no pátio': 'carregada no pátio',
                  'carregada:rodando': 'rodando carregada', 'vazia:a caminho da coleta': 'indo coletar' },
-  livres:      { 'vazia:pátio': 'no pátio de Uberlândia', 'vazia:parada fora': 'paradas fora do pátio', 'vazia:rodando': 'rodando vazias' },
+  livres:      { 'vazia:pátio': 'no pátio de Uberlândia', 'vazia:parada fora': 'paradas fora do pátio', 'vazia:rodando': 'rodando vazias',
+                 'terceiro:livre': 'terceiros, até 48 h da entrega' },
   olhar:       { 'carregada:parada fora': 'carregada parada longe (≥ 2 h)', 'carregada:desengatada': 'desengatada, sem cavalo' },
   sem_info:    { 'vazia:sem sinal': 'vazias sem GPS', 'carregada:sem sinal': 'carregadas sem GPS' },
 };
@@ -361,8 +363,10 @@ function frota(d) {
       .sort((x, y) => (x.cidade || '').localeCompare(y.cidade || '') || x.carreta.localeCompare(y.carreta));
     return `<div class="bloco-h" style="margin:10px 0 4px"><h2>${BALDE[b.id].k} · ${b.n}</h2></div><table class="mini">${lista.map(c => `<tr>
       <td><span class="placa" data-p="${esc(c.carreta)}" title="ver no mapa">${esc(c.carreta)}</span></td>
-      <td class="dim">${esc((ROTULO[b.id] || {})[c.grupo + ':' + c.estado] || c.estado)}</td>
-      <td class="dim">${c.no_patio ? 'pátio Uberlândia' : esc(c.cidade || '')}</td>
+      <td class="dim">${c.grupo === 'terceiro' ? 'terceiro · livre até ' + fmtHora(c.livre_ate)
+        : esc((ROTULO[b.id] || {})[c.grupo + ':' + c.estado] || c.estado)}</td>
+      <td class="dim">${c.no_patio ? 'pátio Uberlândia'
+        : c.grupo === 'terceiro' && !c.posicao_atual ? 'descarregou em ' + esc(c.descarregou_em || '?') : esc(c.cidade || '')}</td>
       <td class="mono dim">${c.cavalo ? esc(c.cavalo) : ''}</td>
       <td class="q">${c.motorista ? esc(c.motorista) : ''}</td>
       <td>${c.carga_id ? `<a class="lnk" href="/embarques/cargas/${c.carga_id}/mapa" target="_blank">${esc(c.carga)}</a>` : ''}</td>
@@ -416,6 +420,7 @@ function mapa(d) {
     const m = L.circleMarker([c.lat, c.lng], { radius: alerta ? 8 : 5, color: alerta ? '#f87171' : cor, weight: alerta ? 3 : 1,
       fillColor: cor, fillOpacity: c.grupo === 'carregada' ? .95 : .55 });
     m.bindPopup(`<b class="mono">${esc(c.carreta)}</b><br>${esc(c.grupo)} · ${esc(c.estado)}` +
+      (c.grupo === 'terceiro' ? ` até ${fmtHora(c.livre_ate)}` : '') +
       (c.carga ? `<br>carga <span class="mono">${esc(c.carga)}</span>` : '') + `<br><span class="dim">posição há ${fmtIdade(c.posicao_idade_h)}${c.via === 'cavalo' ? ' (cavalo)' : ''}</span>`);
     m.addTo(CAMADA); pts.push([c.lat, c.lng]); MARC[c.carreta] = m;
   });

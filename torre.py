@@ -37,11 +37,13 @@ Só leitura. Painel igual para todos. Carreteiro/Terceiro fora (contados). O km 
 viagens — produtividade/km entram depois, pela mesma função da tela.
 
 TERCEIRO (09/10/26): desde 07/10 o robô abre carga de Terceiro (GPS do cavalo pela Insignia). A
-CARGA entra nas caixas e nas exceções, com o GPS lido pela camada `fontes_gps`; a CARRETA nunca
-entra na frota (não é nossa), e a frota segue lendo a 3S (custo — ver `_ultima_posicao`). As
-ORDENS de Terceiro seguem só contadas.
+CARGA entra nas caixas e nas exceções, com o GPS lido pela camada `fontes_gps`; a CARRETA não é
+nossa e não entra na frota, e a frota segue lendo a 3S (custo — ver `_ultima_posicao`). Depois da
+entrega, o terceiro fica até 48 h em "livres para carga" para ser aproveitado numa volta, com
+contagem própria (`_terceiros_livres`). As ORDENS de Terceiro seguem só contadas.
 """
 import os
+import re
 from collections import Counter
 from datetime import date, datetime, timedelta
 
@@ -63,6 +65,7 @@ LIM_NO_DESTINO_H = 24.0
 LIM_DESENGATADA_D = 3.0
 PROXIMAS_H = 12
 PARADO_KMH = 3.0
+TERCEIRO_LIVRE_H = 48.0        # terceiro que entregou fica em "livres" até 48 h (decisão de 09/10/26)
 
 ATIVAS = ('Aberta', 'Em rota', 'No destino', 'Desengatada')
 BRT = timedelta(hours=3)
@@ -351,6 +354,113 @@ def _ultima_posicao(cur, placa, t, janela_h=168, camada=False):
     return (r[0], float(r[1]), float(r[2]), float(r[3] or 0), r[4], r[5]) if r and r[1] is not None else None
 
 
+def _doc(s):
+    """Nº de documento sem espaço e pontuação — a mesma régua de `embarques_auto._norm`, que é
+    como a fita grava a chave do manifesto ('UDI029513-2' na carga = 'UDI0295132' na fita)."""
+    return re.sub(r'[^A-Za-z0-9]', '', str(s or '')).upper()
+
+
+def _terceiros_livres(cur, t):
+    """TERCEIRO QUE ACABOU DE ENTREGAR (decisão de 09/10/26). Não é carreta nossa, mas pode ser
+    aproveitado numa volta: entra em "livres para carga" quando a carga dele vira Entregue — o
+    mesmo instante da frota — e fica até TERCEIRO_LIVRE_H horas. Sai antes se aparecer documento
+    novo com a placa dele (cavalo ou carreta):
+      * carga nova (qualquer tipo, não cancelada);
+      * ordem de coleta viva no instante — a que VENCE sem documento devolve ele à lista enquanto
+        as 48 h não passaram (C-2026-001406: ordem RIO-000066 cadastrada 3 h depois da entrega,
+        vencida às 08:00 do dia seguinte);
+      * manifesto novo, pela fita — metade das voltas de terceiro de 12/09 a 07/10 não teve ordem.
+    "Novo" = nasceu depois da carga entregue (a ordem que a originou e o manifesto dela vêm
+    antes). Caso que motivou: C-2026-001405 (DPB4G53) entregou no Rio em 05/10 15:08 e pegou a
+    volta RIO0033006 45 h depois. Posição pelo cavalo (`_gps_terceiro`); sem posição atual, vale
+    a cidade da descarga — depois de ~24 h a Insignia costuma não ter mais ponto do cavalo."""
+    cur.execute("""
+        SELECT c.id, c.numero, c.carreta1_placa, c.cavalo_placa, c.motorista_nome, c.criado_em,
+               c.data_conclusao, c.manifesto_origem, c.origem_cidade, d.cidade, d.uf
+          FROM embarques_cargas c
+          LEFT JOIN embarques_cargas_destinos d ON d.carga_id = c.id
+               AND d.ordem = (SELECT MIN(ordem) FROM embarques_cargas_destinos x WHERE x.carga_id = c.id)
+         WHERE c.tipo_operacao = 'Terceiro' AND c.status = 'Entregue'
+           AND NOT COALESCE(c.viagem_vazia, FALSE)
+           AND c.data_conclusao > %s AND c.data_conclusao <= %s
+         ORDER BY c.data_conclusao DESC""", (t - timedelta(hours=TERCEIRO_LIVRE_H), t))
+    cols = ('id', 'numero', 'carreta', 'cavalo', 'motorista', 'criado', 'conclusao', 'manifesto',
+            'origem', 'destino', 'uf')
+    cands, vistos = [], set()
+    for r in cur.fetchall():                    # a entrega mais recente de cada terceiro
+        c = dict(zip(cols, r))
+        k = pl.mercosul(c['cavalo'] or c['carreta'])
+        if k and k not in vistos:
+            vistos.add(k)
+            c['grafias'] = sorted({g for p in (c['carreta'], c['cavalo']) if p for g in pl.grafias(p)})
+            cands.append(c)
+    if not cands:
+        return []
+
+    cur.execute("SELECT to_regclass('embarques_programacao') IS NOT NULL, to_regclass('fita_documentos') IS NOT NULL")
+    tem_ordens, tem_fita = cur.fetchone()
+    manifestos = []
+    if tem_fita:
+        # uma consulta para todos: as rodadas desde a carga mais antiga (PK começa por `rodada`)
+        todas = sorted({g for c in cands for g in c['grafias']})
+        cur.execute("""SELECT chave, rodada, replace(payload->>'placa_cavalo', '-', ''),
+                              replace(payload->>'placa_carreta', '-', '')
+                         FROM fita_documentos
+                        WHERE rodada BETWEEN %s AND %s AND fonte = 'manifesto'
+                          AND (replace(payload->>'placa_cavalo', '-', '') = ANY(%s)
+                               OR replace(payload->>'placa_carreta', '-', '') = ANY(%s))""",
+                    (min(c['criado'] for c in cands) - timedelta(days=1), t, todas, todas))
+        manifestos = cur.fetchall()
+
+    out = []
+    for c in cands:
+        g = c['grafias']
+        cur.execute("""SELECT 1 FROM embarques_cargas
+                        WHERE id <> %s AND status <> 'Cancelada' AND criado_em > %s AND criado_em <= %s
+                          AND (cavalo_placa = ANY(%s) OR carreta1_placa = ANY(%s)) LIMIT 1""",
+                    (c['id'], c['criado'], t, g, g))
+        if cur.fetchone():
+            continue
+        if tem_ordens:
+            cur.execute(f"""
+                SELECT {_utc('p.limite_em')}, {_utc('p.comandada_em')}, {_utc('p.coletada_em')},
+                       {_utc('p.cancelada_em')}, p.ctrc_gerado, p.ultima_vez, cc.criado_em
+                  FROM embarques_programacao p
+                  LEFT JOIN embarques_cargas cc ON cc.id = p.carga_id
+                 WHERE (p.cavalo = ANY(%s) OR p.carreta = ANY(%s))
+                   AND COALESCE(p.carga_id, -1) <> %s
+                   AND {_utc('p.cadastrada_em')} > %s AND p.primeira_vez <= %s""",
+                        (g, g, c['id'], c['criado'], t))
+            ordens = [dict(zip(('limite', 'comandada', 'coletada', 'cancelada', 'ctrc', 'ultima_vez',
+                                'carga_criada'), r)) for r in cur.fetchall()]
+            if any(_estado_ordem_em(o, t) not in ('vencida sem documento', 'cancelada') for o in ordens):
+                continue
+        primeira = {}                           # 1ª vez que cada manifesto dele apareceu na fita
+        for chave, rodada, cav, car in manifestos:
+            if (cav in g or car in g) and _doc(chave) != _doc(c['manifesto']):
+                primeira[chave] = min(rodada, primeira.get(chave, rodada))
+        if any(c['criado'] < r <= t for r in primeira.values()):
+            continue
+        gps = _gps_terceiro(cur, c, t)
+        atual = gps['estado'] != 'sem sinal'
+        cidade = None
+        if atual:
+            m = geocoding.cidade_por_coord(gps['lat'], gps['lng'], cur.connection)
+            cidade = f'{m[0]}/{m[1]}' if m else None
+        descarga = f"{c['destino']}/{c['uf']}" if c['destino'] else None
+        out.append({'carreta': c['carreta'] or c['cavalo'], 'chave': pl.mercosul(c['carreta'] or c['cavalo']),
+                    'grupo': 'terceiro', 'estado': 'livre', 'carga': c['numero'], 'carga_id': c['id'],
+                    'cavalo': c['cavalo'], 'motorista': c['motorista'],
+                    'rota': f"{c['origem'] or '?'} → {descarga or '?'}",
+                    'posicao_idade_h': gps['posicao_idade_h'],
+                    'via': 'cavalo' if gps['placa_gps'] == c['cavalo'] else 'carreta',
+                    'lat': gps['lat'], 'lng': gps['lng'], 'cidade': cidade or descarga,
+                    'no_patio': False, 'balde': 'livres', 'posicao_atual': atual,
+                    'descarregou_em': descarga, 'entregue_em': c['conclusao'].isoformat(),
+                    'livre_ate': (c['conclusao'] + timedelta(hours=TERCEIRO_LIVRE_H)).isoformat()})
+    return out
+
+
 def frota(cur, t, cargas, ordens, dias=30):
     """Estado de cada carreta que teve carga (Frota/Agregado) nos últimos `dias`.
 
@@ -420,17 +530,21 @@ def frota(cur, t, cargas, ordens, dias=30):
                        'lat': pos[1] if pos else None, 'lng': pos[2] if pos else None,
                        'cidade': (f'{pos[4]}/{pos[5]}' if pos and pos[4] else None) if atual else None,
                        'no_patio': bool(no_patio), 'balde': balde})
+    # Terceiro recém-entregue entra no balde "livres" com contagem própria (grupo 'terceiro'):
+    # `total` e `por_estado` seguem sendo a NOSSA frota (Frota + Agregado).
+    terceiros = _terceiros_livres(cur, t)
+    todas = linhas + terceiros
     baldes = {b: Counter() for b in BALDES}
-    for l in linhas:
+    for l in todas:
         baldes[l['balde']][l['grupo'] + ':' + l['estado']] += 1
     livres_cidade = Counter('Uberlândia (pátio)' if l['no_patio'] else (l['cidade'] or 'sem cidade')
-                            for l in linhas if l['balde'] == 'livres')
-    return {'total': len(carretas),
+                            for l in todas if l['balde'] == 'livres')
+    return {'total': len(carretas), 'terceiros_livres': len(terceiros),
             'por_estado': [{'grupo': g, 'estado': e, 'n': n} for (g, e), n in sorted(cont.items())],
             'baldes': [{'id': b, 'n': sum(baldes[b].values()),
                         'detalhe': [{'estado': k, 'n': v} for k, v in baldes[b].most_common()]} for b in BALDES],
             'livres_por_cidade': [{'cidade': k, 'n': v} for k, v in livres_cidade.most_common()],
-            'carretas': linhas, '_rotulos': rot}
+            'carretas': todas, '_rotulos': rot}
 
 
 # OS QUATRO BALDES DA FROTA (25/09, pedido do Gabriel): doze estados técnicos viraram as três
@@ -529,7 +643,8 @@ def excecoes(cur, t, cargas, ordens, frota_):
                 f"limite {o['limite'] - BRT:%d/%m %H:%M} passou e nenhum documento foi emitido",
                 _h(t, o['limite']), o['embarcador'])
 
-    pos_frota = {f['carga']: f for f in frota_['carretas'] if f['carga']}
+    # só a nossa frota: a linha de terceiro livre aponta para a carga JÁ ENTREGUE
+    pos_frota = {f['carga']: f for f in frota_['carretas'] if f['carga'] and f['grupo'] != 'terceiro'}
     for c in cargas:
         if c['etapa'] not in ATIVAS:
             continue
@@ -701,8 +816,9 @@ def produtividade(cur, t, ordens, frota_):
             km['vazio'], km['pernas_vazias'] = float(s), n
         else:
             km['carregado'], km['viagens'] = float(s), n
-    tot = len(frota_['carretas']) or 1
-    tempo = Counter(f['grupo'] + ':' + f['estado'] for f in frota_['carretas'])
+    nossas = [f for f in frota_['carretas'] if f['grupo'] != 'terceiro']   # % da NOSSA frota
+    tot = len(nossas) or 1
+    tempo = Counter(f['grupo'] + ':' + f['estado'] for f in nossas)
     return {'embarcadores': [{'nome': k, **v} for k, v in sorted(emb.items())],
             'km_roteirizado_entregues': km,
             'frota_agora_pct': {k: round(100 * v / tot) for k, v in tempo.items()}}
@@ -727,7 +843,8 @@ def montar(cur, dia=None, agora=None):
         'caixas': caixas(t, cargas, ordens, retrato),
         'frota': fr,
         'excecoes': excecoes(cur, t, cargas, ordens, fr),
-        'linha_do_tempo': linha_do_tempo(cur, t, [f['chave'] for f in fr['carretas']], rotulos=fr.pop('_rotulos')),
+        'linha_do_tempo': linha_do_tempo(cur, t, [f['chave'] for f in fr['carretas'] if f['grupo'] != 'terceiro'],
+                                         rotulos=fr.pop('_rotulos')),
         'produtividade': {**produtividade(cur, t, ordens, fr), 'pontualidade': pontualidade(t, cargas)},
     }
     if not retrato:
