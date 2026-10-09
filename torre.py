@@ -35,11 +35,17 @@ para trás só aparece filtrando o dia anterior.
 Só leitura. Painel igual para todos. Carreteiro/Terceiro fora (contados). O km NUNCA vem de
 `embarques_cargas_rastreio_kpi`: o gate de 25/09 mostrou que diverge da tela em 184 de 407
 viagens — produtividade/km entram depois, pela mesma função da tela.
+
+TERCEIRO (09/10/26): desde 07/10 o robô abre carga de Terceiro (GPS do cavalo pela Insignia). A
+CARGA entra nas caixas e nas exceções, com o GPS lido pela camada `fontes_gps`; a CARRETA nunca
+entra na frota (não é nossa), e a frota segue lendo a 3S (custo — ver `_ultima_posicao`). As
+ORDENS de Terceiro seguem só contadas.
 """
 import os
 from collections import Counter
 from datetime import date, datetime, timedelta
 
+import fontes_gps
 import geocoding
 import placas as pl
 
@@ -125,7 +131,7 @@ def _cargas(cur, t, retrato):
                c.data_conclusao, c.desengatada_em, c.encerrada_motivo, c.distancia_planejada_km,
                c.carreta1_placa, c.cavalo_placa, c.embarcador, c.origem_cidade,
                c.origem_latitude, c.origem_longitude, d.cidade, d.latitude, d.longitude,
-               c.atualizado_em, c.motorista_nome, {ag}
+               c.atualizado_em, c.motorista_nome, c.tipo_operacao, {ag}
           FROM embarques_cargas c
           LEFT JOIN embarques_cargas_destinos d ON d.carga_id = c.id
                AND d.ordem = (SELECT MIN(ordem) FROM embarques_cargas_destinos x WHERE x.carga_id = c.id)
@@ -136,7 +142,7 @@ def _cargas(cur, t, retrato):
     """, (t, ATIVAS, ini_dia, ini_dia))
     cols = ('id', 'numero', 'status', 'criado', 'saida', 'chegada', 'conclusao', 'desengate',
             'motivo', 'km_plan', 'carreta', 'cavalo', 'embarcador', 'origem', 'olat', 'olng',
-            'destino', 'dlat', 'dlng', 'atualizado', 'motorista', 'agenda', 'agenda_ordem')
+            'destino', 'dlat', 'dlng', 'atualizado', 'motorista', 'tipo', 'agenda', 'agenda_ordem')
     out = []
     for r in cur.fetchall():
         c = dict(zip(cols, r))
@@ -324,11 +330,18 @@ def _base_patio(cur):
     return (float(r[0]), float(r[1])) if r else (-18.87572, -48.29714)
 
 
-def _ultima_posicao(cur, placa, t, janela_h=168):
+def _ultima_posicao(cur, placa, t, janela_h=168, camada=False):
+    # `camada=True` lê pela `fontes_gps` (3S + Insignia), a mesma do worker e do motor — só a
+    # carga de Terceiro usa, porque o cavalo dela só existe na Insignia (09/10/26). A frota segue
+    # na tabela da 3S: com o escopo `terceiro` a Insignia não acrescenta nada a carreta nossa, e a
+    # união varre a `insignia_posicoes` inteira a cada consulta (a frota faz ~140 por atualização;
+    # medido 0,3 s → 0,8 s com 3 dias de coleta, e cresce com a tabela). Quando o escopo da
+    # Insignia virar `todas`, a frota também tem de ler pela camada.
     if not placa:
         return None
-    cur.execute("""SELECT data_posicao, latitude, longitude, velocidade, cidade, uf
-                     FROM embarques_posicoes_historico
+    fonte = f'{fontes_gps.historico(cur)} h' if camada else 'embarques_posicoes_historico'
+    cur.execute(f"""SELECT data_posicao, latitude, longitude, velocidade, cidade, uf
+                     FROM {fonte}
                     WHERE placa = ANY(%s) AND data_posicao BETWEEN %s AND %s
                     ORDER BY data_posicao DESC LIMIT 1""",
                 (pl.grafias(placa), t - timedelta(hours=janela_h), t))
@@ -339,9 +352,15 @@ def _ultima_posicao(cur, placa, t, janela_h=168):
 
 
 def frota(cur, t, cargas, ordens, dias=30):
-    """Estado de cada carreta que teve carga (Frota/Agregado) nos últimos `dias`."""
+    """Estado de cada carreta que teve carga (Frota/Agregado) nos últimos `dias`.
+
+    O filtro de tipo era implícito — até 07/10/26 o robô só abria Frota/Agregado. Quando passou a
+    abrir Terceiro, a carreta do terceiro entrou aqui como se fosse nossa: em viagem, "sem sinal"
+    (a 3S não a vê; C-2026-001407 e C-001417 no dump de 08/10, com a Insignia tendo posição do
+    cavalo de ~50 min antes); depois da entrega, 30 dias contando como carreta "livre"."""
     cur.execute("""SELECT carreta1_placa, MAX(criado_em) FROM embarques_cargas
                     WHERE carreta1_placa IS NOT NULL AND carreta1_placa <> ''
+                      AND tipo_operacao IN ('Frota', 'Agregado')
                       AND NOT COALESCE(viagem_vazia, FALSE) AND criado_em BETWEEN %s AND %s
                     GROUP BY 1 ORDER BY 2 DESC""",
                 (t - timedelta(days=dias), t))
@@ -437,13 +456,36 @@ def _balde(cur, grupo, est, placa, t, c):
 
 
 # ── exceções ────────────────────────────────────────────────────────────────────────────────
-def _tempo_parado(cur, placa, t, janela_h=24):
-    """Há quantas horas a placa está parada (último ponto em movimento → t)."""
-    cur.execute("""SELECT MAX(data_posicao) FROM embarques_posicoes_historico
+def _tempo_parado(cur, placa, t, janela_h=24, camada=False):
+    """Há quantas horas a placa está parada (último ponto em movimento → t).
+    `camada`: o mesmo critério de `_ultima_posicao` — só a carga de Terceiro lê pela `fontes_gps`."""
+    fonte = f'{fontes_gps.historico(cur)} h' if camada else 'embarques_posicoes_historico'
+    cur.execute(f"""SELECT MAX(data_posicao) FROM {fonte}
                     WHERE placa = ANY(%s) AND data_posicao BETWEEN %s AND %s AND velocidade > %s""",
                 (pl.grafias(placa), t - timedelta(hours=janela_h), t, PARADO_KMH))
     r = cur.fetchone()[0]
     return _h(t, r) if r else float(janela_h)
+
+
+def _gps_terceiro(cur, c, t):
+    """Posição da carga de Terceiro em viagem, no formato da linha da frota que as exceções leem.
+
+    Terceiro não entra na frota (a carreta não é nossa), mas a viagem segue precisando de GPS para
+    "Parada na estrada" e "Rastreador sem sinal". Vale a posição mais recente entre carreta e
+    cavalo — na prática o cavalo, o único que a GR rastreia (HANDOFF-INSIGNIA §16.4). "Sem sinal"
+    só quando nenhuma fonte tem posição nas últimas GPS_ATUAL_H horas. `placa_gps` diz de qual
+    placa veio, para a parada ser medida no mesmo aparelho."""
+    pos, placa = None, None
+    for p in (c['carreta'], c['cavalo']):
+        q = _ultima_posicao(cur, p, t, camada=True) if p else None
+        if q and (pos is None or q[0] > pos[0]):
+            pos, placa = q, p
+    idade = _h(t, pos[0]) if pos else None
+    if idade is None or idade > GPS_ATUAL_H:
+        return {'estado': 'sem sinal', 'placa_gps': placa or c['cavalo'] or c['carreta'],
+                'lat': None, 'lng': None, 'posicao_idade_h': round(idade, 1) if idade is not None else None}
+    return {'estado': 'rodando' if pos[3] > PARADO_KMH else 'parada fora', 'placa_gps': placa,
+            'lat': pos[1], 'lng': pos[2], 'posicao_idade_h': round(idade, 1)}
 
 
 def _exc_prazo(add, c, t, ref, rota):
@@ -502,8 +544,10 @@ def excecoes(cur, t, cargas, ordens, frota_):
         elif c['etapa'] == 'Em rota':
             _exc_prazo(add, c, t, ref, rota)
             f = pos_frota.get(ref)
+            if f is None and c['tipo'] == 'Terceiro':
+                f = _gps_terceiro(cur, c, t)
             if f and f['estado'] == 'parada fora' and f['lat'] is not None:
-                parada_h = _tempo_parado(cur, c['carreta'], t)
+                parada_h = _tempo_parado(cur, f.get('placa_gps') or c['carreta'], t, camada='placa_gps' in f)
                 d_dst = geocoding.km_entre(f['lat'], f['lng'], float(c['dlat']), float(c['dlng'])) if c['dlat'] else None
                 d_org = geocoding.km_entre(f['lat'], f['lng'], float(c['olat']), float(c['olng'])) if c['olat'] else None
                 hora_brt = (t - BRT).hour
@@ -513,7 +557,7 @@ def excecoes(cur, t, cargas, ordens, frota_):
                         f"parada há {parada_h:.1f} h a {d_dst:.0f} km do destino, longe da origem",
                         parada_h, c['embarcador'])
             if f and f['estado'] == 'sem sinal':
-                add('sensor', 'Rastreador sem sinal', c['carreta'], f'{ref} em viagem',
+                add('sensor', 'Rastreador sem sinal', f.get('placa_gps') or c['carreta'], f'{ref} em viagem',
                     f"última posição há {f['posicao_idade_h'] or '—'} h — a viagem segue pelo documento",
                     f['posicao_idade_h'], sensor=True)
         elif c['etapa'] == 'No destino':
