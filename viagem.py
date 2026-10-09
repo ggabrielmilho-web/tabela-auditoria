@@ -1169,6 +1169,16 @@ def _desmembra(oss, cls, km_nosso, fonte_km, km_rota, vazio_leg, km_trechos):
     car = [s for s in segs if s['tipo'] == 'carregado']
     vaz = [s for s in segs if s['tipo'] == 'vazio']
 
+    def _por_km(o):
+        # o carregado em R$ por km DA PERNA (o nosso km): é o que se compara com a tabela. Pago por
+        # km bem acima da maior tarifa válida (+15%) = pagou mais km do que a perna rodou — a
+        # C-2026-001275 pagou 2.919 km até Parnamirim e desengatou com 1.545: R$ 10,05/km × 5,32
+        c = o.get('carregado')
+        if c and km_nosso:
+            c['por_km_nosso'] = round(c['valor'] / km_nosso, 2)
+            c['acima_tabela'] = c['por_km_nosso'] > 1.15 * max(validas.values())
+        return o
+
     def _confronto(kd, kn):
         return round(100 * (kd / kn - 1), 1) if kn else None
 
@@ -1203,14 +1213,14 @@ def _desmembra(oss, cls, km_nosso, fonte_km, km_rota, vazio_leg, km_trechos):
         elif vazio_leg and km_v_nosso and not sem_vazio:
             out['vazio_nao_declarado'] = {'km_nosso': round(km_v_nosso), 'km_fonte': fonte_v,
                                           'valor_pela_regra': round(km_v_nosso * TARIFA_VAZIO_AGREGADO, 2)}
-        return out
+        return _por_km(out)
     if vaz:
         # o SSW cortou a observação nos 200 caracteres: o vazio está declarado e o carregado é o
         # resto do valor a pagar (na C-2026-000870 o resto dá 5,45/km — a tarifa do trucado)
         out['fonte'] = 'observacao_parcial'
         out['vazio'] = _vazio_declarado()
         out['carregado'] = _carregado_pelo_resto(out['vazio']['valor'])
-        return out
+        return _por_km(out)
     # sem observação aproveitável: só o nosso km
     out['fonte'] = 'regra'
     paga_vazio = bool(vazio_leg) and not sem_vazio
@@ -1218,7 +1228,7 @@ def _desmembra(oss, cls, km_nosso, fonte_km, km_rota, vazio_leg, km_trechos):
     out['vazio'] = ({'km_nosso': round(km_v_nosso), 'km_fonte': fonte_v, 'tarifa': TARIFA_VAZIO_AGREGADO,
                      'valor': v, 'estimado': True} if paga_vazio else None)
     out['carregado'] = _carregado_pelo_resto(v)
-    return out
+    return _por_km(out)
 
 
 def _escala(d, k):
@@ -1274,6 +1284,7 @@ def _dinheiro(dados, br, ctx, km_trechos):
                'frete_pago': round(sum(_f(a['frete_pago']) for a in rows), 2)}
         aud['resultado'] = round(aud['receita_rateada'] - aud['frete_pago'], 2)
         km_nosso, fonte_km = _km_nosso(t, km_trechos)
+        km_base = km_nosso if (t['papel'] != 'documental' and km_nosso) else sum(_f(a['km']) for a in rows)
         for a in rows:
             tipo = (a['tipo'] or '').upper()
             km = _f(a['km'])
@@ -1315,7 +1326,8 @@ def _dinheiro(dados, br, ctx, km_trechos):
                                     'pago': round(sum(p['valor'] for p in pagos if p['situacao'] == 'pago'), 2),
                                     'programado': round(sum(p['valor'] for p in pagos if p['situacao'] != 'pago'), 2),
                                     'fecha': bool(pagos) and liquido > 0 and abs(lancado - liquido) <= 1.0},
-                    'auditoria_frete': a.get('auditoria_frete'), 'frete_tabela': _f(a.get('frete_tabela'))}
+                    'auditoria_frete': a.get('auditoria_frete'), 'frete_tabela': _f(a.get('frete_tabela')),
+                    'rkm_pago': round(frete * part / km_base, 2) if km_base else None}
             if abs(item['composicao']['ccf']) >= 0.01:
                 item['nota_ccf'] = ('acerto de conta corrente do motorista abatido neste CTRB — pode ser dívida de '
                                     'outra viagem; a Auditoria desconta do frete')
@@ -1341,7 +1353,8 @@ def _dinheiro(dados, br, ctx, km_trechos):
         custo_op += sub
         trechos.append({'numero': t['numero'], 'papel': t['papel'], 'tipo': t['tipo'], 'manifesto': t['manifesto'],
                         'itens': itens, 'custo': round(sub, 2), 'auditoria': aud, 'participacao': round(part, 4),
-                        'km_nosso': round(km_nosso) if t['papel'] != 'documental' else None, 'km_fonte': fonte_km})
+                        'km_nosso': round(km_nosso) if t['papel'] != 'documental' else None, 'km_fonte': fonte_km,
+                        'km_base': round(km_base), 'rkm_pago': round(sub / km_base, 2) if km_base else None})
         if part < 1:
             avisos.append(f"{t['numero']}: o manifesto leva carga de outras viagens — entra {100 * part:.0f}% do custo "
                           '(a parte do frete desta viagem)')
@@ -1382,6 +1395,20 @@ def _dinheiro(dados, br, ctx, km_trechos):
             bloco_vazio.update(modo='terceiro', regra='terceiro: o deslocamento vazio é por conta dele')
     soma_rateada = round(sum(x['auditoria']['receita_rateada'] for x in trechos), 2)
     so_custo = bool(br['continuacao_de'])     # a receita é da viagem de origem: aqui só o custo
+
+    def _pk(v, km):
+        return round(v / km, 2) if (km and v is not None) else None
+
+    def _linha_km(km):
+        return {'km': round(km), 'faturado': None if so_custo else _pk(receita, km), 'pago': _pk(custo_op, km),
+                'sobra': None if so_custo else _pk(resultado, km)}
+
+    # R$/km dos dois lados (pedido de 09/10/2026): o que a viagem fatura e o que ela paga por km, e a
+    # sobra. "Pago" é o custo operacional (frete do agregado/terceiro, custo da frota, chapa,
+    # rastreador e carreta Rizza); o financiamento fica fora, como no resultado.
+    por_km = {'carregado': {**_linha_km(km_carr), 'fonte': km_carr_fonte},
+              'com_vazio': {**_linha_km(km_carr + km_vazio), 'km_vazio': round(km_vazio), 'fonte_vazio': fonte_v}
+              if km_vazio else None}
     return {
         'continuacao_de': br['continuacao_de'],
         'receita': {'total': receita, 'ctes': rec_ctes, 'complementos': rec_comp,
@@ -1398,6 +1425,7 @@ def _dinheiro(dados, br, ctx, km_trechos):
         'km_vazio_fonte': fonte_v,
         'rkm_carregado': round(receita / km_carr, 2) if (km_carr and not so_custo) else None,
         'rkm_completo': round(receita / (km_carr + km_vazio), 2) if ((km_carr + km_vazio) and not so_custo) else None,
+        'por_km': por_km,
         'vazio': bloco_vazio,
         'auditoria': {'receita_rateada': soma_rateada, 'confere_ctes': abs(soma_rateada - rec_ctes) <= 1.0,
                       'por_trecho': [{'numero': x['numero'], **x['auditoria']} for x in trechos]},

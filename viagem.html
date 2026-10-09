@@ -182,6 +182,18 @@
   .cascata .leg span { display: inline-flex; align-items: center; gap: 6px; }
   .cascata .leg i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
   .por-km { display: flex; gap: 18px; flex-wrap: wrap; font-size: .76rem; color: var(--text-dim); margin-top: 10px; }
+  .kpi.km3 .km3-l { display: grid; grid-template-columns: auto auto; gap: 1px 12px; align-items: baseline; justify-content: start; margin-top: 1px; }
+  .kpi.km3 .km3-l span { font-size: .66rem; color: var(--text-faint); }
+  .kpi.km3 .km3-l b { display: block; font-family: 'JetBrains Mono', monospace; font-size: .9rem; font-weight: 600; text-align: right; text-transform: none; letter-spacing: 0; color: var(--text); margin: 0; }
+  .kpi.km3 .km3-l b.pos { color: var(--green); } .kpi.km3 .km3-l b.neg { color: var(--red); }
+  .tkm { border-collapse: collapse; font-size: .78rem; margin-top: 14px; }
+  .tkm th { text-align: right; font-size: .62rem; text-transform: uppercase; letter-spacing: .08em; color: var(--text-faint); font-weight: 700; padding: 4px 0 6px 28px; border-bottom: 1px solid var(--border2); vertical-align: bottom; }
+  .tkm th:first-child { text-align: left; padding-left: 0; }
+  .tkm th small { display: block; text-transform: none; letter-spacing: 0; font-weight: 500; font-family: 'JetBrains Mono', monospace; font-size: .62rem; margin-top: 2px; }
+  .tkm td { padding: 6px 0 6px 28px; text-align: right; font-family: 'JetBrains Mono', monospace; font-weight: 600; font-size: .86rem; }
+  .tkm td:first-child { text-align: left; padding-left: 0; font-family: 'DM Sans', sans-serif; font-size: .78rem; color: var(--text-dim); }
+  .tkm td:first-child small { color: var(--text-faint); margin-left: 6px; font-size: .68rem; }
+  .tkm tr.sobra td { border-top: 1px solid var(--border); }
   .por-km b { font-family: 'JetBrains Mono', monospace; color: var(--text); font-weight: 600; }
   .abre { display: flex; align-items: center; gap: 8px; width: 100%; margin-top: 14px; padding: 9px 12px; background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; color: var(--text-dim); font: 600 .76rem 'DM Sans'; cursor: pointer; transition: border-color .15s, color .15s; }
   .abre:hover { border-color: var(--accent); color: var(--accent); }
@@ -876,11 +888,11 @@ function dinheiro(m) {
       <div class="kpi"><b>Receita</b><div class="v faint">—</div><div class="s">na viagem de origem</div></div>
       <div class="kpi"><b>Custo</b><div class="v">${money(m.custo_operacional)}</div><div class="s">desta carga</div></div>
       <div class="kpi"><b>Resultado</b><div class="v faint">—</div><div class="s">ver a viagem de origem</div></div>
-      <div class="kpi"><b>R$ / km</b><div class="v faint">—</div><div class="s">&nbsp;</div></div>` : `
+      ${quadroKm(m)}` : `
       <div class="kpi"><b>Receita</b><div class="v">${money(r.total)}</div><div class="s">CTes ${brl(r.ctes, 0)}${r.complementos ? ' + compl.' : ''}</div></div>
       <div class="kpi"><b>Custo</b><div class="v">${money(m.custo_operacional)}</div><div class="s">operacional</div></div>
       <div class="kpi forte${neg ? ' neg' : ''}"><b>Resultado</b><div class="v ${neg ? 'neg' : 'pos'}">${money(res)}</div><div class="s">margem ${pct(m.margem)}</div></div>
-      <div class="kpi"><b>R$ / km</b><div class="v">${m.rkm_carregado != null ? n2(m.rkm_carregado) : '—'}</div><div class="s">carregado · ${m.rkm_completo != null ? n2(m.rkm_completo) + ' c/ vazio' : ''}</div></div>`;
+      ${quadroKm(m)}`;
   // resumo
   const fatias = [];
   m.trechos.forEach(t => t.itens.forEach(it => {
@@ -907,14 +919,38 @@ function dinheiro(m) {
   const bases = (m.bases || []).filter(b => b.motivo).map(b => `custo da frota pelo R$/km de ${b.mes.slice(5)}/${b.mes.slice(2, 4)} (${esc(b.motivo)})`);
   $('din').innerHTML = `${resumo}
     <div class="cascata"><div class="barra">${barra}</div><div class="leg">${leg}</div></div>
-    ${so ? '' : `<div class="por-km"><span>R$/km carregado <b>${m.rkm_carregado != null ? n2(m.rkm_carregado) : '—'}</b> <span class="faint">(${n0(m.km_carregado)} km ${esc(m.km_carregado_fonte || '')})</span></span>
-      <span>R$/km com o vazio <b>${m.rkm_completo != null ? n2(m.rkm_completo) : '—'}</b> <span class="faint">(+${n0(m.km_vazio)} km ${esc(m.km_vazio_fonte || '')})</span></span>
-      ${m.auditoria ? `<span>Auditoria (rateada) <b>${brl(m.auditoria.receita_rateada, 0)}</b> ${m.auditoria.confere_ctes ? '<span class="marca ok">= CTes</span>' : '<span class="marca neutro">rateio entre viagens</span>'}</span>` : ''}</div>`}
+    ${tabelaKm(m)}
+    ${so || !m.auditoria ? '' : `<div class="por-km"><span>Auditoria (rateada) <b>${brl(m.auditoria.receita_rateada, 0)}</b> ${m.auditoria.confere_ctes ? '<span class="marca ok">= CTes</span>' : '<span class="marca neutro">rateio entre viagens</span>'}</span></div>`}
     ${bases.length ? `<div class="por-km faint" style="font-size:.7rem">${bases.join(' · ')}</div>` : ''}
     ${m.vazio ? blocoVazio(m.vazio) : ''}
     <button class="abre" id="b-comp"><span>Composição completa — receita, custo de cada trecho, pagamentos e desmembramento do frete</span><span class="seta-a">▾</span></button>
     <div class="composicao" id="comp">${composicao(m)}</div>`;
   $('b-comp').addEventListener('click', () => { $('b-comp').classList.toggle('on'); $('comp').classList.toggle('on'); });
+}
+
+// R$/km dos dois lados: faturado (receita ÷ km), pago (custo operacional ÷ km) e a sobra
+function quadroKm(m) {
+  const k = (m.por_km || {}).carregado || {};
+  const v = x => x != null ? n2(x) : '—';
+  return `<div class="kpi km3" title="por km carregado (${n0(k.km)} km, ${esc(k.fonte || '')}) — com o vazio no bloco do resultado"><b>R$ / km</b>
+    <div class="km3-l"><span>faturado</span><b>${v(k.faturado)}</b><span>pago</span><b>${v(k.pago)}</b>
+      <span>sobra</span><b class="${k.sobra == null ? '' : (k.sobra < 0 ? 'neg' : 'pos')}">${v(k.sobra)}</b></div></div>`;
+}
+
+function tabelaKm(m) {
+  const c = (m.por_km || {}).carregado, z = (m.por_km || {}).com_vazio;
+  if (!c) return '';
+  const v = x => x != null ? n2(x) : '—';
+  const cor = x => x == null ? '' : (x < 0 ? 'neg' : 'pos');
+  const col = (a, b) => `<td class="${a || ''}">${b}</td>`;
+  return `<table class="tkm"><thead><tr><th>R$ por km</th>
+      <th>carregado<small>${n0(c.km)} km · ${esc(c.fonte || '')}</small></th>
+      ${z ? `<th>com o vazio<small>+${n0(z.km_vazio)} km · ${esc(z.fonte_vazio || '')}</small></th>` : ''}</tr></thead>
+    <tbody>
+      <tr><td>Faturado<small>receita ÷ km</small></td>${col('', v(c.faturado))}${z ? col('', v(z.faturado)) : ''}</tr>
+      <tr><td>Pago<small>custo operacional ÷ km</small></td>${col('', v(c.pago))}${z ? col('', v(z.pago)) : ''}</tr>
+      <tr class="sobra"><td>Sobra<small>o que fica por km</small></td>${col(cor(c.sobra), v(c.sobra))}${z ? col(cor(z.sobra), v(z.sobra)) : ''}</tr>
+    </tbody></table>`;
 }
 
 function blocoVazio(z) {
@@ -956,7 +992,8 @@ function composicao(m) {
   linha('grupo', 'Custo operacional', brl(m.custo_operacional));
   m.trechos.forEach(t => {
     const part = t.participacao < 1 ? ` · ${pct(t.participacao)} do manifesto (consolidado)` : '';
-    linha('sub', `<span class="mono" style="color:${COR[t.papel] || 'inherit'}">${esc(t.numero)}</span> <small>${esc(t.tipo || '')} · ${esc(t.manifesto || '')}${part}</small>`, brl(t.custo));
+    const kmT = t.rkm_pago != null ? ` · <b style="color:var(--text)">R$ ${n2(t.rkm_pago)}/km</b> em ${n0(t.km_base)} km ${t.papel === 'documental' ? 'de rota' : esc(t.km_fonte || '')}` : '';
+    linha('sub', `<span class="mono" style="color:${COR[t.papel] || 'inherit'}">${esc(t.numero)}</span> <small>${esc(t.tipo || '')} · ${esc(t.manifesto || '')}${part}${kmT}</small>`, brl(t.custo));
     t.itens.forEach(it => {
       if (it.tipo === 'frota') {
         linha('item', `Custo da frota · R$ ${n2(it.rkm)}/km × ${n0(it.km)} km de rota <span class="faint mono">${esc(it.cavalo || '')}${it.carreta ? ' + ' + esc(it.carreta) : ''}</span>`, brl(it.operacional));
@@ -965,7 +1002,7 @@ function composicao(m) {
       } else {
         const c = it.composicao || {}, cc = it.conciliacao || {};
         const partes = [`a pagar ${n2(c.valor_a_pagar)}`, c.vale_pedagio ? `vale-pedágio ${n2(c.vale_pedagio)}` : null, c.pedagio ? `pedágio ${n2(c.pedagio)}` : null, c.ccf ? `conta corrente ${n2(c.ccf)}` : null].filter(Boolean).join(' + ');
-        linha('item', `Frete pago ao ${it.tipo} · CTRB <span class="mono">${esc(it.ctrb)}</span>`, brl(it.frete_pago));
+        linha('item', `Frete pago ao ${it.tipo} · CTRB <span class="mono">${esc(it.ctrb)}</span>${it.rkm_pago != null ? ` · <span class="mono">R$ ${n2(it.rkm_pago)}/km</span>` : ''}`, brl(it.frete_pago));
         out.push(`<tr class="det"><td colspan="2">${partes}${it.frete_cheio !== it.frete_pago ? ` · entra ${brl(it.frete_pago)} de ${brl(it.frete_cheio)}` : ''}${it.auditoria_frete ? ` · Auditoria: <span class="mono">${esc(it.auditoria_frete)}</span>` : ''}
           <div class="pagto">${it.ciot ? `<span>CIOT ${esc(it.ciot)}</span>` : ''}<span>líquido ${n2(it.liquido)}</span>
           ${(it.pagamentos || []).map(p => `<span class="${p.situacao}">${esc(p.tipo)} ${n2(p.valor)} · ${p.situacao === 'pago' ? 'pago' : 'programado'} ${cal(p.data)}</span>`).join('')}
@@ -1008,7 +1045,11 @@ function desmembrado(d) {
       else if (s.km_declarado != null) marca = `<span class="marca atencao">fora da tabela</span>`;
     } else if (s.tarifa_confere === false) marca = `<span class="marca atencao">tabela ${n2(tabela)}</span>`;
     const igual = s.tarifa_implicita != null && s.km_declarado == null ? '' : ` = <b class="mono">${brl(s.valor)}</b>`;
-    return `<div style="margin-top:4px"><b>${rot}</b> ${s.rota ? `<span class="mono">${esc(s.rota)}</span> · ` : ''}${kmTxt}${s.pedagio ? ` + ${n2(s.pedagio)} pedágio` : ''}${igual}${conf} ${marca}${s.estimado ? ' <span class="marca neutro">estimado</span>' : ''}</div>`;
+    // pago por km DA PERNA: o número que se compara com a tabela (no resto pelo km de rota, só se diferir)
+    const porKm = rot === 'Carregado' && s.por_km_nosso != null
+      && (s.km_declarado != null || s.tarifa_implicita == null || Math.abs(s.por_km_nosso - s.tarifa_implicita) > 0.02 * s.tarifa_implicita)
+      ? ` · <b class="mono">R$ ${n2(s.por_km_nosso)}</b> por km da perna${s.acima_tabela ? ' <span class="marca alerta">acima da tabela</span>' : ''}` : '';
+    return `<div style="margin-top:4px"><b>${rot}</b> ${s.rota ? `<span class="mono">${esc(s.rota)}</span> · ` : ''}${kmTxt}${s.pedagio ? ` + ${n2(s.pedagio)} pedágio` : ''}${igual}${conf}${porKm} ${marca}${s.estimado ? ' <span class="marca neutro">estimado</span>' : ''}</div>`;
   };
   const tab = Object.entries(d.tarifas_tabela || {}).map(([k, v]) => `${k} ${n2(v)}`).join(' · ');
   const titulo = { observacao: 'Desmembramento declarado pelo analista na observação do CTRB', observacao_parcial: 'Observação cortada pelo SSW (200 caracteres): o vazio está declarado, o carregado é o resto', regra: 'Sem declaração na observação: desmembrado pelo nosso km' }[d.fonte] || '';
