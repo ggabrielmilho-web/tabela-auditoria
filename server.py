@@ -20,6 +20,7 @@ import requests
 import pgr
 import placas
 import fontes_gps
+import viagem as _viagem
 import verda_painel
 from flask import Flask, Response, jsonify, send_from_directory, request, session, redirect, url_for, send_file, stream_with_context
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -1897,6 +1898,135 @@ def embarques_mapa_page():
 @page_required('embarques')
 def embarques_mapa_carga_page(carga_id):
     return send_from_directory('.', 'mapa-carga.html')
+
+
+# ── FICHA DA VIAGEM (09/10/2026) ─────────────────────────────────────────────────────────────
+# A viagem inteira numa página: a perna vazia que trouxe o caminhão, a carga, as continuações,
+# a linha do tempo, a conformidade, os documentos e — para quem tem a aba Auditoria — o dinheiro.
+# A lógica mora em viagem.py; aqui ficam só as rotas e o contexto do BI. Duas leituras: a local
+# (rápida, a tela abre com ela) e a do BI (documentos e dinheiro, em cache por viagem).
+
+
+def _pode_dinheiro():
+    return session.get('role') == 'admin' or 'auditoria' in (session.get('paginas_permitidas') or [])
+
+
+def _viagem_ctx():
+    """O que o viagem.py precisa do server, injetado (ele não importa o server.py)."""
+    def dax(q, ds=None):
+        return clean_rows(execute_dax(get_token(), q, ds)['results'][0]['tables'][0]['rows'])
+
+    def custo_base(mes):
+        tok = get_token()
+        return _custo_km_cliente(tok, '{"%s"}' % mes, _cadastro_veiculos(tok))
+
+    def carga_do_manifesto(m):
+        conn = get_db()
+        try:
+            cur = conn.cursor()
+            cur.execute("""SELECT numero FROM embarques_cargas
+                            WHERE status <> 'Cancelada' AND NOT COALESCE(viagem_vazia, FALSE)
+                              AND regexp_replace(upper(manifesto_origem), '[^A-Z0-9]', '', 'g') = %s
+                            ORDER BY id DESC LIMIT 1""", (_viagem._doc(m),))
+            r = cur.fetchone()
+            return r[0] if r else None
+        finally:
+            conn.close()
+
+    return {'dax': dax, 'custo_base': custo_base, 'custo_viagem': _custo_viagem_km, 'placa': _placa_mercosul,
+            'km_expr': _dax_km_viagem, 'ds_contabil': os.getenv('POWERBI_CONTABIL_DATASET_ID'),
+            'carga_do_manifesto': carga_do_manifesto}
+
+
+def _viagem_km_trechos(dados):
+    """Km de cada trecho pela régua da ficha: o do odômetro quando ele cobriu a viagem (cobertura
+    ≥ 80%, até 20% dos trechos medidos só por GPS, até 3× a rota); fora disso fica o roteirizado.
+    Sai do mesmo endpoint do mapa da carga — a ficha não mede km de outro jeito. Trecho que ainda
+    não terminou fica na rota: o odômetro dele é parcial (a C-2026-001409 tinha 429 de 1.465 km)."""
+    out = {}
+    for t in dados['trechos']:
+        if not t.get('conclusao'):
+            continue
+        def medir(cid=t['id']):
+            resp = api_rastreamento_trajeto.__wrapped__(cid)
+            return {} if isinstance(resp, tuple) else ((resp.get_json() or {}).get('kpi') or {})
+        try:
+            k = _viagem._cacheado(('km', t['id']), _viagem.TTL_VIAGEM_S, medir)
+        except Exception:
+            continue
+        km, tr, gps = k.get('km_odometro'), k.get('odometro_trechos') or 0, k.get('odometro_trechos_gps') or 0
+        plan = t.get('km_planejado') or 0
+        if km is None or (k.get('odometro_cobertura') or 0) < _viagem.KM_COBERTURA_MIN:
+            continue
+        if (tr + gps) and gps / (tr + gps) > _viagem.KM_GPS_MAX:
+            continue
+        if plan and km > _viagem.KM_TETO * plan:
+            continue
+        out[t['numero']] = {'km': round(float(km), 1), 'fonte': 'rastreado', 'cobertura': k.get('odometro_cobertura')}
+    return out
+
+
+def _viagem_montar(ref):
+    conn = get_db()
+    try:
+        return _viagem.montar(conn.cursor(), ref)
+    finally:
+        conn.close()
+
+
+@app.route('/viagem')
+@app.route('/viagem/<ref>')
+@page_required('embarques')
+def viagem_page(ref=None):
+    return send_from_directory('.', 'viagem.html')
+
+
+@app.route('/api/viagem/busca')
+@page_required('embarques')
+def api_viagem_busca():
+    conn = get_db()
+    try:
+        return jsonify({'ok': True, 'viagens': _viagem.busca(conn.cursor(), (request.args.get('q') or '')[:40])})
+    finally:
+        conn.close()
+
+
+@app.route('/api/viagem/<ref>/documentos')
+@page_required('embarques')
+def api_viagem_documentos(ref):
+    d = _viagem_montar(ref)
+    if not d:
+        return jsonify({'ok': False, 'error': 'Viagem não encontrada'}), 404
+    try:
+        return jsonify({'ok': True, **_viagem.bi(d, _viagem_ctx(), com_dinheiro=False)})
+    except Exception as e:
+        app.logger.exception('ficha da viagem: documentos')
+        return jsonify({'ok': False, 'error': f'Power BI indisponível: {e}'}), 502
+
+
+@app.route('/api/viagem/<ref>/financeiro')
+@page_required('auditoria')
+def api_viagem_financeiro(ref):
+    d = _viagem_montar(ref)
+    if not d:
+        return jsonify({'ok': False, 'error': 'Viagem não encontrada'}), 404
+    try:
+        km = _viagem_km_trechos(d)
+        return jsonify({'ok': True, 'km_trechos': km, **_viagem.bi(d, _viagem_ctx(), com_dinheiro=True, km_trechos=km)})
+    except Exception as e:
+        app.logger.exception('ficha da viagem: financeiro')
+        return jsonify({'ok': False, 'error': f'Power BI indisponível: {e}'}), 502
+
+
+@app.route('/api/viagem/<ref>')
+@page_required('embarques')
+def api_viagem(ref):
+    d = _viagem_montar(ref)
+    if not d:
+        return jsonify({'ok': False, 'error': 'Nenhuma viagem com esse número'}), 404
+    return jsonify({'ok': True, 'pode_dinheiro': _pode_dinheiro(),
+                    'regua_km': {'cobertura_min': _viagem.KM_COBERTURA_MIN, 'gps_max': _viagem.KM_GPS_MAX,
+                                 'teto': _viagem.KM_TETO}, **d})
 
 
 @app.route('/api/tarifas')

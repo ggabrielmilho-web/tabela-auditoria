@@ -39,6 +39,10 @@
     // Torre de controle (25/09/26): o "agora" da operação num painel só — estoque, fluxo do
     // dia, frota, exceções. Mesma permissão de Embarques; painel igual para todos.
     { id: 'torre',         page: 'embarques',     href: '/embarques/torre',   label: '🛰️ Torre' },
+    // Ficha da viagem (09/10/26): a viagem inteira numa página — vazio, carga, continuações,
+    // documentos e, para quem tem a Auditoria, o resultado. Mesma permissão de Embarques.
+    // 🛣 é Emoji 1.0 (glifo no Windows 10).
+    { id: 'viagem',        page: 'embarques',     href: '/viagem',            label: '🛣️ Viagem' },
     // Junto da família de rastreamento, não perto do DRE: é segurança
     // operacional, não financeiro.
     { id: 'pgr',           page: 'pgr',           href: '/pgr',               label: '🚦 PGR' },
@@ -75,7 +79,7 @@
   // Grupos da barra E dos cards do /inicio — uma lista só, para os dois não divergirem
   // no dia em que alguém mover uma aba de grupo.
   var GRUPOS = [
-    { nome: 'Operação',   abas: ['torre', 'embarques', 'ordens', 'semordem', 'sm', 'mapa', 'pgr', 'jornada', 'ciot', 'veiculos', 'verda'] },
+    { nome: 'Operação',   abas: ['torre', 'viagem', 'embarques', 'ordens', 'semordem', 'sm', 'mapa', 'pgr', 'jornada', 'ciot', 'veiculos', 'verda'] },
     { nome: 'Comercial',  abas: ['tarifas', 'faturamento', 'contratos'] },
     { nome: 'Financeiro', abas: ['auditoria', 'dre', 'projecao', 'despesas', 'conhecimentos', 'contabil'] },
     { nome: 'Sistema',    abas: ['reuniao', 'admin', 'uso'] }

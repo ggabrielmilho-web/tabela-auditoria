@@ -133,6 +133,7 @@
   </div>
   <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
     <span data-nav-menu data-nav-active="mapa"></span>
+    <a href="/viagem/" id="lnkFicha" style="text-decoration:none;"><button class="btn-sm">📑 Ficha da viagem</button></a>
     <a href="/embarques/mapa" style="text-decoration:none;"><button class="btn-sm">🗺️ Mapa geral</button></a>
     <a href="/embarques/relatorio" style="text-decoration:none;"><button class="btn-sm">📋 Relatório</button></a>
     <a href="/logout" style="text-decoration:none;"><button class="btn-sm">Sair</button></a>
@@ -254,6 +255,8 @@
 
   // ── ID da carga vem da URL ──
   const cargaId = parseInt(location.pathname.match(/cargas\/(\d+)\/mapa/)[1], 10);
+  // A ficha aceita o id da carga e abre a viagem inteira (vazio + carga + continuações).
+  document.getElementById('lnkFicha').href = '/viagem/' + cargaId;
   document.getElementById('bcNum').textContent = '#' + cargaId;
   let CARGA_ATUAL = null;
 

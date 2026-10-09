@@ -163,6 +163,7 @@ a imagem antiga (21/08/2026).
 - **Ordens de coleta** (`/embarques/ordens`) — cada ordem de coleta do SSW (157) com estado **derivado do documento** (vencida sem documento · aguardando manifesto · sem veículo · documento emitido · carga · cancelada), a carga ligada, a classificação **Frota/Agregado/Terceiro** pela régua do robô (truck sem carreta classificado pelo cadastro TRUCK/TOCO) e a coluna **Entrega agendada**, lida da observação da ordem ("AGENDA 02/10"). Ver Módulo Embarques
 - **Sem ordem** (`/embarques/sem-ordem`, 06/10/2026, pedido do gerente) — manifestos emitidos desde 01/09 **sem ordem de coleta**, Frota, Agregado e Terceiro. Ligação manifesto ↔ ordem pela régua única (`manifestos_sem_ordem.ligar`, a mesma da aba Coletas e do robô): pelo CTe (`ctrc_gerado`, exata) ou pela placa (cavalo + carreta, −3 d a +1 d), uma ordem para um manifesto só. A 2ª perna de desengate/continuação fica fora (a ordem é da 1ª). Cards por situação, filtros, CSV e a hora do CTRB (o manifesto não tem hora no BI). Só leitura; `manifestos_sem_ordem.py` recalcula quando o BI atualiza (`SEM_ORDEM_DESDE` muda o início)
 - **Torre de controle** (`/embarques/torre`) — o "agora" da operação num painel só, igual para todos e só leitura: relógios de GPS/documentos/robô, caixas com estoque + fluxo do dia + idade, frota em quatro baldes (trabalhando · livres para carga · precisa olhar · sem sinal), exceções com a regra que disparou, mapa, próximas 12 h, linha do tempo de 36 h e produtividade do dia. **Atraso pela entrega agendada** da ordem de coleta; sem ela, pelos 600 km/dia. Modo **retrato** de um dia anterior. Ver Módulo Embarques
+- **Ficha da viagem** (`/viagem`, `/viagem/<nº>`, 09/10/2026) — a viagem inteira numa página: a **perna vazia** que trouxe o caminhão (o vazio até a origem é da viagem que sai dela), a carga e as **continuações**, abrindo por qualquer número (carga, perna vazia, manifesto, CTRB, CTe, placa — a continuação abre a viagem toda). Capa com status e km, **selos de conformidade** (ordem de coleta, agenda, SM, CIOT, velocidade, documento × saída — cada um da sua aba), **percurso** em trechos expansíveis, mapa com o trajeto de cada trecho, **linha do tempo** (GPS, ordem, SM, PGR, CIOT, robô e os documentos do BI) e documentos em abas (CTes, complementos, manifestos, CTRB/CIOT/pagamentos, faturas, ordem, SM). Quem tem a aba **Auditoria** vê o **resultado da viagem**: receita dos CTes **sem rateio** + complementos, custo de todos os CTRBs da cadeia (frete pago conciliado com o 477; frota pelo R$/km da placa, a conta da aba Veículos; rastreador/carreta Rizza no agregado; chapa do 5100), financiamento à parte, R$/km e o **desmembramento do frete do agregado** em vazio e carregado — o que o analista declara na observação do CTRB confrontado com o nosso km. Não calcula nada novo: cada número vem da tabela da aba dona. Lógica em `viagem.py`
 
 ### Restrito a admins
 - **Verda — Emissões CO₂e** (`/verda`) — Acompanhamento do inventário de CO₂e enviado à plataforma **Verda** (exigência da Nestlé, escopo 3 do embarcador). Placar da rodada (enviadas / `executed` / rejeitadas / bloqueadas), inventário (t CO₂e, km, peso, diesel, **intensidade g/t·km**, escopo 1 × escopo 3), consumo aplicado por faixa de km/l, `VehicleTypeKey`, **as placas que estão bloqueando envio** (lista copiável para o cadastro resolver) e detalhe por viagem com drill nos CTes + CSV. **Não chama a Verda**: lê a `verda_envios` e recalcula o CO₂e com o fator reconstruído da API `Fuel` — na conta gratuita a Verda guarda só o consolidado mensal, então para o dado por viagem esta é a única tela que existe. Janela padrão = semana fechada anterior. **Consumo**: escala por idade do veículo (3,00 / 2,80 / 2,50 / 2,20 km/l) e 3,70 no rígido, revisada pela diretoria em 10/09/2026 — a mesma régua vale para os indicadores ABIQUIM. Ver `HANDOFF-VERDA.md` (§19 registra a divergência com o ciclo medido no ValeCard)
@@ -351,6 +352,8 @@ Tabela Auditoria/
 ├── embarques-ordens.html        # Página /embarques/ordens (ordens de coleta, estado e entrega agendada)
 ├── torre.py                     # Torre de controle: a consulta única `montar(cur, dia, agora)` (só leitura)
 ├── embarques-torre.html         # Página /embarques/torre
+├── viagem.py                    # Ficha da viagem: `montar` (banco local) e `bi` (documentos e dinheiro do Power BI)
+├── viagem.html                  # Página /viagem e /viagem/<nº>
 │
 │   # ── Módulo Rastreamento ──
 ├── rastreamento_worker.py       # Worker daemon (60s): posições, saída/entrega auto, recálculo de rota
@@ -385,6 +388,11 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 | `DB_NAME` | Nome do banco (`rizza_auditoria`) |
 | `DB_USER` | Usuário do Postgres |
 | `DB_PASSWORD` | Senha do Postgres |
+
+### Ficha da viagem
+| Variável | Descrição |
+|---|---|
+| `VIAGEM_TARIFA_VAZIO_AGREGADO` | tarifa do km vazio do agregado usada **só quando o CTRB não declara o vazio** (padrão `3.50`, tabela do analista de 09/10/2026; de jun a out/26 os CTRBs declaram 3,00) |
 
 ### Power BI
 | Variável | Descrição |
@@ -597,7 +605,8 @@ Abrir SM pela API: **preparado, não ligado** (colunas e lugar na tela já exist
 - `GET /embarques/sem-ordem` — Manifestos sem ordem de coleta · API `GET /api/embarques/sem-ordem[?refresh=1]` (aba `embarques`)
 - `GET /embarques/torre` — Torre de controle · API `GET /api/embarques/torre` (ao vivo) ou `?dia=AAAA-MM-DD` (retrato daquele dia à meia-noite)
 - `GET /embarques/mapa` — Mapa geral de rastreamento
-- `GET /embarques/cargas/<id>/mapa` — Mapa de uma carga
+- `GET /embarques/cargas/<id>/mapa` — Mapa de uma carga (botão **📑 Ficha da viagem**)
+- `GET /viagem` · `GET /viagem/<nº>` — Ficha da viagem (aba `embarques`)
 
 ### Dados analíticos
 - `GET /api/status` — status da config Power BI
@@ -685,6 +694,13 @@ Abrir SM pela API: **preparado, não ligado** (colunas e lugar na tela já exist
 - `GET /api/embarques/ordens?dia=&estado=&embarcador=` — ordens de coleta de `embarques_programacao`, com o **estado derivado** (`carga` · `documento emitido` · `aguardando manifesto` · `vencida sem documento` · `sem veículo` · `cancelada`) — a `situacao` do SSW não fecha sozinha. Alimentada pela fita; **sem `EMBARQUES_FITA` a tabela não existe e a aba abre vazia** (a API devolve 200 com lista vazia, não erro). Traz também **`tipo_frota`** (Frota · Agregado · Terceiro) pela mesma `classificar` do robô, com as placas do manifesto quando ele existe; sem manifesto só classifica com as **duas** placas da ordem (carreta vazia ali é "não informada", não rígido — 24 de 58 Terceiro eram falsos antes dessa regra, 21/09). **Terceiro fica em "documento emitido" para sempre: o robô só lança Frota e Agregado**
 - `GET /api/embarques/embarcadores` — os valores do filtro de Embarcador do relatório: `DISTINCT COALESCE(embarcador, criado_por_nome)` com contagem — **o mesmo valor que a coluna mostra** (renato/pablo da ordem de coleta, ou "Robô SSW (manifesto)"/usuário quando não há coleta). Até 21/09 listava `criado_por_id`, que é outra coisa
 - `GET /api/embarques/kpis` — 7 contadores (hoje, em rota, no destino, entregues no mês, abertas, desengatadas, **vazias no mês**). **`entregues_mes` não conta viagem vazia** — a perna de reposicionamento nasce `Entregue` porque já aconteceu, e inflava o número que o operacional lê como entrega ao cliente (35 de 130 na medição de 10/09/26) — **nem carga com `continua_em`** (a perna 1 de um desengate/continuação; 7–12% a mais, §24). **`desengatadas` conta todo status `Desengatada`**, esperando ou já ligada: é o mesmo conjunto que o clique no card lista
+
+### Ficha da viagem (`viagem.py`; aba `embarques`, dinheiro só com a aba `auditoria`)
+- `GET /api/viagem/busca?q=` — viagens recentes (sem `q`) ou por nº da carga, cliente, manifesto, CTRB ou placa; só a âncora (a continuação não aparece sozinha)
+- `GET /api/viagem/<nº>` — **banco local, rápido**: `viagem` (resumo), `trechos` (vazio → carga → continuações, com tempos, motivo de encerramento e `km_ate_passagem`), `conformidade` (selos), `linha_do_tempo`, `ordens`, `sms`, `pode_dinheiro` e a `regua_km`. Aceita nº da carga ou da perna vazia, id, manifesto, CTRB (com ou sem dígito), CTe (pela fita) e placa
+- `GET /api/viagem/<nº>/documentos` — Power BI: CTes, complementos, manifestos, CTRBs/CIOT e faturas, **sem valores**
+- `GET /api/viagem/<nº>/financeiro` — (aba `auditoria`) os mesmos documentos **com valores** + `dinheiro` (receita, custo por trecho e item, pagamentos do 477, chapa, resultado, financiamento, R$/km, perna vazia, comparação com a Auditoria) + `km_trechos` (km rastreado onde a régua aceita). Cache de 10 min por viagem; a base de custo da frota do mês, de 3 h (a primeira consulta do mês leva ~20 s)
+- **Regras**: cada CTe conta numa viagem só, a do manifesto em que nasceu — carga que só leva CTe de outra viagem mostra só o próprio custo e aponta a de origem (`continuacao_de`); manifesto que leva carga de outras viagens entra pela parte do frete desta; frete pago = `frete_motorista_total` da Auditoria (com o acerto de conta corrente, que pode ser de outra viagem — a tela avisa); frota pelo último mês fechado; **km rastreado só com odômetro cobrindo ≥ 80%, até 20% dos trechos só por GPS, até 3× a rota e trecho já concluído** — senão a rota. A perna que desengatou no caminho e foi criada com o destino final conta só **até a passagem** (rota − pernas seguintes)
 
 ### Rastreamento (todos sob `@login_required`)
 - `GET /api/rastreamento/posicoes` — posições atuais + info da carga ativa (filtros: `carregado`, `eh_rizza`, `q`)

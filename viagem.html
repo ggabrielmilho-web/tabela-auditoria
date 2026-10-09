@@ -1,0 +1,1024 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ficha da viagem — Rizza Log</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%2338bdf8'/%3E%3Ctext x='50' y='72' font-family='Arial,sans-serif' font-size='68' font-weight='900' text-anchor='middle' fill='%230a0e17'%3ER%3C/text%3E%3C/svg%3E">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root {
+    --bg: #0a0e17; --surface: #111827; --surface2: #1a2235; --surface3: #212c42; --border: #1e293b; --border2: #2a3650;
+    --text: #e2e8f0; --text-dim: #94a3b8; --text-faint: #64748b; --accent: #38bdf8; --accent2: #818cf8;
+    --green: #34d399; --red: #f87171; --orange: #fb923c; --yellow: #fbbf24; --pink: #f472b6;
+    /* papéis do percurso — os mesmos tons da torre (vazia = violeta, carregada = azul) */
+    --p-vazio: #a78bfa; --p-carregado: #38bdf8; --p-continuacao: #2dd4bf; --p-documental: #f472b6;
+    --ok: #34d399; --atencao: #fbbf24; --alerta: #f87171; --neutro: #64748b;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { background: var(--bg); }
+  body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; -webkit-font-smoothing: antialiased; }
+  body::before { /* luz difusa no topo: dá profundidade sem competir com os dados */
+    content: ''; position: fixed; inset: 0 0 auto 0; height: 520px; pointer-events: none; z-index: 0;
+    background: radial-gradient(900px 340px at 18% -60px, rgba(56,189,248,.10), transparent 70%),
+                radial-gradient(700px 300px at 88% -80px, rgba(129,140,248,.09), transparent 70%);
+  }
+  .mono { font-family: 'JetBrains Mono', monospace; font-feature-settings: 'zero' 0; }
+  .dim { color: var(--text-dim); } .faint { color: var(--text-faint); }
+  a { color: var(--accent); text-decoration: none; } a:hover { text-decoration: underline; }
+  .pagina { position: relative; z-index: 1; padding: 16px 22px 40px; max-width: 1640px; margin: 0 auto; }
+
+  /* ── topo ───────────────────────────────────────────────────────────── */
+  .top-bar { display: flex; justify-content: space-between; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 18px; }
+  .migalha { display: flex; align-items: center; gap: 8px; font-size: .8rem; color: var(--text-dim); flex-wrap: wrap; }
+  .migalha a { color: var(--text-dim); } .migalha a:hover { color: var(--accent); }
+  .migalha .sep { color: var(--text-faint); }
+  .migalha .atual { color: var(--text); font-family: 'JetBrains Mono', monospace; font-weight: 500; }
+  .ctrl { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .busca-mini { display: flex; align-items: center; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 0 4px 0 11px; transition: border-color .15s, box-shadow .15s; }
+  .busca-mini:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(56,189,248,.12); }
+  .busca-mini svg { flex: none; opacity: .55; }
+  .busca-mini input { background: none; border: 0; outline: 0; color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: .78rem; padding: 8px 8px; width: 250px; }
+  .busca-mini input::placeholder { color: var(--text-faint); font-family: 'DM Sans'; }
+  .btn-sm { padding: 7px 14px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); font-family: 'DM Sans', sans-serif; font-weight: 500; font-size: .8rem; border-radius: 8px; cursor: pointer; transition: border-color .15s, color .15s; }
+  .btn-sm:hover, .btn-sm.on { border-color: var(--accent); color: var(--accent); }
+
+  /* ── animação de entrada ────────────────────────────────────────────── */
+  .reveal { animation: sobe .55s cubic-bezier(.2,.7,.2,1) both; animation-delay: calc(var(--d, 0) * 70ms); }
+  @keyframes sobe { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { .reveal { animation: none; } .sk { animation: none !important; } }
+
+  /* ── esqueleto (enquanto o BI responde) ─────────────────────────────── */
+  .sk { display: inline-block; border-radius: 6px; background: linear-gradient(90deg, var(--surface2) 0, #253149 45%, var(--surface2) 90%); background-size: 220% 100%; animation: brilho 1.3s linear infinite; color: transparent !important; }
+  @keyframes brilho { from { background-position: 120% 0; } to { background-position: -100% 0; } }
+
+  /* ── blocos ─────────────────────────────────────────────────────────── */
+  .bloco { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 16px 18px; margin-bottom: 14px; }
+  .bloco-h { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+  .bloco-h h2 { font-size: .72rem; text-transform: uppercase; letter-spacing: .1em; color: var(--text-dim); font-weight: 700; display: flex; align-items: center; gap: 8px; }
+  .bloco-h h2 .fonte { text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--text-faint); font-size: .7rem; }
+  .bloco-h .nota { font-size: .72rem; color: var(--text-faint); }
+
+  /* ── capa ───────────────────────────────────────────────────────────── */
+  .capa { position: relative; overflow: hidden; border-radius: 20px; border: 1px solid var(--border2); padding: 22px 26px 20px; margin-bottom: 14px;
+          background: linear-gradient(135deg, rgba(56,189,248,.07), rgba(129,140,248,.05) 45%, rgba(17,24,39,.6)), var(--surface); }
+  .capa::after { /* grade pontilhada de fundo, discreta: lembra carta de rota */
+    content: ''; position: absolute; inset: 0; pointer-events: none; opacity: .5;
+    background-image: radial-gradient(rgba(148,163,184,.12) 1px, transparent 1px); background-size: 18px 18px;
+    mask-image: linear-gradient(100deg, transparent 35%, #000 75%); -webkit-mask-image: linear-gradient(100deg, transparent 35%, #000 75%);
+  }
+  .capa-grid { position: relative; z-index: 1; display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 26px; align-items: end; }
+  .kicker { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+  .num-viagem { font-family: 'JetBrains Mono', monospace; font-size: .95rem; font-weight: 600; letter-spacing: .02em; color: var(--accent); background: rgba(56,189,248,.08); border: 1px solid rgba(56,189,248,.28); border-radius: 8px; padding: 3px 10px; }
+  .pill { font-size: .7rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; border-radius: 999px; padding: 4px 11px; display: inline-flex; align-items: center; gap: 6px; }
+  .pill::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .st-Entregue { color: var(--green); background: rgba(52,211,153,.1); border: 1px solid rgba(52,211,153,.3); }
+  .st-Em-rota { color: var(--accent); background: rgba(56,189,248,.1); border: 1px solid rgba(56,189,248,.3); }
+  .st-Em-rota::before { animation: pulsa 1.6s infinite; }
+  .st-No-destino { color: var(--yellow); background: rgba(251,191,36,.1); border: 1px solid rgba(251,191,36,.3); }
+  .st-Aberta { color: var(--accent2); background: rgba(129,140,248,.1); border: 1px solid rgba(129,140,248,.3); }
+  .st-Desengatada { color: var(--pink); background: rgba(244,114,182,.1); border: 1px solid rgba(244,114,182,.3); }
+  .st-outro { color: var(--text-dim); background: rgba(148,163,184,.08); border: 1px solid var(--border2); }
+  @keyframes pulsa { 50% { opacity: .3; } }
+  .tipos { display: flex; align-items: center; gap: 6px; font-size: .74rem; color: var(--text-dim); }
+  .chip { font-size: .68rem; font-weight: 600; border-radius: 6px; padding: 2px 8px; border: 1px solid var(--border2); color: var(--text-dim); background: var(--surface2); white-space: nowrap; }
+  .chip.Frota { color: #7dd3fc; border-color: rgba(56,189,248,.35); }
+  .chip.Agregado { color: #c4b5fd; border-color: rgba(167,139,250,.35); }
+  .chip.Terceiro { color: #f9a8d4; border-color: rgba(244,114,182,.35); }
+  .cliente { font-size: 1.75rem; font-weight: 700; letter-spacing: -.015em; line-height: 1.15; margin-bottom: 4px; }
+  .embarcador { font-size: .82rem; color: var(--text-dim); margin-bottom: 14px; }
+  .rota-capa { display: flex; align-items: center; gap: 12px; font-size: 1.05rem; font-weight: 600; flex-wrap: wrap; }
+  .rota-capa .seta { flex: 0 0 64px; height: 2px; background: linear-gradient(90deg, var(--accent), var(--accent2)); position: relative; border-radius: 2px; }
+  .rota-capa .seta::after { content: ''; position: absolute; right: -2px; top: -4px; border: 5px solid transparent; border-left: 7px solid var(--accent2); border-right: 0; }
+  .quando { margin-top: 8px; font-size: .78rem; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; }
+  .nota-capa { margin-top: 12px; font-size: .78rem; border-radius: 10px; padding: 8px 12px; background: rgba(129,140,248,.08); border: 1px solid rgba(129,140,248,.28); color: #c7d2fe; display: inline-block; }
+  .nota-capa.aviso { background: rgba(251,191,36,.07); border-color: rgba(251,191,36,.3); color: #fde68a; }
+  .kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+  .kpi { background: rgba(10,14,23,.45); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; min-width: 0; }
+  .kpi b { display: block; font-size: .62rem; text-transform: uppercase; letter-spacing: .09em; color: var(--text-faint); font-weight: 700; margin-bottom: 5px; white-space: nowrap; }
+  .moeda { font-size: .58em; color: var(--text-faint); margin-right: 4px; font-weight: 500; vertical-align: .18em; letter-spacing: 0; }
+  .kpi .v { font-family: 'JetBrains Mono', monospace; font-size: 1.22rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .kpi .s { font-size: .68rem; color: var(--text-faint); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .kpis.dinheiro { margin-top: 10px; }
+  .kpi.forte { border-color: rgba(52,211,153,.35); background: rgba(52,211,153,.06); }
+  .kpi.forte.neg { border-color: rgba(248,113,113,.4); background: rgba(248,113,113,.07); }
+  .pos { color: var(--green); } .neg { color: var(--red); }
+
+  /* ── selos de conformidade ──────────────────────────────────────────── */
+  .selos { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
+  .selo { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px 10px 14px; position: relative; overflow: hidden; min-width: 0; }
+  .selo::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--neutro); }
+  .selo.ok::before { background: var(--ok); } .selo.atencao::before { background: var(--atencao); } .selo.alerta::before { background: var(--alerta); }
+  .selo .r { display: flex; align-items: center; gap: 7px; font-size: .66rem; text-transform: uppercase; letter-spacing: .08em; font-weight: 700; color: var(--text-dim); }
+  .selo .ic { width: 16px; height: 16px; border-radius: 50%; display: grid; place-items: center; font-size: .62rem; font-weight: 800; color: var(--bg); background: var(--neutro); flex: none; }
+  .selo.ok .ic { background: var(--ok); } .selo.atencao .ic { background: var(--atencao); } .selo.alerta .ic { background: var(--alerta); }
+  .selo .t { font-size: .78rem; margin-top: 5px; line-height: 1.3; color: var(--text); overflow-wrap: anywhere; }
+  .selo .f { font-size: .64rem; color: var(--text-faint); margin-top: 4px; }
+
+  /* ── percurso ───────────────────────────────────────────────────────── */
+  .percurso { display: flex; align-items: stretch; overflow-x: auto; padding: 6px 2px 10px; scrollbar-width: thin; scrollbar-color: var(--border2) transparent; }
+  .parada { flex: 0 0 132px; display: flex; flex-direction: column; align-items: center; text-align: center; position: relative; }
+  .parada::before, .parada::after { content: ''; position: absolute; top: 16px; width: 50%; border-top: 3px solid transparent; }
+  .parada::before { left: 0; border-top-color: var(--cor-esq, transparent); border-top-style: var(--est-esq, solid); }
+  .parada::after { right: 0; border-top-color: var(--cor-dir, transparent); border-top-style: var(--est-dir, solid); }
+  .parada .pino { width: 16px; height: 16px; border-radius: 50%; background: var(--surface); border: 3px solid var(--pino, var(--text-dim)); margin-top: 9px; box-shadow: 0 0 0 4px var(--surface); position: relative; z-index: 1; }
+  .parada.inicio .pino { border-color: var(--p-vazio); } .parada.carga .pino { border-color: var(--p-carregado); background: var(--p-carregado); }
+  .parada.fim .pino { border-color: var(--green); background: var(--green); box-shadow: 0 0 0 4px rgba(52,211,153,.15); }
+  .parada .cid { font-weight: 600; font-size: .82rem; margin-top: 9px; line-height: 1.2; }
+  .parada .hr { font-family: 'JetBrains Mono', monospace; font-size: .66rem; color: var(--text-faint); margin-top: 3px; white-space: nowrap; }
+  .parada .hr b { color: var(--text-dim); font-weight: 500; }
+  .perna { flex: 1 1 0; min-width: 170px; background: none; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; padding: 0; position: relative; display: flex; flex-direction: column; }
+  .perna .trilho { height: 34px; position: relative; }
+  .perna .trilho::before { content: ''; position: absolute; left: 0; right: 0; top: 16px; border-top: 3px solid var(--cor); opacity: .9; }
+  .perna.vazio .trilho::before { border-top-style: dashed; }
+  .perna.documental .trilho::before { border-top-style: dotted; }
+  .perna .trilho .km { position: absolute; left: 50%; top: 5px; transform: translateX(-50%); background: var(--surface); border: 1px solid var(--cor); color: var(--cor); font-family: 'JetBrains Mono', monospace; font-size: .68rem; font-weight: 600; border-radius: 999px; padding: 2px 9px; white-space: nowrap; }
+  .perna .trilho .tick { position: absolute; top: 12px; width: 9px; height: 9px; border-radius: 50%; background: var(--surface); border: 2px solid var(--cor); transform: translateX(-50%); }
+  .perna .cartao { margin: 4px 4px 0; border: 1px solid var(--border); border-radius: 12px; padding: 9px 11px; background: var(--surface2); transition: border-color .15s, transform .15s, background .15s; }
+  .perna:hover .cartao { border-color: var(--cor); transform: translateY(-1px); }
+  .perna.aberta .cartao { border-color: var(--cor); background: color-mix(in srgb, var(--cor) 8%, var(--surface2)); box-shadow: 0 6px 22px -12px var(--cor); }
+  .perna.foco .cartao { outline: 1px dashed var(--cor); outline-offset: 3px; }
+  .perna .papel { font-size: .6rem; text-transform: uppercase; letter-spacing: .1em; font-weight: 800; color: var(--cor); }
+  .perna .n { font-family: 'JetBrains Mono', monospace; font-size: .8rem; font-weight: 600; margin-top: 2px; }
+  .perna .linha2 { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 5px; }
+  .perna .placas { font-family: 'JetBrains Mono', monospace; font-size: .7rem; color: var(--text-dim); }
+  .perna .st { font-size: .7rem; color: var(--text-faint); margin-top: 4px; }
+  .perna .km-r { font-size: .68rem; margin-top: 4px; font-family: 'JetBrains Mono', monospace; color: var(--text-faint); min-height: 1em; }
+  .perna .km-r .ok { color: var(--green); }
+  .outros-caminhoes { margin-top: 10px; font-size: .78rem; color: var(--text-dim); display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .outros-caminhoes .chip { color: #f9a8d4; border-color: rgba(244,114,182,.35); }
+
+  .perna-det { margin-top: 12px; border-top: 1px dashed var(--border2); padding-top: 14px; display: none; }
+  .perna-det.on { display: block; animation: sobe .35s cubic-bezier(.2,.7,.2,1) both; }
+  .det-topo { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+  .det-topo h3 { font-size: .95rem; font-weight: 700; display: flex; gap: 10px; align-items: center; }
+  .det-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+  .det-col { background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; padding: 11px 13px; min-width: 0; }
+  .det-col h4 { font-size: .62rem; text-transform: uppercase; letter-spacing: .1em; color: var(--text-faint); font-weight: 700; margin-bottom: 8px; }
+  .kv { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 5px 12px; font-size: .78rem; }
+  .kv dt { color: var(--text-faint); white-space: nowrap; }
+  .kv dd { text-align: right; overflow-wrap: anywhere; }
+  .kv dd.mono { font-size: .74rem; }
+  .kv dd small { display: block; color: var(--text-faint); font-size: .68rem; }
+
+  /* ── colunas ────────────────────────────────────────────────────────── */
+  .colunas { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+  .col-dir { position: sticky; top: 12px; }
+
+  /* ── dinheiro ───────────────────────────────────────────────────────── */
+  .resumo-din { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+  .rd { border-radius: 12px; padding: 12px 14px; background: var(--surface2); border: 1px solid var(--border); min-width: 0; }
+  .rd b { display: block; font-size: .62rem; text-transform: uppercase; letter-spacing: .09em; color: var(--text-faint); font-weight: 700; }
+  .rd .v { font-family: 'JetBrains Mono', monospace; font-size: 1.38rem; font-weight: 600; margin: 6px 0 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rd .s { font-size: .7rem; color: var(--text-dim); }
+  .rd.res { border-color: rgba(52,211,153,.35); background: linear-gradient(160deg, rgba(52,211,153,.09), var(--surface2) 70%); }
+  .rd.res.neg { border-color: rgba(248,113,113,.4); background: linear-gradient(160deg, rgba(248,113,113,.1), var(--surface2) 70%); }
+  .cascata { margin: 16px 0 6px; }
+  .cascata .barra { display: flex; height: 16px; border-radius: 5px; overflow: hidden; background: var(--surface2); border: 1px solid var(--border); }
+  .cascata .barra i { display: block; height: 100%; transition: width .6s cubic-bezier(.2,.7,.2,1); }
+  .cascata .barra i + i { box-shadow: inset 1px 0 0 rgba(10,14,23,.6); }
+  .cascata .leg { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 9px; font-size: .72rem; color: var(--text-dim); }
+  .cascata .leg span { display: inline-flex; align-items: center; gap: 6px; }
+  .cascata .leg i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+  .por-km { display: flex; gap: 18px; flex-wrap: wrap; font-size: .76rem; color: var(--text-dim); margin-top: 10px; }
+  .por-km b { font-family: 'JetBrains Mono', monospace; color: var(--text); font-weight: 600; }
+  .abre { display: flex; align-items: center; gap: 8px; width: 100%; margin-top: 14px; padding: 9px 12px; background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; color: var(--text-dim); font: 600 .76rem 'DM Sans'; cursor: pointer; transition: border-color .15s, color .15s; }
+  .abre:hover { border-color: var(--accent); color: var(--accent); }
+  .abre .seta-a { transition: transform .2s; margin-left: auto; }
+  .abre.on .seta-a { transform: rotate(180deg); }
+  .composicao { display: none; margin-top: 12px; }
+  .composicao.on { display: block; animation: sobe .35s cubic-bezier(.2,.7,.2,1) both; }
+  .cp { width: 100%; border-collapse: collapse; font-size: .8rem; }
+  .cp td { padding: 6px 4px; vertical-align: top; }
+  .cp td.v { text-align: right; font-family: 'JetBrains Mono', monospace; white-space: nowrap; width: 1%; padding-left: 14px; }
+  .cp tr.grupo td { padding-top: 14px; font-size: .66rem; text-transform: uppercase; letter-spacing: .1em; font-weight: 700; color: var(--text-dim); border-bottom: 1px solid var(--border2); }
+  .cp tr.grupo td.v { font-size: .8rem; letter-spacing: 0; color: var(--text); }
+  .cp tr.sub td { padding-top: 10px; font-weight: 600; }
+  .cp tr.sub td small { font-weight: 400; color: var(--text-faint); margin-left: 6px; font-family: 'JetBrains Mono', monospace; font-size: .7rem; }
+  .cp tr.item td:first-child { padding-left: 16px; color: var(--text-dim); }
+  .cp tr.item td.v { color: var(--text-dim); }
+  .cp tr.det td { padding: 0 4px 6px 16px; font-size: .72rem; color: var(--text-faint); }
+  .cp tr.total td { border-top: 1px solid var(--border2); padding-top: 10px; font-weight: 700; }
+  .cp tr.total.final td { font-size: .9rem; border-top: 2px solid var(--border2); }
+  .comp-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 5px; }
+  .comp-chips span { font-size: .68rem; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 2px 7px; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; }
+  .pagto { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
+  .pagto span { font-size: .68rem; border-radius: 6px; padding: 2px 8px; border: 1px solid var(--border2); font-family: 'JetBrains Mono', monospace; }
+  .pagto .pago { color: var(--green); border-color: rgba(52,211,153,.3); }
+  .pagto .programado { color: var(--yellow); border-color: rgba(251,191,36,.3); }
+  .marca { display: inline-flex; align-items: center; gap: 4px; font-size: .66rem; font-weight: 700; border-radius: 5px; padding: 1px 7px; }
+  .marca.ok { color: var(--green); background: rgba(52,211,153,.1); }
+  .marca.atencao { color: var(--yellow); background: rgba(251,191,36,.1); }
+  .marca.alerta { color: var(--red); background: rgba(248,113,113,.1); }
+  .marca.neutro { color: var(--text-dim); background: rgba(148,163,184,.1); }
+  .cartao-in { background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; margin-top: 12px; }
+  .cartao-in h4 { font-size: .64rem; text-transform: uppercase; letter-spacing: .1em; color: var(--text-dim); font-weight: 700; margin-bottom: 9px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .cartao-in.vazio { border-left: 3px solid var(--p-vazio); }
+  .confronto { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+  .confronto .lado { border: 1px solid var(--border); border-radius: 10px; padding: 9px 11px; background: rgba(10,14,23,.35); }
+  .confronto .lado b { display: block; font-size: .6rem; text-transform: uppercase; letter-spacing: .09em; color: var(--text-faint); margin-bottom: 4px; }
+  .confronto .lado .g { font-family: 'JetBrains Mono', monospace; font-size: 1rem; font-weight: 600; }
+  .confronto .lado .p { font-size: .72rem; color: var(--text-dim); margin-top: 3px; }
+  .texto-obs { margin-top: 8px; font-size: .72rem; color: var(--text-faint); }
+  .texto-obs summary { cursor: pointer; color: var(--text-dim); }
+  .texto-obs p { margin-top: 6px; font-family: 'JetBrains Mono', monospace; font-size: .68rem; line-height: 1.5; background: rgba(10,14,23,.5); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; overflow-wrap: anywhere; }
+  .avisos { margin-top: 12px; display: grid; gap: 6px; }
+  .avisos div { font-size: .74rem; color: #fde68a; background: rgba(251,191,36,.06); border: 1px solid rgba(251,191,36,.22); border-radius: 9px; padding: 7px 11px; display: flex; gap: 8px; }
+  .avisos div::before { content: '!'; font-weight: 800; color: var(--yellow); }
+  .carregando { display: flex; align-items: center; gap: 10px; font-size: .78rem; color: var(--text-dim); padding: 8px 0; }
+  .carregando .roda { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--border2); border-top-color: var(--accent); animation: gira .8s linear infinite; }
+  @keyframes gira { to { transform: rotate(360deg); } }
+  .erro { color: var(--red); font-size: .8rem; }
+
+  /* ── documentos ─────────────────────────────────────────────────────── */
+  .abas { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 12px; overflow-x: auto; scrollbar-width: none; }
+  .abas button { background: none; border: 0; border-bottom: 2px solid transparent; color: var(--text-dim); font: 600 .78rem 'DM Sans'; padding: 8px 12px; cursor: pointer; white-space: nowrap; display: flex; gap: 6px; align-items: center; }
+  .abas button span { font-family: 'JetBrains Mono', monospace; font-size: .66rem; background: var(--surface2); border-radius: 999px; padding: 1px 7px; color: var(--text-faint); }
+  .abas button.on { color: var(--text); border-bottom-color: var(--accent); }
+  .abas button.on span { color: var(--accent); }
+  .tabela-wrap { overflow-x: auto; }
+  table.t { width: 100%; border-collapse: collapse; font-size: .76rem; }
+  table.t th { text-align: left; font-size: .62rem; text-transform: uppercase; letter-spacing: .08em; color: var(--text-faint); font-weight: 700; padding: 7px 8px; border-bottom: 1px solid var(--border2); white-space: nowrap; }
+  table.t td { padding: 8px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  table.t tr:hover td { background: rgba(56,189,248,.03); }
+  table.t td.mono { white-space: nowrap; }
+  table.t td.n { text-align: right; font-family: 'JetBrains Mono', monospace; white-space: nowrap; }
+  table.t th.n { text-align: right; }
+  table.t td small { display: block; color: var(--text-faint); font-size: .68rem; }
+  .vazio-tab { font-size: .8rem; color: var(--text-faint); padding: 14px 4px; }
+
+  /* ── mapa ───────────────────────────────────────────────────────────── */
+  #mapa { height: 360px; border-radius: 12px; border: 1px solid var(--border); background: #0b111c; }
+  .leaflet-labels-bright { filter: brightness(2.8) contrast(1.15); }
+  .leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--surface); color: var(--text); border: 1px solid var(--border2); }
+  .leaflet-popup-content { font-family: 'DM Sans'; font-size: .78rem; margin: 10px 12px; }
+  .leaflet-container { font-family: 'DM Sans'; }
+  .mapa-leg { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 10px; font-size: .72rem; color: var(--text-dim); }
+  .mapa-leg span { display: inline-flex; align-items: center; gap: 6px; }
+  .mapa-leg i { width: 18px; height: 0; border-top: 3px solid; display: inline-block; }
+  .mapa-leg i.tr { border-top-style: dashed; }
+
+  /* ── linha do tempo ─────────────────────────────────────────────────── */
+  .seg { display: inline-flex; background: var(--surface2); border: 1px solid var(--border); border-radius: 9px; padding: 2px; }
+  .seg button { background: none; border: 0; color: var(--text-dim); font: 600 .72rem 'DM Sans'; padding: 5px 11px; border-radius: 7px; cursor: pointer; }
+  .seg button.on { background: var(--surface3); color: var(--text); }
+  .tl { list-style: none; position: relative; max-height: 640px; overflow-y: auto; padding-right: 4px; scrollbar-width: thin; scrollbar-color: var(--border2) transparent; }
+  .tl .dia { font-size: .64rem; text-transform: uppercase; letter-spacing: .1em; color: var(--text-faint); font-weight: 700; padding: 12px 0 6px 64px; position: sticky; top: 0; background: var(--surface); z-index: 1; }
+  .tl .dia:first-child { padding-top: 0; }
+  .ev { display: grid; grid-template-columns: 48px 16px minmax(0, 1fr); gap: 0 8px; position: relative; padding: 0 0 12px; }
+  .ev::before { content: ''; position: absolute; left: 63px; top: 14px; bottom: -2px; width: 1px; background: var(--border2); }
+  .ev:last-child::before { display: none; }
+  .ev time { font-family: 'JetBrains Mono', monospace; font-size: .7rem; color: var(--text-faint); text-align: right; padding-top: 1px; }
+  .ev .bol { width: 11px; height: 11px; border-radius: 50%; margin: 3px auto 0; background: var(--surface); border: 2px solid var(--cor, var(--text-faint)); z-index: 1; position: relative; }
+  .ev.marco .bol { background: var(--cor, var(--text-faint)); }
+  .ev .c b { font-size: .8rem; font-weight: 600; line-height: 1.3; }
+  .ev .c p { font-size: .72rem; color: var(--text-dim); margin-top: 2px; overflow-wrap: anywhere; }
+  .ev .c .meta { display: flex; gap: 6px; align-items: center; margin-top: 3px; flex-wrap: wrap; }
+  .ev .tag { font-size: .58rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--cor); border: 1px solid color-mix(in srgb, var(--cor) 45%, transparent); border-radius: 4px; padding: 0 5px; }
+  .ev .tr { font-family: 'JetBrains Mono', monospace; font-size: .62rem; color: var(--text-faint); }
+  .ev.nivel-alerta .c b { color: var(--red); } .ev.nivel-atencao .c b { color: #fde68a; }
+  .ev.robo .c b { font-weight: 500; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; font-size: .72rem; }
+  .t-ordem { --cor: #818cf8; } .t-gps { --cor: #38bdf8; } .t-sistema { --cor: #94a3b8; } .t-sm { --cor: #2dd4bf; }
+  .t-pgr { --cor: #fb923c; } .t-ciot { --cor: #fbbf24; } .t-robo { --cor: #64748b; } .t-bi { --cor: #34d399; }
+
+  /* ── página inicial (sem viagem) ────────────────────────────────────── */
+  .entrada { max-width: 980px; margin: 40px auto 0; }
+  .entrada h1 { font-size: 2.1rem; font-weight: 700; letter-spacing: -.02em; }
+  .entrada h1 em { font-style: normal; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+  .entrada .lead { color: var(--text-dim); margin: 8px 0 22px; font-size: .95rem; }
+  .busca-grande { display: flex; gap: 10px; background: var(--surface); border: 1px solid var(--border2); border-radius: 14px; padding: 8px 8px 8px 16px; align-items: center; box-shadow: 0 18px 50px -30px rgba(56,189,248,.5); }
+  .busca-grande:focus-within { border-color: var(--accent); }
+  .busca-grande input { flex: 1; background: none; border: 0; outline: 0; color: var(--text); font: 500 1rem 'JetBrains Mono', monospace; padding: 8px 0; min-width: 0; }
+  .busca-grande input::placeholder { color: var(--text-faint); font-family: 'DM Sans'; }
+  .busca-grande button { background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #06101f; border: 0; border-radius: 10px; font: 700 .85rem 'DM Sans'; padding: 10px 18px; cursor: pointer; }
+  .exemplos { font-size: .74rem; color: var(--text-faint); margin-top: 10px; }
+  .exemplos code { font-family: 'JetBrains Mono', monospace; color: var(--text-dim); background: var(--surface2); border-radius: 5px; padding: 1px 6px; }
+  .recentes { margin-top: 28px; }
+  .recentes h2 { font-size: .72rem; text-transform: uppercase; letter-spacing: .1em; color: var(--text-dim); font-weight: 700; margin-bottom: 10px; }
+  .lista-v { display: grid; gap: 6px; }
+  .lv { display: grid; grid-template-columns: 150px minmax(0, 1.2fr) minmax(0, 1.4fr) 110px 120px; gap: 14px; align-items: center; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 10px 14px; color: var(--text); transition: border-color .15s, transform .15s; }
+  .lv:hover { border-color: var(--accent); transform: translateX(2px); text-decoration: none; }
+  .lv .n { font-family: 'JetBrains Mono', monospace; font-weight: 600; font-size: .82rem; }
+  .lv .cl { font-weight: 600; font-size: .82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lv .rt { font-size: .78rem; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lv .dt { font-family: 'JetBrains Mono', monospace; font-size: .74rem; color: var(--text-faint); }
+  .nada { text-align: center; padding: 60px 20px; color: var(--text-dim); }
+  .nada h2 { font-size: 1.2rem; color: var(--text); margin-bottom: 6px; }
+
+  @media (max-width: 1280px) {
+    .selos { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .det-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 1100px) {
+    .capa-grid { grid-template-columns: minmax(0, 1fr); }
+    .colunas { grid-template-columns: minmax(0, 1fr); }
+    .col-dir { position: static; }
+    .resumo-din { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 720px) {
+    .pagina { padding: 12px 12px 30px; }
+    .cliente { font-size: 1.35rem; }
+    .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .selos { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .det-grid { grid-template-columns: minmax(0, 1fr); }
+    .busca-mini input { width: 160px; }
+    .lv { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+    .confronto { grid-template-columns: minmax(0, 1fr); }
+    /* percurso em pé: paradas e trechos empilhados */
+    .percurso { flex-direction: column; overflow: visible; }
+    .parada { flex: none; flex-direction: row; text-align: left; gap: 10px; align-items: center; }
+    .parada::before, .parada::after { display: none; }
+    .parada { flex-wrap: wrap; row-gap: 1px; }
+    .parada .pino { margin: 0 0 0 10px; } .parada .cid { margin: 0; flex: 1 1 auto; }
+    .parada .hr { margin: 0; flex-basis: 100%; padding-left: 36px; }
+    .perna { margin: 0; min-width: 0; flex-direction: row; }
+    .perna .trilho { width: 36px; height: auto; margin: 0; flex: none; }
+    .perna .trilho::before { left: 16px; right: auto; top: 0; bottom: 0; border-top: 0; border-left: 3px solid var(--cor); }
+    .perna.vazio .trilho::before { border-left-style: dashed; } .perna.documental .trilho::before { border-left-style: dotted; }
+    .perna .trilho .km, .perna .trilho .tick { display: none; }
+    .perna .cartao { margin: 6px 0 6px 6px; flex: 1; }
+  }
+</style>
+</head>
+<body>
+<div class="pagina">
+  <div class="top-bar">
+    <nav class="migalha" aria-label="caminho">
+      <a href="/embarques">Embarques</a><span class="sep">›</span>
+      <a href="/viagem">Ficha da viagem</a>
+      <span class="sep" id="mig-sep" hidden>›</span><span class="atual" id="mig-num"></span>
+    </nav>
+    <div class="ctrl">
+      <form class="busca-mini" id="f-busca" autocomplete="off">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="q" name="q" placeholder="carga, manifesto, CTRB, CTe ou placa" spellcheck="false">
+      </form>
+      <span data-nav-menu data-nav-style="btn-wrap" data-nav-active="viagem"></span>
+    </div>
+  </div>
+  <main id="app"></main>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="/mapa-config.js"></script>
+<script>
+// FICHA DA VIAGEM (09/10/2026). Duas leituras: /api/viagem/<ref> (banco local — a tela abre com
+// ela) e, em paralelo, o Power BI (/financeiro para quem tem a aba Auditoria, /documentos para os
+// demais) e o trajeto de cada trecho (o mesmo endpoint do mapa da carga). Nada é recalculado
+// aqui: a tela só arruma o que os endpoints mandam. Horários chegam em UTC ('Z') e saem em
+// Brasília; datas de calendário (emissão, carregamento) saem como estão.
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const TZ = 'America/Sao_Paulo';
+const quando = iso => (iso && iso.length > 10) ? new Date(iso.endsWith('Z') ? iso : iso + 'Z') : null;
+const fmtDH = iso => { const d = quando(iso); return d ? d.toLocaleString('pt-BR', {timeZone: TZ, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'}).replace(',', '') : '—'; };
+const fmtH = iso => { const d = quando(iso); return d ? d.toLocaleTimeString('pt-BR', {timeZone: TZ, hour: '2-digit', minute: '2-digit'}) : ''; };
+const diaBRT = iso => { const d = quando(iso); return d ? d.toLocaleDateString('pt-BR', {timeZone: TZ, weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric'}) : ''; };
+const cal = s => s ? `${String(s).slice(8, 10)}/${String(s).slice(5, 7)}/${String(s).slice(2, 4)}` : '—';   // data de calendário, sem fuso
+const n0 = v => v == null ? '—' : Number(v).toLocaleString('pt-BR', {maximumFractionDigits: 0});
+const n2 = v => v == null ? '—' : Number(v).toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+const brl = (v, d = 2) => v == null ? '—' : Number(v).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL', minimumFractionDigits: d, maximumFractionDigits: d});
+const money = (v, d = 0) => v == null ? '—' : `<span class="moeda">R$</span>${Number(v).toLocaleString('pt-BR', {minimumFractionDigits: d, maximumFractionDigits: d})}`;
+const difPct = v => v == null ? '' : (v > 0 ? '+' : '') + Number(v).toLocaleString('pt-BR', {maximumFractionDigits: 1}) + '%';
+const pct = v => v == null ? '—' : (100 * v).toLocaleString('pt-BR', {minimumFractionDigits: 1, maximumFractionDigits: 1}) + '%';
+const dur = h => { if (h == null) return '—'; if (h < 1) return Math.round(h * 60) + ' min'; if (h < 48) return Math.floor(h) + 'h' + String(Math.round((h % 1) * 60)).padStart(2, '0'); return (h / 24).toLocaleString('pt-BR', {maximumFractionDigits: 1}) + ' d'; };
+const curto = n => String(n || '').replace(/^([CV])-\d{4}-0*/, '$1-');
+const COR = { vazio: 'var(--p-vazio)', carregado: 'var(--p-carregado)', continuacao: 'var(--p-continuacao)', documental: 'var(--p-documental)' };
+const COR_HEX = { vazio: '#a78bfa', carregado: '#38bdf8', continuacao: '#2dd4bf', documental: '#f472b6' };
+const PAPEL = { vazio: 'vazio até a origem', carregado: 'carregado', continuacao: 'continuação', documental: 'outro caminhão' };
+const COMP = { combustivel: 'combustível', arla: 'ARLA', pedagio: 'pedágio', pessoal: 'pessoal', manut_cavalo: 'manutenção cavalo',
+  seguro: 'seguro', rastreador: 'rastreador', pneu: 'pneu cavalo', financiamento: 'financiamento', manut_carreta: 'manutenção carreta',
+  pneu_carreta: 'pneu carreta', fin_carreta: 'financiamento carreta', tres_s_carreta: '3S carreta' };
+const stClasse = s => ['Entregue', 'Em rota', 'No destino', 'Aberta', 'Desengatada'].includes(s) ? 'st-' + s.replace(/ /g, '-') : 'st-outro';
+const local = o => o && o.cidade ? `${o.cidade}/${o.uf || ''}` : '?';
+const ultimoDestino = t => (t.destinos || []).slice(-1)[0] || {};
+async function api(url) {
+  const r = await fetch(url, {credentials: 'same-origin'});
+  if (r.status === 401) { location.href = '/login'; throw new Error('sessão expirada'); }
+  let j = null; try { j = await r.json(); } catch (e) { /* resposta não-JSON */ }
+  if (!r.ok || !j || j.ok === false) throw new Error((j && j.error) || ('HTTP ' + r.status));
+  return j;
+}
+
+let V = null, BI = null, TRAJ = {}, MAPA = null, TL_MODO = 'marcos', ABA = 'ctes', PERNA_ABERTA = null;
+const REF = decodeURIComponent(location.pathname.replace(/^\/viagem\/?/, '').replace(/\/+$/, ''));
+
+// ── busca ─────────────────────────────────────────────────────────────────
+$('f-busca').addEventListener('submit', e => { e.preventDefault(); const q = $('q').value.trim(); if (q) location.href = '/viagem/' + encodeURIComponent(q); });
+
+async function entrada() {
+  document.title = 'Ficha da viagem — Rizza Log';
+  $('app').innerHTML = `
+    <section class="entrada">
+      <h1 class="reveal">A viagem <em>inteira</em>, numa página.</h1>
+      <p class="lead reveal" style="--d:1">Do vazio que trouxe o caminhão até a entrega — percurso, documentos, conformidade e o resultado.</p>
+      <form class="busca-grande reveal" style="--d:2" id="f-grande" autocomplete="off">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="qg" placeholder="Nº da carga, manifesto, CTRB, CTe ou placa" spellcheck="false" autofocus>
+        <button>Abrir ficha</button>
+      </form>
+      <div class="exemplos reveal" style="--d:3">ex.: <code>C-2026-000870</code> <code>NOD004856-9</code> <code>NOD004822-4</code> <code>HNH1302</code> — a continuação abre a viagem toda</div>
+      <div class="recentes reveal" style="--d:4"><h2 id="rec-h">Viagens recentes</h2><div class="lista-v" id="rec"><div class="carregando"><span class="roda"></span>carregando…</div></div></div>
+    </section>`;
+  $('f-grande').addEventListener('submit', e => { e.preventDefault(); const q = $('qg').value.trim(); if (q) location.href = '/viagem/' + encodeURIComponent(q); });
+  let t = null;
+  $('qg').addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => recentes($('qg').value.trim()), 280); });
+  recentes('');
+}
+
+async function recentes(q) {
+  try {
+    const j = await api('/api/viagem/busca' + (q ? '?q=' + encodeURIComponent(q) : ''));
+    $('rec-h').textContent = q ? `Viagens com “${q}”` : 'Viagens recentes';
+    $('rec').innerHTML = j.viagens.length ? j.viagens.map(v => `
+      <a class="lv" href="/viagem/${encodeURIComponent(v.numero)}">
+        <span class="n">${esc(v.numero)}</span>
+        <span class="cl">${esc(v.cliente || '—')}</span>
+        <span class="rt">${esc(v.origem)} → ${esc(v.destino || '?')}</span>
+        <span><span class="pill ${stClasse(v.status)}">${esc(v.status)}</span></span>
+        <span class="dt">${cal(v.carregamento)} · <span class="chip ${esc(v.tipo)}">${esc(v.tipo || '')}</span></span>
+      </a>`).join('') : '<div class="vazio-tab">Nada encontrado.</div>';
+  } catch (e) { $('rec').innerHTML = `<div class="erro">${esc(e.message)}</div>`; }
+}
+
+// ── a ficha ───────────────────────────────────────────────────────────────
+async function abrir(ref) {
+  $('app').innerHTML = `<div class="carregando" style="padding:40px 0"><span class="roda"></span>abrindo a viagem ${esc(ref)}…</div>`;
+  try { V = await api('/api/viagem/' + encodeURIComponent(ref)); }
+  catch (e) {
+    $('app').innerHTML = `<div class="nada"><h2>Não achei essa viagem</h2><p>${esc(e.message)} — “${esc(ref)}”.</p><p style="margin-top:14px"><a href="/viagem">Buscar outra</a></p></div>`;
+    return;
+  }
+  const v = V.viagem;
+  document.title = `${v.numero} · ${v.cliente || ''} — Ficha da viagem`;
+  $('mig-sep').hidden = false; $('mig-num').textContent = v.numero;
+  $('app').innerHTML = `
+    ${capa()}
+    <section class="selos">${V.conformidade.map((s, i) => selo(s, i)).join('')}</section>
+    <section class="bloco reveal" style="--d:3">
+      <div class="bloco-h"><h2>Percurso</h2><span class="nota">clique num trecho para ver tudo dele</span></div>
+      <div class="percurso" id="percurso">${percurso()}</div>
+      <div id="outros"></div>
+      <div class="perna-det" id="perna-det"></div>
+    </section>
+    <div class="colunas">
+      <div class="col-esq">
+        ${V.pode_dinheiro ? `<section class="bloco reveal" style="--d:4" id="b-din">
+          <div class="bloco-h"><h2>Resultado da viagem <span class="fonte">Power BI · receita sem rateio</span></h2><span class="nota" id="din-nota"></span></div>
+          <div id="din">${esqueletoDinheiro()}</div>
+        </section>` : ''}
+        <section class="bloco reveal" style="--d:5" id="b-docs">
+          <div class="bloco-h"><h2>Documentos <span class="fonte">Power BI + banco local</span></h2><span class="nota" id="docs-nota"></span></div>
+          <div class="abas" id="abas"></div>
+          <div id="docs"><div class="carregando"><span class="roda"></span>consultando o Power BI…</div></div>
+          <div class="avisos" id="avisos"></div>
+        </section>
+      </div>
+      <div class="col-dir">
+        <section class="bloco reveal" style="--d:4">
+          <div class="bloco-h"><h2>Mapa</h2><span class="nota" id="mapa-nota">trajeto rastreado sobre a rota</span></div>
+          <div id="mapa"></div>
+          <div class="mapa-leg" id="mapa-leg"></div>
+        </section>
+        <section class="bloco reveal" style="--d:5">
+          <div class="bloco-h"><h2>Linha do tempo</h2>
+            <div class="seg" id="tl-seg"><button data-m="marcos" class="on">Marcos</button><button data-m="tudo">Tudo</button></div></div>
+          <ol class="tl" id="tl"></ol>
+        </section>
+      </div>
+    </div>`;
+  document.querySelectorAll('.perna').forEach(b => b.addEventListener('click', () => abrirPerna(+b.dataset.i)));
+  $('tl-seg').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; TL_MODO = b.dataset.m; $('tl-seg').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); linhaDoTempo(); });
+  linhaDoTempo();
+  abasDocs();
+  carregarBI();
+  carregarMapa();
+}
+
+function capa() {
+  const v = V.viagem, legs = V.trechos, carr = legs.filter(t => t.papel !== 'vazio');
+  const seq = carr.map(t => t.tipo).filter((t, i, a) => t && a.indexOf(t) === i);
+  const foco = V.trechos.find(t => t.id === v.foco_id);
+  const ini = v.inicio ? `saiu ${fmtDH(v.inicio)}` : `carregamento ${cal(carr[0].carregamento)}`;
+  const fim = v.fim ? ` · ${v.status === 'Entregue' ? 'entregue' : 'encerrada'} ${fmtDH(v.fim)}` : (v.ativa ? ' · em andamento' : '');
+  const durac = v.duracao_h != null ? ` · ${dur(v.duracao_h)}` : '';
+  const kmRota = v.km_carregado;
+  return `<section class="capa reveal">
+    <div class="capa-grid">
+      <div>
+        <div class="kicker">
+          <span class="num-viagem">${esc(v.numero)}</span>
+          <span class="pill ${stClasse(v.status)}">${esc(v.status)}</span>
+          <span class="tipos">${seq.map(t => `<span class="chip ${esc(t)}">${esc(t)}</span>`).join('<span class="faint">→</span>')}</span>
+        </div>
+        <h1 class="cliente">${esc(v.cliente || '—')}</h1>
+        <div class="embarcador">${v.embarcador && v.embarcador !== v.cliente ? 'embarcador ' + esc(v.embarcador) : '&nbsp;'}</div>
+        <div class="rota-capa"><span>${esc(v.origem)}</span><span class="seta"></span><span>${esc(v.destino)}</span></div>
+        <div class="quando">${ini}${fim}${durac}</div>
+        ${foco && foco.id !== carr[0].id ? `<div class="nota-capa">Você abriu <b class="mono">${esc(foco.numero)}</b> — ${foco.papel === 'vazio' ? 'a perna vazia que levou o caminhão até esta carga' : 'ela é continuação desta viagem'}.</div>` : ''}
+        ${v.livre_retorno ? `<div class="nota-capa">Terceiro livre para retorno até <b class="mono">${esc(v.livre_retorno.ate_txt)}</b> (torre: 48 h após a entrega).</div>` : ''}
+        <div id="capa-aviso"></div>
+      </div>
+      <div>
+        <div class="kpis">
+          <div class="kpi"><b>Km carregado</b><div class="v">${n0(kmRota)}</div><div class="s">rota planejada</div></div>
+          <div class="kpi"><b>Km vazio</b><div class="v">${n0(v.km_vazio)}</div><div class="s">${legs.some(t => t.papel === 'vazio') ? 'até a origem' : 'sem perna vazia'}</div></div>
+          <div class="kpi"><b>Duração</b><div class="v">${v.duracao_h != null ? dur(v.duracao_h) : (v.ativa ? 'em curso' : '—')}</div><div class="s">saída → entrega</div></div>
+          <div class="kpi"><b>Trechos</b><div class="v">${v.n_trechos}</div><div class="s">${legs.length - v.n_trechos ? '+ vazio' : 'carregados'}</div></div>
+        </div>
+        ${V.pode_dinheiro ? `<div class="kpis dinheiro" id="kpis-din">
+          <div class="kpi"><b>Receita</b><div class="v"><span class="sk">R$ 00.000</span></div><div class="s"><span class="sk">CTes + compl.</span></div></div>
+          <div class="kpi"><b>Custo</b><div class="v"><span class="sk">R$ 00.000</span></div><div class="s"><span class="sk">operacional</span></div></div>
+          <div class="kpi forte"><b>Resultado</b><div class="v"><span class="sk">R$ 0.000</span></div><div class="s"><span class="sk">margem</span></div></div>
+          <div class="kpi"><b>R$ / km</b><div class="v"><span class="sk">00,00</span></div><div class="s"><span class="sk">carregado</span></div></div>
+        </div>` : ''}
+      </div>
+    </div>
+  </section>`;
+}
+
+function selo(s, i) {
+  const ic = { ok: '✓', atencao: '!', alerta: '×', neutro: '–' }[s.estado] || '–';
+  return `<div class="selo ${esc(s.estado)} reveal" style="--d:${1 + i * 0.4}" title="${esc(s.fonte)}">
+    <div class="r"><span class="ic">${ic}</span>${esc(s.rotulo)}</div>
+    <div class="t">${esc(s.texto)}</div><div class="f">${esc(s.fonte)}</div></div>`;
+}
+
+// ── percurso ──────────────────────────────────────────────────────────────
+function percurso() {
+  const legs = V.trechos;
+  const kms = legs.map(t => Math.max(t.km_rota_viagem || t.km_planejado || 60, 60));
+  let h = '';
+  legs.forEach((t, i) => {
+    if (i === 0) h += parada(t.origem, null, t.saida, t.papel === 'vazio' ? 'inicio' : 'carga', null, null, t);
+    h += perna(t, i, Math.sqrt(kms[i]));
+    const prox = legs[i + 1];
+    const cls = !prox ? 'fim' : (t.papel === 'vazio' ? 'carga' : '');
+    h += parada(prox ? prox.origem : ultimoDestino(t), t.chegada, prox ? prox.saida : null, cls, !prox ? t : null, t, prox);
+  });
+  return h;
+}
+
+function parada(o, chegou, saiu, cls, ultimo, antes, depois) {
+  // a linha do percurso atravessa a parada: metade na cor do trecho que chega, metade na do que sai
+  const lado = (t, q) => t ? `--cor-${q}:${COR[t.papel]};--est-${q}:${t.papel === 'vazio' ? 'dashed' : (t.papel === 'documental' ? 'dotted' : 'solid')};` : '';
+  const pino = (depois || antes) ? `--pino:${COR[(depois || antes).papel]};` : '';
+  const linhas = [];
+  if (chegou) linhas.push(`<div class="hr"><b>chegou</b> ${fmtDH(chegou)}</div>`);
+  if (saiu) linhas.push(`<div class="hr"><b>saiu</b> ${fmtDH(saiu)}</div>`);
+  if (ultimo && ultimo.conclusao && ultimo.status === 'Entregue') linhas.push(`<div class="hr"><b>entregue</b> ${fmtDH(ultimo.conclusao)}</div>`);
+  if (o && o.agendamento && ultimo) linhas.push(`<div class="hr"><b>agenda</b> ${cal(o.agendamento)}</div>`);
+  return `<div class="parada ${cls || ''}" style="${lado(antes, 'esq')}${lado(depois, 'dir')}${pino}"><span class="pino"></span><div class="cid">${esc(local(o))}</div>${linhas.join('')}</div>`;
+}
+
+function perna(t, i, peso) {
+  const placas = [t.cavalo, t.carreta1, t.carreta2].filter(Boolean).join(' · ');
+  const nd = (t.destinos || []).length;
+  const ticks = nd > 1 ? (t.destinos || []).slice(0, -1).map((d, k) => `<span class="tick" style="left:${(100 * (k + 1) / nd).toFixed(1)}%" title="${esc(local(d))}"></span>`).join('') : '';
+  const st = t.papel === 'vazio'
+    ? (t.chegada ? `chegou vazia · ${dur(t.transito_h)}` : (t.conclusao ? 'concluída na saída da carga' : t.status))
+    : [t.status, t.transito_h != null ? `${dur(t.transito_h)} rodando` : null, t.permanencia_h != null ? `${dur(t.permanencia_h)} no cliente` : null].filter(Boolean).join(' · ');
+  const foco = V.viagem.foco_id === t.id ? ' foco' : '';
+  return `<button class="perna ${t.papel}${foco}" data-i="${i}" style="--cor:${COR[t.papel]};flex-grow:${peso.toFixed(2)}" title="${esc(t.numero)}">
+    <div class="trilho">${ticks}<span class="km" title="${t.km_ate_passagem != null ? esc(`rota planejada ${n0(t.km_planejado)} km até ${local(ultimoDestino(t))}; a perna passou a carga adiante`) : 'rota planejada'}">${n0(t.km_rota_viagem ?? t.km_planejado)} km${t.km_ate_passagem != null ? ' ✂' : ''}</span></div>
+    <div class="cartao">
+      <div class="papel">${PAPEL[t.papel]}</div>
+      <div class="n">${esc(t.numero)}</div>
+      <div class="linha2"><span class="chip ${esc(t.tipo)}">${esc(t.tipo || '?')}</span><span class="placas">${esc(placas || 'sem placa')}</span></div>
+      <div class="st">${esc(st || '')}</div>
+      <div class="km-r" id="kmr-${i}"></div>
+    </div>
+  </button>`;
+}
+
+function abrirPerna(i) {
+  const det = $('perna-det');
+  if (PERNA_ABERTA === i) { PERNA_ABERTA = null; det.classList.remove('on'); document.querySelectorAll('.perna').forEach(b => b.classList.remove('aberta')); return; }
+  PERNA_ABERTA = i;
+  document.querySelectorAll('.perna').forEach(b => b.classList.toggle('aberta', +b.dataset.i === i));
+  const t = V.trechos[i];
+  const kv = rows => `<dl class="kv">${rows.filter(r => r && r[1] != null && r[1] !== '').map(r => `<dt>${r[0]}</dt><dd class="${r[2] || ''}">${r[1]}</dd>`).join('')}</dl>`;
+  const k = kmRastreado(t);
+  const ordem = (V.ordens || []).filter(o => o.carga_id === t.id).map(o => esc(o.coleta)).join(', ');
+  const destinos = (t.destinos || []).map(d => esc(local(d)) + (d.agendamento ? ` <small>agenda ${cal(d.agendamento)}</small>` : '')).join('');
+  det.innerHTML = `
+    <div class="det-topo">
+      <h3><span class="mono" style="color:${COR[t.papel]}">${esc(t.numero)}</span><span class="chip ${esc(t.tipo)}">${esc(t.tipo || '?')}</span><span class="pill ${stClasse(t.status)}">${esc(t.status)}</span></h3>
+      <div class="ctrl">
+        <a class="btn-sm" href="/embarques/cargas/${t.id}/mapa">🗺️ Mapa da carga</a>
+        <a class="btn-sm" href="/embarques/cargas/${t.id}/editar">✏️ Abrir carga</a>
+      </div>
+    </div>
+    <div class="det-grid">
+      <div class="det-col"><h4>Carga</h4>${kv([
+        ['Papel', PAPEL[t.papel]], ['Cliente', esc(t.cliente || '—')], ['Embarcador', t.embarcador && t.embarcador !== t.cliente ? esc(t.embarcador) : null],
+        ['Origem', esc(local(t.origem))], ['Destino' + ((t.destinos || []).length > 1 ? 's' : ''), destinos || '—'],
+        ['Encerramento', t.motivo_texto ? esc(t.motivo_texto) : (t.conclusao ? 'confirmado à mão' : null)],
+        ['Criada por', t.robo ? 'robô do manifesto' : 'cadastro manual'],
+        t.lacuna ? ['Atenção', 'perna derivada de uma lacuna do GPS'] : null])}</div>
+      <div class="det-col"><h4>Veículos</h4>${kv([
+        ['Cavalo', esc(t.cavalo || '—'), 'mono'], ['Carreta', esc(t.carreta1 || '—'), 'mono'], ['Carreta 2', t.carreta2 ? esc(t.carreta2) : null, 'mono'],
+        ['Motorista', esc(t.motorista || '—')],
+        t.desengate ? ['Desengate', fmtDH(t.desengate), 'mono'] : null,
+        t.descarga_cavalo ? ['Descarga', `${esc(t.descarga_cavalo)}<small>${esc(t.descarga_motorista || '')}</small>`, 'mono'] : null])}</div>
+      <div class="det-col"><h4>Tempos (Brasília)</h4>${kv([
+        ['Carregamento', cal(t.carregamento), 'mono'],
+        ['Criada no sistema', fmtDH(t.criado) + (t.nasceu_depois_h > 2 ? `<small>${dur(t.nasceu_depois_h)} depois da saída</small>` : ''), 'mono'],
+        ['Saída', fmtDH(t.saida), 'mono'],
+        ['Chegada', t.chegada ? fmtDH(t.chegada) + (t.chegada_fonte ? `<small>${esc(String(t.chegada_fonte).split('(')[0])}</small>` : '') : '—', 'mono'],
+        ['Conclusão', fmtDH(t.conclusao), 'mono'],
+        ['Em trânsito', t.transito_h != null ? dur(t.transito_h) : null, 'mono'],
+        ['No cliente', t.permanencia_h != null ? dur(t.permanencia_h) : null, 'mono']])}</div>
+      <div class="det-col"><h4>Documentos e km</h4>${kv([
+        ['Manifesto', t.manifesto ? esc(t.manifesto) : (t.papel === 'vazio' ? 'perna vazia' : '—'), 'mono'],
+        ['CTRB', t.ctrb ? esc(t.ctrb) : null, 'mono'],
+        ['Ordem de coleta', ordem || null, 'mono'],
+        ['Km rota', t.km_ate_passagem != null ? `${n0(t.km_ate_passagem)} km<small>até a passagem${t.rota_ate_o_fim ? ' — a carga trocou de caminhão quase sem rodar' : ''} · a rota planejada vai até ${esc(local(ultimoDestino(t)))} (${n0(t.km_planejado)} km)</small>`
+          : n0(t.km_planejado) + ' km', 'mono'],
+        ['Km rastreado', k ? (k.ok ? `${n0(k.km)} km<small>odômetro · cobertura ${k.cob}%</small>`
+          : (k.parcial != null ? `${n0(k.parcial)} km<small>${esc(k.motivo)}</small>` : `—<small>${esc(k.motivo)}</small>`)) : '<small>medindo…</small>', 'mono']])}</div>
+    </div>`;
+  det.classList.add('on');
+}
+
+// ── km rastreado: a mesma régua do servidor (viagem.KM_*, vem em V.regua_km) ──
+function kmRastreado(t) {
+  const d = TRAJ[t.id];
+  if (!d) return null;
+  const k = d.kpi || {}, R = V.regua_km, km = k.km_odometro, cob = k.odometro_cobertura || 0;
+  const tr = k.odometro_trechos || 0, g = k.odometro_trechos_gps || 0;
+  if (km == null) return { ok: false, motivo: 'sem odômetro na janela — vale a rota' };
+  if (!t.conclusao) return { ok: false, parcial: km, motivo: 'trecho em curso — o odômetro ainda está contando' };
+  if (cob < R.cobertura_min) return { ok: false, motivo: `odômetro cobriu ${cob}% — vale a rota` };
+  if ((tr + g) && g / (tr + g) > R.gps_max) return { ok: false, motivo: 'muitos trechos só por GPS — vale a rota' };
+  if (t.km_planejado && km > R.teto * t.km_planejado) return { ok: false, motivo: 'acima de 3× a rota — vale a rota' };
+  return { ok: true, km, cob };
+}
+
+// ── mapa ──────────────────────────────────────────────────────────────────
+function decodePolyline(str, precision = 5) {
+  const coords = []; let i = 0, lat = 0, lng = 0; const f = Math.pow(10, precision);
+  while (i < str.length) {
+    let shift = 0, result = 0, b;
+    do { b = str.charCodeAt(i++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+    lat += ((result & 1) ? ~(result >> 1) : (result >> 1));
+    shift = 0; result = 0;
+    do { b = str.charCodeAt(i++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+    lng += ((result & 1) ? ~(result >> 1) : (result >> 1));
+    coords.push([lat / f, lng / f]);
+  }
+  return coords;
+}
+
+async function carregarMapa() {
+  if (!window.L) { $('mapa').innerHTML = '<div class="vazio-tab">Mapa indisponível.</div>'; return; }
+  MAPA = L.map('mapa', { zoomControl: true, attributionControl: false, scrollWheelZoom: false }).setView([-17.5, -46.5], 5);
+  const tile = e => `https://{s}.basemaps.cartocdn.com/${e}/{z}/{x}/{y}{r}.png` + (window.CARTO_KEY ? `?key=${window.CARTO_KEY}` : '');
+  L.tileLayer(tile('dark_nolabels'), { subdomains: 'abcd', maxZoom: 19 }).addTo(MAPA);
+  L.tileLayer(tile('dark_only_labels'), { subdomains: 'abcd', maxZoom: 19, className: 'leaflet-labels-bright' }).addTo(MAPA);
+  const limites = L.latLngBounds([]);
+  const legs = V.trechos;
+  $('mapa-leg').innerHTML = [...new Set(legs.map(t => t.papel))].map(p => `<span><i style="border-color:${COR_HEX[p]}" class="${p === 'vazio' ? 'tr' : ''}"></i>${PAPEL[p]}</span>`).join('')
+    + '<span><i class="tr" style="border-color:#64748b"></i>rota planejada</span>';
+  legs.forEach(t => {
+    if (t.origem && t.origem.lat != null) limites.extend([t.origem.lat, t.origem.lng]);
+    (t.destinos || []).forEach(d => { if (d.lat != null) limites.extend([d.lat, d.lng]); });
+  });
+  if (limites.isValid()) MAPA.fitBounds(limites, { padding: [26, 26] });
+  await Promise.all(legs.map(async (t, i) => {
+    try { TRAJ[t.id] = await api(`/api/rastreamento/cargas/${t.id}/trajeto`); }
+    catch (e) { TRAJ[t.id] = null; }
+    desenharPerna(t, TRAJ[t.id], limites);
+    const k = kmRastreado(t), alvo = $('kmr-' + i);
+    if (alvo) alvo.innerHTML = !k ? '' : (k.ok ? `rastreado <span class="ok">${n0(k.km)} km</span>`
+      : (k.parcial != null ? `rodou até agora <span>${n0(k.parcial)} km</span>` : 'rastreado: <span title="' + esc(k.motivo) + '">vale a rota</span>'));
+  }));
+  if (limites.isValid()) MAPA.fitBounds(limites, { padding: [26, 26] });
+  if (PERNA_ABERTA != null) { const i = PERNA_ABERTA; PERNA_ABERTA = null; abrirPerna(i); }
+}
+
+function desenharPerna(t, d, limites) {
+  const cor = COR_HEX[t.papel];
+  if (d && d.rota_planejada && d.rota_planejada.polyline) {
+    try { L.polyline(decodePolyline(d.rota_planejada.polyline), { color: '#64748b', weight: 2, opacity: .7, dashArray: '5,6' }).addTo(MAPA); } catch (e) { /* rota ilegível */ }
+  }
+  if (d && d.trajeto) {
+    const via = (d.rastreado_via && d.rastreado_via.tipo) || 'cavalo';
+    let pts = d.trajeto[via] || [];
+    if (pts.length < 2) pts = (d.trajeto.cavalo || []).length > 1 ? d.trajeto.cavalo : (d.trajeto.carreta1 || []);
+    if (pts.length > 1) {
+      const cortes = new Set(((d.trajeto_cortes || {})[via]) || []);
+      let seg = [[pts[0].lat, pts[0].lng]];
+      const segs = [];
+      for (let k = 0; k < pts.length - 1; k++) { if (cortes.has(k)) { segs.push(seg); seg = []; } seg.push([pts[k + 1].lat, pts[k + 1].lng]); }
+      segs.push(seg);
+      segs.forEach(sg => { if (sg.length > 1) { L.polyline(sg, { color: cor, weight: 3.5, opacity: .95, dashArray: t.papel === 'vazio' ? '7,7' : null }).addTo(MAPA); sg.forEach(p => limites.extend(p)); } });
+    }
+  }
+  const o = t.origem;
+  if (o && o.lat != null) L.circleMarker([o.lat, o.lng], { radius: 6, color: cor, weight: 2, fillColor: '#0a0e17', fillOpacity: 1 })
+    .bindPopup(`<b>${esc(local(o))}</b><br>${esc(t.numero)} · saída ${fmtDH(t.saida)}`).addTo(MAPA);
+  (t.destinos || []).forEach(dd => {
+    if (dd.lat == null) return;
+    L.circleMarker([dd.lat, dd.lng], { radius: 6, color: cor, weight: 2, fillColor: cor, fillOpacity: .9 })
+      .bindPopup(`<b>${esc(local(dd))}</b><br>${esc(t.numero)} · chegada ${fmtDH(t.chegada)}`).addTo(MAPA);
+  });
+}
+
+// ── Power BI: documentos e dinheiro ───────────────────────────────────────
+async function carregarBI() {
+  const url = `/api/viagem/${encodeURIComponent(V.viagem.numero)}/${V.pode_dinheiro ? 'financeiro' : 'documentos'}`;
+  const lento = setTimeout(() => {
+    if (!BI && $('din-nota')) $('din-nota').textContent = 'montando o custo por km da frota do mês — só na primeira consulta (~30 s)';
+  }, 6000);
+  try { BI = await api(url); }
+  catch (e) {
+    clearTimeout(lento);
+    $('docs').innerHTML = `<div class="erro">${esc(e.message)}</div>`;
+    if ($('din')) $('din').innerHTML = `<div class="erro">${esc(e.message)}</div>`;
+    if ($('kpis-din')) $('kpis-din').remove();
+    return;
+  }
+  clearTimeout(lento);
+  if ($('din-nota')) $('din-nota').textContent = '';
+  if (BI.continuacao_de && BI.continuacao_de.length) {
+    $('capa-aviso').innerHTML = `<div class="nota-capa aviso">Esta carga só leva CTe de outra viagem — a viagem completa (receita e todos os caminhões) está em ${BI.continuacao_de.map(n => `<a class="mono" href="/viagem/${encodeURIComponent(n)}">${esc(n)}</a>`).join(', ')}.</div>`;
+  }
+  const outros = (BI.documentos.manifestos || []).filter(m => m.papel === 'documental');
+  if (outros.length) $('outros').innerHTML = `<div class="outros-caminhoes">Também levou CTe desta viagem (o robô não ligou as cargas):
+    ${outros.map(m => m.carga ? `<a class="chip mono" href="/viagem/${encodeURIComponent(m.carga)}">${esc(m.carga)} · ${esc(m.manifesto)}</a>` : `<span class="chip mono">${esc(m.manifesto)}</span>`).join('')}</div>`;
+  $('avisos').innerHTML = (BI.avisos || []).map(a => `<div>${esc(a)}</div>`).join('');
+  $('docs-nota').textContent = 'consultado ' + fmtDH(BI.gerado_em);
+  abasDocs();
+  if (V.pode_dinheiro && BI.dinheiro) dinheiro(BI.dinheiro);
+  linhaDoTempo();
+}
+
+function esqueletoDinheiro() {
+  return `<div class="resumo-din">${[0, 1, 2, 3].map(() => `<div class="rd"><b><span class="sk">receita</span></b><div class="v"><span class="sk">R$ 00.000</span></div><div class="s"><span class="sk">composição</span></div></div>`).join('')}</div>
+    <div class="cascata"><div class="barra"><i class="sk" style="width:100%"></i></div></div>
+    <div class="carregando"><span class="roda"></span>consultando o Power BI…</div>`;
+}
+
+function dinheiro(m) {
+  const so = m.continuacao_de && m.continuacao_de.length;
+  const r = m.receita, res = m.resultado, neg = res != null && res < 0;
+  // KPIs da capa
+  const kd = $('kpis-din');
+  if (kd) kd.innerHTML = so ? `
+      <div class="kpi"><b>Receita</b><div class="v faint">—</div><div class="s">na viagem de origem</div></div>
+      <div class="kpi"><b>Custo</b><div class="v">${money(m.custo_operacional)}</div><div class="s">desta carga</div></div>
+      <div class="kpi"><b>Resultado</b><div class="v faint">—</div><div class="s">ver a viagem de origem</div></div>
+      <div class="kpi"><b>R$ / km</b><div class="v faint">—</div><div class="s">&nbsp;</div></div>` : `
+      <div class="kpi"><b>Receita</b><div class="v">${money(r.total)}</div><div class="s">CTes ${brl(r.ctes, 0)}${r.complementos ? ' + compl.' : ''}</div></div>
+      <div class="kpi"><b>Custo</b><div class="v">${money(m.custo_operacional)}</div><div class="s">operacional</div></div>
+      <div class="kpi forte${neg ? ' neg' : ''}"><b>Resultado</b><div class="v ${neg ? 'neg' : 'pos'}">${money(res)}</div><div class="s">margem ${pct(m.margem)}</div></div>
+      <div class="kpi"><b>R$ / km</b><div class="v">${m.rkm_carregado != null ? n2(m.rkm_carregado) : '—'}</div><div class="s">carregado · ${m.rkm_completo != null ? n2(m.rkm_completo) + ' c/ vazio' : ''}</div></div>`;
+  // resumo
+  const fatias = [];
+  m.trechos.forEach(t => t.itens.forEach(it => {
+    const v = it.tipo === 'frota' ? it.operacional : it.frete_pago;
+    fatias.push({ rot: `${it.tipo === 'frota' ? 'Frota' : (it.tipo === 'agregado' ? 'Frete agregado' : 'Frete terceiro')} ${curto(t.numero)}`, v, cor: it.tipo === 'frota' ? '#38bdf8' : (it.tipo === 'agregado' ? '#a78bfa' : '#f472b6') });
+    if (it.custo_rizza_op) fatias.push({ rot: `Rastreador/carreta Rizza ${curto(t.numero)}`, v: it.custo_rizza_op, cor: '#818cf8' });
+  }));
+  if (m.chapa.total) fatias.push({ rot: 'Chapa', v: m.chapa.total, cor: '#fb923c' });
+  const base = Math.max(r.total || 0, m.custo_operacional || 0) || 1;
+  const barra = fatias.map(f => `<i style="width:${(100 * f.v / base).toFixed(2)}%;background:${f.cor}" title="${esc(f.rot)} ${brl(f.v)}"></i>`).join('')
+    + (!so && res > 0 ? `<i style="width:${(100 * res / base).toFixed(2)}%;background:linear-gradient(90deg,#34d399,#10b981)" title="Resultado ${brl(res)}"></i>` : '');
+  const resumo = so ? `<div class="nota-capa aviso" style="margin-bottom:12px">A receita do CTe desta carga conta na viagem ${m.continuacao_de.map(n => `<a class="mono" href="/viagem/${encodeURIComponent(n)}">${esc(n)}</a>`).join(', ')} — lá estão a receita e o custo dos dois caminhões. Aqui, só o custo desta carga.</div>
+    <div class="resumo-din"><div class="rd"><b>Custo desta carga</b><div class="v">${money(m.custo_operacional)}</div><div class="s">operacional</div></div>
+    <div class="rd"><b>Financiamento</b><div class="v">${money(m.financiamento)}</div><div class="s">cavalo e carreta</div></div></div>` : `
+    <div class="resumo-din">
+      <div class="rd"><b>Receita</b><div class="v">${money(r.total)}</div><div class="s">${(BI.documentos.ctes || []).filter(c => !c.conta_em).length} CTe(s)${r.complementos ? ` + ${brl(r.complementos, 0)} compl.` : ''}</div></div>
+      <div class="rd"><b>Custo operacional</b><div class="v">${money(m.custo_operacional)}</div><div class="s">${pct(r.total ? m.custo_operacional / r.total : null)} da receita</div></div>
+      <div class="rd res${neg ? ' neg' : ''}"><b>Resultado</b><div class="v ${neg ? 'neg' : 'pos'}">${money(res)}</div><div class="s">margem ${pct(m.margem)}</div></div>
+      <div class="rd"><b>Após financiamento</b><div class="v ${m.resultado_apos_financiamento < 0 ? 'neg' : ''}">${money(m.resultado_apos_financiamento)}</div><div class="s">financiamento ${brl(m.financiamento, 0)}</div></div>
+    </div>`;
+  const leg = fatias.map(f => `<span><i style="background:${f.cor}"></i>${esc(f.rot)} <b class="mono">${brl(f.v, 0)}</b></span>`).join('')
+    + (!so && res > 0 ? `<span><i style="background:#34d399"></i>resultado <b class="mono">${brl(res, 0)}</b></span>` : '')
+    + (!so && res < 0 ? `<span class="neg">prejuízo de ${brl(-res, 0)} — o custo passa da receita</span>` : '');
+  const bases = (m.bases || []).filter(b => b.motivo).map(b => `custo da frota pelo R$/km de ${b.mes.slice(5)}/${b.mes.slice(2, 4)} (${esc(b.motivo)})`);
+  $('din').innerHTML = `${resumo}
+    <div class="cascata"><div class="barra">${barra}</div><div class="leg">${leg}</div></div>
+    ${so ? '' : `<div class="por-km"><span>R$/km carregado <b>${m.rkm_carregado != null ? n2(m.rkm_carregado) : '—'}</b> <span class="faint">(${n0(m.km_carregado)} km ${esc(m.km_carregado_fonte || '')})</span></span>
+      <span>R$/km com o vazio <b>${m.rkm_completo != null ? n2(m.rkm_completo) : '—'}</b> <span class="faint">(+${n0(m.km_vazio)} km ${esc(m.km_vazio_fonte || '')})</span></span>
+      ${m.auditoria ? `<span>Auditoria (rateada) <b>${brl(m.auditoria.receita_rateada, 0)}</b> ${m.auditoria.confere_ctes ? '<span class="marca ok">= CTes</span>' : '<span class="marca neutro">rateio entre viagens</span>'}</span>` : ''}</div>`}
+    ${bases.length ? `<div class="por-km faint" style="font-size:.7rem">${bases.join(' · ')}</div>` : ''}
+    ${m.vazio ? blocoVazio(m.vazio) : ''}
+    <button class="abre" id="b-comp"><span>Composição completa — receita, custo de cada trecho, pagamentos e desmembramento do frete</span><span class="seta-a">▾</span></button>
+    <div class="composicao" id="comp">${composicao(m)}</div>`;
+  $('b-comp').addEventListener('click', () => { $('b-comp').classList.toggle('on'); $('comp').classList.toggle('on'); });
+}
+
+function blocoVazio(z) {
+  const rot = `<h4>Perna vazia · <span class="mono" style="color:var(--p-vazio)">${esc(z.numero)}</span> · ${esc(z.de)} → ${esc(z.ate)} · ${n0(z.km)} km <span class="faint">(${esc(z.km_fonte || '')})</span></h4>`;
+  let corpo = `<div class="faint" style="font-size:.76rem">${esc(z.regra || '')}</div>`;
+  if (z.modo === 'declarado' && z.pago_no_ctrb) {
+    const p = z.pago_no_ctrb;
+    corpo = `<div class="confronto">
+      <div class="lado"><b>Declarado no CTRB (analista)</b><div class="g">${brl(p.valor)}</div>
+        <div class="p">${n0(p.km_declarado)} km × ${n2(p.tarifa)}${p.pedagio ? ` + ${brl(p.pedagio)} pedágio` : ''}${p.rota ? ` · ${esc(p.rota)}` : ''}</div></div>
+      <div class="lado"><b>Nosso km</b><div class="g">${n0(p.km_nosso)} km</div>
+        <div class="p">${esc(p.km_fonte || '')}${p.diferenca_pct != null ? ` · o declarado é ${difPct(p.diferenca_pct)}` : ''}</div></div>
+    </div>
+    <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:.74rem">
+      ${p.tarifa_confere ? '<span class="marca ok">tarifa da tabela</span>' : `<span class="marca atencao">tarifa ${n2(p.tarifa)} — tabela ${n2(p.tarifa_tabela)}</span>`}
+      <span class="faint">${esc(z.regra)}</span></div>`;
+  } else if (z.modo === 'estimado' && z.pago_no_ctrb) {
+    corpo = `<div class="confronto"><div class="lado"><b>Estimado (sem declaração)</b><div class="g">${brl(z.pago_no_ctrb.valor)}</div>
+      <div class="p">${n0(z.pago_no_ctrb.km_nosso)} km × ${n2(z.pago_no_ctrb.tarifa)}</div></div>
+      <div class="lado"><b>Regra</b><div class="p" style="margin-top:0">${esc(z.regra)}</div></div></div>`;
+  } else if (z.modo === 'nao_declarado' && z.nao_declarado) {
+    corpo = `<div class="faint" style="font-size:.76rem">${esc(z.regra)}: ${n0(z.nao_declarado.km_nosso)} km → <b class="mono">${brl(z.nao_declarado.valor_pela_regra)}</b></div>`;
+  } else if (z.modo === 'frota' && z.informativo) {
+    corpo = `<div class="faint" style="font-size:.76rem">${esc(z.regra)}. Se esta viagem pagasse o próprio vazio: ${n0(z.km)} km × R$ ${n2(z.informativo.rkm)} = <b class="mono">${brl(z.informativo.valor)}</b> <span class="marca neutro">informativo</span></div>`;
+  }
+  return `<div class="cartao-in vazio">${rot}${corpo}${z.lacuna ? '<div class="avisos"><div>perna derivada de uma lacuna do GPS — o km é o da rota</div></div>' : ''}</div>`;
+}
+
+function composicao(m) {
+  const so = m.continuacao_de && m.continuacao_de.length;
+  const out = [];
+  const linha = (cls, a, v) => out.push(`<tr class="${cls}"><td>${a}</td><td class="v">${v ?? ''}</td></tr>`);
+  if (!so) {
+    linha('grupo', 'Receita · sem rateio', brl(m.receita.total));
+    const ctes = (BI.documentos.ctes || []).filter(c => !c.conta_em);
+    ctes.forEach(c => linha('item', `CTe <span class="mono">${esc(c.cte)}</span> · NF ${esc(c.nf || '—')} · ${esc(c.destinatario || '')}`, brl(c.receita)));
+    Object.entries(m.receita.complementos_por_motivo || {}).forEach(([k, v]) => linha('item', `Complemento · ${esc(k)}`, brl(v)));
+  }
+  linha('grupo', 'Custo operacional', brl(m.custo_operacional));
+  m.trechos.forEach(t => {
+    const part = t.participacao < 1 ? ` · ${pct(t.participacao)} do manifesto (consolidado)` : '';
+    linha('sub', `<span class="mono" style="color:${COR[t.papel] || 'inherit'}">${esc(t.numero)}</span> <small>${esc(t.tipo || '')} · ${esc(t.manifesto || '')}${part}</small>`, brl(t.custo));
+    t.itens.forEach(it => {
+      if (it.tipo === 'frota') {
+        linha('item', `Custo da frota · R$ ${n2(it.rkm)}/km × ${n0(it.km)} km de rota <span class="faint mono">${esc(it.cavalo || '')}${it.carreta ? ' + ' + esc(it.carreta) : ''}</span>`, brl(it.operacional));
+        const comps = Object.entries(it.componentes || {}).filter(([k]) => !['financiamento', 'fin_carreta'].includes(k)).sort((a, b) => b[1] - a[1]);
+        out.push(`<tr class="det"><td colspan="2"><div class="comp-chips">${comps.map(([k, v]) => `<span>${esc(COMP[k] || k)} ${n0(v)}</span>`).join('')}</div></td></tr>`);
+      } else {
+        const c = it.composicao || {}, cc = it.conciliacao || {};
+        const partes = [`a pagar ${n2(c.valor_a_pagar)}`, c.vale_pedagio ? `vale-pedágio ${n2(c.vale_pedagio)}` : null, c.pedagio ? `pedágio ${n2(c.pedagio)}` : null, c.ccf ? `conta corrente ${n2(c.ccf)}` : null].filter(Boolean).join(' + ');
+        linha('item', `Frete pago ao ${it.tipo} · CTRB <span class="mono">${esc(it.ctrb)}</span>`, brl(it.frete_pago));
+        out.push(`<tr class="det"><td colspan="2">${partes}${it.frete_cheio !== it.frete_pago ? ` · entra ${brl(it.frete_pago)} de ${brl(it.frete_cheio)}` : ''}${it.auditoria_frete ? ` · Auditoria: <span class="mono">${esc(it.auditoria_frete)}</span>` : ''}
+          <div class="pagto">${it.ciot ? `<span>CIOT ${esc(it.ciot)}</span>` : ''}<span>líquido ${n2(it.liquido)}</span>
+          ${(it.pagamentos || []).map(p => `<span class="${p.situacao}">${esc(p.tipo)} ${n2(p.valor)} · ${p.situacao === 'pago' ? 'pago' : 'programado'} ${cal(p.data)}</span>`).join('')}
+          ${cc.fecha ? '<span class="marca ok">477 fecha com o líquido</span>' : (it.pagamentos && it.pagamentos.length ? `<span class="marca atencao">477 ${n2(cc.lancado)} × líquido ${n2(cc.liquido)}</span>` : '<span class="marca neutro">sem lançamento no 477</span>')}</div>
+          ${it.nota_ccf ? `<div class="faint" style="margin-top:4px">⚠ ${esc(it.nota_ccf)}</div>` : ''}</td></tr>`);
+        if (it.custo_rizza_op) linha('item', 'Rastreador e carreta Rizza (aba Veículos)', brl(it.custo_rizza_op));
+        if (it.desmembrado) out.push(`<tr class="det"><td colspan="2">${desmembrado(it.desmembrado)}</td></tr>`);
+      }
+    });
+  });
+  if (m.chapa.total) {
+    linha('sub', 'Chapa · carga e descarga <small>477, evento 5100</small>', brl(m.chapa.total));
+    m.chapa.itens.forEach(x => linha('item', `${esc(x.fornecedor || '')} · <span class="faint">${esc(x.historico || '')}</span> · ${x.situacao} ${cal(x.data)}`, brl(x.valor)));
+  }
+  if (!so) {
+    out.push(`<tr class="total"><td>Resultado</td><td class="v ${m.resultado < 0 ? 'neg' : 'pos'}">${brl(m.resultado)}</td></tr>`);
+    if (m.financiamento) linha('item', 'Financiamento de cavalo e carreta (fora do operacional)', '− ' + brl(m.financiamento));
+    out.push(`<tr class="total final"><td>Resultado após financiamento</td><td class="v ${m.resultado_apos_financiamento < 0 ? 'neg' : 'pos'}">${brl(m.resultado_apos_financiamento)}</td></tr>`);
+  } else if (m.financiamento) linha('item', 'Financiamento de cavalo e carreta', brl(m.financiamento));
+  const aud = m.auditoria;
+  const audTxt = aud && !so ? `<div class="cartao-in"><h4>Na Auditoria (por CTRB, receita rateada)</h4>
+    <div style="font-size:.76rem;color:var(--text-dim)">${aud.por_trecho.map(a => `<span class="mono">${esc(curto(a.numero))}</span> receita ${brl(a.receita_rateada, 0)} − frete ${brl(a.frete_pago, 0)}`).join(' · ')}
+    <br>${aud.confere_ctes ? `A soma rateada (${brl(aud.receita_rateada, 0)}) é a receita dos CTes — a viagem só junta o que a Auditoria separa por CTRB.` : `A soma rateada (${brl(aud.receita_rateada, 0)}) difere dos CTes desta viagem: parte do rateio ficou com CTRB de outra viagem.`}</div></div>` : '';
+  return `<table class="cp">${out.join('')}</table>${audTxt}`;
+}
+
+function desmembrado(d) {
+  const linhaSeg = (rot, s, tabela) => {
+    if (!s) return '';
+    const kmTxt = s.km_declarado != null ? `${n0(s.km_declarado)} km declarados × ${n2(s.tarifa)}`
+      : (s.tarifa_implicita != null ? `resto ${brl(s.valor)} ÷ ${n0(s.km_tarifa)} km (${esc(s.km_tarifa_fonte || '')}) = ${n2(s.tarifa_implicita)}/km` : `${n0(s.km_nosso)} km × ${n2(s.tarifa)}`);
+    const longe = s.km_declarado != null && s.diferenca_pct != null && Math.abs(s.diferenca_pct) > 15
+      ? ` <span class="marca atencao">km declarado ${difPct(s.diferenca_pct)} do nosso</span>` : '';
+    const conf = s.km_declarado != null && s.km_nosso ? ` · nosso km ${n0(s.km_nosso)} (${esc(s.km_fonte || '')}), declarado ${difPct(s.diferenca_pct)}${longe}`
+      : (s.tarifa_implicita != null && s.km_fonte ? ` · nosso km ${n0(s.km_nosso)} (${esc(s.km_fonte)})` : '');
+    let marca = '';
+    if (rot === 'Carregado') {
+      if (s.tarifa_confere) marca = `<span class="marca ok">tarifa ${esc(s.tarifa_confere)}</span>`;
+      else if (s.tarifa_proxima) marca = `<span class="marca neutro">≈ ${esc(s.tarifa_proxima)}</span>`;
+      else if (s.km_declarado != null) marca = `<span class="marca atencao">fora da tabela</span>`;
+    } else if (s.tarifa_confere === false) marca = `<span class="marca atencao">tabela ${n2(tabela)}</span>`;
+    const igual = s.tarifa_implicita != null && s.km_declarado == null ? '' : ` = <b class="mono">${brl(s.valor)}</b>`;
+    return `<div style="margin-top:4px"><b>${rot}</b> ${s.rota ? `<span class="mono">${esc(s.rota)}</span> · ` : ''}${kmTxt}${s.pedagio ? ` + ${n2(s.pedagio)} pedágio` : ''}${igual}${conf} ${marca}${s.estimado ? ' <span class="marca neutro">estimado</span>' : ''}</div>`;
+  };
+  const tab = Object.entries(d.tarifas_tabela || {}).map(([k, v]) => `${k} ${n2(v)}`).join(' · ');
+  const titulo = { observacao: 'Desmembramento declarado pelo analista na observação do CTRB', observacao_parcial: 'Observação cortada pelo SSW (200 caracteres): o vazio está declarado, o carregado é o resto', regra: 'Sem declaração na observação: desmembrado pelo nosso km' }[d.fonte] || '';
+  return `<div class="cartao-in" style="margin-top:6px"><h4>${esc(titulo)} ${d.fecha === true ? '<span class="marca ok">soma = valor a pagar</span>' : (d.fecha === false ? `<span class="marca atencao">soma ${n2(d.soma_declarada)} × a pagar ${n2(d.valor_a_pagar)}</span>` : '')}</h4>
+    <div style="font-size:.74rem;color:var(--text-dim)">
+      ${linhaSeg('Vazio', d.vazio, 3.5)}${linhaSeg('Carregado', d.carregado)}
+      ${d.vazio_nao_declarado ? `<div style="margin-top:4px"><b>Vazio</b> não declarado — pela regra seria ${n0(d.vazio_nao_declarado.km_nosso)} km × 3,50 = ${brl(d.vazio_nao_declarado.valor_pela_regra)}</div>` : ''}
+      ${d.sem_vazio_declarado ? '<div style="margin-top:4px"><b>Vazio</b> o analista declarou “sem vazio”</div>' : ''}
+      <div class="faint" style="margin-top:6px">tabela: ${tab}${d.tipo_cavalo ? ` · cadastro do cavalo: ${esc(d.tipo_cavalo)}` : ''}${d.destino ? ` · destino ${esc(d.destino)}` : ''}</div>
+      ${d.texto ? `<details class="texto-obs"><summary>texto da observação${d.texto_cortado ? ' (cortado pelo SSW)' : ''}</summary><p>${esc(d.texto)}</p></details>` : ''}
+    </div></div>`;
+}
+
+// ── documentos ────────────────────────────────────────────────────────────
+function abasDocs() {
+  const doc = BI ? BI.documentos : null;
+  const n = k => doc ? (doc[k] || []).length : '·';
+  const abas = [['ctes', 'CTes', n('ctes')], ['complementos', 'Complementos', n('complementos')], ['manifestos', 'Manifestos', n('manifestos')],
+    ['ctrbs', 'CTRB · CIOT', n('ctrbs')], ['faturas', 'Faturas', n('faturas')], ['ordens', 'Ordem de coleta', (V.ordens || []).length], ['sm', 'SM', (V.sms || []).length]];
+  $('abas').innerHTML = abas.map(([k, r, c]) => `<button data-a="${k}" class="${ABA === k ? 'on' : ''}">${r}<span>${c}</span></button>`).join('');
+  $('abas').onclick = e => { const b = e.target.closest('button'); if (!b) return; ABA = b.dataset.a; abasDocs(); };
+  docs();
+}
+
+function docs() {
+  const alvo = $('docs'), d = BI ? BI.documentos : null, din = V.pode_dinheiro;
+  const tabela = (cab, linhas, vazio) => linhas.length ? `<div class="tabela-wrap"><table class="t"><thead><tr>${cab.map(c => `<th class="${c[1] || ''}">${c[0]}</th>`).join('')}</tr></thead><tbody>${linhas.join('')}</tbody></table></div>` : `<div class="vazio-tab">${vazio}</div>`;
+  if (ABA === 'ordens') {
+    alvo.innerHTML = tabela([['Coleta'], ['Cadastrada'], ['Comandada'], ['Agenda'], ['Remetente → destinatário'], ['Estado']], (V.ordens || []).map(o => `<tr>
+      <td class="mono">${esc(o.coleta)}<small>${esc(curto((V.trechos.find(t => t.id === o.carga_id) || {}).numero))}</small></td>
+      <td class="mono">${fmtDH(o.cadastrada)}<small>${esc(o.cadastrada_por || '')}</small></td>
+      <td class="mono">${fmtDH(o.comandada)}<small>${esc([o.cavalo, o.carreta].filter(Boolean).join(' / '))}</small></td>
+      <td class="mono">${cal(o.agendamento)}</td>
+      <td>${esc(o.remetente || '—')}<small>→ ${esc(o.destinatario || '—')} ${o.dest_cidade ? '(' + esc(o.dest_cidade + '/' + (o.dest_uf || '')) + ')' : ''}</small></td>
+      <td>${esc(o.estado || '')}</td></tr>`), 'Nenhuma ordem de coleta ligada a esta viagem.');
+    return;
+  }
+  if (ABA === 'sm') {
+    alvo.innerHTML = tabela([['SM'], ['Status'], ['Pedida'], ['Início'], ['Encerrada'], ['Valor da carga', 'n']], (V.sms || []).map(s => `<tr>
+      <td class="mono">${s.link ? `<a href="${esc(s.link)}" target="_blank" rel="noopener">${esc(s.sm)}</a>` : esc(s.sm)}<small>${esc(curto(s.trecho))}</small></td>
+      <td>${esc(s.status || '')}</td><td class="mono">${fmtDH(s.criada)}</td><td class="mono">${fmtDH(s.inicio)}</td><td class="mono">${fmtDH(s.encerrada)}</td>
+      <td class="n">${s.valor != null ? brl(s.valor, 0) : '—'}</td></tr>`), 'Nenhuma SM da Insignia na janela desta viagem.');
+    return;
+  }
+  if (!d) { alvo.innerHTML = '<div class="carregando"><span class="roda"></span>consultando o Power BI…</div>'; return; }
+  if (ABA === 'ctes') {
+    const cab = [['CTe'], ['Emissão'], ['NF'], ['Remetente → destinatário'], ['Peso', 'n']].concat(din ? [['Receita', 'n']] : []);
+    alvo.innerHTML = tabela(cab, d.ctes.map(c => `<tr>
+      <td class="mono">${esc(c.cte)}<small>${esc(c.tipo || '')}</small>${c.conta_em ? `<small>conta na <a href="/viagem/${encodeURIComponent(c.conta_em)}">${esc(c.conta_em)}</a></small>` : (c.veio_de ? `<small>veio de ${esc(c.veio_de)}</small>` : '')}</td>
+      <td class="mono">${cal(c.emissao)}</td><td class="mono">${esc(c.nf || '—')}</td>
+      <td>${esc(c.remetente || '')}<small>→ ${esc(c.destinatario || '')} · ${esc(c.destino || '')}</small></td>
+      <td class="n">${n0(c.peso)} kg</td>${din ? `<td class="n">${brl(c.receita)}${c.conta_em ? '<small>fora da soma</small>' : ''}</td>` : ''}</tr>`), 'Nenhum CTe encontrado.');
+  } else if (ABA === 'complementos') {
+    alvo.innerHTML = tabela([['CTe'], ['Emissão'], ['Motivo'], ['Complementa']].concat(din ? [['Receita', 'n']] : []), d.complementos.map(c => `<tr>
+      <td class="mono">${esc(c.cte)}</td><td class="mono">${cal(c.emissao)}</td><td>${esc(c.motivo)}</td><td class="mono">${esc(c.origem_cte)}</td>${din ? `<td class="n">${brl(c.receita)}</td>` : ''}</tr>`),
+      'Nenhum complemento de frete ligado aos CTes desta viagem.');
+  } else if (ABA === 'manifestos') {
+    const papel = { cadeia: 'desta viagem', documental: 'outro caminhão com CTe desta viagem', anterior: 'de onde o CTe veio (fora da conta)' };
+    alvo.innerHTML = tabela([['Manifesto'], ['Carga'], ['Papel']], d.manifestos.map(m => `<tr>
+      <td class="mono">${esc(m.manifesto)}</td><td class="mono">${m.carga ? `<a href="/viagem/${encodeURIComponent(m.carga)}">${esc(m.carga)}</a>` : '—'}</td><td>${papel[m.papel] || esc(m.papel)}</td></tr>`), 'Nenhum manifesto.');
+  } else if (ABA === 'ctrbs') {
+    const itens = {};
+    if (BI.dinheiro) BI.dinheiro.trechos.forEach(t => t.itens.forEach(it => { itens[it.ctrb] = it; }));
+    alvo.innerHTML = tabela([['CTRB'], ['Carga'], ['CIOT'], ['Motorista · proprietário']].concat(din ? [['Frete', 'n'], ['Pagamento (477)']] : []), d.ctrbs.map(c => {
+      const it = itens[c.ctrb] || {};
+      const pg = (it.pagamentos || []).map(p => `<small class="${p.situacao === 'pago' ? 'pos' : ''}">${esc(p.tipo)} ${n2(p.valor)} · ${p.situacao} ${cal(p.data)}</small>`).join('');
+      return `<tr><td class="mono">${esc(c.ctrb)}<small>${esc(c.tipo)} · ${cal(c.emissao)}</small></td>
+        <td class="mono">${c.carga ? esc(c.carga) : '—'}${c.no_custo ? '' : '<small>fora do custo</small>'}</td>
+        <td class="mono">${esc(c.ciot || '—')}</td><td>${esc(c.motorista || '—')}<small>${esc(c.proprietario || '')}</small></td>
+        ${din ? `<td class="n">${it.tipo === 'frota' ? '<small>frota</small>' : brl(it.frete_pago)}</td><td>${pg || '<small class="faint">—</small>'}</td>` : ''}</tr>`;
+    }), 'Nenhum CTRB na Auditoria para os manifestos desta viagem.');
+  } else if (ABA === 'faturas') {
+    const cor = { paga: 'ok', vencida: 'alerta', 'em aberto': 'neutro', cancelada: 'neutro', 'sem cabeçalho': 'neutro' };
+    alvo.innerHTML = tabela([['Fatura'], ['CTe'], ['Emissão'], ['Vencimento'], ['Situação']].concat(din ? [['Valor', 'n']] : []), d.faturas.map(f => `<tr>
+      <td class="mono">${esc(f.fatura)}</td><td class="mono">${esc(f.cte)}</td><td class="mono">${cal(f.emissao)}</td><td class="mono">${cal(f.vencimento)}</td>
+      <td><span class="marca ${cor[f.status] || 'neutro'}">${esc(f.status)}</span>${f.pagamento && f.status === 'paga' ? `<small>pago ${cal(f.pagamento)}</small>` : ''}</td>
+      ${din ? `<td class="n">${brl(f.valor)}${f.valor_cte != null ? `<small>CTe ${brl(f.valor_cte)}</small>` : ''}</td>` : ''}</tr>`),
+      'Nenhuma fatura localizada no relatório 441 (dataset contábil) para estes CTes.');
+  }
+}
+
+// ── linha do tempo ────────────────────────────────────────────────────────
+function eventosBI() {
+  if (!BI) return [];
+  const ev = [], d = BI.documentos, din = V.pode_dinheiro;
+  const dia = s => s ? String(s).slice(0, 10) + 'T03:00:00Z' : null;   // data sem hora: meia-noite de Brasília
+  d.ctes.filter(c => !c.conta_em).forEach(c => ev.push({ t: dia(c.emissao), tipo: 'bi', titulo: `CTe ${c.cte} emitido`, detalhe: [`NF ${c.nf || '—'}`, c.destinatario, din && c.receita != null ? brl(c.receita) : null].filter(Boolean).join(' · '), marco: true, dia: true }));
+  d.complementos.forEach(c => ev.push({ t: dia(c.emissao), tipo: 'bi', titulo: `Complemento de ${c.motivo} (${c.cte})`, detalhe: din && c.receita != null ? brl(c.receita) : null, marco: true, dia: true }));
+  d.ctrbs.filter(c => c.no_custo).forEach(c => ev.push({ t: dia(c.emissao), tipo: 'bi', titulo: `CTRB ${c.ctrb} emitido`, detalhe: [c.tipo, c.ciot ? 'CIOT ' + c.ciot : null].filter(Boolean).join(' · '), trecho: c.carga, marco: true, dia: true }));
+  d.faturas.forEach(f => {
+    if (f.emissao) ev.push({ t: dia(f.emissao), tipo: 'bi', titulo: `Fatura ${f.fatura} emitida`, detalhe: `vence ${cal(f.vencimento)}${din && f.valor ? ' · ' + brl(f.valor) : ''}`, marco: true, dia: true });
+    if (f.status === 'paga' && f.pagamento) ev.push({ t: dia(f.pagamento), tipo: 'bi', titulo: `Fatura ${f.fatura} paga`, nivel: 'ok', marco: true, dia: true });
+  });
+  if (din && BI.dinheiro) BI.dinheiro.trechos.forEach(t => t.itens.forEach(it => (it.pagamentos || []).forEach(p => {
+    ev.push({ t: dia(p.data), tipo: 'bi', titulo: `${p.tipo === 'saldo' ? 'Saldo' : 'Adiantamento'} do frete ${p.situacao === 'pago' ? 'pago' : 'programado'} · ${brl(p.valor)}`, detalhe: `CTRB ${it.ctrb}`, trecho: t.numero, marco: true, dia: true, nivel: p.situacao === 'pago' ? null : 'atencao' });
+  })));
+  return ev.filter(e => e.t);
+}
+
+function linhaDoTempo() {
+  const todos = (V.linha_do_tempo || []).concat(eventosBI()).filter(e => TL_MODO === 'tudo' || e.marco).sort((a, b) => a.t < b.t ? -1 : a.t > b.t ? 1 : 0);
+  let ultDia = '', h = '';
+  todos.forEach(e => {
+    const dd = diaBRT(e.t);
+    if (dd !== ultDia) { h += `<li class="dia">${esc(dd)}</li>`; ultDia = dd; }
+    const tag = { ordem: 'ordem', gps: 'GPS', sistema: 'sistema', sm: 'SM', pgr: 'PGR', ciot: 'CIOT', robo: 'robô', bi: 'BI' }[e.tipo] || e.tipo;
+    h += `<li class="ev t-${e.tipo}${e.marco ? ' marco' : ''}${e.nivel ? ' nivel-' + e.nivel : ''}${e.tipo === 'robo' ? ' robo' : ''}">
+      <time>${e.dia ? '' : fmtH(e.t)}</time><span class="bol"></span>
+      <div class="c"><b>${esc(e.titulo)}</b>${e.detalhe ? `<p>${esc(e.detalhe)}</p>` : ''}
+        <div class="meta"><span class="tag">${esc(tag)}</span>${e.trecho ? `<span class="tr">${esc(e.trecho)}</span>` : ''}</div></div></li>`;
+  });
+  $('tl').innerHTML = h || '<li class="vazio-tab">Sem eventos.</li>';
+}
+
+if (REF) abrir(REF); else entrada();
+</script>
+<script src="/nav-perms.js"></script>
+</body>
+</html>
