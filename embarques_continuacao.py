@@ -39,6 +39,53 @@ def ligado():
     return os.getenv('EMBARQUES_CONTINUACAO', 'false').strip().lower() == 'true'
 
 
+def reemissao_tardia_ligada():
+    """`EMBARQUES_REEMISSAO_TARDIA=true` (13/10/26, item 8 da lista de testes; decisão do Gabriel, opção a):
+    o MESMO conjunto (cavalo e carreta) com a MESMA rota de CTRB documentado de novo MAIS de 1 dia depois
+    não é continuação de hub — é a mesma viagem com manifesto novo. A carga A FICA como a viagem
+    (carregamento e janela dela) e a B vira reemissão: `Cancelada`, ligada à A (`continua_em` = A).
+
+    A direção é a oposta da reemissão de até 1 dia (A cancelada → B), de propósito: aqui a B nasce com a
+    viagem andando (C-2026-001525: emitida em 11/10 com o caminhão a 55 km do destino, sem saída) e o mapa e o
+    KPI medem pela janela do CARREGAMENTO — herdar a saída não bastava. Medido desde 27/08: 11 `Continuada`,
+    só 2 com a mesma rota (C-1218 → C-1267, C-1417 → C-1525); C-1497 → C-1535 (UDI→UDI × UDI→Anápolis)
+    fica `Continuada`. Exige `EMBARQUES_CONTINUACAO`."""
+    return ligado() and os.getenv('EMBARQUES_REEMISSAO_TARDIA', 'false').strip().lower() == 'true'
+
+
+def _reemitir_tarde(cur, A, B, retro, _log):
+    """B → `Cancelada` ligada à A; com `retro` (o par já estava ligado como continuação de hub), A volta a ser
+    a viagem: sem ligação, sem a conclusão que a ligação gravou, e `Em rota` se tem saída (senão `Aberta`) —
+    o motor deriva o resto do GPS. O status anterior do log NÃO serve: na C-1417 ele é o `Entregue
+    (manifesto_novo)` que o `fechar_pendentes` gravou no mesmo segundo da ligação.
+    Carga editada à mão não é tocada (a mesma guarda da reconciliação)."""
+    from collections import Counter
+    from embarques_reconciliacao import _editada_a_mao
+    n = Counter()
+    (aid, anum, astatus, aconc, amot, asaida) = A
+    (bid, bnum, bstatus, brobo) = B
+    if not brobo or _editada_a_mao(cur, aid) or _editada_a_mao(cur, bid):
+        n['reemissão tardia — carga editada à mão, não tocada'] += 1
+        return n
+    cur.execute("""UPDATE embarques_cargas SET status='Cancelada', continua_em=%s, encerrada_motivo='reemissao_tardia',
+                          entregue_auto=FALSE, atualizado_em=NOW() WHERE id=%s""", (aid, bid))
+    _log(cur, bid, 'status', bstatus, f'Cancelada → {anum} (robô: reemissao_tardia)')
+    _log(cur, bid, 'continua_em', None, f'{aid} ({anum})')
+    n['Cancelada (reemissao_tardia) — a viagem fica com a carga A'] += 1
+    if retro:
+        novo = 'Em rota' if asaida else 'Aberta'
+        cur.execute("""UPDATE embarques_cargas SET status=%s, continua_em=NULL, encerrada_motivo=NULL,
+                              data_conclusao=NULL, entregue_auto=FALSE, atualizado_em=NOW() WHERE id=%s""",
+                    (novo, aid))
+        _log(cur, aid, 'status', astatus, f'{novo} (robô: {bnum} era reemissão tardia desta viagem)')
+        _log(cur, aid, 'continua_em', f'{bid} ({bnum})', None)
+        _log(cur, aid, 'encerrada_motivo', amot, None)
+        if aconc is not None:
+            _log(cur, aid, 'data_conclusao', str(aconc), None)
+        n['  carga A reaberta (era Continuada → B)'] += 1
+    return n
+
+
 def desengate_por_cavalo_ligado():
     """Sub-chave do gatilho por GPS (`desengatar_por_cavalo`), **default DESLIGADO** desde
     19/09/2026 (§27.9). A ligação A→B pelo CTe não depende dela e continua valendo.
@@ -318,20 +365,33 @@ def ligar_continuacoes(cur, ctrcs, ctrbs):
             a, b = _norm(r.get('pm')), _norm(r.get('um'))
             if a and b and a != b:
                 pares[(a, b)] = True
+    tardia_on = reemissao_tardia_ligada()
     for a, b in pares:
         cur.execute("""SELECT id, numero, status, cavalo_placa, carreta1_placa, data_carregamento, ctrb_origem,
-                              continua_em, desengate_local, no_local_desde, data_conclusao, entregue_auto
+                              continua_em, desengate_local, no_local_desde, data_conclusao, entregue_auto,
+                              encerrada_motivo, data_saida_real
                          FROM embarques_cargas WHERE """ + (SQL_MAN % 'manifesto_origem') + """ = %s
                           AND COALESCE(criada_por_robo,FALSE)""", (a,))
         A = cur.fetchone()
         cur.execute("""SELECT id, numero, cavalo_placa, carreta1_placa, data_carregamento, ctrb_origem,
-                              COALESCE(data_saida_real, inicio_viagem)
+                              COALESCE(data_saida_real, inicio_viagem), status, continua_em,
+                              COALESCE(criada_por_robo, FALSE)
                          FROM embarques_cargas WHERE """ + (SQL_MAN % 'manifesto_origem') + """ = %s""", (b,))
         B = cur.fetchone()
-        if not A or not B or A[7] is not None or A[2] == 'Cancelada':
+        if not A or not B:
             continue
-        (aid, anum, astatus, acav, acar, adt, actrb, _, alocal, acheg, aconc, aauto) = A
-        (bid, bnum, bcav, bcar, bdt, bctrb, bsaida) = B
+        (aid, anum, astatus, acav, acar, adt, actrb, acont, alocal, acheg, aconc, aauto, amot, asaida) = A
+        (bid, bnum, bcav, bcar, bdt, bctrb, bsaida, bstatus, bcont, brobo) = B
+        # REEMISSÃO TARDIA (EMBARQUES_REEMISSAO_TARDIA): B já cancelada e ligada a A = feito (idempotente). E o
+        # par que já estava ligado como continuação de hub é revisitado UMA vez pela regra — sem isto a ligação
+        # antiga ficaria de pé, e reabrir A sem ela faria esta mesma função religar A → B na rodada seguinte.
+        if tardia_on and bstatus == 'Cancelada' and bcont == aid:
+            continue
+        retro = False
+        if acont is not None or astatus == 'Cancelada':
+            if not (tardia_on and acont == bid and astatus == 'Continuada' and amot == 'continuou_no_hub'):
+                continue
+            retro = True
         if not acar or _pl.mercosul(acar) != _pl.mercosul(bcar or ''):
             n['transbordo (carreta trocou) — sem ligação'] += 1     # fora do desenho (§24)
             continue
@@ -345,6 +405,12 @@ def ligar_continuacoes(cur, ctrcs, ctrbs):
             mesma_rota = len(pontas) == 2 and pontas[0] == pontas[1] and pontas[0][0] is not None
         # fim da janela de A = a carreta saindo com B (ou o dia do manifesto B)
         fim = aconc or bsaida or datetime.combine(bdt, datetime.min.time())
+        if tardia_on and _pl.mercosul(acav or '') == _pl.mercosul(bcav or '') and dias > 1 and mesma_rota:
+            n.update(_reemitir_tarde(cur, (aid, anum, astatus, aconc, amot, asaida),
+                                     (bid, bnum, bstatus, brobo), retro, _log))
+            continue
+        if retro:
+            continue
         if _pl.mercosul(acav or '') == _pl.mercosul(bcav or '') and dias <= 1 and mesma_rota:
             novo, motivo = 'Cancelada', 'reemitido'
         elif _pl.mercosul(acav or '') != _pl.mercosul(bcav or ''):

@@ -411,11 +411,19 @@
     // §24 — a ligacao entre cargas. "→ C-B": esta carga acabou aqui e a mercadoria seguiu em B
     // (desengate: outro cavalo levou; continuacao: mesmo conjunto com manifesto novo; reemissao).
     // "← C-A": esta e a carga que veio de A. So B conta como entrega.
+    // Reemissão (13/10/26): a carga CANCELADA aponta para a que ficou com a viagem — é o mesmo transporte
+    // documentado de novo, não continuação. Até 1 dia a cancelada é a primeira; tardia, a segunda.
     if (c.continua_em && c.continua_em_numero) {
-      html += ` <a class="lig" href="/embarques/cargas/${c.continua_em}/mapa" target="_blank" title="A mercadoria seguiu nesta carga — é ela que entrega">→ ${c.continua_em_numero}</a>`;
+      const _tit = c.status === 'Cancelada'
+        ? 'Manifesto reemitido: esta carga foi cancelada — a viagem está nesta outra'
+        : 'A mercadoria seguiu nesta carga — é ela que entrega';
+      html += ` <a class="lig" href="/embarques/cargas/${c.continua_em}/mapa" target="_blank" title="${_tit}">→ ${c.continua_em_numero}</a>`;
     }
     if (c.continuacao_de_id && c.continuacao_de) {
-      html += ` <a class="lig" href="/embarques/cargas/${c.continuacao_de_id}/mapa" target="_blank" title="Continuação da carga anterior (desengate / manifesto novo)">← ${c.continuacao_de}</a>`;
+      const _tit = c.continuacao_de_reemissao
+        ? 'Reemissão: a carga ' + c.continuacao_de + ' é este mesmo transporte documentado de novo (cancelada)'
+        : 'Continuação da carga anterior (desengate / manifesto novo)';
+      html += ` <a class="lig" href="/embarques/cargas/${c.continuacao_de_id}/mapa" target="_blank" title="${_tit}">← ${c.continuacao_de}${c.continuacao_de_reemissao ? ' (reemissão)' : ''}</a>`;
     }
     if (c.entregue_auto && c.status === 'Entregue') {
       html += ` <span style="color:var(--yellow);font-size:0.85em;cursor:help;" title="Entrega detectada automaticamente">⚡</span>`;

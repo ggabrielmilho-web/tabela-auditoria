@@ -80,8 +80,15 @@ CARGAS = cur.fetchall()
 
 # indice: proxima carga de cada placa (serve de "manifesto novo", ja que 1 carga = 1 manifesto)
 prox_carreta, prox_cavalo = defaultdict(list), defaultdict(list)
+# Carga CANCELADA nao e "manifesto novo": o motor nem a le (o SELECT dele tem status <> 'Cancelada'), entao o
+# teto dele nunca para nela. Com a reemissao tardia (13/10/26) a B cancelada fica DEPOIS da A, e o teto daqui
+# cortava a janela da A no dia da B — C-2026-001417 com a chegada de 11/10 (metropole) contra 13/10 (estrita)
+# do motor, e um F4 fantasma. Atras da chave, para o E0 seguir byte a byte.
+_sem_cancelada = _ec.reemissao_tardia_ligada()
 for r in CARGAS:
     if r[18]:
+        continue
+    if _sem_cancelada and r[2] == 'Cancelada':
         continue
     if r[15]:
         prox_carreta[pl.mercosul(r[15])].append((r[6], r[1]))
@@ -556,6 +563,8 @@ _regr = Counter()
 for num, quem, de, para, quando in cur.fetchall():
     a, b = ORDEM_STATUS.get(_st(de)), ORDEM_STATUS.get(_st(para))
     if 'manifesto voltou' in str(para or ''):     # retratacao deliberada da reconciliacao, nao briga
+        continue
+    if 'reemissão tardia' in str(para or ''):     # a carga A volta a ser a viagem (EMBARQUES_REEMISSAO_TARDIA)
         continue
     if a is not None and b is not None and b < a:
         _regr[num] += 1

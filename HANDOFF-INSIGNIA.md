@@ -1064,3 +1064,28 @@ destino do worker pela `embarques_regua.saida_do_destino`; a C-1525 travada porq
 de sair do cliente, ainda dentro dos 30 km (a conclusão certa seria o fim da parada no cliente, pela GR); escopo
 `todas` sem gravar: +6 cargas F/A pelo cavalo da Insignia, +3 com a carreta congelada (falta o gate completo);
 item 8 medido: só C-1218 → C-1267 e C-1417 → C-1525 caem na regra (C-1497 → C-1535 é controle negativo).
+
+### 18.7 Item 8 — reemissão tardia (`EMBARQUES_REEMISSAO_TARDIA`), decisão (a) do Gabriel
+
+**Regra** (`embarques_continuacao.ligar_continuacoes`, no mesmo laço da continuação — fora dele a ligação antiga
+religaria A → B na rodada seguinte): mesmo cavalo + mesma carreta + mesma rota de CTRB + mais de 1 dia → a B vira
+`Cancelada (reemissao_tardia)` com `continua_em` = A; a A fica como a viagem. Par que já estava `Continuada
+(continuou_no_hub)` é revisitado uma vez: A volta a `Em rota` (com saída) ou `Aberta`, sem ligação e sem a
+conclusão que a ligação gravou, e o motor deriva o resto. Direção oposta à reemissão de até 1 dia (A cancelada →
+B), de propósito. Carga editada à mão não é tocada. Medido desde 27/08: só C-1218 → C-1267 e C-1417 → C-1525
+caem na regra; C-1497 → C-1535 (rota diferente) segue `Continuada`.
+
+**Telas (sem chave):** carga apontada por uma `Cancelada` de reemissão mostra "← C-X (reemissão)" / "Reemissão
+(cancelada)"; a cancelada mostra "Reemitida em". Antes, a reemissão de até 1 dia já aparecia como "Continuação de".
+
+**Gates** (clones da produção de agora, robô diário REAL): E0 do robô 0 diferenças em 1.161 cargas e do aferidor
+byte a byte; ligado, só as 4 cargas do item mudam; ciclo com ponto fixo na rodada 1; aferidor 710 → 706 (0 entra;
+o R1 ignora a reabertura e, atrás da chave, o índice de "próxima carga" do aferidor deixa de contar `Cancelada`,
+como o do motor); telas: C-1218 3 → 782 km, C-1417 1.136 → 1.492 km. A C-1417 fica `No destino` sem conclusão — o
+Onixsat do TTL7H85 calou dentro dos 30 km (o problema da C-1525 passa para ela).
+
+**Subir:** deploy inerte → `grep -c "def reemissao_tardia_ligada" embarques_continuacao.py` = 1 no container →
+snapshot → `--env-add EMBARQUES_REEMISSAO_TARDIA=true`. A 1ª rodada do diário converte C-1417 → C-1525 (o CTe está
+na janela). C-1218 → C-1267 (CTe de 28/09) só por chamada avulsa do `ligar_continuacoes` com a janela de CTe desde
+26/09 — **nunca** `executar` com dia antigo (cria carga velha). Volta: chave false + restore por id
+(`--desde-log`), porque a reabertura não se desfaz sozinha.

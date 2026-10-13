@@ -375,14 +375,20 @@
         (c.desengatada_em ? fmtData(c.desengatada_em) : '—') +
         (c.desengate_local === 'patio' ? ' · no pátio (longe do destino)' : c.desengate_local === 'destino' ? ' · no destino' : '');
     }
+    // Reemissão (13/10/26): a carga CANCELADA aponta para a que ficou com a viagem; não é continuação.
     if (ligada && c.continua_em_numero) {
+      const reemitida = c.status === 'Cancelada';
       document.getElementById('rowContinuaEm').style.display = '';
+      document.querySelector('#rowContinuaEm .k').textContent = reemitida ? 'Reemitida em' : 'Continua em';
       document.getElementById('iContinuaEm').innerHTML =
         `<a href="/embarques/cargas/${c.continua_em}/mapa" style="color:var(--accent);">${c.continua_em_numero} ↗</a>`;
-      document.getElementById('iDataChegada').innerHTML = '<span title="Esta carga não chegou ao destino: a mercadoria seguiu na carga ligada">— (segue em ' + c.continua_em_numero + ')</span>';
+      document.getElementById('iDataChegada').innerHTML = reemitida
+        ? '<span title="Manifesto reemitido: esta carga foi cancelada e a viagem está na carga ligada">— (cancelada: viagem em ' + c.continua_em_numero + ')</span>'
+        : '<span title="Esta carga não chegou ao destino: a mercadoria seguiu na carga ligada">— (segue em ' + c.continua_em_numero + ')</span>';
     }
     if (c.continuacao_de && c.continuacao_de_id) {
       document.getElementById('rowContinuacaoDe').style.display = '';
+      document.querySelector('#rowContinuacaoDe .k').textContent = c.continuacao_de_reemissao ? 'Reemissão (cancelada)' : 'Continuação de';
       document.getElementById('iContinuacaoDe').innerHTML =
         `<a href="/embarques/cargas/${c.continuacao_de_id}/mapa" style="color:var(--accent);">${c.continuacao_de} ↗</a>`;
     }

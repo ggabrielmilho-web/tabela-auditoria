@@ -7025,10 +7025,12 @@ def api_embarques_cargas_list():
                c.continua_em, c.desengate_local,
                (SELECT b.numero FROM embarques_cargas b WHERE b.id = c.continua_em) AS continua_em_numero,
                (SELECT a.numero FROM embarques_cargas a WHERE a.continua_em = c.id ORDER BY a.id LIMIT 1) AS continuacao_de,
-               (SELECT a.id FROM embarques_cargas a WHERE a.continua_em = c.id ORDER BY a.id LIMIT 1) AS continuacao_de_id,"""
+               (SELECT a.id FROM embarques_cargas a WHERE a.continua_em = c.id ORDER BY a.id LIMIT 1) AS continuacao_de_id,
+               (SELECT a.status = 'Cancelada' AND a.encerrada_motivo IN ('reemitido', 'reemissao_tardia')
+                  FROM embarques_cargas a WHERE a.continua_em = c.id ORDER BY a.id LIMIT 1) AS continuacao_de_reemissao,"""
                if _lig else """
                NULL::int AS continua_em, NULL::text AS desengate_local, NULL::text AS continua_em_numero,
-               NULL::text AS continuacao_de, NULL::int AS continuacao_de_id,""")
+               NULL::text AS continuacao_de, NULL::int AS continuacao_de_id, NULL::boolean AS continuacao_de_reemissao,""")
     # Ordem de coleta / embarcador / local (15/09/26): idem — só cita as colunas quando existem.
     import embarques_coleta as _co
     _c15 = get_db(); _cur15 = _c15.cursor(); _col = _co.colunas_existem(_cur15); _cur15.close(); _c15.close()
@@ -7243,14 +7245,18 @@ def api_embarques_carga_detail(carga_id):
         # §24 — a ligacao entre cargas (numero da carga seguinte / anterior)
         import embarques_continuacao as _ec
         carga['continua_em_numero'] = carga['continuacao_de'] = carga['continuacao_de_id'] = None
+        carga['continuacao_de_reemissao'] = None
         if _ec.ativo(cur):
             if carga.get('continua_em'):
                 cur.execute("SELECT numero FROM embarques_cargas WHERE id=%s", (carga['continua_em'],))
                 r = cur.fetchone(); carga['continua_em_numero'] = r[0] if r else None
-            cur.execute("SELECT id, numero FROM embarques_cargas WHERE continua_em=%s ORDER BY id LIMIT 1", (carga_id,))
+            # quem aponta para esta carga pode ser a mesma viagem documentada de novo (Cancelada por
+            # reemissão — de até 1 dia ou tardia, 13/10/26), e não uma continuação: a tela diz qual
+            cur.execute("""SELECT id, numero, status = 'Cancelada' AND encerrada_motivo IN ('reemitido', 'reemissao_tardia')
+                             FROM embarques_cargas WHERE continua_em=%s ORDER BY id LIMIT 1""", (carga_id,))
             r = cur.fetchone()
             if r:
-                carga['continuacao_de_id'], carga['continuacao_de'] = r[0], r[1]
+                carga['continuacao_de_id'], carga['continuacao_de'], carga['continuacao_de_reemissao'] = r
         if carga.get('desengatada_em') and not isinstance(carga['desengatada_em'], str):
             carga['desengatada_em'] = carga['desengatada_em'].isoformat()
         cur.close(); conn.close()
@@ -8269,17 +8275,18 @@ def api_rastreamento_trajeto(carga_id):
         # §24 — a ligação entre cargas, para o card do mapa (este endpoint monta o dict à mão)
         import embarques_continuacao as _ec
         carga.update({'continua_em': None, 'continua_em_numero': None, 'desengate_local': None,
-                      'continuacao_de': None, 'continuacao_de_id': None})
+                      'continuacao_de': None, 'continuacao_de_id': None, 'continuacao_de_reemissao': None})
         if _ec.ativo(cur):
             cur.execute("SELECT c.continua_em, c.desengate_local, b.numero FROM embarques_cargas c "
                         "LEFT JOIN embarques_cargas b ON b.id = c.continua_em WHERE c.id=%s", (carga_id,))
             _l = cur.fetchone()
             if _l:
                 carga['continua_em'], carga['desengate_local'], carga['continua_em_numero'] = _l
-            cur.execute("SELECT id, numero FROM embarques_cargas WHERE continua_em=%s ORDER BY id LIMIT 1", (carga_id,))
+            cur.execute("""SELECT id, numero, status = 'Cancelada' AND encerrada_motivo IN ('reemitido', 'reemissao_tardia')
+                             FROM embarques_cargas WHERE continua_em=%s ORDER BY id LIMIT 1""", (carga_id,))
             _a = cur.fetchone()
             if _a:
-                carga['continuacao_de_id'], carga['continuacao_de'] = _a
+                carga['continuacao_de_id'], carga['continuacao_de'], carga['continuacao_de_reemissao'] = _a
 
         cur.execute("""
             SELECT ordem, cidade, uf, latitude, longitude, data_agendamento
@@ -8825,6 +8832,7 @@ def api_rastreamento_trajeto(carga_id):
                 'desengate_local': carga.get('desengate_local'),
                 'continuacao_de': carga.get('continuacao_de'),
                 'continuacao_de_id': carga.get('continuacao_de_id'),
+                'continuacao_de_reemissao': carga.get('continuacao_de_reemissao'),
             },
             'origem': origem,
             'destinos': destinos,
