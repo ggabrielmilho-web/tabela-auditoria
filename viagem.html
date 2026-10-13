@@ -167,7 +167,7 @@
   .col-dir { position: sticky; top: 12px; }
 
   /* ── dinheiro ───────────────────────────────────────────────────────── */
-  .resumo-din { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+  .resumo-din { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
   .rd { border-radius: 12px; padding: 12px 14px; background: var(--surface2); border: 1px solid var(--border); min-width: 0; }
   .rd b { display: block; font-size: .62rem; text-transform: uppercase; letter-spacing: .09em; color: var(--text-faint); font-weight: 700; }
   .rd .v { font-family: 'JetBrains Mono', monospace; font-size: 1.38rem; font-weight: 600; margin: 6px 0 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -904,13 +904,11 @@ function dinheiro(m) {
   const barra = fatias.map(f => `<i style="width:${(100 * f.v / base).toFixed(2)}%;background:${f.cor}" title="${esc(f.rot)} ${brl(f.v)}"></i>`).join('')
     + (!so && res > 0 ? `<i style="width:${(100 * res / base).toFixed(2)}%;background:linear-gradient(90deg,#34d399,#10b981)" title="Resultado ${brl(res)}"></i>` : '');
   const resumo = so ? `<div class="nota-capa aviso" style="margin-bottom:12px">A receita do CTe desta carga conta na viagem ${m.continuacao_de.map(n => `<a class="mono" href="/viagem/${encodeURIComponent(n)}">${esc(n)}</a>`).join(', ')} — lá estão a receita e o custo dos dois caminhões. Aqui, só o custo desta carga.</div>
-    <div class="resumo-din"><div class="rd"><b>Custo desta carga</b><div class="v">${money(m.custo_operacional)}</div><div class="s">operacional</div></div>
-    <div class="rd"><b>Financiamento</b><div class="v">${money(m.financiamento)}</div><div class="s">cavalo e carreta</div></div></div>` : `
+    <div class="resumo-din"><div class="rd"><b>Custo desta carga</b><div class="v">${money(m.custo_operacional)}</div><div class="s">operacional</div></div></div>` : `
     <div class="resumo-din">
       <div class="rd"><b>Receita</b><div class="v">${money(r.total)}</div><div class="s">${(BI.documentos.ctes || []).filter(c => !c.conta_em).length} CTe(s)${r.complementos ? ` + ${brl(r.complementos, 0)} compl.` : ''}</div></div>
       <div class="rd"><b>Custo operacional</b><div class="v">${money(m.custo_operacional)}</div><div class="s">${pct(r.total ? m.custo_operacional / r.total : null)} da receita</div></div>
       <div class="rd res${neg ? ' neg' : ''}"><b>Resultado</b><div class="v ${neg ? 'neg' : 'pos'}">${money(res)}</div><div class="s">margem ${pct(m.margem)}</div></div>
-      <div class="rd"><b>Após financiamento</b><div class="v ${m.resultado_apos_financiamento < 0 ? 'neg' : ''}">${money(m.resultado_apos_financiamento)}</div><div class="s">financiamento ${brl(m.financiamento, 0)}</div></div>
     </div>`;
   const leg = fatias.map(f => `<span><i style="background:${f.cor}"></i>${esc(f.rot)} <b class="mono">${brl(f.v, 0)}</b></span>`).join('')
     + (!so && res > 0 ? `<span><i style="background:#34d399"></i>resultado <b class="mono">${brl(res, 0)}</b></span>` : '')
@@ -996,7 +994,7 @@ function composicao(m) {
     t.itens.forEach(it => {
       if (it.tipo === 'frota') {
         linha('item', `Custo da frota · R$ ${n2(it.rkm)}/km × ${n0(it.km)} km de rota <span class="faint mono">${esc(it.cavalo || '')}${it.carreta ? ' + ' + esc(it.carreta) : ''}</span>`, brl(it.operacional));
-        const comps = Object.entries(it.componentes || {}).filter(([k]) => !['financiamento', 'fin_carreta'].includes(k)).sort((a, b) => b[1] - a[1]);
+        const comps = Object.entries(it.componentes || {}).sort((a, b) => b[1] - a[1]);
         out.push(`<tr class="det"><td colspan="2"><div class="comp-chips">${comps.map(([k, v]) => `<span>${esc(COMP[k] || k)} ${n0(v)}</span>`).join('')}</div></td></tr>`);
       } else {
         const c = it.composicao || {}, cc = it.conciliacao || {};
@@ -1016,11 +1014,7 @@ function composicao(m) {
     linha('sub', 'Chapa · carga e descarga <small>477, evento 5100</small>', brl(m.chapa.total));
     m.chapa.itens.forEach(x => linha('item', `${esc(x.fornecedor || '')} · <span class="faint">${esc(x.historico || '')}</span> · ${x.situacao} ${cal(x.data)}`, brl(x.valor)));
   }
-  if (!so) {
-    out.push(`<tr class="total"><td>Resultado</td><td class="v ${m.resultado < 0 ? 'neg' : 'pos'}">${brl(m.resultado)}</td></tr>`);
-    if (m.financiamento) linha('item', 'Financiamento de cavalo e carreta (fora do operacional)', '− ' + brl(m.financiamento));
-    out.push(`<tr class="total final"><td>Resultado após financiamento</td><td class="v ${m.resultado_apos_financiamento < 0 ? 'neg' : 'pos'}">${brl(m.resultado_apos_financiamento)}</td></tr>`);
-  } else if (m.financiamento) linha('item', 'Financiamento de cavalo e carreta', brl(m.financiamento));
+  if (!so) out.push(`<tr class="total final"><td>Resultado</td><td class="v ${m.resultado < 0 ? 'neg' : 'pos'}">${brl(m.resultado)}</td></tr>`);
   const aud = m.auditoria;
   const audTxt = aud && !so ? `<div class="cartao-in"><h4>Na Auditoria (por CTRB, receita rateada)</h4>
     <div style="font-size:.76rem;color:var(--text-dim)">${aud.por_trecho.map(a => `<span class="mono">${esc(curto(a.numero))}</span> receita ${brl(a.receita_rateada, 0)} − frete ${brl(a.frete_pago, 0)}`).join(' · ')}

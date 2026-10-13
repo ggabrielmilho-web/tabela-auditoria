@@ -1123,7 +1123,8 @@ def _documentos(dados, br, com_dinheiro):
 
 
 # ── o dinheiro ──────────────────────────────────────────────────────────────────────────────
-FINANCIAMENTO = ('financiamento', 'fin_carreta')
+# O financiamento do cavalo e da carreta é custo da viagem como os outros componentes (Gabriel,
+# 13/10/2026) — entra no custo e no resultado, sem linha "após financiamento".
 
 
 def _km_nosso(t, km_trechos):
@@ -1263,7 +1264,7 @@ def _dinheiro(dados, br, ctx, km_trechos):
             pernas.append({'numero': br['carga_de'].get(k) or m, 'papel': 'documental', 'manifesto': m,
                            'tipo': (aud_por[k][0]['tipo'] or '').capitalize(), 'km_planejado': None})
     meus = {_doc(c['cte']) for c in br['ctes']}
-    trechos, custo_op, financ = [], 0.0, 0.0
+    trechos, custo_op = [], 0.0
     bases_usadas = {}
     desm_ancora = None
     for i, t in enumerate(pernas):
@@ -1303,14 +1304,12 @@ def _dinheiro(dados, br, ctx, km_trechos):
                 for d in (cav_c, car_c):
                     for k_, v_ in d.items():
                         comp[k_] += v_
-                fin = sum(comp.get(k_, 0.0) for k_ in FINANCIAMENTO) * part
-                op = sum(v for k_, v in comp.items() if k_ not in FINANCIAMENTO) * part
+                op = sum(comp.values()) * part
                 itens.append({'tipo': 'frota', 'ctrb': a['ctrb'], 'km': km, 'rkm': round(op / (km * part), 2) if (km and part) else None,
                               'componentes': _escala({k_: v for k_, v in comp.items() if abs(v) >= 0.01}, part),
-                              'operacional': round(op, 2), 'financiamento': round(fin, 2), 'base_mes': mes,
+                              'operacional': round(op, 2), 'base_mes': mes,
                               'cavalo': a['cavalo'], 'carreta': a['carreta']})
                 sub += op
-                financ += fin
                 continue
             frete = _f(a['frete_pago'])
             pagos = pag_por.get(a['ctrb'], [])
@@ -1338,11 +1337,10 @@ def _dinheiro(dados, br, ctx, km_trechos):
                     cav_c, car_c = ctx['custo_viagem'](base, 'AGREGADO', pm(a['cavalo']), pm(a['carreta']), km,
                                                        _f(a['receita_rateada']))
                     extra = {k_: v * part for d in (cav_c, car_c) for k_, v in d.items() if abs(v) >= 0.01}
-                    extra_op = sum(v for k_, v in extra.items() if k_ not in FINANCIAMENTO)
+                    extra_op = sum(extra.values())
                     item['custo_rizza'] = {k_: round(v, 2) for k_, v in extra.items()}
                     item['custo_rizza_op'] = round(extra_op, 2)
                     sub += extra_op
-                    financ += sum(v for k_, v in extra.items() if k_ in FINANCIAMENTO)
                 if t['papel'] != 'documental':
                     item['desmembrado'] = _desmembra(oss, br['tipo_cavalo'].get(a['ctrb'], {}), km_nosso, fonte_km, km,
                                                      vazio if i == 0 else None, km_trechos)
@@ -1404,8 +1402,8 @@ def _dinheiro(dados, br, ctx, km_trechos):
                 'sobra': None if so_custo else _pk(resultado, km)}
 
     # R$/km dos dois lados (pedido de 09/10/2026): o que a viagem fatura e o que ela paga por km, e a
-    # sobra. "Pago" é o custo operacional (frete do agregado/terceiro, custo da frota, chapa,
-    # rastreador e carreta Rizza); o financiamento fica fora, como no resultado.
+    # sobra. "Pago" é o custo operacional (frete do agregado/terceiro, custo da frota com o
+    # financiamento, chapa, rastreador e carreta Rizza) — o mesmo do resultado.
     por_km = {'carregado': {**_linha_km(km_carr), 'fonte': km_carr_fonte},
               'com_vazio': {**_linha_km(km_carr + km_vazio), 'km_vazio': round(km_vazio), 'fonte_vazio': fonte_v}
               if km_vazio else None}
@@ -1417,10 +1415,9 @@ def _dinheiro(dados, br, ctx, km_trechos):
         'chapa': {'total': chapa, 'itens': [{'valor': _f(x['valor']), 'fornecedor': x['fornecedor'], 'data': x['pgto'],
                                              'situacao': _situacao_477(x.get('sit')),
                                              'historico': (x['historico'] or '')[:160]} for x in br['chapa']]},
-        'custo_operacional': round(custo_op, 2), 'financiamento': round(financ, 2),
+        'custo_operacional': round(custo_op, 2),
         'resultado': None if so_custo else resultado,
         'margem': round(resultado / receita, 4) if (receita and not so_custo) else None,
-        'resultado_apos_financiamento': None if so_custo else round(resultado - financ, 2),
         'km_carregado': round(km_carr), 'km_carregado_fonte': km_carr_fonte, 'km_vazio': round(km_vazio),
         'km_vazio_fonte': fonte_v,
         'rkm_carregado': round(receita / km_carr, 2) if (km_carr and not so_custo) else None,
