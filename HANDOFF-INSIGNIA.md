@@ -1,5 +1,7 @@
 # Handoff — Insignia GR (2ª fonte de rastreamento)
 
+**13/10/2026 (tarde) — §18.6:** saída e chegada pela parada da GR (`EMBARQUES_PARADAS_GR`), gates fechados.
+
 **Estado em 13/10/2026 — ⚠ COMECE PELA §18 (ONDE PARAMOS):** prints do Gabriel → 14 itens testados em lab
 (`_estudo_2026-10-13/LISTA_TESTES.md`); commitado atrás de chave: janela por veículo, SM desta carga, pacote 2 com a
 régua no aferidor, rótulo estável; sem chave: selo, KPI de 1 ponto, odômetro negativo. Decisões e próximos passos na §18.
@@ -1023,3 +1025,42 @@ O atemporal de produção olha 28 dias (15/09+): no lab, essa janela deu 16 carg
 - Os números das pernas novas (`V-…`) não são comparáveis entre clones: comparar pelo par "A -> B".
 - O ciclo do lab relê os scripts do disco a cada passo: não editar motor/régua/fontes/continuação com ele rodando.
 - `ciclo.py` do lab é o `rodar_pos_diario` sem o passo de rotas (o ORS não tem trava).
+
+### 18.6 Tarde de 13/10 — saída e chegada pela parada da GR (`EMBARQUES_PARADAS_GR`, itens 2 + 7 + 12)
+
+Lab `rizza_lab_1013t` (dump de 13/10 17:13 UTC, já com as 5 chaves da §18.4) + clones `_poff` / `_pon`. Detalhe,
+números e casos em `_estudo_2026-10-13/LISTA_TESTES.md` (seção "Tarde de 13/10").
+
+**A régua** (`fontes_gps`: `paradas_juntadas`, `cidade_da_parada`, `saida_pela_parada`, `chegada_pela_parada`,
+`paradas_valem`; motor e aferidor chamam a MESMA):
+- **saída** = fim da última parada (juntada) na cidade de origem antes do 1º ponto coletado — só quando o GPS não
+  deu saída, nunca viu a placa na origem e o 1º ponto está fora dela. Grava `saida_fonte = 'parada_gr'` (coluna
+  nova; criada pelo motor com `--aplicar` e pelo `garantir_colunas`, só com a chave).
+- **chegada** = início da 1ª parada na cidade de destino, quando a chegada do GPS É o 1º ponto coletado →
+  `no_local_fonte = 'parada_gr'`. Conclusão que era "chegada velha + 24 h" é reescrita.
+- Só placa que a série lê da Insignia (`_filtro_insignia`: hoje, cavalo de Terceiro); no aferidor, só onde o motor
+  aplica (do robô, não cancelada, sem ligação).
+- **Texto da parada**: Autotrac usa PONTO DE REFERÊNCIA ("2.59 KM SO DE PRE GOIANIA, GO - BRASIL ..."), o sufixo não
+  é a cidade → cidade desconhecida; Omnilink/Onixsat/Sascar usam endereço (sufixo = município). Parada de cidade
+  desconhecida no meio → a régua não decide (C-1510 ganharia uma saída 19 h errada).
+- A saída da GR mede o PONTO de carga; a do GPS, o raio de 30 km: onde as duas existem, a GR vem ~50 min antes
+  (mediana, 21 terceiros). Chegada: GR × GPS a 0–14 min (17 cargas).
+
+**Gates:** E0 idêntico byte a byte (motor + aferidor × `fd5ceec`, 27/08+); ciclo pós-diário `_poff` × `_pon`: ponto
+fixo na rodada 3 nos dois, 938 × 938 cargas, 0 perna nova, **12 cargas mudam, todas terceiros** (12 saídas, 4
+chegadas C-1426..1429, 2 conclusões C-1427/1428, C-1490 `Aberta → Em rota`); aferidor 720 → 708 (−12 V1, 0
+entra); telas (endpoint do mapa, 938 cargas): 0 diferenças.
+
+**Subir:** deploy inerte → `grep -c "def saida_pela_parada\|def chegada_pela_parada" fontes_gps.py` = 2 dentro do
+container → snapshot → `--env-add EMBARQUES_PARADAS_GR=true`. Conferência (§27.18 do HANDOFF-EMBARQUES):
+`docker exec -e EMBARQUES_PARADAS_GR=false $CT python -X utf8 _robo_atemporal.py ...` deve querer desfazer só as
+chegadas pela GR (saída o motor nunca apaga). Volta: chave false + restore pelo snapshot.
+⚠ Em 13/10 19:00 a variável foi posta em `true` ANTES do deploy (imagem sem o código = inerte). Com ela no
+serviço, o próximo deploy liga a chave junto — tirar (`--env-rm`) antes, ou snapshot novo imediatamente antes.
+
+**Achados da tarde que ficam para decisão** (detalhe na lista): o WORKER conclui a carga 1 min depois da chegada
+quando o caminhão para numa cidade vizinha dentro dos 20 km (nome mudou + > 5 km: C-1535, C-1511) — saída do
+destino do worker pela `embarques_regua.saida_do_destino`; a C-1525 travada porque o Onixsat calou 25 min depois
+de sair do cliente, ainda dentro dos 30 km (a conclusão certa seria o fim da parada no cliente, pela GR); escopo
+`todas` sem gravar: +6 cargas F/A pelo cavalo da Insignia, +3 com a carreta congelada (falta o gate completo);
+item 8 medido: só C-1218 → C-1267 e C-1417 → C-1525 caem na regra (C-1497 → C-1535 é controle negativo).

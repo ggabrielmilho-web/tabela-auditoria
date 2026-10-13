@@ -622,6 +622,11 @@ def garantir_colunas(cur):
     # `saida_auto`; a chegada era a unica sem lastro declarado.
     # O vocabulario e o MESMO da `embarques_regua` — uma linguagem so.
     cur.execute("ALTER TABLE embarques_cargas ADD COLUMN IF NOT EXISTS no_local_fonte VARCHAR(32);")
+    # De onde veio a SAÍDA (13/10/26): 'parada_gr' quando é o fim da parada da GR na cidade de origem
+    # (EMBARQUES_PARADAS_GR); NULL = a régua de sempre (GPS, worker ou lançamento à mão).
+    import fontes_gps as _fg
+    if _fg.paradas_gr_ligado():
+        cur.execute("ALTER TABLE embarques_cargas ADD COLUMN IF NOT EXISTS saida_fonte VARCHAR(32);")
     cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_cargas_manifesto_origem "
                 "ON embarques_cargas (manifesto_origem) WHERE manifesto_origem IS NOT NULL;")
     # Continuação/desengate de pátio (§24): colunas aditivas, só com a chave ligada.

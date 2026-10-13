@@ -63,6 +63,7 @@ SAIDA_PARADA_MIN = float(os.getenv('EMBARQUES_SAIDA_PARADA_MIN', '60'))
 VEL_MAX_CRIVEL = 100.0    # km/h medios: acima disso o par saida/chegada nao e a mesma viagem
 AUTOR = 'Robo atemporal'
 ROTULO_ESTAVEL = os.getenv('EMBARQUES_ROTULO_ESTAVEL', 'false').lower() in ('1', 'true', 'sim')
+PARADAS_GR = fontes_gps.paradas_gr_ligado()
 import re as _re
 
 
@@ -89,13 +90,28 @@ filtro = '' if A.tudo else 'AND COALESCE(c.criada_por_robo,FALSE)'
 # REESCREVERIA o status — 27 cargas oscilando por rodada no ensaio. Vazio com a chave desligada.
 import embarques_continuacao as _ec
 filtro += _ec.filtro_ativas(cur)
+# `saida_fonte` (EMBARQUES_PARADAS_GR, 13/10/26): de onde veio a saída gravada — 'parada_gr' quando é o fim da
+# parada da GR. Só é lida e gravada com a chave: desligada, a base e a leitura são as de sempre (E0). Estes
+# scripts não passam pelo `garantir_colunas` do robô diário (§22.8 nº 1), então a coluna nasce aqui com --aplicar.
+_SQL_SAIDA_FONTE = 'NULL::varchar'
+if PARADAS_GR:
+    cur.execute("SELECT 1 FROM information_schema.columns WHERE table_name = 'embarques_cargas' "
+                "AND column_name = 'saida_fonte'")
+    _tem_sf = cur.fetchone() is not None
+    if not _tem_sf and A.aplicar:
+        cur.execute("ALTER TABLE embarques_cargas ADD COLUMN IF NOT EXISTS saida_fonte VARCHAR(32)")
+        cn.commit()
+        _tem_sf = True
+    if _tem_sf:
+        _SQL_SAIDA_FONTE = 'c.saida_fonte'
 cur.execute(f"""SELECT c.id,c.numero,c.status,c.encerrada_motivo,COALESCE(c.entregue_auto,FALSE),
                        COALESCE(c.saida_auto,FALSE),c.data_carregamento,c.data_saida_real,
                        c.inicio_viagem,c.no_local_desde,c.data_conclusao,c.no_local_fonte,
                        c.origem_latitude,c.origem_longitude,c.cavalo_placa,c.carreta1_placa,
                        c.carreta2_placa,COALESCE(c.viagem_vazia,FALSE),
                        COALESCE(c.criada_por_robo,FALSE),c.distancia_planejada_km,
-                       d.latitude,d.longitude,d.cidade
+                       d.latitude,d.longitude,d.cidade,
+                       c.origem_cidade,c.origem_uf,d.uf,{_SQL_SAIDA_FONTE}
                   FROM embarques_cargas c
                   LEFT JOIN embarques_cargas_destinos d ON d.carga_id=c.id
                        AND d.ordem=(SELECT MIN(ordem) FROM embarques_cargas_destinos x WHERE x.carga_id=c.id)
@@ -115,7 +131,8 @@ _COL = {c: i for i, c in enumerate(
      'data_carregamento', 'data_saida_real', 'inicio_viagem', 'no_local_desde',
      'data_conclusao', 'no_local_fonte', 'origem_latitude', 'origem_longitude',
      'cavalo_placa', 'carreta1_placa', 'carreta2_placa', 'viagem_vazia',
-     'criada_por_robo', 'distancia_planejada_km', 'dest_lat', 'dest_lng', 'dest_cidade'))}
+     'criada_por_robo', 'distancia_planejada_km', 'dest_lat', 'dest_lng', 'dest_cidade',
+     'origem_cidade', 'origem_uf', 'dest_uf', 'saida_fonte'))}
 assert len(_COL) == len(CARGAS[0]), (
     'o SELECT e o mapa de colunas divergiram: %d x %d' % (len(_COL), len(CARGAS[0])))
 
@@ -201,7 +218,8 @@ def _pontas(pts_, ola, oln, dla, dln):
 mudancas, resumo, detalhe = [], Counter(), []
 
 for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal, dconc,
-     nolocal_fonte, ola, oln, cav, c1, c2, vazia, robo, dist_plan, dla, dln, dcid) in CARGAS:
+     nolocal_fonte, ola, oln, cav, c1, c2, vazia, robo, dist_plan, dla, dln, dcid,
+     ocid, ouf, duf, saida_fonte) in CARGAS:
 
     ini = datetime.combine(dcarg, _time()) - timedelta(hours=12)
     fim = min(HOJE, datetime.combine(dcarg, _time()) + timedelta(days=JANELA_FUTURO_D))
@@ -331,6 +349,25 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
                 else:
                     resumo['saida NAO corrigida: bloco implicaria velocidade impossivel'] += 1
 
+    # ── SAIDA PELA PARADA DA GR (EMBARQUES_PARADAS_GR, 13/10/26 — item 12 da lista de testes).
+    # A coleta da Insignia passou a seguir o cavalo DEPOIS de ele sair (documento, OC ou SM emitidos depois
+    # da saida: C-1484, C-1490, C-1506): a serie comeca longe da origem e o GPS nao tem saida para dar. A GR
+    # guarda as paradas dos 30 dias anteriores, e o fim da ultima parada na cidade de origem antes do 1o
+    # ponto e a saida (fontes_gps.saida_pela_parada — a mesma regua do aferidor). So preenche o que o GPS nao
+    # deu, e a fonte vai para `saida_fonte`: e outra medida (o ponto de carga, nao o raio de 30 km).
+    # `t_org is None`: o GPS NUNCA viu a placa na origem (a mesma pergunta do V1 do aferidor). Caminhao que
+    # vem de longe e esta carregando agora tem o 1o ponto longe tambem — e ali a parada antiga na cidade
+    # seria uma saida inventada.
+    _saida_gr = None
+    if (PARADAS_GR and n_saida is None and t_org is None and not vazia and sensor
+            and sensor.startswith('cavalo') and cav
+            and d_org and d_org[0][1] > RAIO_ORIGEM and fontes_gps.paradas_valem(cur, cav)):
+        _saida_gr = fontes_gps.saida_pela_parada(cur, cav, ocid, ouf, dcarg, pts[0][0],
+                                                 ate=_teto_veiculo(cav, dcarg, cid))
+        if _saida_gr:
+            n_saida = _saida_gr
+            resumo['saida pela parada da GR (coleta comecou fora da origem)'] += 1
+
 
     # ── CHEGADA: SO DEPOIS DE TER SAIDO.
     # A 1a versao varria a serie inteira e por isso gravou 18 cargas com chegada ANTERIOR a
@@ -425,6 +462,18 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
             else:
                 n_cheg, como_cheg = None, None
                 resumo['guarda de velocidade: chegada descartada (impossivel)'] += 1
+
+    # ── CHEGADA PELA PARADA DA GR (EMBARQUES_PARADAS_GR, 13/10/26 — item 2). A chegada do GPS E o 1o ponto
+    # coletado: a coleta comecou com o caminhao ja no destino, e o carimbo e o de quando passamos a ver, nao o
+    # de quando ele chegou (C-1426..1429: 7,8–14 h depois). A 1a parada da GR na cidade de destino entre a
+    # saida e esse ponto e a chegada — onde as duas existem juntas, batem a 0–14 min (17 cargas). So antecipa.
+    if (PARADAS_GR and n_cheg is not None and not vazia and sensor and sensor.startswith('cavalo') and cav
+            and n_cheg <= pts[0][0] + timedelta(minutes=1) and fontes_gps.paradas_valem(cur, cav)):
+        _c_gr = fontes_gps.chegada_pela_parada(cur, cav, dcid, duf, dcarg, piso, n_cheg,
+                                               dist_km=dist_plan, vel_max=VEL_MAX_CRIVEL)
+        if _c_gr and _c_gr < n_cheg:
+            n_cheg, como_cheg = _c_gr, 'parada_gr'
+            resumo['chegada pela parada da GR (coleta comecou no destino)'] += 1
 
     # ── ENTREGA: saiu do destino, ou ficou DWELL_H nele
     n_conc, n_motivo = None, None
@@ -646,12 +695,22 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
         # 15 min de tolerancia: a meia-noite documental chega com minutos de deriva (C-681: 10/09 00:05
         # contra o teto de 10/09 00:00) e nao e evidencia de outra viagem.
         _fora_veic = bool(_lim_conc and dconc > _lim_conc + timedelta(minutes=15) and n_conc <= _lim_conc)
+        # PERMANENCIA DA CHEGADA VELHA (EMBARQUES_PARADAS_GR, 13/10/26). A chegada foi antecipada pela parada
+        # da GR, e a conclusao gravada era "chegada VELHA + 24 h" (o 1o ponto coletado + 24 h). Nao e precisao a
+        # preservar: e um instante derivado de uma chegada que deixou de valer. C-2026-001428: chegada 14 h
+        # antes, conclusao presa em 09/10 12:23 pela guarda de 24 h, e o aferidor acusava F3.
+        _dwell_velho = (PARADAS_GR and como_cheg == 'parada_gr' and nolocal is not None
+                        and motivo == 'gps_dwell_destino' and n_conc != dconc
+                        and abs(dconc - (nolocal + timedelta(hours=DWELL_H))) <= timedelta(minutes=1))
         if _travada:
             campos['data_conclusao'] = n_conc
             resumo['conclusao travada na chegada: reescrita'] += 1
         elif _fora_veic:
             campos['data_conclusao'] = n_conc
             resumo['janela do veiculo: conclusao gravada era de carga seguinte (reescrita)'] += 1
+        elif _dwell_velho:
+            campos['data_conclusao'] = n_conc
+            resumo['conclusao era a permanencia da chegada velha (parada da GR): reescrita'] += 1
         elif erro_h > 24 and not (_dia and _tem_hora):     # recorte errado: corrige o instante
             campos['data_conclusao'] = n_conc
         elif erro_h > 1 and os.getenv('EMBARQUES_LAB_MEDIR_CONCLUSAO', 'false').lower() in ('1', 'true', 'sim'):
@@ -791,6 +850,13 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
                 campos.pop('no_local_desde', None)
                 resumo['vazia: chegada fora da janela — nao apurada'] += 1
 
+    # A FONTE da saida viaja com o instante, como a da chegada (`no_local_fonte`): 'parada_gr' quando o
+    # instante gravado e o da GR; NULL quando outra regua o reescreve (EMBARQUES_PARADAS_GR, 13/10/26).
+    if PARADAS_GR and 'data_saida_real' in campos:
+        _sf = 'parada_gr' if (_saida_gr is not None and campos['data_saida_real'] == _saida_gr) else None
+        if _sf != saida_fonte:
+            campos['saida_fonte'] = _sf
+
     if campos:
         mudancas.append((cid, num, campos, sensor, como_cheg))
         for k in campos:
@@ -841,11 +907,12 @@ if not A.aplicar:
 n = 0
 for cid, num, campos, sensor, como in mudancas:
     cur.execute("""SELECT status,data_saida_real,inicio_viagem,no_local_desde,data_conclusao,
-                          encerrada_motivo,saida_auto,entregue_auto,no_local_fonte
+                          encerrada_motivo,saida_auto,entregue_auto,no_local_fonte"""
+                + (',saida_fonte' if PARADAS_GR else '') + """
                      FROM embarques_cargas WHERE id=%s""", (cid,))
     antes = dict(zip(['status', 'data_saida_real', 'inicio_viagem', 'no_local_desde',
                       'data_conclusao', 'encerrada_motivo', 'saida_auto', 'entregue_auto',
-                      'no_local_fonte'],
+                      'no_local_fonte'] + (['saida_fonte'] if PARADAS_GR else []),
                      cur.fetchone()))
     sets = ', '.join(f'{k}=%s' for k in campos)
     cur.execute(f"UPDATE embarques_cargas SET {sets}, atualizado_em=NOW() WHERE id=%s",

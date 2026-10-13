@@ -48,6 +48,7 @@ GAP_ALERTA_H = 24.0      # buraco de sinal que compromete o julgamento
 PARADA_ABERTA_D = 5      # carga aberta sem sair da origem ha N dias
 HORIZONTE_D = 14         # depois disso a evidencia nao muda mais
 VEL_MAX_CRIVEL = 100.0   # km/h medios: acima disso o par saida/chegada nao descreve a viagem
+PARADAS_GR = fontes_gps.paradas_gr_ligado()   # saida/chegada pela parada da GR (13/10/26) — a regua do motor
 
 ap = argparse.ArgumentParser()
 ap.add_argument('--desde', default='2026-08-01')
@@ -69,7 +70,7 @@ cur.execute("""SELECT c.id,c.numero,c.status,c.encerrada_motivo,COALESCE(c.entre
                       c.rota_planejada_polyline IS NOT NULL,COALESCE(c.criada_por_robo,FALSE),
                       """ + ('c.continua_em, c.desengate_local,' if _ec.ativo(cur) else 'NULL::int, NULL::text,') + """
                       c.distancia_planejada_km,
-                      d.cidade,d.uf,d.latitude,d.longitude,c.no_local_fonte
+                      d.cidade,d.uf,d.latitude,d.longitude,c.no_local_fonte,c.origem_uf
                  FROM embarques_cargas c
                  LEFT JOIN embarques_cargas_destinos d ON d.carga_id=c.id
                       AND d.ordem=(SELECT MIN(ordem) FROM embarques_cargas_destinos x WHERE x.carga_id=c.id)
@@ -138,7 +139,7 @@ def add(num, cod, grav, msg, extra=''):
 
 for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal, dconc,
      ocid, ola, oln, cav, c1, c2, man, vazia, tem_rota, robo, cont_em, des_local, dist_plan, dcid, duf, dla, dln,
-     nolocal_fonte) in CARGAS:
+     nolocal_fonte, ouf) in CARGAS:
 
     base = datetime.combine(dcarg, _time()) - timedelta(hours=12)
     # MESMA janela do motor (_robo_atemporal.JANELA_FUTURO_D). Enquanto o auditor cortava em
@@ -227,6 +228,12 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
     _P_ORG = (float(ola), float(oln)) if ola is not None else None
     _P_DST = (float(dla), float(dln)) if dla is not None else None
 
+    # A regua das paradas da GR (EMBARQUES_PARADAS_GR, 13/10/26) so vale onde o MOTOR a aplica: carga do robo,
+    # nao cancelada, sem ligacao, perna vazia nao, sensor = o cavalo. Fora disso o aferidor julgaria por uma
+    # saida que ninguem grava (C-2026-001436, reemitida como C-1444: V1 virava um C1 eterno).
+    _gr_vale = (PARADAS_GR and papel == 'cavalo' and not vazia and robo and cont_em is None
+                and status not in ('Cancelada', 'Continuada'))
+
     # ── VINCULO com a origem
     piso = None            # instante a partir do qual uma chegada e crivel (mesma regra do motor)
     if ola is not None:
@@ -239,7 +246,21 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
             horas_o = ((perto_o[-1][0] - perto_o[0][0]).total_seconds()/3600
                        if len(perto_o) > 1 else 0.0)
             esteve = mino <= RAIO_ORIGEM or (mino <= RAIO_METRO and horas_o >= PARADA_MIN_H)
-            if not esteve:
+            # SAIDA PELA PARADA DA GR (EMBARQUES_PARADAS_GR, 13/10/26) — a regua do motor
+            # (fontes_gps.saida_pela_parada): a coleta comecou com o cavalo ja fora da origem, e a GR diz
+            # quando ele deixou a cidade. Nao e "nunca esteve na origem" (V1): e presenca provada por outra
+            # fonte, e a saida vira o piso da chegada, como no motor.
+            _saida_gr = None
+            if (not esteve and _gr_vale and d0[0][1] > RAIO_ORIGEM and fontes_gps.paradas_valem(cur, cav)):
+                _saida_gr = fontes_gps.saida_pela_parada(
+                    cur, cav, ocid, ouf, dcarg, principal[0][0],
+                    ate=regua.teto_veiculo(_por_veic, pl.mercosul(cav or ''), dcarg, cid))
+            if _saida_gr:
+                piso = _saida_gr
+                if not dsaida:
+                    add(num, 'C1', 'media', f'saiu da origem em {str(_saida_gr)[:16]} (parada da GR) '
+                                            f'e a saida NAO foi gravada')
+            elif not esteve:
                 # o cavalo esteve la? entao a carreta do documento e que esta errada
                 dc = dists(pc, float(ola), float(oln), _P_DST) if pc else []
                 quem = ('so o CAVALO esteve na origem — carreta errada no documento'
@@ -324,6 +345,14 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
         dd_cav = [(d, k, v) for d, k, v in dists(pc, float(dla), float(dln), _P_ORG)
                   if (piso_c is None or d >= piso_c) and (teto is None or d <= teto)]
         cheg, como = regua.chegada_emprestada(cheg, como, dd, dd_cav)
+    # CHEGADA PELA PARADA DA GR (EMBARQUES_PARADAS_GR, 13/10/26) — a regua do motor: a chegada do GPS e o
+    # 1o ponto coletado (a coleta comecou no destino), e a 1a parada da GR na cidade de destino e a chegada.
+    if (_gr_vale and cheg is not None
+            and cheg <= principal[0][0] + timedelta(minutes=1) and fontes_gps.paradas_valem(cur, cav)):
+        _c_gr = fontes_gps.chegada_pela_parada(cur, cav, dcid, duf, dcarg, piso, cheg,
+                                               dist_km=dist_plan, vel_max=VEL_MAX_CRIVEL)
+        if _c_gr and _c_gr < cheg:
+            cheg, como = _c_gr, 'parada_gr'
     mind = min(k for _, k, v in dd)
 
     # ── CICLO: chegada

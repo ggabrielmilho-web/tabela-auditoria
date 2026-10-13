@@ -23,6 +23,7 @@ O odômetro da Insignia sai NULL, a não ser com `EMBARQUES_FONTE_INSIGNIA_ODOME
 por tecnologia, sem as leituras zeradas e sem placa de odômetro travado (`_sql_odometro`).
 """
 import os
+import re
 from datetime import timedelta
 
 import placas as pl
@@ -460,3 +461,143 @@ def tem_sm(cur, cavalo, carreta, dia, origem=None):
                       AND (COALESCE(inicio, criada_em) - interval '3 hours')::date BETWEEN %s AND %s""",
                 (cav or '', cav or '', car or '', car or '', dia - timedelta(days=2), dia + timedelta(days=2)))
     return any(_sm_origem_ok(la, ln, origem) for la, ln in cur.fetchall())
+
+
+# ── PARADAS DA GR COMO FONTE DE SAÍDA E DE CHEGADA (13/10/26, itens 2 + 12) ──────────────────────
+
+def paradas_gr_ligado():
+    """`EMBARQUES_PARADAS_GR=true` (13/10/26): a parada da GR dá a SAÍDA e a CHEGADA que o GPS não pôde
+    ver porque a coleta da Insignia começou DEPOIS do evento. Decisão do Gabriel (13/10):
+      * saída  = fim da ÚLTIMA parada na cidade de origem antes do 1º ponto coletado;
+      * chegada = início da 1ª parada na cidade de destino, quando a chegada do GPS é o 1º ponto.
+    Medido no dump de 13/10 17:13: 11 de 13 terceiros sem saída ganham saída; nas 17 cargas em que a
+    chegada do GPS e a 1ª parada na cidade de destino existem, as duas batem a 0–14 min; nas 4 com a
+    chegada carimbada no 1º ponto (C-1426..1429) a GR a põe 7,8–14 h antes. Exige a fonte ligada."""
+    return ligado() and os.getenv('EMBARQUES_PARADAS_GR', 'false').strip().lower() == 'true'
+
+
+_RE_REFERENCIA = re.compile(r'^\s*\d+(?:[.,]\d+)?\s*KM\s+[A-Z]+\s+DE\s')
+_RE_CIDADE_UF = re.compile(r'(.+)-([A-Z]{2})$')
+
+
+def cidade_da_parada(local):
+    """('JAPERI', 'RJ') a partir do texto da parada da GR, ou None quando o texto NÃO diz a cidade.
+
+    São dois formatos, e a tecnologia decide qual (medido em 13/10 nas paradas desde 01/10):
+      * ENDEREÇO — Omnilink, Onixsat, Sascar: 'Rua C. Rodrigues de Andrade - JAPERI - RJ - JAPERI-RJ'. O
+        sufixo CIDADE-UF é o município;
+      * PONTO DE REFERÊNCIA — Autotrac (9.776 de 9.868): '2.59 KM SO DE PRE GOIANIA, GO - BRASIL, 0.00 KM/H -
+        PRE GOIANIA-GO'. O sufixo é o ponto de referência ('PRE GOIANIA', 'AEROPORTO DE GOIANIA', 'POSTO BOA
+        VIAGEM'), não a cidade. Lido como cidade, a C-2026-001510 ganhava a saída de uma parada 'DE GOIANIA'
+        do dia ANTERIOR — 19 h antes da real, carregada em 'PRE GOIANIA'. Aqui vira cidade desconhecida."""
+    import geocoding as g
+    t = g.normalizar_cidade(local)
+    if not t or _RE_REFERENCIA.match(t):
+        return None
+    m = _RE_CIDADE_UF.match(re.split(r'\s*-\s+', t)[-1].strip())
+    return (m.group(1).strip(), m.group(2)) if m else None
+
+
+def paradas_juntadas(cur, placa, ini, fim):
+    """Paradas da GR da placa que tocam [ini, fim], com as linhas SOBREPOSTAS juntadas: [(inicio, fim, cidade)].
+
+    A coleta busca as paradas de hora em hora e a GR devolve a parada EM CURSO com o início deslizando a
+    cada busca — a mesma parada longa vira várias linhas sobrepostas (item 7 da lista de 13/10: 12% das
+    linhas). A tabela fica como está (é fato bruto, como a posição — §23.2 do HANDOFF-EMBARQUES); juntar é
+    papel de quem lê. A cidade é a da primeira linha: linha sobreposta é o mesmo lugar."""
+    chave = pl.mercosul(placa or '')
+    if not chave:
+        return []
+    if 'paradas' not in _TABELAS:
+        cur.execute("SELECT to_regclass('insignia_paradas') IS NOT NULL")
+        _TABELAS['paradas'] = bool(cur.fetchone()[0])
+    if not _TABELAS['paradas']:
+        return []
+    cur.execute("""SELECT inicio, COALESCE(fim, inicio), local_inicio FROM insignia_paradas
+                    WHERE placa_chave = %s AND COALESCE(fim, inicio) >= %s AND inicio <= %s
+                    ORDER BY inicio""", (chave, ini, fim))
+    out = []
+    for i, f, loc in cur.fetchall():
+        if out and i <= out[-1][1]:
+            out[-1][1] = max(out[-1][1], f)
+        else:
+            out.append([i, f, cidade_da_parada(loc)])
+    return [tuple(x) for x in out]
+
+
+def paradas_valem(cur, placa):
+    """A parada da GR pode decidir esta placa? Chave ligada e a placa é das que a série lê da Insignia
+    (`_filtro_insignia`: a 3S não a rastreia e está no escopo). Placa da 3S tem a série da 3S, que
+    começa antes e vê o evento — a régua das paradas não é para ela."""
+    if not (paradas_gr_ligado() and _tem_insignia(cur)):
+        return False
+    chave = pl.mercosul(placa or '')
+    if not chave:
+        return False
+    cur.execute(f"SELECT EXISTS (SELECT 1 FROM insignia_placas i WHERE i.placa_chave = %s AND {_filtro_insignia()})",
+                (chave,))
+    return bool(cur.fetchone()[0])
+
+
+def _piso_do_dia(dia_carga):
+    """00:00 de Brasília do dia ANTERIOR ao carregamento, em UTC (as paradas são gravadas em UTC)."""
+    from datetime import datetime, time
+    return datetime.combine(dia_carga, time()) - timedelta(hours=21)
+
+
+def saida_pela_parada(cur, placa, cidade, uf, dia_carga, primeiro_ponto, ate=None):
+    """Fim da ÚLTIMA parada na cidade de origem antes do 1º ponto coletado, ou None.
+
+    Para quem chama: só quando o GPS não deu saída e a série começa com o caminhão JÁ FORA da origem — a
+    coleta da Insignia passou a seguir o cavalo depois de ele sair (documento, OC ou SM emitidos depois da
+    saída: C-1484, C-1490, C-1506). Mede outra coisa que a saída do GPS: a GR marca quando o caminhão
+    deixou o PONTO de carga, o GPS quando deixou o raio de 30 km. Onde as duas existem (21 terceiros), a da
+    GR vem antes — mediana 50 min; 15 de 21 a até 1 h; as mais longas são o GPS contando a parada num posto
+    dentro dos 30 km (C-1504: saiu de Extrema 06:04, posto em Bragança até 08:54, GPS 09:09).
+
+    Parada de cidade DESCONHECIDA depois da escolhida (ponto de referência do Autotrac) = não dá para dizer
+    que o caminhão ainda estava na origem: None. Silêncio, não palpite."""
+    import geocoding as g
+    alvo = (g.normalizar_cidade(cidade), (uf or '').strip().upper())
+    if not alvo[0] or not primeiro_ponto:
+        return None
+    ini = _piso_do_dia(dia_carga)
+    fim = min(primeiro_ponto, ate) if ate else primeiro_ponto
+    if fim <= ini:
+        return None
+    ps = [p for p in paradas_juntadas(cur, placa, ini, fim) if ini <= p[1] <= fim]
+    idx = [k for k, p in enumerate(ps) if p[2] == alvo]
+    if not idx or any(p[2] is None for p in ps[idx[-1] + 1:]):
+        return None
+    return ps[idx[-1]][1]
+
+
+def chegada_pela_parada(cur, placa, cidade, uf, dia_carga, piso, ate, dist_km=None, vel_max=None):
+    """Início da 1ª parada na cidade de destino entre `piso` (a saída; sem ela, 00:00 BRT do dia anterior ao
+    carregamento) e `ate` (o 1º ponto coletado), ou None.
+
+    Para quem chama: só quando a chegada do GPS É o 1º ponto — a coleta começou com o caminhão já no
+    destino (trava antiga de 08/10: C-1426..1429 com a chegada 7,8–14 h depois da real). Onde a chegada do
+    GPS e a parada existem juntas, batem a 0–14 min (17 cargas): a régua é a mesma "chegou na cidade".
+
+    Parada de cidade DESCONHECIDA antes da escolhida pode ser a própria chegada: None. Com `dist_km` e
+    `vel_max`, a chegada tem de ser fisicamente possível a partir do piso (a mesma guarda do motor)."""
+    import geocoding as g
+    alvo = (g.normalizar_cidade(cidade), (uf or '').strip().upper())
+    if not alvo[0] or not ate:
+        return None
+    ini = max(piso, _piso_do_dia(dia_carga)) if piso else _piso_do_dia(dia_carga)
+    if ate <= ini:
+        return None
+    for p in paradas_juntadas(cur, placa, ini, ate):
+        if not (ini <= p[0] <= ate):
+            continue
+        if p[2] is None:
+            return None
+        if p[2] == alvo:
+            if piso and dist_km and vel_max:
+                h = (p[0] - piso).total_seconds() / 3600.0
+                if not (h > 0 and float(dist_km) / h <= vel_max):
+                    return None
+            return p[0]
+    return None
