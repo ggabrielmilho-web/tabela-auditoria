@@ -1004,6 +1004,16 @@ docker service update --env-add EMBARQUES_SAIDA_DESTINO_COERENTE=true --env-add 
 
 O atemporal de produção olha 28 dias (15/09+): no lab, essa janela deu 16 cargas na 1ª rodada do item 1.
 
+**PRODUÇÃO — confirmado em 13/10/2026** (deploy de `c5887e5`, snapshot `snap_20261013_1618`):
+- **16:19 UTC — etapa 1** (`JANELA_VEICULO` + `SM_DA_CARGA`): ~22 cargas, idêntico ao lab — C-1405 chegada 05/10 14:14
+  (macro) e conclusão 18:08 `sm_encerrada`, sem saída; C-1444 `Entregue` 10/10 02:35; C-1464 chegada 08/10 15:49; saídas
+  de outra viagem retratadas (C-994, 1040, 1041, 1052, 1187). Simulação seguinte: 4 restantes (convergência).
+- **16:26 UTC — etapa 2** (pacote 2 + `ROTULO_ESTAVEL`): 76 conclusões, 13 motivos, **0 status**; 16:29 convergência;
+  46 pernas rederivadas. C-1258 → 03/10 09:06 (dwell). C-1525 só muda depois de 24 h observadas (14/10 cedo).
+  V-346 tira e repõe a chegada (a perna andou para 02/10) — mesmo comportamento do lab `_on3`, estável; a perna é do item 14.
+- **Aferidor 15/09+:** 551 → **410** achados; F3 62 → 27, F1d 54 → 44, C1 11 → 5, S2 148 → 46; sobem V1 57 → 64,
+  S1 3 → 8, C2 0 → 2, P1 27 → 32 (o que estava escondido pela evidência emprestada — previsto no lab).
+
 ### 18.5 Armadilhas desta sessão
 
 - **O histórico da 3S tem um BURACO até 26/08 12:38** (purga antiga): carga carregada antes de 27/08 não tem
