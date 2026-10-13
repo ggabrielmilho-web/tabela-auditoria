@@ -993,7 +993,7 @@ explicado · ciclo pós-diário (motor → pernas → janela↔motor) convergind
 # 1) deploy normal (git pull + build + service update). Conferir DENTRO do container:
 CT=$(docker ps -q -f name=rizza-auditoria_app); docker exec $CT grep -c "def teto_veiculo\|def saida_do_destino" embarques_regua.py   # 2
 # 2) snapshot das tabelas derivadas
-docker exec $CT python -X utf8 _snapshot_embarques.py
+docker exec $CT python -X utf8 _snapshot_embarques.py criar      # anotar o snap_XXXX que ele imprime
 # 3) ligar pela CLI (NUNCA pelo stack do Portainer — volta a imagem antiga, §22.10)
 docker service update --env-add EMBARQUES_JANELA_VEICULO=true --env-add EMBARQUES_SM_DA_CARGA=true rizza-auditoria_app
 #    observar 1–2 refreshes; depois:
