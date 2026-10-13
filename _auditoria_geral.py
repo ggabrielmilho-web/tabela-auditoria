@@ -69,7 +69,7 @@ cur.execute("""SELECT c.id,c.numero,c.status,c.encerrada_motivo,COALESCE(c.entre
                       c.rota_planejada_polyline IS NOT NULL,COALESCE(c.criada_por_robo,FALSE),
                       """ + ('c.continua_em, c.desengate_local,' if _ec.ativo(cur) else 'NULL::int, NULL::text,') + """
                       c.distancia_planejada_km,
-                      d.cidade,d.uf,d.latitude,d.longitude
+                      d.cidade,d.uf,d.latitude,d.longitude,c.no_local_fonte
                  FROM embarques_cargas c
                  LEFT JOIN embarques_cargas_destinos d ON d.carga_id=c.id
                       AND d.ordem=(SELECT MIN(ordem) FROM embarques_cargas_destinos x WHERE x.carga_id=c.id)
@@ -89,6 +89,13 @@ for r in CARGAS:
 for d in (prox_carreta, prox_cavalo):
     for k in d:
         d[k].sort()
+
+# A evidência da carga termina na próxima carga do MESMO VEÍCULO (EMBARQUES_JANELA_VEICULO,
+# 13/10/26) — a mesma régua do motor (embarques_regua), senão os dois discordam para sempre.
+_por_veic = {}
+if regua.JANELA_VEICULO:
+    cur.execute(regua.SQL_CARGAS_POR_VEICULO, (A.desde,))
+    _por_veic = regua.indice_por_veiculo(cur.fetchall(), pl.mercosul)
 
 _cache = {}
 def pontos(placa, ini, fim):
@@ -130,7 +137,8 @@ def add(num, cod, grav, msg, extra=''):
     achados.append({'carga': num, 'codigo': cod, 'gravidade': grav, 'achado': msg, 'prova': extra})
 
 for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal, dconc,
-     ocid, ola, oln, cav, c1, c2, man, vazia, tem_rota, robo, cont_em, des_local, dist_plan, dcid, duf, dla, dln) in CARGAS:
+     ocid, ola, oln, cav, c1, c2, man, vazia, tem_rota, robo, cont_em, des_local, dist_plan, dcid, duf, dla, dln,
+     nolocal_fonte) in CARGAS:
 
     base = datetime.combine(dcarg, _time()) - timedelta(hours=12)
     # MESMA janela do motor (_robo_atemporal.JANELA_FUTURO_D). Enquanto o auditor cortava em
@@ -187,11 +195,20 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
     if not vazia and dla is None:
         add(num, 'D3', 'alta', 'destino sem coordenada — nenhuma regra de chegada pode julgar')
 
+    def _fim_de(placa):
+        _t = regua.teto_veiculo(_por_veic, pl.mercosul(placa or ''), dcarg, cid)
+        return min(fim, _t) if _t else fim
+
     # ── SENSOR
-    p1 = pontos(c1, base, fim) if c1 else []
-    pc = pontos(cav, base, fim) if cav else []
-    p2 = pontos(c2, base, fim) if c2 else []
+    p1 = pontos(c1, base, _fim_de(c1)) if c1 else []
+    pc = pontos(cav, base, _fim_de(cav)) if cav else []
+    p2 = pontos(c2, base, _fim_de(c2)) if c2 else []
     principal, papel = (p1, 'carreta1') if p1 else ((p2, 'carreta2') if p2 else (pc, 'cavalo'))
+    # a CONTAGEM do S3 e a do emprestimo do cavalo no motor: janela inteira (EMBARQUES_JANELA_VEICULO
+    # corta a evidencia, nao a contagem). Desligada, sao as mesmas listas.
+    _n_princ = len(pontos(c1 if papel == 'carreta1' else (c2 if papel == 'carreta2' else cav), base, fim)) \
+        if regua.JANELA_VEICULO else len(principal)
+    _n_cav = len(pontos(cav, base, fim)) if (regua.JANELA_VEICULO and cav) else len(pc)
     if not principal:
         add(num, 'S1', 'alta', 'CEGA: nenhuma placa da carga transmitiu no periodo',
             f'cavalo={cav} carreta={c1}')
@@ -201,9 +218,9 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
                   for i in range(1, len(principal)))
         if gap >= GAP_ALERTA_H:
             add(num, 'S2', 'baixa', f'buraco de sinal de {gap:.0f} h no rastreio ({papel})')
-    if papel != 'cavalo' and pc and len(pc) > 3 * max(1, len(principal)):
+    if papel != 'cavalo' and pc and _n_cav > 3 * max(1, _n_princ):
         add(num, 'S3', 'baixa',
-            f'cavalo tem {len(pc)} pontos contra {len(principal)} da carreta — sensor mais pobre em uso',
+            f'cavalo tem {_n_cav} pontos contra {_n_princ} da carreta — sensor mais pobre em uso',
             f'{papel}={c1 or c2}')
 
     # As duas pontas da perna, para o lado da perna (mesma regua do motor, §20.6).
@@ -407,7 +424,19 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
                 # fila de descarga e sair no terceiro, e fechar ali esta certo. (A 1a versao
                 # desta regra usava teto de 36 h e acusava 69 cargas corretas.)
                 depois = [(d, k) for d, k, v in dd if d > cheg]
-                saiu_dst = next((d for d, k in depois if k > RAIO_ORIGEM), None)
+                if regua.SAIDA_DESTINO_COERENTE:
+                    # a MESMA regua do motor (embarques_regua.saida_do_destino, 13/10/26): chegada que o
+                    # motor provou pelo CAVALO tem a saida medida no cavalo; raio relativo a parada; so
+                    # sai quem esteve. Com o raio fixo daqui o F3 acusava a conclusao certa do motor.
+                    if nolocal_fonte and '+cavalo' in nolocal_fonte and pc:
+                        _dcv = [(d, k) for d, k, v in dists(pc, float(dla), float(dln), _P_ORG)
+                                if d > cheg and (teto is None or d <= teto)]
+                        if _dcv:
+                            depois = _dcv
+                    _kc = min((k for d, k, v in dd if d >= cheg), default=None)
+                    saiu_dst, _, _ = regua.saida_do_destino(depois, _kc)
+                else:
+                    saiu_dst = next((d for d, k in depois if k > RAIO_ORIGEM), None)
                 esperados = [x for x in (saiu_dst, cheg + timedelta(hours=DWELL_H)) if x]
                 erro = min(abs((conc - e).total_seconds()/3600) for e in esperados)
                 if erro > TOL_H:

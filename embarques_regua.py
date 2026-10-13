@@ -97,6 +97,102 @@ def lado(k_alvo, k_outra):
 # laboratorio POR CONSTRUCAO (secao 21.6).
 JANELA_EVIDENCIA_D = int(_f('EMBARQUES_AUTO_JANELA_REANALISE_DIAS', 30))
 
+# ── A EVIDÊNCIA DA CARGA TERMINA NA PRÓXIMA CARGA DO MESMO VEÍCULO (LAB 13/10/26) ──────────────
+# Atrás de EMBARQUES_JANELA_VEICULO. A janela acima é de 30 dias e só a CHEGADA tinha teto — e só
+# pela carreta. Saída, "esteve na origem" e o "placa muda" da SM liam as viagens SEGUINTES do
+# veículo: na C-2026-001405 (Cordeirópolis → Rio, 03/10) o cavalo voltou a Cordeirópolis em 08/10
+# com a C-1464, o motor leu isso como "esteve na origem" e apagou a chegada real de 05/10; em 09/10
+# carimbou a saída da C-1470 como saída e conclusão dela. O teto é o da chegada — 00:00 do dia
+# seguinte ao carregamento da próxima carga — por PLACA (carreta ou cavalo): quem limita é o
+# veículo ter começado outra, seja a carga do robô ou lançada à mão.
+JANELA_VEICULO = _os.getenv('EMBARQUES_JANELA_VEICULO', 'false').lower() in ('1', 'true', 'sim')
+
+# ── SAÍDA DO DESTINO COERENTE (LAB 07/10/26, régua compartilhada desde 13/10/26) ──────────────────
+# Atrás de EMBARQUES_SAIDA_DESTINO_COERENTE. Estava só no motor; o aferidor media a saída com raio fixo
+# de 30 km e acusava como "recorte errado" a conclusão que o motor tinha acertado (e vice-versa).
+SAIDA_DESTINO_COERENTE = _os.getenv('EMBARQUES_SAIDA_DESTINO_COERENTE', 'false').lower() in ('1', 'true', 'sim')
+
+
+def saida_do_destino(depois, k_chegada):
+    """(instante em que saiu do destino ou None, raio usado, pontos válidos) — `depois` são os
+    (instante, km do destino) posteriores à chegada; `k_chegada`, o km do ponto mais perto dela.
+
+    O "lá" é onde ELE parou: chegada de metrópole a 41 km tem de sair de 41 km, não de 30 — senão o
+    ponto seguinte, parado no mesmo lugar, já conta como saída (C-1166, C-1183, C-1190, C-1209, C-1258:
+    conclusão 1 min depois da chegada; C-1525 a 55 km de Japeri, em Barra Mansa). E só sai quem ESTEVE:
+    pontos anteriores ao primeiro dentro do raio não contam (a carreta congelada a 549 km da C-1276)."""
+    if not SAIDA_DESTINO_COERENTE:
+        return next((d for d, k in depois if k > RAIO_SAIDA_DESTINO), None), RAIO_SAIDA_DESTINO, depois
+    raio = max(RAIO_SAIDA_DESTINO, (k_chegada + 10.0) if k_chegada not in (None, LONGE) else 0)
+    esteve, validos = False, []
+    for d, k in depois:
+        if k <= raio:
+            esteve = True
+        elif not esteve:
+            continue
+        validos.append((d, k))
+    return next((d for d, k in validos if k > raio), None), raio, validos
+
+# Toda carga que ocupa um veículo: manual ou do robô, qualquer status menos Cancelada; perna vazia
+# não (ela é o intervalo ENTRE duas cargas, não uma carga). Executada por quem tem o cursor.
+SQL_CARGAS_POR_VEICULO = """SELECT data_carregamento, id, data_saida_real, cavalo_placa, carreta1_placa, carreta2_placa
+                              FROM embarques_cargas
+                             WHERE status <> 'Cancelada' AND NOT COALESCE(viagem_vazia, FALSE)
+                               AND data_carregamento >= %s::date"""
+
+
+def indice_por_veiculo(linhas, chave):
+    """{placa normalizada: [(data_carregamento, id, saida_real), ...] em ordem} a partir das linhas
+    de SQL_CARGAS_POR_VEICULO. `chave` normaliza a placa (placas.mercosul)."""
+    idx = {}
+    for dt, cid, saida, *pls in linhas:
+        for p in {chave(p) for p in pls if p}:
+            idx.setdefault(p, []).append((dt, cid, saida))
+    for v in idx.values():
+        v.sort(key=lambda x: (x[0], x[1]))
+    return idx
+
+
+def _proxima(indice, placas_chave, dcarg, cid):
+    seg = [x for p in placas_chave if p for x in indice.get(p, ()) if x[0] > dcarg and x[1] != cid]
+    return min(seg, key=lambda x: (x[0], x[1])) if seg else None
+
+
+def proxima_carga(indice, placas_chave, dcarg, cid):
+    """Data de carregamento da próxima carga de QUALQUER uma destas placas, ou None (chave desligada
+    ou nenhuma). Qualquer posição: o bitrem vem com as carretas em ordem trocada de um manifesto para
+    o outro (C-1254 TYN8I98/TYN8I60 → C-1375 TYN8I60/TYN8I98), e comparar só a carreta1 pulava a carga."""
+    if not JANELA_VEICULO:
+        return None
+    x = _proxima(indice, placas_chave, dcarg, cid)
+    return x[0] if x else None
+
+
+def limite_conclusao(indice, placas_chave, dcarg, cid):
+    """Até quando a CONCLUSÃO desta carga pode ir: a saída real da próxima carga (+2 h, o 1º ponto
+    fora do raio vem depois do último dentro) — quando o destino de A é a origem de B, o fim de A É
+    a partida de B, e a C-2026-000657 (manifesto seguinte de 06/09, partida em 07/09 11:30) mostrou
+    que o teto do dia seguinte ao manifesto cortava essa conclusão legítima. Sem saída conhecida de
+    B, o teto de sempre. None com a chave desligada ou sem próxima carga."""
+    if not JANELA_VEICULO:
+        return None
+    x = _proxima(indice, placas_chave, dcarg, cid)
+    if not x:
+        return None
+    from datetime import datetime as _dt, time as _tm, timedelta as _td
+    teto = _dt.combine(x[0], _tm()) + _td(days=1)
+    return max(teto, x[2] + _td(hours=2)) if x[2] else teto
+
+
+def teto_veiculo(indice, placa_chave, dcarg, cid):
+    """00:00 do dia seguinte ao carregamento da PRÓXIMA carga desta placa — o fim da evidência
+    da carga `cid`. None com a chave desligada ou sem próxima carga."""
+    d = proxima_carga(indice, [placa_chave], dcarg, cid) if placa_chave else None
+    if d is None:
+        return None
+    from datetime import datetime as _dt, time as _tm, timedelta as _td
+    return _dt.combine(d, _tm()) + _td(days=1)
+
 
 def parado(v):
     """Velocidade que conta como parado. Nulo conta como parado, igual ao worker —

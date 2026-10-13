@@ -1,5 +1,9 @@
 # Handoff — Painel de Embarques autônomo
 
+**13/10/2026 — leia o `HANDOFF-INSIGNIA.md` §18 (ONDE PARAMOS):** a evidência de outra viagem saiu do motor
+(`EMBARQUES_JANELA_VEICULO`, `EMBARQUES_SM_DA_CARGA`), o pacote 2 ganhou a régua no aferidor, e as decisões do Gabriel
+sobre reemissão tardia (A fica), pernas de carga sem chegada (nascem) e paradas da GR como fonte (fazer).
+
 **08/10/2026 — leia o `HANDOFF-INSIGNIA.md` §16 (ONDE PARAMOS):** a Insignia é fonte de GPS em produção para
 terceiro (com ou sem SM — a GR rastreia o cavalo; regra: tem posição, tem rastreamento), a coleta segue o cavalo
 de toda carga ativa, o 455/073 do SSW passaram a reler o fim do mês anterior, as pernas vazias de continuação

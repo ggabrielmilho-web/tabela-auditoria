@@ -558,8 +558,9 @@
           ? ('Número barrado: ' + (d.kpi.km_odometro_motivo || d.kpi.km_janela_motivo))
           : 'O rastreador desta placa não reporta odômetro no período.';
       }
-      document.getElementById('kVelMax').textContent = (d.kpi.velocidade_max || 0) + ' km/h';
-      document.getElementById('kVelMed').textContent = (d.kpi.velocidade_media || 0).toFixed(1) + ' km/h';
+      // nulo = não medido (viagem não observada, 13/10/26): `—`, como o km — `|| 0` publicava "0 km/h"
+      document.getElementById('kVelMax').textContent = d.kpi.velocidade_max != null ? d.kpi.velocidade_max + ' km/h' : '—';
+      document.getElementById('kVelMed').textContent = d.kpi.velocidade_media != null ? d.kpi.velocidade_media.toFixed(1) + ' km/h' : '—';
       document.getElementById('kTmov').textContent = fmtTempoSeg(d.kpi.tempo_movimento_seg);
       document.getElementById('kTpar').textContent = fmtTempoSeg(d.kpi.tempo_parado_seg);
     }

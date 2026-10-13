@@ -62,6 +62,13 @@ SAIDA_JANELA_H = float(os.getenv('EMBARQUES_SAIDA_JANELA_H', '48'))
 SAIDA_PARADA_MIN = float(os.getenv('EMBARQUES_SAIDA_PARADA_MIN', '60'))
 VEL_MAX_CRIVEL = 100.0    # km/h medios: acima disso o par saida/chegada nao e a mesma viagem
 AUTOR = 'Robo atemporal'
+ROTULO_ESTAVEL = os.getenv('EMBARQUES_ROTULO_ESTAVEL', 'false').lower() in ('1', 'true', 'sim')
+import re as _re
+
+
+def _sem_horas(rotulo):
+    """'metropole(55km/32h)' -> 'metropole(55km)': o rotulo sem a permanencia, que cresce com a janela."""
+    return _re.sub(r'/\d+h\)', ')', rotulo or '')
 
 ap = argparse.ArgumentParser()
 ap.add_argument('--desde', default='2026-08-01')
@@ -119,6 +126,18 @@ for r in CARGAS:
             (r[_COL['data_carregamento']], r[_COL['numero']], r[_COL['id']]))
 for k in prox:
     prox[k].sort()
+
+# A evidência da carga termina na próxima carga do MESMO VEÍCULO (EMBARQUES_JANELA_VEICULO, 13/10/26
+# — o porquê está em embarques_regua, onde a régua mora; o aferidor usa a mesma).
+_por_veic = {}
+if regua.JANELA_VEICULO:
+    cur.execute(regua.SQL_CARGAS_POR_VEICULO, (A.desde,))
+    _por_veic = regua.indice_por_veiculo(cur.fetchall(), pl.mercosul)
+
+
+def _teto_veiculo(placa, dcarg, cid):
+    return regua.teto_veiculo(_por_veic, pl.mercosul(placa or ''), dcarg, cid)
+
 
 def serie(placa, ini, fim):
     if not placa:
@@ -187,26 +206,39 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
     ini = datetime.combine(dcarg, _time()) - timedelta(hours=12)
     fim = min(HOJE, datetime.combine(dcarg, _time()) + timedelta(days=JANELA_FUTURO_D))
 
-    # SENSOR: a carreta e a identidade da carga; se ela nao fala, o cavalo mede.
-    pts, sensor = [], None
+    def _fim_de(placa):
+        """Fim da janela para a série DESTA placa: o veículo que começou outra carga não testemunha
+        mais esta (EMBARQUES_JANELA_VEICULO). Desligada, é o `fim` de sempre."""
+        _t = _teto_veiculo(placa, dcarg, cid)
+        return min(fim, _t) if _t else fim
+
+    # SENSOR: a carreta e a identidade da carga; se ela nao fala, o cavalo mede. Com
+    # EMBARQUES_JANELA_VEICULO, "fala" e ter ponto na janela DESTA carga: carreta que so transmite
+    # depois de comecar a carga seguinte esta muda nesta, e o cavalo mede (o aferidor escolhe igual).
+    # A CONTAGEM do emprestimo do cavalo (abaixo) continua sobre a janela inteira, como sempre — cortar
+    # a contagem mudava o emprestimo por acaso: no lab de 13/10 a C-2026-001276 perdia a chegada do
+    # cavalo (05/10 21:13) para a carreta congelada.
+    pts, sensor, _n_pts_orig = [], None, 0
     for placa, papel in ((c1, 'carreta1'), (c2, 'carreta2'), (cav, 'cavalo')):
         if placa:
-            s = serie(placa, ini, fim)
+            s = serie(placa, ini, _fim_de(placa))
             if s:
                 pts, sensor = s, f'{papel}:{placa}'
+                # o emprestimo do cavalo compara contra a serie ORIGINAL da carreta (janela inteira)
+                _n_pts_orig = len(serie(placa, ini, fim)) if regua.JANELA_VEICULO else len(s)
                 break
+    _teto_sensor = _teto_veiculo(sensor.split(':', 1)[1], dcarg, cid) if sensor else None
     if not pts:
         resumo['cega — sem posicao, nada a decidir'] += 1
         continue
 
-    _n_pts_orig = len(pts)   # o emprestimo do cavalo compara contra a serie ORIGINAL da carreta
     # ── CARRETA CONGELADA NA 3S (LAB 07/10/26) — atras de EMBARQUES_CARRETA_CONGELADA.
     # Repeticao de posicao com odometro parado ENQUANTO a SM da Insignia diz que o cavalo
     # engatado estava longe: o trecho repetido nao e evidencia, e o cavalo tapa. Ver
     # fontes_gps.descongelar (C-1363, C-1276).
     if sensor and sensor.startswith('carreta') and cav and fontes_gps.congelada_ligado():
         _pts2, _ntir, _npos = fontes_gps.descongelar(cur, sensor.split(':', 1)[1], cav, pts,
-                                                     serie(cav, ini, fim), dcarg)
+                                                     serie(cav, ini, _fim_de(cav)), dcarg)
         if _ntir:
             pts = _pts2
             resumo['carreta congelada: trechos trocados pelo cavalo da SM'] += 1
@@ -244,8 +276,9 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
     # sem essa guarda, 5 saidas e 1 chegada eram PERDIDAS para viagem alheia.
     _pcav, _cav_vale = None, False
     if SENSOR_CAVALO and sensor and sensor.startswith('carreta') and cav and ola is not None:
-        _pcav = serie(cav, ini, fim)
-        if _pcav and len(_pcav) > SENSOR_CAVALO_FATOR * max(1, _n_pts_orig):
+        _pcav = serie(cav, ini, _fim_de(cav))
+        _n_cav = len(serie(cav, ini, fim)) if regua.JANELA_VEICULO else len(_pcav)
+        if _pcav and _n_cav > SENSOR_CAVALO_FATOR * max(1, _n_pts_orig):
             _dorg_cav, _, _ = _pontas(_pcav, ola, oln, dla, dln)
             _cav_vale = bool(_dorg_cav) and min(k for _, k, _v in _dorg_cav) <= RAIO_ORIGEM
             if _cav_vale:
@@ -338,7 +371,7 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
 
     # CARRETA DORMIDA — regua compartilhada com o aferidor (embarques_regua.chegada_emprestada)
     if sensor and sensor.startswith('carreta') and cav and dla is not None:
-        _pcav = _pcav if _pcav is not None else serie(cav, ini, fim)
+        _pcav = _pcav if _pcav is not None else serie(cav, ini, _fim_de(cav))
         if _pcav:
             _, _dcav, _ = _pontas(_pcav, ola, oln, dla, dln)
             _dcav = [(d, k, v) for d, k, v in _dcav
@@ -404,35 +437,22 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
         # Duas guardas: (1) chegada provada pelo cavalo -> a saida tambem e medida no cavalo;
         # (2) so sai do destino quem ESTEVE nele: a serie precisa ter ponto no raio de saida
         # depois da chegada e antes do ponto de saida.
-        if os.getenv('EMBARQUES_SAIDA_DESTINO_COERENTE', 'false').lower() in ('1', 'true', 'sim'):
-            if como_cheg and '+cavalo' in como_cheg and cav:
-                _pc = _pcav if _pcav is not None else serie(cav, ini, fim)
-                _, _dcv, _ = _pontas(_pc, ola, oln, dla, dln) if _pc else (None, [], None)
-                _dep = [(d, k) for d, k, v in _dcv if d > n_cheg and (teto is None or d <= teto)]
-                if _dep:
-                    depois = _dep
-                    resumo['saida do destino medida no cavalo (chegada era dele)'] += 1
-            # o "la" e onde ELE parou: chegada de metropole a 41 km tem de sair de 41 km, nao de
-            # 30 — senao o proximo ponto, parado no mesmo lugar, ja conta como saida (C-1166,
-            # C-1183, C-1190, C-1209, C-1258: conclusao 1 min depois da chegada).
-            _kc = min((k for d, k, v in d_dst_validos if d >= n_cheg), default=None)
-            _raio_s = max(RAIO_SAIDA_DESTINO, (_kc + 10.0) if _kc is not None and _kc != float('inf') else 0)
-            if _raio_s > RAIO_SAIDA_DESTINO:
-                resumo['saida do destino: raio relativo a parada de metropole'] += 1
-            _esteve = False
-            _dep2 = []
-            for d, k in depois:
-                if k <= _raio_s:
-                    _esteve = True
-                elif not _esteve:
-                    continue
-                _dep2.append((d, k))
-            if len(_dep2) != len(depois):
-                resumo['saida do destino: pontos de quem nunca esteve la ignorados'] += 1
-            depois = _dep2
-        else:
-            _raio_s = RAIO_SAIDA_DESTINO
-        saiu_dst = next((d for d, k in depois if k > _raio_s), None)
+        if regua.SAIDA_DESTINO_COERENTE and como_cheg and '+cavalo' in como_cheg and cav:
+            _pc = _pcav if _pcav is not None else serie(cav, ini, _fim_de(cav))
+            _, _dcv, _ = _pontas(_pc, ola, oln, dla, dln) if _pc else (None, [], None)
+            _dep = [(d, k) for d, k, v in _dcv if d > n_cheg and (teto is None or d <= teto)]
+            if _dep:
+                depois = _dep
+                resumo['saida do destino medida no cavalo (chegada era dele)'] += 1
+        # o raio relativo a parada e o "so sai quem esteve" moram em embarques_regua.saida_do_destino —
+        # o aferidor usa a mesma (13/10/26). Desligada, e o raio fixo de sempre.
+        _kc = min((k for d, k, v in d_dst_validos if d >= n_cheg), default=None)
+        saiu_dst, _raio_s, _dep2 = regua.saida_do_destino(depois, _kc)
+        if _raio_s > RAIO_SAIDA_DESTINO:
+            resumo['saida do destino: raio relativo a parada de metropole'] += 1
+        if len(_dep2) != len(depois):
+            resumo['saida do destino: pontos de quem nunca esteve la ignorados'] += 1
+        depois = _dep2
         ultima = depois[-1][0] if depois else n_cheg
         # §4.3: "sai do destino OU fica 24 h nele" — o que vier PRIMEIRO. Ate 17/09/26 a saida
         # vencia sempre: carreta que descarregou e ficou 5 dias estacionada no patio (ou no
@@ -456,7 +476,9 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
     # sempre da viagem CARREGADA — no lab a regra pegou a V-2026-000299 pela SM da C-1305.
     if not n_conc and not vazia and sensor and sensor.startswith('cavalo') and fontes_gps.encerramento_ligado():
         _enc = fontes_gps.encerramento_sm(cur, cav, dcarg, HOJE,
-                                          dest=(dla, dln) if dla is not None else None)
+                                          dest=(dla, dln) if dla is not None else None,
+                                          ate=_teto_veiculo(cav, dcarg, cid),
+                                          origem=(ola, oln) if ola is not None else None)
         if _enc and (n_cheg or _enc['chegada']) and _enc['conclusao']:
             if not n_cheg:
                 n_cheg, como_cheg = _enc['chegada'], 'macro_insignia'
@@ -486,7 +508,18 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
     # Medido em ago+set: 38 das 39 cargas que o aferidor marca "fechada sem prova" (F1) tem
     # manifesto novo da mesma carreta. Elas nao deixam de ser entregas nao provadas — mas
     # deixam de ser encerramentos inexplicados, que sao coisas diferentes.
-    if not n_conc and c1:
+    # Com EMBARQUES_JANELA_VEICULO o "manifesto novo" vem do indice por veiculo: QUALQUER carreta da
+    # carga em qualquer posicao (bitrem trocado, C-1254 -> C-1375), carga lancada a mao ou ja
+    # ligada tambem contam; truck sem carreta usa o proprio veiculo (o cavalo nao, quando ha carreta:
+    # cavalo que sai com outra carreta e desengate, a viagem da carreta continua).
+    _doc_placas = [pl.mercosul(p) for p in (c1, c2) if p] or ([pl.mercosul(cav)] if cav else [])
+    _doc_dia = regua.proxima_carga(_por_veic, _doc_placas, dcarg, cid)
+    _lim_conc = regua.limite_conclusao(_por_veic, _doc_placas, dcarg, cid)
+    if not n_conc and regua.JANELA_VEICULO:
+        if _doc_dia:
+            n_conc = datetime.combine(_doc_dia, _time())
+            n_motivo = 'manifesto_novo_carreta' if n_cheg else 'manifesto_novo_sem_gps'
+    elif not n_conc and c1:
         seg = [(dt, nm) for dt, nm, i in prox.get(pl.mercosul(c1), []) if dt > dcarg and i != cid]
         if seg:
             n_conc = datetime.combine(seg[0][0], _time())
@@ -537,6 +570,18 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
         campos['saida_auto'] = True
     if n_saida and not inicio:
         campos['inicio_viagem'] = n_saida
+    # SAIDA GRAVADA DEPOIS DE O VEICULO COMECAR OUTRA CARGA (EMBARQUES_JANELA_VEICULO, 13/10/26).
+    # Nao e instante impreciso: e evento de outra viagem — a C-2026-001405 tinha como saida a
+    # partida da C-1470 (09/10). O motor nunca apaga saida, entao sem isto a errada ficava de pe e
+    # a coerencia empurrava a conclusao para ela. So a AUTOMATICA: saida digitada nao se toca.
+    # Fica a saida que a janela da carga mostrar, ou nenhuma (silencio nao e evento).
+    if (_teto_sensor and dsaida and saida_auto and not vazia and dsaida > _teto_sensor
+            and 'data_saida_real' not in campos):
+        campos['data_saida_real'] = n_saida
+        campos['saida_auto'] = n_saida is not None
+        if inicio == dsaida:
+            campos['inicio_viagem'] = n_saida
+        resumo['janela do veiculo: saida gravada era de carga seguinte (retratada)'] += 1
     # UMA fonte de verdade. Antes o robo so gravava a chegada quando o campo estava vazio e
     # respeitava a existente mesmo contradizendo o que ele apurou — a conclusao saia da SUA
     # chegada e a coerencia conferia contra a do BANCO, e 3 cargas ficavam oscilando para
@@ -550,7 +595,8 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
         # A FONTE viaja com o instante. Gravar um sem o outro e o que obrigava aferidor e
         # tela a re-derivar a forca da afirmacao, cada um com a sua regua.
         campos['no_local_fonte'] = (como_cheg or '')[:32] or None
-    elif nolocal and d_dst and ((piso and nolocal < piso) or (teto and nolocal > teto)):
+    elif nolocal and d_dst and ((piso and nolocal < piso) or (teto and nolocal > teto)
+                                or (_teto_sensor and nolocal > _teto_sensor)):
         # A chegada guardada esta FORA da janela possivel da viagem (antes de sair, ou depois
         # de a carreta ja ter partido em outra). Nao e questao de o robo nao ter visto: e
         # impossivel. Apagar fecha o princípio de fonte unica — sem isso a regra de coerencia
@@ -593,9 +639,19 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
                     and nolocal is not None and dconc is not None and not _dia
                     and timedelta(0) <= dconc - nolocal < timedelta(hours=1)
                     and n_conc - dconc > timedelta(hours=1))
+        # CONCLUSAO GRAVADA DEPOIS DE O VEICULO COMECAR OUTRA CARGA (EMBARQUES_JANELA_VEICULO, 13/10/26).
+        # Nao e precisao a preservar: e o instante de outra viagem (C-1187 concluida em 10/10 numa
+        # carga de 26/09, junto com a saida errada; C-1254 com a chegada da C-1375). A guarda de
+        # precisao abaixo nao vale para valor impossivel. So troca se a derivada couber na janela.
+        # 15 min de tolerancia: a meia-noite documental chega com minutos de deriva (C-681: 10/09 00:05
+        # contra o teto de 10/09 00:00) e nao e evidencia de outra viagem.
+        _fora_veic = bool(_lim_conc and dconc > _lim_conc + timedelta(minutes=15) and n_conc <= _lim_conc)
         if _travada:
             campos['data_conclusao'] = n_conc
             resumo['conclusao travada na chegada: reescrita'] += 1
+        elif _fora_veic:
+            campos['data_conclusao'] = n_conc
+            resumo['janela do veiculo: conclusao gravada era de carga seguinte (reescrita)'] += 1
         elif erro_h > 24 and not (_dia and _tem_hora):     # recorte errado: corrige o instante
             campos['data_conclusao'] = n_conc
         elif erro_h > 1 and os.getenv('EMBARQUES_LAB_MEDIR_CONCLUSAO', 'false').lower() in ('1', 'true', 'sim'):
@@ -659,9 +715,13 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
     # A fonte pode mudar SEM o instante mudar: a regua reclassificou a mesma chegada (de
     # 'presumida_silencio' para 'estrita', por exemplo, quando o backfill trouxe o ponto
     # parado que faltava). Sem esta linha o campo congelaria na primeira gravacao.
+    # ROTULO ESTAVEL (EMBARQUES_ROTULO_ESTAVEL, 13/10/26): "metropole(55km/2h)" leva as HORAS de
+    # permanencia medidas ate o fim da janela, que cresce a cada refresh — a C-2026-001525 ganhou 12
+    # linhas de log em 2 dias ("2h" -> "6h" -> ... -> "32h") sem nenhum evento mudar. So as horas
+    # mudarem nao reescreve; tipo ou km mudarem, sim.
     if n_cheg and 'no_local_fonte' not in campos:
         _f = (como_cheg or '')[:32] or None
-        if _f != nolocal_fonte:
+        if _f != nolocal_fonte and not (ROTULO_ESTAVEL and _sem_horas(_f) == _sem_horas(nolocal_fonte)):
             campos['no_local_fonte'] = _f
     if n_status != status:
         campos['status'] = n_status
@@ -681,6 +741,11 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
     # foi criar um segundo escritor, que e exatamente o defeito que a secao 21.2 diagnosticou
     # no par worker/robo. Um campo, um dono.
     if vazia:
+        # O motivo acompanha a conclusao: se ela nao e do motor, o rotulo tambem nao (V-2026-000354
+        # no lab de 13/10 trocava 'gps_dwell_destino' por 'manifesto_novo_carreta' mantendo a
+        # conclusao da rederivacao). Atras da chave, para nao mexer no que roda hoje.
+        if regua.JANELA_VEICULO and 'data_conclusao' in campos and 'encerrada_motivo' in campos:
+            del campos['encerrada_motivo']
         for _k in ('data_saida_real', 'inicio_viagem', 'data_conclusao', 'data_carregamento',
                    'saida_auto', 'entregue_auto'):
             if _k in campos:

@@ -99,6 +99,38 @@ O detalhe de cada item está no `HANDOFF-EMBARQUES-AUTONOMO.md`, §27 em diante.
   com o retroativo, código antigo × novo — 1.290 cargas, todos os campos, destinos, log e
   aferidor **idênticos** pela chave; Jornada e PGR idênticos; torre idêntica com o mesmo banco.
 
+### O que mudou em 13/10, e por quê — as telas de embarques voltaram a abrir rápido
+
+- **Sintoma:** `/embarques` e `/embarques/relatorio` mais pesados a cada dia desde 07/10, mesmo
+  filtrando só o mês — e antes abria a base inteira sem pesar.
+- **Causa:** com `EMBARQUES_FONTE_INSIGNIA` ligada, `fontes_gps.atuais()` montava a última posição
+  da Insignia com `DISTINCT ON` sobre `insignia_posicoes` **inteira** (sem purga, ~7 mil linhas/dia
+  em 08/10), e a listagem cita `atuais()` em 3 subconsultas **por carga** (idade do GPS, lat, lng):
+  cada carga relia o histórico todo — Frota e Agregado também, que nunca usam a Insignia. O worker
+  pagava o mesmo a cada 60 s.
+- **Correção (`fb3ff09`, só `fontes_gps.py`):** a última posição de cada placa sai do índice (PK
+  `placa_chave, em`). Nenhuma tela, chave ou regra mudou; não há variável de ambiente nova.
+- **Gate (dumps de 06–08/10):** `atuais()` idêntica em 168 de 168 comparações (8 combinações de
+  chaves por dump); listagem de out/26 e set+out/26, landing e `_pos_fresca` do worker idênticos
+  campo a campo. Relatório de out/26: 8 s → 0,5 s com 17 mil posições, 43 s → 0,3 s com 105 mil
+  (simulado); worker 32 → 3,4 ms por consulta. O tempo parou de crescer com o histórico.
+- **Conferir o deploy:** `docker exec $(docker ps -q -f name=rizza-auditoria_app) grep -c "WITH RECURSIVE ch" /app/fontes_gps.py` → `1`.
+- Orientações para o próximo caso em **Desempenho**; detalhe na §17 do `HANDOFF-INSIGNIA.md`.
+
+### Commitado em 13/10/2026, chaves DESLIGADAS — a evidência de outra viagem sai do motor
+
+Prints de 13/10 (HANDOFF-INSIGNIA §18). Com as chaves desligadas, motor e aferidor saem **idênticos byte a
+byte** ao `fb3ff09` (1.048 cargas). Ligadas no lab (`rizza_lab_1013`, ciclo pós-diário completo desde 27/08):
+ponto fixo na rodada 3, 50 + 85 cargas mudam, todas conferidas; aferidor 976 → 708 achados.
+
+- `EMBARQUES_JANELA_VEICULO` + `EMBARQUES_SM_DA_CARGA` — ver a tabela de chaves. Ligar juntas.
+- `EMBARQUES_SAIDA_DESTINO_COERENTE` + `EMBARQUES_CONCLUSAO_TRAVADA` (pacote 2) agora com a régua no aferidor.
+- `EMBARQUES_ROTULO_ESTAVEL`.
+- **Sem chave (valem no deploy):** selo "fora do cadastro" some de placa da Insignia só sem sinal agora
+  (`sem_sinal_agora`); viagem com 1 ponto no trecho saída→chegada mostra `—` e o motivo em vez de "0 km";
+  odômetro Omnilink/Autotrac negativo lido como contador de 32 bits (C-1506: KM RASTREADOR — → 156 km).
+  Gate das telas (924 cargas): só as cargas desses casos mudam.
+
 ### Commitado em 07/10/2026, chaves DESLIGADAS — a Insignia como 2ª fonte de GPS
 
 Tudo atrás de chaves que nascem desligadas; com elas desligadas o motor e o
@@ -486,8 +518,11 @@ Abrir SM pela API: **preparado, não ligado** (colunas e lugar na tela já exist
 | `EMBARQUES_FONTE_INSIGNIA_BURACO` | A Insignia tapa o buraco da 3S na mesma placa (±15 min andando, ±75 parado; posição atual se 30+ min mais nova) | `false` |
 | `EMBARQUES_SM_ENCERRAMENTO` | Conclusão pelo FIM DE VIAGEM quando a placa fica muda depois da SM (exige a fonte ligada) | `false` |
 | `EMBARQUES_CARRETA_CONGELADA` | LAB 07/10 — carreta da 3S congelada durante a SM vira buraco tapado pelo cavalo (exige a fonte com escopo `todas`) | `false` |
-| `EMBARQUES_SAIDA_DESTINO_COERENTE` | LAB 07/10 — saída do destino medida no mesmo aparelho da chegada e relativa à parada de metrópole | `false` |
-| `EMBARQUES_CONCLUSAO_TRAVADA` | LAB 07/10 — reescreve a conclusão travada na chegada (43/45 prematuras) | `false` |
+| `EMBARQUES_SAIDA_DESTINO_COERENTE` | saída do destino medida no mesmo aparelho da chegada e relativa à parada de metrópole. Desde 13/10 a régua mora em `embarques_regua.saida_do_destino` e o F3 do aferidor usa a mesma | `false` |
+| `EMBARQUES_CONCLUSAO_TRAVADA` | reescreve a conclusão travada na chegada (43/45 prematuras; lab 13/10: 85 cargas, F3 88 → 51) | `false` |
+| `EMBARQUES_JANELA_VEICULO` | 13/10 — a evidência da carga termina na PRÓXIMA carga do mesmo veículo (carreta ou cavalo, qualquer posição): série, saída, "esteve na origem", SM e fechamento documental. Retrata saída/chegada/conclusão gravadas que eram de outra viagem (C-1405, C-584, C-1254). Motor e aferidor (`embarques_regua.teto_veiculo`) | `false` |
+| `EMBARQUES_SM_DA_CARGA` | 13/10 — a SM é a DESTA carga: origem da SM a ≤ 60 km da origem da carga (trava do robô e regra `sm_encerrada`) e, entre as encerradas, a que tem macro (a abortada da C-1444) | `false` |
+| `EMBARQUES_ROTULO_ESTAVEL` | 13/10 — o motor não regrava `no_local_fonte` quando só as horas do rótulo de metrópole mudaram (12 linhas de log em 2 dias na C-1525) | `false` |
 | `EMBARQUES_LAB_MEDIR_CONCLUSAO` | só instrumento de laboratório | `false` |
 | `EMBARQUES_PERNA_CONTINUACAO` | a rederivação cancela a perna vazia cuja carga A foi ligada DEPOIS a uma continuação e cuja carga B é essa continuação (a perna não existiu) | `false` |
 | `INSIGNIA_COLETA_CARGAS` | a coleta da Insignia pergunta a posição também do CAVALO de toda carga ativa e dos manifestos dos últimos `INSIGNIA_COLETA_MANIFESTO_DIAS` (3) dias — a GR rastreia cavalo de terceiro SEM SM aberta para nós | `false` |
@@ -1061,7 +1096,7 @@ Acompanhamento GPS dos veículos em rota, com mapa em tempo real e automação d
 - **`ors_client.py`** — OpenRouteService (`/v2/directions/driving-hgv`). Retorna polyline + distância + duração. `tracar_rota_multi(pontos)` traça a rota **multi-ponto** (origem → cidades de rota → destinos). Free tier: 2.000 chamadas/dia.
 - **`geocoding.py`** — distância Haversine, normalização de nome de cidade (uppercase sem acento) e geocoder por centroide IBGE.
 - **`rastreamento_worker.py`** — thread daemon dentro do processo Flask.
-- **`fontes_gps.py`** *(atrás de `EMBARQUES_FONTE_INSIGNIA`)* — os leitores que decidem carga trocam o nome da tabela da 3S por `historico(cur)` / `atuais(cur)` / `placa_rastreada()`. Cada fonte continua fato bruto na própria tabela; a 3S é a principal e a Insignia entra para placa que a 3S não vê (e, com `…_BURACO`, onde a 3S calou). **Backfill, consolidação diária, PGR e sincronização do cadastro continuam só na 3S** — por isso a Insignia não entra no PGR nem gasta cota da 3S. Coluna `fonte` ∈ `3s` · `insignia` · `ins_buraco`.
+- **`fontes_gps.py`** *(atrás de `EMBARQUES_FONTE_INSIGNIA`)* — os leitores que decidem carga trocam o nome da tabela da 3S por `historico(cur)` / `atuais(cur)` / `placa_rastreada()`. Cada fonte continua fato bruto na própria tabela; a 3S é a principal e a Insignia entra para placa que a 3S não vê (e, com `…_BURACO`, onde a 3S calou). **Backfill, consolidação diária, PGR e sincronização do cadastro continuam só na 3S** — por isso a Insignia não entra no PGR nem gasta cota da 3S. Coluna `fonte` ∈ `3s` · `insignia` · `ins_buraco`. `atuais()` entra em subconsulta **por carga** (listagem, worker): a última posição da Insignia sai do índice, nunca reordenando o histórico — ver **Desempenho**.
 
 ### Ciclo do worker (a cada `RASTREAMENTO_INTERVALO`, default 60s)
 1. Busca a última posição de todos os veículos (3S real ou simulador) → UPSERT em `embarques_posicoes_atuais` + INSERT em `embarques_posicoes_historico`.
@@ -1852,6 +1887,84 @@ Resultado Final   = Pós Investimento - Retiradas
 - Hostinger VPS: já contratado para outros serviços (custo compartilhado)
 - Cloudflare Free
 - GitHub Free
+
+---
+
+## Desempenho
+
+### O caso de 12–13/10/2026: tela que fica mais lenta a cada dia
+
+`/embarques` e `/embarques/relatorio` pesavam mais a cada dia desde que a Insignia virou fonte de GPS
+(07/10), mesmo com o filtro só no mês. A listagem (`/api/embarques/cargas`) cita
+`fontes_gps.atuais()` em três subconsultas por carga, e `atuais()` passou a montar a última
+posição da Insignia relendo e ordenando **todo** o `insignia_posicoes`, tabela sem purga. Medido
+no lab de 08/10 com a mesma SQL do endpoint:
+
+| tela | Insignia desligada | ligada, antes de `fb3ff09` (17 mil · 105 mil posições) | depois de `fb3ff09` (17 mil · 105 mil) |
+|---|---|---|---|
+| landing `/embarques` (10 cargas) | 15 ms | 1,0 s · 4,1 s | 0,05 s · 0,05 s |
+| relatório out/26 (125 cargas) | 0,5 s | 8–9 s · 43 s | 0,5 s · 0,3 s |
+| relatório set/26 (590 cargas) | 1,2 s | 31 s | — |
+| worker, consulta de posição atual | 0,9 ms | 32 ms · 167 ms | 3,4 ms · 3,4 ms |
+
+A correção trocou só o trecho da Insignia em `atuais()`: a placa sai do índice (PK `placa_chave, em`)
+e um `LATERAL ... ORDER BY em DESC LIMIT 1` pega a posição mais nova. A saída é idêntica à de antes
+(ver o gate em "O que mudou em 13/10").
+
+### Regras
+
+1. **Subconsulta no `SELECT` (e dentro de `CASE`/`EXISTS`) roda uma vez por linha.** O que vai dentro
+   dela tem de custar ~1 ms e não pode depender do tamanho de um histórico: 125 cargas × 3 subconsultas
+   = 375 execuções a cada abertura da tela.
+2. **"Último registro por placa" numa tabela que só cresce:** nunca `DISTINCT ON`, `GROUP BY` ou `max()`
+   sobre o histórico inteiro em algo que roda por linha ou por ciclo do worker. Use uma tabela de atuais
+   (uma linha por placa, como `embarques_posicoes_atuais`) ou o índice + `LATERAL`, o padrão de
+   `fontes_gps.atuais()`.
+3. **Filtro de período não protege.** Ele reduz as linhas da tela, não o que cada linha relê. Foi por
+   isso que "só o mês" ficou pesado quando "a base inteira" não pesava antes de 07/10.
+4. **Chave que troca uma tabela por subconsulta muda o custo de todo leitor.** `fontes_gps.historico()`
+   e `atuais()` entram no worker, no robô, na continuação, na torre, no mapa e na listagem. Antes de
+   ligar uma chave desse tipo, medir ligada × desligada num dump e com o volume multiplicado (abaixo).
+5. **Tabelas que crescem para sempre, por decisão:** `insignia_posicoes` (a coleta não apaga) e
+   `embarques_posicoes_historico` (purga desligada desde 25/09). Toda consulta nova a elas filtra pela
+   coluna indexada: `placa_chave` na Insignia, `placa = ANY(grafias)` na 3S. Normalizar a coluna no
+   SQL (`_pn`, `sql_chave`, `replace`) desliga o índice. Numa tabela de 100 linhas não importa; num
+   histórico, sim.
+
+### Como investigar o próximo caso
+
+1. **O que a tela chama:** os `fetch(` do HTML levam ao endpoint no `server.py`.
+2. **Reproduzir a SQL do endpoint** no dump `rizza_lab_*` mais novo (só leitura) e cronometrar com a chave
+   suspeita ligada × desligada. Ao trocar de base no mesmo processo, limpar os caches por processo
+   (`fontes_gps._TABELAS`, `_HAS_COLS` dos módulos).
+3. **`EXPLAIN (ANALYZE)`:** procurar `Seq Scan` de tabela grande dentro de `SubPlan` com `loops=N`, onde N
+   é o número de linhas da tela.
+4. **Simular o crescimento sem tocar no dump:** uma `TEMP TABLE` com o mesmo nome sombreia a real só
+   naquela sessão (o `pg_temp` vem antes no `search_path`):
+   ```sql
+   CREATE TEMP TABLE insignia_posicoes AS
+     SELECT i.placa_chave, i.em - (k * interval '3 days') AS em, i.placa, i.lat, i.lng, i.velocidade,
+            i.ignicao, i.odometro, i.referencia, i.sm, i.coletada_em
+       FROM public.insignia_posicoes i, generate_series(0, 5) k;          -- 6× o volume
+   ALTER TABLE pg_temp.insignia_posicoes ADD PRIMARY KEY (placa_chave, em);
+   ANALYZE pg_temp.insignia_posicoes;
+   ```
+   Se o tempo cresce em linha reta com o fator, o custo é proporcional ao histórico.
+5. **Gate de correção de velocidade = saída idêntica.** Compare a função do `HEAD` (`git show HEAD:arquivo.py`)
+   com a nova em todos os dumps e combinações de chaves, e a SQL da tela campo a campo **na mesma
+   transação** (a idade do GPS anda com o `NOW()`). Saída idêntica significa nenhum leitor mudando. O gate
+   do robô (§24.5) não serve para isso: o `_rodar_diario_local.py` roda 21/08–10/09, antes de existir dado
+   da Insignia.
+6. **Cronometrar com a máquina livre.** O lab divide a CPU com o resto: em 13/10, uma edição de vídeo em
+   paralelo deixou as medidas até 5× mais lentas. A igualdade vale mesmo assim; o tempo, não.
+
+### Pontos a vigiar (medidos, não corrigidos)
+
+| onde | hoje | quando agir |
+|---|---|---|
+| `fontes_gps.historico()`: o ramo da Insignia faz seq scan a cada chamada (o filtro cai em `replace(i.placa,'-','')`, fora do índice) | trajeto de terceiro: 15 ms (17 mil posições) → 31 ms (105 mil). Não se multiplica por carga na tela; cresce ~0,2 ms a cada mil posições | perto de 100 ms por chamada (~450 mil posições, por volta de dez/2026 no ritmo de 08/10): filtrar por `placa_chave` |
+| `atuais()` com `EMBARQUES_FONTE_INSIGNIA_BURACO` (desligada) | o `mais_nova` do tapa-buraco ainda é `DISTINCT ON` sobre o histórico | antes de ligar a chave |
+| `/api/embarques/cargas` | busca a posição 3× por carga (idade, lat, lng) e abre 3 conexões extras por chamada: 0,5 s no mês (out/26, 125 cargas), 2 s em set+out (715) | se o mês passar de ~1.000 cargas ou a tela voltar a pesar: uma busca só por carga |
 
 ---
 

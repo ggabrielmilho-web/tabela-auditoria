@@ -1,5 +1,9 @@
 # Handoff — Insignia GR (2ª fonte de rastreamento)
 
+**Estado em 13/10/2026 — ⚠ COMECE PELA §18 (ONDE PARAMOS):** prints do Gabriel → 14 itens testados em lab
+(`_estudo_2026-10-13/LISTA_TESTES.md`); commitado atrás de chave: janela por veículo, SM desta carga, pacote 2 com a
+régua no aferidor, rótulo estável; sem chave: selo, KPI de 1 ponto, odômetro negativo. Decisões e próximos passos na §18.
+
 **Estado em 08/10/2026 — ⚠ COMECE PELA §16 (ONDE PARAMOS: produção, regra de SM, aprendizado, pendências).**
 A Insignia virou fonte de GPS em produção para TERCEIRO (com ou sem SM), com odômetro e cidade; a coleta segue
 o cavalo de toda carga ativa. A regra de rastreio passou a ser: **tem posição, tem rastreamento** — a SM é
@@ -727,6 +731,7 @@ Commits na `main` (chaves também no README, "O que está ligado em produção")
 | `12a64f2` (08/10) | trava de "janela curta" do KPI só em carga FECHADA (KM PERCORRIDOS "—" nas primeiras horas) | sem chave |
 | `9294b92` (08/10) | cidade da posição atual pelo município mais próximo quando vier vazia | sem chave |
 | `74bb0da` + `f5f57e9` (08/10) | coleta pelos cavalos das cargas ativas e manifestos recentes; Terceiro com SM OU posição vista até o fim do dia do carregamento | `INSIGNIA_COLETA_CARGAS=true` + `EMBARQUES_TERCEIRO_GPS=true` (comando passado 08/10 — conferir) |
+| `fb3ff09` (13/10) | posição atual da Insignia pelo índice: as telas de embarques e o worker deixam de reler o histórico por carga (§17) | sem chave; resultado idêntico |
 
 Fora do app: **455 e 073 do SSW** com janela `min(dia 1º, hoje − 10 dias)` na máquina de produção
 (`C:\Automacoes\SSW_Python`, trocados pelo Gabriel em 07/10); **backfill da 3S 03–08/09 feito** (08/10);
@@ -888,3 +893,123 @@ com `clientes`) + `_c` (coleta real), `_sm`, `_gps`, `_gps2` (braços do robô).
 `insignia_unidades.py`, `lab/terceiro_gps.py`, `lab/worker_teste.py`, `perna_cavalo.py`, `t4.py`,
 `valida.py`, `pos_fim.py`, `macro_regua.py`, `fim_e_chegada.py`. Credenciais da Insignia no `.env` local
 (gitignorado), salvas em 08/10.
+
+## 17. Desempenho — `atuais()` relia o histórico por carga (12–13/10/2026, `fb3ff09`)
+
+**Sintoma (Gabriel, 12/10):** `/embarques` e `/embarques/relatorio` mais pesados a cada dia, "e agora filtrando
+só o mês". Começou com a §16.1, `8f1e9dd` (07/10): a fonte ligada.
+
+**Causa.** Com a chave, `atuais()` deixou de ser `embarques_posicoes_atuais` (~100 linhas, uma por placa) e
+virou uma união cujo ramo da Insignia era `DISTINCT ON (placa_chave) ... ORDER BY placa_chave, em DESC` sobre
+`insignia_posicoes` inteira. A tabela não tem purga: 4.591 linhas em 06/10, 10.218 em 07/10, 17.498 em 08/10,
+acelerando com o `INSIGNIA_COLETA_CARGAS`. A listagem (`server.py`, `/api/embarques/cargas`) cita `atuais()`
+em três subconsultas por carga (idade do GPS, lat, lng). O `EXPLAIN` mostrou um seq scan + sort do histórico
+**por carga** (`loops=121` no ramo Frota/Agregado, que nem usa a Insignia). O worker
+(`_pos_fresca`, `_saiu_da_cidade`) e a continuação pagavam o mesmo a cada consulta.
+
+**Correção.** Só o ramo da Insignia em `fontes_gps.atuais()`: um `WITH RECURSIVE` pula de placa em placa pelo
+índice (PK `placa_chave, em`) e um `LATERAL ... ORDER BY em DESC LIMIT 1` pega a posição mais nova. A lista de
+placas sai do próprio `insignia_posicoes`, e não de `insignia_placas`: a coleta cadastra antes de gravar, mas
+nada no banco garante, e assim a igualdade vale por construção. O `_filtro_insignia` depende só da placa,
+então filtrar antes ou depois de escolher a mais nova dá o mesmo.
+
+**Gate (lab, só leitura):**
+- `atuais()` do `HEAD` × nova: **168 de 168 idênticas**: `postgres` + 20 dumps `rizza_lab_1006*`/`1007*`/`1008*`
+  × 8 combinações (escopo terceiro/todas × odômetro × buraco).
+- Ponta a ponta no `rizza_lab_1008`, mesma transação: listagem out/26 (125) e set+out/26 (715), landing (10) e
+  `_pos_fresca` (45 placas ativas) **idênticos campo a campo**, também com 6× o volume (TEMP TABLE).
+- O gate do robô (`_rodar_diario_local.py`) não se aplica: roda 21/08–10/09, antes de existir dado da Insignia.
+
+| | antes (17 mil · 105 mil posições) | depois (17 mil · 105 mil) |
+|---|---|---|
+| relatório out/26 | 8–9 s · 43 s | 0,5 s · 0,3 s |
+| landing `/embarques` | 1,0 s · 4,1 s | 0,05 s · 0,05 s |
+| worker, por consulta | 32 ms · 167 ms | 3,4 ms · 3,4 ms |
+
+**Ficou de fora, de propósito:**
+- `mais_nova` do tapa-buraco (`EMBARQUES_FONTE_INSIGNIA_BURACO`, desligada) tem o mesmo `DISTINCT ON`:
+  corrigir antes de ligar.
+- `historico()`: o ramo da Insignia faz seq scan a cada chamada (filtro em `replace(i.placa,'-','')`, fora do
+  índice). Trajeto de terceiro: 15 ms → 31 ms de 17 mil para 105 mil posições. Não se multiplica por carga na
+  tela; vigiar perto de 100 ms (~450 mil posições).
+
+Regras e o roteiro para investigar o próximo caso: README, seção **Desempenho**.
+
+## 18. ONDE PARAMOS — 13/10/2026: os prints do Gabriel, a bateria de testes e o que subiu
+
+**Leia primeiro:** `_estudo_2026-10-13/LISTA_TESTES.md` (pasta FORA do git, dado de cliente) — a lista
+dos 14 itens, com o mecanismo, o resultado e os números de cada gate. Lab: `rizza_lab_1013` (dump de
+13/10 11:47 UTC, com `clientes`/`auditoria_users`) e clones `_off2` (chaves de produção) · `_on2` (+ item 1) ·
+`_on3` (+ pacote 2), todos com o ciclo pós-diário convergido desde 27/08.
+
+### 18.1 O que foi commitado (chaves DESLIGADAS; desligadas = idêntico ao `fb3ff09`, byte a byte)
+
+| chave | o que conserta | caso |
+|---|---|---|
+| `EMBARQUES_JANELA_VEICULO` | a evidência da carga terminava em carregamento + 30 d; só a chegada tinha teto, e só pela carreta. Agora série, saída, "esteve na origem", SM e fechamento documental param na próxima carga do MESMO veículo (`embarques_regua.teto_veiculo` / `limite_conclusao` / `proxima_carga`; motor e aferidor). Retrata saída/chegada/conclusão gravadas que eram de outra viagem | C-1405, C-1464, C-584 (chegada da C-622), C-1254 (chegada da C-1375), C-1187 |
+| `EMBARQUES_SM_DA_CARGA` | SM de outra perna do cavalo (45 de 110 pares com a origem a > 60 km): origem da SM ≤ 60 km na trava do robô e no `sm_encerrada`; entre as encerradas, a que tem macro | C-1464 nasceu pela SM da C-1470; C-1444 presa pela SM abortada 212394 |
+| `EMBARQUES_SAIDA_DESTINO_COERENTE` + `EMBARQUES_CONCLUSAO_TRAVADA` | pacote 2; a régua da saída do destino virou `embarques_regua.saida_do_destino`, a MESMA no F3 do aferidor | C-1525 (Barra Mansa), C-584, C-1258 |
+| `EMBARQUES_ROTULO_ESTAVEL` | não regrava `no_local_fonte` quando só as horas do rótulo de metrópole mudam | C-1525: 12 logs em 2 dias |
+| *(sem chave)* `server.py`/`mapa-carga.html` | selo "fora do cadastro" sumia de placa da Insignia só sem sinal agora (`ER0121`); 1 ponto no trecho saída→chegada → `—` + motivo em vez de "0 km · 0 km/h" | C-1429, C-1432 · C-1427, C-1429 |
+| *(sem chave)* `fontes_gps._sql_odometro` | odômetro negativo (contador 32 bits) + 2^32 em Autotrac/Omnilink | C-1506 → 156 km |
+
+Ajustes que os gates forçaram (não desfazer sem medir): o SENSOR é a 1ª placa com ponto na janela DESTA
+carga, mas a contagem do empréstimo do cavalo (3×) segue pela janela inteira (C-1276); a conclusão pode ir
+até a SAÍDA real da próxima carga + 2 h (C-657); tolerância de 15 min (C-681).
+
+Gates (lab): E0 idêntico (motor + aferidor + telas de 924 cargas, refeito a cada mudança) · E1 carga a carga
+explicado · ciclo pós-diário (motor → pernas → janela↔motor) convergindo em ≤ 3 rodadas · aferidor 976 → 742
+(item 1) → 708 (+ pacote 2). Detalhe na lista.
+
+### 18.2 Decisões do Gabriel (13/10/26)
+
+1. **Reemissão tardia (item 8): opção (a)** — mesmo conjunto + mesma rota > 1 dia: a carga A FICA como a
+   viagem (carregamento e janela dela) e a B vira reemissão (Cancelada, ligada à A). Herdar a saída NÃO
+   basta: mapa e KPI usam a janela pelo carregamento. Casos: C-1417 → C-1525, C-1218 → C-1267.
+2. **Perna vazia nasce de carga concluída só pelo documento**: "se emitiu documento é porque está mudo e
+   não rastreou". O gerador fica como está (C-648 → C-656 e C-1040 → C-1065 são comportamento aceito).
+3. **Paradas da GR como fonte (itens 12 + 2) — fazer tudo de uma vez**: saída = fim da última parada na
+   cidade de origem antes do 1º ponto coletado; chegada = início da 1ª parada na cidade de destino quando a
+   chegada do GPS é o 1º ponto. Coluna nova `saida_fonte`; aferidor ciente. Medido em `lab/saida_gr.py`:
+   11 de 13 terceiros sem saída ganham a saída certa. Juntar as linhas sobrepostas antes (item 7, 11%).
+4. Ligar várias coisas no mesmo dia é OK: o robô roda após cada refresh (~8×/dia), observa-se no correr do dia.
+
+### 18.3 Para o próximo chat, nesta ordem
+
+1. Conferir em produção o que foi ligado (abaixo) — `GRAVADO:` do atemporal e o aferidor antes/depois.
+2. Implementar 12 + 2 (paradas da GR) e o 8 (a) (`embarques_continuacao.ligar_continuacoes` + reabrir A).
+3. Tapa-buraco (`EMBARQUES_FONTE_INSIGNIA_BURACO`): consertar o `mais_nova` (DISTINCT ON, §17) e refazer o
+   E4 com este dump — ele muda a série de FROTA/AGREGADO, a maior superfície de regressão. A guarda do cavalo
+   da C-1264 agora é coberta pela janela por veículo.
+4. Âncora (Google + locais da GR + T1 aprendido — HANDOFF-EMBARQUES §28.13): escrever a implantação, campos
+   separados, junto das macros como "no cliente" / "fim da descarga" (item 5: CHEGADA NO CLIENTE = entrou no
+   cliente; último FIM = fim da descarga; FIM colado na chegada existe).
+5. Estacionados: item 14 (bitrem trocado no gerador de pernas, 6 casos; o CTe da C-1254 não aponta
+   continuação); refazer E2–E4 da Insignia.
+
+### 18.4 Subir e ligar (receita da §24.7 do HANDOFF-EMBARQUES)
+
+```bash
+# 1) deploy normal (git pull + build + service update). Conferir DENTRO do container:
+CT=$(docker ps -q -f name=rizza-auditoria_app); docker exec $CT grep -c "def teto_veiculo\|def saida_do_destino" embarques_regua.py   # 2
+# 2) snapshot das tabelas derivadas
+docker exec $CT python -X utf8 _snapshot_embarques.py
+# 3) ligar pela CLI (NUNCA pelo stack do Portainer — volta a imagem antiga, §22.10)
+docker service update --env-add EMBARQUES_JANELA_VEICULO=true --env-add EMBARQUES_SM_DA_CARGA=true rizza-auditoria_app
+#    observar 1–2 refreshes; depois:
+docker service update --env-add EMBARQUES_SAIDA_DESTINO_COERENTE=true --env-add EMBARQUES_CONCLUSAO_TRAVADA=true \
+    --env-add EMBARQUES_ROTULO_ESTAVEL=true rizza-auditoria_app
+# volta: a chave =false no mesmo minuto; dado: restore pelo snapshot
+```
+
+O atemporal de produção olha 28 dias (15/09+): no lab, essa janela deu 16 cargas na 1ª rodada do item 1.
+
+### 18.5 Armadilhas desta sessão
+
+- **O histórico da 3S tem um BURACO até 26/08 12:38** (purga antiga): carga carregada antes de 27/08 não tem
+  evidência; qualquer motor dá lixo nela. Gate de regressão só com carregamento ≥ 27/08.
+- **`_auditoria_geral.py`, `_robo_atemporal.py` etc. são scripts**: `import` RODA o script (e sobrescreveu o
+  `_auditoria_geral.csv` da raiz). Para conferir sintaxe, `py_compile`; sempre `--csv` para a pasta do estudo.
+- Os números das pernas novas (`V-…`) não são comparáveis entre clones: comparar pelo par "A -> B".
+- O ciclo do lab relê os scripts do disco a cada passo: não editar motor/régua/fontes/continuação com ele rodando.
+- `ciclo.py` do lab é o `rodar_pos_diario` sem o passo de rotas (o ORS não tem trava).

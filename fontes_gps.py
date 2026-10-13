@@ -82,9 +82,15 @@ def _sql_odometro(cur):
                     "AND column_name = 'tecnologia_deduzida'")
         _TABELAS['deduzida'] = cur.fetchone() is not None
     tec = 'COALESCE(pl.tecnologia, pl.tecnologia_deduzida)' if _TABELAS['deduzida'] else 'pl.tecnologia'
+    # Contador de 32 bits SEM sinal lido como COM sinal (13/10/26): o Omnilink do NJY8G40 manda as 2.060
+    # leituras entre -1.586.735.116 e -1.586.576.011 — o valor absoluto não diz nada, a DIFERENÇA está
+    # certa (a coleta deduziu a tecnologia pela razão, 1.087). Negativo + 2^32 é o mesmo contador; o km
+    # do rastreador, que só aceita leitura > 0, voltava "—" (C-2026-001506). Só nas tecnologias em metro
+    # e hectômetro: o Onixsat é em km e não tem leitura negativa.
+    _u32 = "(CASE WHEN i.odometro < 0 THEN i.odometro + 4294967296 ELSE i.odometro END)"
     return (f"(CASE WHEN i.odometro IS NULL OR i.odometro = 0 OR {trav}FALSE THEN NULL "
-            f"WHEN {tec} = 'AUTOTRAC' THEN round(i.odometro / 100.0) "
-            f"WHEN {tec} = 'OMNILINK' THEN round(i.odometro / 1000.0) "
+            f"WHEN {tec} = 'AUTOTRAC' THEN round({_u32} / 100.0) "
+            f"WHEN {tec} = 'OMNILINK' THEN round({_u32} / 1000.0) "
             f"WHEN {tec} = 'ONIXSAT' THEN i.odometro END)::integer")
 
 
@@ -231,7 +237,33 @@ CARENCIA_MUDA_H = 2.0       # depois do encerramento, quanto esperar um ponto an
 MACROS_CHEGADA = ('CHEGADA NO CLIENTE', 'FIM DE VIAGEM', 'ABERTURA DE BAU')
 
 
-def encerramento_sm(cur, placa, dia_carga, agora, dest=None, raio_km=20.0):
+def sm_da_carga_ligado():
+    """`EMBARQUES_SM_DA_CARGA=true` (LAB 13/10/26): a SM usada é a DESTA carga, não a de outra perna do
+    mesmo cavalo. A janela de ±2/3 dias casava SM de outra viagem o tempo todo — 45 de 110 pares carga ×
+    SM de 01–13/10 com a origem da SM a mais de 60 km da origem da carga. Duas regras:
+      * a ORIGEM da SM fica a ≤ SM_ORIGEM_KM da origem da carga (o raio de metrópole). C-2026-001464
+        (Rio → Cordeirópolis) nasceu pela SM da C-1470 (Cordeirópolis → Rio, 434 km); a C-1442 tinha a
+        SM da viagem anterior. Sem coordenada de um dos lados, vale como antes;
+      * entre as encerradas, vale a 1ª que TEM macro. A GR abre SM em duplicidade e aborta uma: na
+        C-2026-001444 a 212394 foi encerrada 51 min depois de aberta, sem macro, e a da viagem (212409,
+        FIM DE VIAGEM 09/10 23:35) nunca era lida — a carga ficava em `No destino` para sempre."""
+    return os.getenv('EMBARQUES_SM_DA_CARGA', 'false').strip().lower() == 'true'
+
+
+SM_ORIGEM_KM = 60.0     # embarques_regua.RAIO_METRO: o mesmo "perto" da chegada de metrópole
+
+
+def _sm_origem_ok(sm_lat, sm_lng, origem):
+    """A origem da SM é compatível com a origem da carga? Sempre True com a chave desligada ou sem
+    coordenada de um dos lados (o que era antes)."""
+    if not sm_da_carga_ligado() or not origem or origem[0] is None or sm_lat is None or sm_lng is None:
+        return True
+    import geocoding as g
+    k = g.km_entre(float(sm_lat), float(sm_lng), float(origem[0]), float(origem[1]))
+    return k is None or k <= SM_ORIGEM_KM
+
+
+def encerramento_sm(cur, placa, dia_carga, agora, dest=None, raio_km=20.0, ate=None, origem=None):
     """SM da Insignia encerrada com a placa MUDA depois dela. Devolve um dict ou None:
 
         chegada   instante da 1ª macro de chegada NO DESTINO (CHEGADA NO CLIENTE / ABERTURA DE
@@ -248,24 +280,35 @@ def encerramento_sm(cur, placa, dia_carga, agora, dest=None, raio_km=20.0):
 
     Placa que CONTINUA posicionando depois da SM (a coleta a segue 48 h) não é muda: segue a
     regra de hoje. Destino = (lat, lng) da carga; a macro vale se estiver a ≤ `raio_km` dele OU
-    a ≤ 5 km do destino da própria SM."""
+    a ≤ 5 km do destino da própria SM.
+
+    `ate` (EMBARQUES_JANELA_VEICULO, 13/10/26): o instante em que o veículo começou OUTRA carga. SM
+    que começa depois dele é da viagem seguinte, e ponto depois dele é testemunha da viagem
+    seguinte — não prova que a placa "continua posicionando" NESTA. Sem `ate`, como sempre."""
     if not (encerramento_ligado() and _tem_insignia(cur)):
         return None
     chave = pl.mercosul(placa or '')
     if not chave:
         return None
-    cur.execute("""SELECT sm, encerrada_em, destino_lat, destino_lng FROM insignia_sm
+    _teto_sm = " AND COALESCE(inicio, criada_em) < %s" if ate else ""
+    _macro = ("EXISTS (SELECT 1 FROM insignia_macros m WHERE m.sm = s.sm) DESC, "
+              if sm_da_carga_ligado() else "")
+    cur.execute(f"""SELECT sm, encerrada_em, destino_lat, destino_lng, origem_lat, origem_lng FROM insignia_sm s
                     WHERE placa_cavalo_chave = %s AND encerrada_em IS NOT NULL
-                      AND (COALESCE(inicio, criada_em) - interval '3 hours')::date BETWEEN %s AND %s
-                    ORDER BY encerrada_em LIMIT 1""",
-                (chave, dia_carga - timedelta(days=3), dia_carga + timedelta(days=2)))
-    r = cur.fetchone()
+                      AND (COALESCE(inicio, criada_em) - interval '3 hours')::date BETWEEN %s AND %s{_teto_sm}
+                    ORDER BY {_macro}encerrada_em""",
+                (chave, dia_carga - timedelta(days=3), dia_carga + timedelta(days=2)) + ((ate,) if ate else ()))
+    r = next((x for x in cur.fetchall() if _sm_origem_ok(x[4], x[5], origem)), None)
     if not r:
         return None
-    sm, enc, sm_lat, sm_lng = r
+    sm, enc, sm_lat, sm_lng = r[:4]
     if (agora - enc).total_seconds() / 3600 < CARENCIA_MUDA_H:
         return None                                     # ainda dentro da carência
-    cur.execute("SELECT 1 FROM insignia_posicoes WHERE placa_chave = %s AND em > %s LIMIT 1", (chave, enc))
+    if ate:
+        cur.execute("SELECT 1 FROM insignia_posicoes WHERE placa_chave = %s AND em > %s AND em < %s LIMIT 1",
+                    (chave, enc, ate))
+    else:
+        cur.execute("SELECT 1 FROM insignia_posicoes WHERE placa_chave = %s AND em > %s LIMIT 1", (chave, enc))
     if cur.fetchone():
         return None                                     # continua posicionando: regra de hoje
     import geocoding as g
@@ -375,7 +418,7 @@ def terceiro_gps_ligado():
     return os.getenv('EMBARQUES_TERCEIRO_GPS', 'false').strip().lower() == 'true'
 
 
-def tem_gps(cur, cavalo, carreta, dia):
+def tem_gps(cur, cavalo, carreta, dia, origem=None):
     """A Insignia acompanha este conjunto DESDE o carregamento? SM (como antes) OU uma posição do CAVALO
     vista pela coleta entre o dia anterior e o FIM do dia do carregamento (BRT).
 
@@ -386,7 +429,7 @@ def tem_gps(cur, cavalo, carreta, dia):
     coleta começar só tem ponto de depois, e nasceria quebrada (chegada no 1º ponto coletado, sem saída,
     km ~0 — MQU7E81 no lab: 08/10 12:17 × 01:38 real). Paradas NÃO contam: vêm com 30 dias de histórico e
     deixariam esse estoque passar."""
-    if tem_sm(cur, cavalo, carreta, dia):
+    if tem_sm(cur, cavalo, carreta, dia, origem):
         return True
     if not _tem_insignia(cur):
         return False
@@ -399,19 +442,21 @@ def tem_gps(cur, cavalo, carreta, dia):
     return bool(cur.fetchone()[0])
 
 
-def tem_sm(cur, cavalo, carreta, dia):
+def tem_sm(cur, cavalo, carreta, dia, origem=None):
     """Existe SM da Insignia para este conjunto perto deste dia? É a trava do Terceiro no robô:
     sem SM não há GPS, e 75% dos manifestos de terceiro nunca têm o seguinte da mesma carreta —
-    a carga nasceria 'Aberta' e nunca sairia (HANDOFF-INSIGNIA §8)."""
+    a carga nasceria 'Aberta' e nunca sairia (HANDOFF-INSIGNIA §8).
+
+    `origem` = (lat, lng) da origem da carga: com EMBARQUES_SM_DA_CARGA, SM de outra perna do mesmo
+    cavalo não conta (C-1464 nasceu pela SM da viagem seguinte)."""
     if not _tem_insignia(cur):
         return False
     cav, car = pl.mercosul(cavalo or ''), pl.mercosul(carreta or '')
     if not (cav or car):
         return False
-    cur.execute("""SELECT 1 FROM insignia_sm
+    cur.execute("""SELECT origem_lat, origem_lng FROM insignia_sm
                     WHERE ((%s <> '' AND placa_cavalo_chave = %s)
                            OR (%s <> '' AND %s = ANY(string_to_array(COALESCE(carretas_chave, ''), ','))))
-                      AND (COALESCE(inicio, criada_em) - interval '3 hours')::date BETWEEN %s AND %s
-                    LIMIT 1""",
+                      AND (COALESCE(inicio, criada_em) - interval '3 hours')::date BETWEEN %s AND %s""",
                 (cav or '', cav or '', car or '', car or '', dia - timedelta(days=2), dia + timedelta(days=2)))
-    return cur.fetchone() is not None
+    return any(_sm_origem_ok(la, ln, origem) for la, ln in cur.fetchall())

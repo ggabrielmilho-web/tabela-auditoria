@@ -1304,10 +1304,17 @@ def executar(dia=None, dry_run=False, token=None, conn=None):
         _teste = fontes_gps.tem_gps if _gps else fontes_gps.tem_sm
         _rot = 'Terceiro sem GPS na Insignia' if _gps else 'Terceiro sem SM na Insignia'
         _ficam = []
+        # SM DESTA carga (EMBARQUES_SM_DA_CARGA, 13/10/26): a origem da SM tem de bater com a da carga —
+        # a C-1464 (Rio -> Cordeirópolis) nasceu pela SM da viagem seguinte do cavalo. Desligada, sem origem.
+        _sm_carga = fontes_gps.sm_da_carga_ligado()
+        import geocoding as _geo_t
         for c in cargas:
+            _orig = (_geo_t.geocoder_municipio((c.get('origem') or {}).get('cidade'),
+                                               (c.get('origem') or {}).get('uf'), conn=cur.connection)
+                     if (_sm_carga and c['tipo_operacao'] == 'Terceiro') else None)
             if c['tipo_operacao'] == 'Terceiro' and not _teste(
                     cur, (c.get('cavalo') or {}).get('placa'), (c.get('carreta1') or {}).get('placa'),
-                    c['data_carregamento']):
+                    c['data_carregamento'], _orig):
                 descartes[_rot] += 1
                 continue
             _ficam.append(c)

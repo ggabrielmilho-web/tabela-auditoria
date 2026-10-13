@@ -7831,7 +7831,7 @@ def _indice_chegada_destino(traj, dest_lat, dest_lng, raio_km=None):
     return min(dentro, key=lambda x: x[1])[0]
 
 
-def _kpi_ao_vivo(traj, traj_odo=None):
+def _kpi_ao_vivo(traj, traj_odo=None, _um_ponto_bruto=False):
     """KPIs calculados ao vivo a partir dos pontos do trajeto da viagem (só da viagem,
     pois traj já vem filtrado por data_saida_real). Espelha _consolidar_kpi do worker.
 
@@ -7841,6 +7841,20 @@ def _kpi_ao_vivo(traj, traj_odo=None):
             'odometro_trechos': 0, 'odometro_trechos_gps': 0,
             'velocidade_max': 0, 'velocidade_media': None,
             'tempo_movimento_seg': 0, 'tempo_parado_seg': 0, 'consolidado_final': False}
+    if traj and len(traj) == 1 and not _um_ponto_bruto:
+        # UM ponto não mede viagem (13/10/26). O trecho desenhado fica com um ponto só quando o rastreio
+        # da placa começou com o veículo JÁ no destino (C-2026-001427 e C-1429: a coleta da Insignia pegou
+        # o cavalo no cliente), na viagem local e na perna de carreta que fala pouco — e a tela publicava
+        # "0,0 km · 0 km/h · 0 min", que afirma que o veículo não andou. Mesmo princípio do §12.13: sem
+        # medição, `—` e o motivo. Só o que sai do DESENHO; o odômetro segue a regra de sempre (na perna
+        # vazia ele mede a janela inteira, `traj_odo`, e é válido).
+        _kpi = _kpi_ao_vivo(traj, traj_odo, _um_ponto_bruto=True)      # o cálculo de sempre
+        _kpi.update(distancia_km=None, velocidade_max=None, velocidade_media=None,
+                    tempo_movimento_seg=None, tempo_parado_seg=None,
+                    km_janela_motivo='uma posição só no trecho da viagem — o deslocamento não foi '
+                                     'observado (o rastreio começou com o veículo já no destino, ou a '
+                                     'placa quase não transmitiu)')
+        return _kpi
     if not traj:
         # Sem trajeto para desenhar ainda pode haver odômetro (viagem cega no meio,
         # ou recorte que zerou a linha). Devolve o que dá.
@@ -8442,9 +8456,24 @@ def api_rastreamento_trajeto(carga_id):
                       ('carreta2', carga.get('carreta2_placa'), traj_c2)]
             _esc = next(((t, p, tr) for t, p, tr in _cands if p and tr), None)
             if _esc:
+                # Placa da INSIGNIA sem sinal AGORA não está "fora do cadastro" (13/10/26). A coleta marca
+                # `rastreada = false` quando a GR responde ER0121 (sem posição há 12 h) — é o estado de
+                # hoje, e o selo amarelo acusava carga já entregue com 176 pontos na janela (C-1429,
+                # C-1432). O cadastro dela é o `insignia_placas`, e a placa está lá.
+                _ins_conhecida = False
+                if not placa_track:
+                    try:
+                        if fontes_gps._ativo(cur):
+                            cur.execute("SELECT 1 FROM insignia_placas WHERE placa_chave = %s",
+                                        (placas.mercosul(_esc[1]),))
+                            _ins_conhecida = cur.fetchone() is not None
+                    except Exception:
+                        _ins_conhecida = False
                 rastreado_via = {'placa': _esc[1], 'tipo': _esc[0],
-                                 'fora_cadastro': not placa_track,
+                                 'fora_cadastro': not placa_track and not _ins_conhecida,
                                  'grafia_nao_casou': bool(placa_track)}
+                if _ins_conhecida:
+                    rastreado_via['sem_sinal_agora'] = True
                 traj_principal = _esc[2]
             else:
                 rastreado_via = None
