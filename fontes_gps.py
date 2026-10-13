@@ -173,21 +173,33 @@ def atuais(cur):
                  WHERE n.em > a.data_posicao + interval '{BURACO_ATUAL_MIN} minutes'"""
     else:
         tres, tapa = 'FROM embarques_posicoes_atuais a', ''
+    # A última posição de cada placa da Insignia sai do ÍNDICE (PK placa_chave, em): `ch` pula de
+    # placa em placa e o LATERAL pega a mais nova de cada uma. Era um DISTINCT ON sobre a tabela
+    # inteira, que não tem purga — e os leitores citam `atuais()` numa subconsulta POR CARGA, então
+    # cada carga relia o histórico todo. Medido em 12/10/26 no lab de 08/10: a listagem de
+    # outubro do relatório de embarques levava 8 s com 17 mil posições e 43 s com 105 mil; o
+    # worker, 32 ms → 167 ms por consulta. Mesmas linhas de antes: o filtro só depende da placa.
     return f"""(SELECT a.placa, a.id_veiculo_3s, a.data_posicao, a.latitude, a.longitude, a.velocidade, a.ignicao,
                        a.direcao, a.uf, a.cidade, a.bairro, a.endereco, a.bloqueio, a.odometer, a.atualizado_em,
                        '3s'::varchar(12) AS fonte
                   {tres}{tapa}
                 UNION ALL
-                (SELECT DISTINCT ON (i.placa_chave)
-                        replace(i.placa, '-', '')::varchar(10), NULL::bigint, i.em,
+                (WITH RECURSIVE ch AS (
+                        (SELECT placa_chave FROM insignia_posicoes ORDER BY placa_chave LIMIT 1)
+                        UNION ALL
+                        SELECT (SELECT x.placa_chave FROM insignia_posicoes x
+                                 WHERE x.placa_chave > ch.placa_chave ORDER BY x.placa_chave LIMIT 1)
+                          FROM ch WHERE ch.placa_chave IS NOT NULL)
+                 SELECT replace(i.placa, '-', '')::varchar(10), NULL::bigint, i.em,
                         i.lat::numeric(10,7), i.lng::numeric(10,7), round(i.velocidade)::integer, i.ignicao = 1,
                         NULL::varchar(20), NULL::char(2), NULL::varchar(120), NULL::varchar(120),
                         i.referencia::varchar(200), NULL::boolean, {_sql_odometro(cur)}::bigint, i.coletada_em,
                         'insignia'::varchar(12)
-                   FROM insignia_posicoes i
+                   FROM ch
+                   CROSS JOIN LATERAL (SELECT * FROM insignia_posicoes x
+                                        WHERE x.placa_chave = ch.placa_chave ORDER BY x.em DESC LIMIT 1) i
                    LEFT JOIN insignia_placas pl ON pl.placa_chave = i.placa_chave
-                  WHERE {_filtro_insignia()}
-                  ORDER BY i.placa_chave, i.em DESC))"""
+                  WHERE {_filtro_insignia()}))"""
 
 
 def placa_rastreada(cur, placa):
