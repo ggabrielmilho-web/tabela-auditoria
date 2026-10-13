@@ -198,6 +198,8 @@ const GRUPOS = [
   {sev:'ok',       nome:'🟢 Conforme',      dica:'dentro da regra'},
 ];
 let ESTADOS = {}, LINHAS = [], FILTRO_SEV = '', FILTRO_EST = '', ATUAL = null, SOLICITAR = false;
+// `/embarques/sm?q=<nº da SM>` — é o que a ficha da viagem abre ao clicar na SM (13/10/26)
+const Q_URL = (new URLSearchParams(location.search).get('q') || '').trim();
 
 const esc = t => String(t ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 const brl = v => v == null ? '—' : v.toLocaleString('pt-BR', {style:'currency', currency:'BRL', maximumFractionDigits:0});
@@ -285,8 +287,8 @@ function motivos(l){
 function smCel(l){
   if (!l.sm) return l.exige === 'sinal' && l.sinal_pontos ? `<span class="dim">sinal · ${l.sinal_pontos} pts</span>` : '<span class="dim">—</span>';
   const conj = l.sm_conjunto && l.sm_conjunto !== 'igual' ? ` <span class="badge s-atencao">${l.sm_conjunto==='so_cavalo'?'só cavalo':'só carreta'}</span>` : '';
-  const link = l.sm_link ? `<a class="lig mono" href="${esc(l.sm_link)}" target="_blank" onclick="event.stopPropagation()">${l.sm}</a>` : `<span class="mono">${l.sm}</span>`;
-  return `${link} <span class="dim">${esc(l.sm_status||'')}</span>${conj}`;
+  // sem link: o PDF que a Insignia manda (`sLinkSM`) dá 404 no servidor dela (13/10/26); a linha já abre a gaveta
+  return `<span class="mono">${l.sm}</span> <span class="dim">${esc(l.sm_status||'')}</span>${conj}`;
 }
 function validCel(l){
   if (!l.validacao) return (l.severidade==='alerta'||l.severidade==='atencao') ? '<span class="dim">pendente</span>' : '';
@@ -303,7 +305,14 @@ function acaoCel(l){
 function renderTabela(){
   const tb = document.getElementById('tbody');
   document.getElementById('contagem').textContent = `${LINHAS.length} manifesto${LINHAS.length===1?'':'s'}`;
-  if (!LINHAS.length) { tb.innerHTML = '<tr><td colspan="17" class="info-vazio">Nenhum manifesto para o filtro.</td></tr>'; return; }
+  if (!LINHAS.length) {
+    // a ficha lista as SMs do CAVALO na janela da viagem; nem toda SM foi casada a um manifesto (7 de 42 no dump de 08/10)
+    const daFicha = Q_URL && document.getElementById('fQ').value.trim() === Q_URL;
+    tb.innerHTML = `<tr><td colspan="17" class="info-vazio">${daFicha
+      ? `Nenhum manifesto casado com a SM ${esc(Q_URL)} — ela é do cavalo da viagem, mas a regra não a ligou a manifesto nenhum.`
+      : 'Nenhum manifesto para o filtro.'}</td></tr>`;
+    return;
+  }
   tb.innerHTML = LINHAS.map(l => {
     const [sev, rot] = ESTADOS[l.estado] || ['pendente', l.estado];
     const carga = l.carga_id ? `<a class="lig mono" href="/embarques/cargas/${l.carga_id}/mapa" target="_blank" onclick="event.stopPropagation()">${esc(l.carga_numero)}</a> <span class="dim">${esc(l.carga_status||'')}</span>` : '<span class="dim">sem carga</span>';
@@ -352,7 +361,7 @@ function renderGaveta(j){
   document.getElementById('gSub').innerHTML = `emitido ${dia(l.data_emissao)} · ${esc(l.unidade_origem||'')} · ${l.tipo?`<span class="badge t-${l.tipo}">${l.tipo}</span>`:''}`;
   const ctes = (l.ctes || []).map(c => `<tr><td class="mono">${esc(c.ctrc)}</td><td>${esc(c.destinatario||'')}<div class="dim">${esc(c.entrega)}</div></td>
       <td class="dim">${esc(c.pagador||'')}${c.martins?` <span class="mot isento">${esc(c.isento||'isento')}</span>`:''}</td><td class="num mono">${brl(c.valor)}</td></tr>`).join('');
-  const sms = (j.sms || []).map(s => `<tr class="${s.sm===l.sm?'casada':''}"><td class="mono">${s.link?`<a class="lig" href="${esc(s.link)}" target="_blank">${s.sm}</a>`:s.sm}${s.sm===l.sm?' ✔':''}</td>
+  const sms = (j.sms || []).map(s => `<tr class="${s.sm===l.sm?'casada':''}"><td class="mono">${s.sm}${s.sm===l.sm?' ✔':''}</td>
       <td class="mono">${esc(s.cavalo||'')}<div class="dim">${esc(s.carretas||'')}</div></td><td>${esc(s.status||'')}<div class="dim">${esc(s.condutor||'')}</div></td>
       <td class="mono">${dt(s.criada_em)}<div class="dim">${s.encerrada_em?'fim '+dt(s.encerrada_em):''}</div></td><td class="num mono">${brl(s.valor)}</td></tr>`).join('');
   const dif = l.valor_manifesto && Math.abs(l.valor_manifesto - l.valor_cte) > 1
@@ -448,8 +457,14 @@ function limpar(){
 document.getElementById('fQ').addEventListener('keydown', e => { if (e.key === 'Enter') carregar(); });
 document.getElementById('fEstado').addEventListener('change', e => { FILTRO_EST = e.target.value; FILTRO_SEV = ''; carregar(); });
 
-mesVigente();
-carregar();
+if (Q_URL) {
+  // vindo da ficha: sem o recorte do mês (a SM pode ser de outro mês); um manifesto só → abre a gaveta
+  document.getElementById('fQ').value = Q_URL;
+  carregar().then(() => { if (LINHAS.length === 1) abrir(LINHAS[0].manifesto); });
+} else {
+  mesVigente();
+  carregar();
+}
 </script>
 <script src="/nav-perms.js"></script>
 </body>

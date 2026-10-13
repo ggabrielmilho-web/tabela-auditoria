@@ -1087,8 +1087,9 @@ function docs() {
     return;
   }
   if (ABA === 'sm') {
+    // o nº abre a aba SM filtrada: o PDF que a Insignia manda (`sLinkSM`) dá 404 no servidor dela (13/10/26)
     alvo.innerHTML = tabela([['SM'], ['Status'], ['Pedida'], ['Início'], ['Encerrada'], ['Valor da carga', 'n']], (V.sms || []).map(s => `<tr>
-      <td class="mono">${s.link ? `<a href="${esc(s.link)}" target="_blank" rel="noopener">${esc(s.sm)}</a>` : esc(s.sm)}<small>${esc(curto(s.trecho))}</small></td>
+      <td class="mono"><a href="/embarques/sm?q=${encodeURIComponent(s.sm)}" target="_blank" rel="noopener" title="abrir na aba SM">${esc(s.sm)}</a><small>${esc(curto(s.trecho))}</small></td>
       <td>${esc(s.status || '')}</td><td class="mono">${fmtDH(s.criada)}</td><td class="mono">${fmtDH(s.inicio)}</td><td class="mono">${fmtDH(s.encerrada)}</td>
       <td class="n">${s.valor != null ? brl(s.valor, 0) : '—'}</td></tr>`), 'Nenhuma SM da Insignia na janela desta viagem.');
     return;

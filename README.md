@@ -673,7 +673,7 @@ Abrir SM pela API: **preparado, não ligado** (colunas e lugar na tela já exist
 - `DELETE /api/admin/users/<id>` — remove usuário
 
 ### Conformidade de SM (`@page_required('embarques')`)
-- `GET /embarques/sm` — a aba
+- `GET /embarques/sm` — a aba. Com `?q=<nº da SM>` (o que a ficha da viagem abre ao clicar na SM) busca sem o recorte do mês e, achando um manifesto só, abre a gaveta dele. O número da SM não leva mais ao PDF da Insignia: o `sLinkSM` que a API manda dá 404 no servidor dela (13/10/2026, testado de 28/09 a 13/10)
 - `GET /api/embarques/sm?desde=&ate=&estado=&severidade=&tipo=&exige=&validacao=&q=&cancelados=1` — linhas + cards por estado (os cards ignoram o filtro de estado/severidade)
 - `GET /api/embarques/sm/<manifesto>` — detalhe: CTes, SMs da unidade com o mesmo cavalo/carreta (±5 d), a mesma SM em outro manifesto, histórico
 - `POST /api/embarques/sm/<manifesto>/validacao` `{validacao: confirmado|falso_alerta|justificado|'', obs}` — validação do responsável, com log
