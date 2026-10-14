@@ -1089,3 +1089,25 @@ snapshot → `--env-add EMBARQUES_REEMISSAO_TARDIA=true`. A 1ª rodada do diári
 na janela). C-1218 → C-1267 (CTe de 28/09) só por chamada avulsa do `ligar_continuacoes` com a janela de CTe desde
 26/09 — **nunca** `executar` com dia antigo (cria carga velha). Volta: chave false + restore por id
 (`--desde-log`), porque a reabertura não se desfaz sozinha.
+
+### 18.8 Item 3 — tapa-buraco pronto; escopo `todas` ainda não (13/10 noite)
+
+`fontes_gps.atuais()` com `EMBARQUES_FONTE_INSIGNIA_BURACO`: o `mais_nova` deixou de ser um DISTINCT ON sobre
+`insignia_posicoes` inteira (o mesmo defeito da §17) — sai do cadastro da 3S com LATERAL pelo índice. Gate: 28 de 28
+idênticas em 7 bancos × escopo × odômetro; 230–775 ms → 14–57 ms por chamada.
+
+E4 refeito na produção de agora (clone `_r8on`; ciclo + aferidor + telas, `_estudo_2026-10-13/lab/braco.sh`):
+- **tapa-buraco**: 0 decisões do motor, aferidor idêntico (só a contagem do S3), telas com +2..+5 pontos do cavalo em 3
+  cargas e KPI igual → **pode ligar** depois do deploy do conserto (`grep -c "CROSS JOIN LATERAL (SELECT \* FROM
+  insignia_posicoes x" fontes_gps.py` = 1 no container).
+- **escopo `todas`**: motor com 6 cargas corretas + 1 perna sem GPS; mas o AFERIDOR não tem a régua do sensor
+  emprestado do cavalo (F2 da C-1495, C2 da C-1364) e o MAPA não respeita a janela por veículo (C-1264 desenharia a
+  viagem seguinte do DIL8F42). Consertar os dois antes de ligar. Detalhe em `LISTA_TESTES.md`.
+
+**C-2026-001546 (13/10, decisão do Gabriel: erro de emissão, não tratar).** Terceiro Extrema → Araguari, Onixsat
+(IPH4E06). A GR mostra a viagem inteira ANTES do documento: saiu de Extrema 10/10 16:13 BRT, 2 dias em Uberlândia,
+entregou em Araguari 13/10 06:48–15:43; o manifesto UDI029620-1 é de 13/10 e a carga nasceu às 16:50, com a coleta
+passando a seguir o cavalo às 16:00 (já voltando, na estrada). A chegada gravada (16:28, `metropole`) é o caminhão
+de volta a Uberlândia; a régua da GR não age (o 1º ponto está em movimento, e a saída é 3 dias antes da janela).
+Generalizar a régua (chegada = 1ª parada no destino ANTES do 1º ponto; conclusão = fim dela; saída desde a carga
+anterior do veículo) foi descartado: documento emitido depois da viagem é erro operacional.

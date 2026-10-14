@@ -164,10 +164,15 @@ def atuais(cur):
     if not _ativo(cur):
         return 'embarques_posicoes_atuais'
     if buraco_ligado():
-        # posição ATUAL da placa que está nas duas: a da Insignia, se for BURACO_ATUAL_MIN mais nova
-        mais_nova = (f"(SELECT DISTINCT ON (i.placa_chave) i.*, v.placa AS p3 FROM insignia_posicoes i "
-                     f"JOIN embarques_veiculos_rastreio v ON {pl.sql_chave('v.placa')} = i.placa_chave "
-                     f"ORDER BY i.placa_chave, i.em DESC)")
+        # posição ATUAL da placa que está nas duas: a da Insignia, se for BURACO_ATUAL_MIN mais nova.
+        # A mais nova de cada placa do CADASTRO da 3S (~94) sai do ÍNDICE (PK placa_chave, em): o LATERAL pega a
+        # última de cada uma. Era um DISTINCT ON sobre `insignia_posicoes` inteira — a mesma releitura do histórico
+        # por carga que a §17 do HANDOFF-INSIGNIA tirou do ramo de baixo (13/10/26). O DISTINCT ON que sobra é
+        # sobre esse resultado pequeno e mantém a semântica de antes (uma linha por placa_chave).
+        mais_nova = (f"(SELECT DISTINCT ON (n.placa_chave) n.*, v.placa AS p3 FROM embarques_veiculos_rastreio v "
+                     f"CROSS JOIN LATERAL (SELECT * FROM insignia_posicoes x "
+                     f"WHERE x.placa_chave = {pl.sql_chave('v.placa')} ORDER BY x.em DESC LIMIT 1) n "
+                     f"ORDER BY n.placa_chave, n.em DESC)")
         tres = (f"FROM embarques_posicoes_atuais a WHERE NOT EXISTS (SELECT 1 FROM {mais_nova} n "
                 f"WHERE n.p3 = a.placa AND n.em > a.data_posicao + interval '{BURACO_ATUAL_MIN} minutes')")
         tapa = f"""
