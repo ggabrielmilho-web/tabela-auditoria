@@ -385,13 +385,26 @@ def marcar_odometro(cur, agora):
     (AXT6E87, 06/10/26: o mesmo 1043208320 por 531 km). Critério: nas últimas 24 h, ≥ 20 pontos
     EM MOVIMENTO (> 10 km/h) e no máximo 2 valores distintos de odômetro (zeros fora). Parado
     não conta: odômetro constante com o caminhão parado é o certo. Uma vez por rodada, para a
-    camada de leitura não varrer histórico a cada consulta."""
+    camada de leitura não varrer histórico a cada consulta.
+
+    Duas correções de 14/10/26:
+      * EM MOVIMENTO também pela POSIÇÃO (> 1 km do ponto anterior): o Autotrac sem telemetria manda
+        velocidade 0 SEMPRE e o odômetro parado (EWU0D62, GZV2I74, JQZ3I38, HOA0B56, NJZ9B97: um único
+        odômetro em 335–834 km), e pela velocidade nunca tinha ponto "em movimento" para ser marcado;
+        o MHG5C28 perdeu a telemetria no meio da viagem (09/10 16:27) e rodou 150 km com ela zerada.
+      * parado NÃO DESMARCA: a marca só cai com o odômetro andando (≥ 20 pontos em movimento e mais de
+        2 valores). Antes, um dia parado zerava a marca e a viagem de ontem voltava a ter "perna falsa"
+        — o AXT6E87, o caso que criou esta regra, estava sem a marca no dump de 13/10."""
     cur.execute("""
         UPDATE insignia_placas pl SET odometro_travado = x.travado
           FROM (SELECT placa_chave,
-                       count(*) FILTER (WHERE velocidade > 10 AND odometro <> 0) >= 20
-                       AND count(DISTINCT odometro) FILTER (WHERE velocidade > 10 AND odometro <> 0) <= 2 AS travado
-                  FROM insignia_posicoes WHERE em >= %s GROUP BY 1) x
+                       count(DISTINCT odometro) FILTER (WHERE mov AND odometro <> 0) <= 2 AS travado
+                  FROM (SELECT placa_chave, odometro,
+                               velocidade > 10 OR 111.2 * sqrt(power(lat - lag(lat) OVER w, 2)
+                                   + power((lng - lag(lng) OVER w) * cos(radians(lat)), 2)) > 1 AS mov
+                          FROM insignia_posicoes WHERE em >= %s
+                        WINDOW w AS (PARTITION BY placa_chave ORDER BY em)) p
+                 GROUP BY 1 HAVING count(*) FILTER (WHERE mov AND odometro <> 0) >= 20) x
          WHERE x.placa_chave = pl.placa_chave
            AND pl.odometro_travado IS DISTINCT FROM x.travado""", (agora - timedelta(hours=24),))
     return cur.rowcount

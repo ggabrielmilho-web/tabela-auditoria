@@ -8322,9 +8322,30 @@ def api_rastreamento_trajeto(carga_id):
         # Sem chegada registrada segue ao vivo, como antes.
         fim = carga.get('data_conclusao') or carga.get('no_local_desde') or _dt.utcnow()
 
+        # JANELA POR VEÍCULO (EMBARQUES_JANELA_VEICULO, 14/10/26 — a mesma régua do motor e do aferidor): a placa que
+        # começou OUTRA carga não testemunha mais esta, e a linha dela para ali (00:00 do dia seguinte ao carregamento
+        # da próxima carga dela). Sem isso o mapa de carga ABERTA sem chegada desenhava as viagens seguintes do cavalo:
+        # a C-2026-001264 (Aberta desde 30/09, carreta morta) passava a mostrar o DIL8F42 da C-1363 em diante assim
+        # que a Insignia lesse os cavalos de frota (escopo `todas`, lab de 13/10). Desligada, nada muda.
+        # Perna vazia fica de fora: a janela dela É o intervalo entre a carga A e a saída da B (dono: a rederivação),
+        # e a B costuma sair mais de um dia depois do próprio manifesto — o teto cortava o fim da perna (V-166: 133 → 57 km).
+        import embarques_regua as _regua_jv
+        _teto_placa = {}
+        if _regua_jv.JANELA_VEICULO and _dcarr and not carga.get('viagem_vazia'):
+            _d0 = _dcarr.date() if isinstance(_dcarr, _dt) else _dcarr
+            cur.execute(_regua_jv.SQL_CARGAS_POR_VEICULO, (_d0,))
+            _idx_jv = _regua_jv.indice_por_veiculo(cur.fetchall(), placas.mercosul)
+            for _pj in (carga['cavalo_placa'], carga.get('carreta1_placa'), carga.get('carreta2_placa')):
+                if _pj:
+                    _tj = _regua_jv.teto_veiculo(_idx_jv, placas.mercosul(_pj), _d0, carga_id)
+                    if _tj:
+                        _teto_placa[placas.mercosul(_pj)] = _tj
+
         def _buscar_trajeto(placa):
             if not placa:
                 return []
+            _tj = _teto_placa.get(placas.mercosul(placa))
+            _fim_p = min(fim, _tj) if _tj else fim
             # ANY(grafias): a posição é gravada na grafia CRUA da 3S (42 das 94
             # placas vêm na antiga) e a carga pode estar em Mercosul. Com
             # igualdade exata o trajeto vinha vazio e o mapa mostrava 0 km.
@@ -8334,7 +8355,7 @@ def api_rastreamento_trajeto(carga_id):
                 FROM {fontes_gps.historico(cur)} h
                 WHERE placa = ANY(%s) AND data_posicao BETWEEN %s AND %s
                 ORDER BY data_posicao
-            """, (placas.grafias(placa), inicio, fim))
+            """, (placas.grafias(placa), inicio, _fim_p))
             return [{
                 'data': dp.isoformat() + 'Z',
                 'lat': float(la),
@@ -8498,9 +8519,14 @@ def api_rastreamento_trajeto(carga_id):
             # cavalo mesmo quando ela rastreou a viagem inteira: a C-2026-000569 tem 491
             # pontos da carreta chegando a 1 km do destino e desenhava o cavalo, que parou
             # 656 km longe. Em carga viva `fim` é o próprio agora — o dia a dia não muda.
+            # ...e o fim da janela DESTA placa (janela por veículo): a carreta cortada no começo da carga
+            # seguinte dela não está "muda" — a linha dela só acaba ali.
+            _tjr = _teto_placa.get(placas.mercosul(rastreado_via.get('placa') or ''))
+            _fim_ref = min(fim, _tjr) if _tjr else fim
+
             def _idade_h(iso):
                 try:
-                    return (fim - _dt.fromisoformat(str(iso).replace('Z', ''))).total_seconds() / 3600.0
+                    return (_fim_ref - _dt.fromisoformat(str(iso).replace('Z', ''))).total_seconds() / 3600.0
                 except Exception:
                     return None
             ult_carreta = _idade_h(traj_principal[-1]['data']) if traj_principal else None

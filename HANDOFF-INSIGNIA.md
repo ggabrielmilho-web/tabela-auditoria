@@ -1,5 +1,8 @@
 # Handoff — Insignia GR (2ª fonte de rastreamento)
 
+**14/10/2026 (manhã) — §18.9:** escopo `todas` pronto no lab (régua do cavalo no aferidor, janela por veículo no
+mapa, odômetro travado sem velocidade); aguarda o ok para commit, deploy e ligar.
+
 **13/10/2026 (tarde) — §18.6:** saída e chegada pela parada da GR (`EMBARQUES_PARADAS_GR`), gates fechados.
 
 **Estado em 13/10/2026 — ⚠ COMECE PELA §18 (ONDE PARAMOS):** prints do Gabriel → 14 itens testados em lab
@@ -1098,7 +1101,8 @@ idênticas em 7 bancos × escopo × odômetro; 230–775 ms → 14–57 ms por c
 
 E4 refeito na produção de agora (clone `_r8on`; ciclo + aferidor + telas, `_estudo_2026-10-13/lab/braco.sh`):
 - **tapa-buraco**: 0 decisões do motor, aferidor idêntico (só a contagem do S3), telas com +2..+5 pontos do cavalo em 3
-  cargas e KPI igual → **pode ligar** depois do deploy do conserto (`grep -c "CROSS JOIN LATERAL (SELECT \* FROM
+  cargas e KPI igual → **LIGADO em 13/10 à noite** (`622d9cc`; em 14/10 de manhã o motor com a chave ligada e desligada, rodados em
+  seguida, deram as mesmas 6 cargas — o GPS da noite: o tapa-buraco não muda decisão) depois do deploy do conserto (`grep -c "CROSS JOIN LATERAL (SELECT \* FROM
   insignia_posicoes x" fontes_gps.py` = 1 no container).
 - **escopo `todas`**: motor com 6 cargas corretas + 1 perna sem GPS; mas o AFERIDOR não tem a régua do sensor
   emprestado do cavalo (F2 da C-1495, C2 da C-1364) e o MAPA não respeita a janela por veículo (C-1264 desenharia a
@@ -1111,3 +1115,48 @@ passando a seguir o cavalo às 16:00 (já voltando, na estrada). A chegada grava
 de volta a Uberlândia; a régua da GR não age (o 1º ponto está em movimento, e a saída é 3 dias antes da janela).
 Generalizar a régua (chegada = 1ª parada no destino ANTES do 1º ponto; conclusão = fim dela; saída desde a carga
 anterior do veículo) foi descartado: documento emitido depois da viagem é erro operacional.
+
+### 18.9 Escopo `todas` — as duas lacunas fechadas e uma terceira achada (14/10 manhã)
+
+Três mudanças, nenhuma atrás de chave nova (as duas primeiras só agem com chave que já existe; a terceira é da coleta):
+
+1. **Aferidor com a régua do sensor emprestado do cavalo** (`_auditoria_geral.py`, só com `EMBARQUES_SENSOR_CAVALO`,
+   que está ligada): na carreta, quando o cavalo tem mais de 3× os pontos (`EMBARQUES_SENSOR_CAVALO_FATOR`) e esteve na
+   origem, a saída do cavalo vale como piso/antecipação e a chegada do cavalo (com parada) antecipa > 30 min — a mesma
+   régua do motor. E0 (chave desligada) idêntico. Produção (terceiro): 706 → **696** — saem 17 falsos (11 F1d, 2 F1,
+   F2, C2, C5, F3) e entram 7 reais que estavam escondidos: 3 F3 de conclusão velha (C-987, C-1479, C-1522), 3 P1 de
+   perna fabricada (V-089, V-266, V-333) e 1 C3 residual (V-156). No `todas`: 733 → 722 (somem o C2 da C-1364 e o F2
+   da C-1495).
+2. **Mapa com a janela por veículo** (`server.py`, trajeto, só com `EMBARQUES_JANELA_VEICULO`, ligada): cada placa
+   termina no começo da carga SEGUINTE dela (`embarques_regua.teto_veiculo`); perna vazia fica de fora (o teto cortava
+   ~45 pernas antes da própria saída). O "carreta muda" mede a idade contra o fim da janela DESSA placa. E0 idêntico;
+   produção: 12 mapas mudam, todos do jeito esperado — 6 canceladas por manifesto (C-1110, 1137, 1161, 1328, 1422,
+   1468) e 6 com conclusão depois da carga seguinte (C-552, 563, 582, 946, 1025, 1302). No `todas`, a C-1264 deixa de
+   desenhar a viagem seguinte do DIL8F42.
+3. **Odômetro travado sem velocidade** (`insignia_coleta.marcar_odometro`), achado medindo o `todas`: 5 cavalos
+   Autotrac de frota/agregado (EWU0D62, GZV2I74, JQZ3I38, HOA0B56, NJZ9B97) mandam **velocidade 0 em todo ponto** e um
+   único odômetro em 335–834 km; o MHG5C28 perdeu a telemetria no meio da viagem (09/10 16:27, ~150 km zerados). A regra
+   só contava ponto > 10 km/h, então nunca os marcava — e odômetro parado sem a marca faz trecho real virar "perna
+   falsa" e o km sair baixo (C-1502 publicaria 296 km de odômetro numa viagem de 517; C-1472, 4 pernas falsas). E a
+   marca OSCILAVA: um dia parado zerava (o AXT6E87, que criou a regra, estava sem ela no dump de 13/10). Agora:
+   movimento também pela posição (> 1 km do ponto anterior) e a marca só cai com o odômetro andando (≥ 20 pontos em
+   movimento e > 2 valores). Gate: a função real, hora a hora sobre o histórico com a tabela sombreada no instante
+   (`lab/travado_gate.py`), dá as 9 trocas da simulação (`lab/travado_sim.py`), e as 9 placas conferidas no GPS cru.
+   Clones com as 9 marcas (`_tvter`, `_tvtod`) × sem (`_b3bur`, `_b3tod`): **motor 0 diferenças** nos dois escopos,
+   **aferidor idêntico** (696 = 696, 722 = 722); telas: no terceiro nada visível (C-1553/AXT6E87 já mostrava "—"
+   pela trava do mínimo geométrico); no `todas` a C-1472 perde as 4 pernas falsas (132 → 428 km) e C-1472/1495/1502
+   mostram "—" em vez de km errado.
+
+**O que o `todas` faz** (clone `_tvtod` × `_tvter`): motor 6 cargas, conferidas no GPS cru — C-1362 e C-1507
+refinadas, C-1364 e C-1420 ganham saída e chegada (só o cavalo fez a viagem), C-1472 ganha chegada, C-1495 chegada
+12/10 00:56 → 10/10 11:52 e Entregue (a carreta dormiu; o cavalo estacionou a 2,6 km às 12:22) — + 1 perna (V-373,
+"SEM GPS"). Telas: 10 cargas passam a mostrar o cavalo (carreta muda ou parada).
+
+**Limite conhecido, não tratado:** aparelho com velocidade 0 sempre faz o 1º ponto dentro dos 20 km contar como
+"parado" — a chegada sai adiantada (C-1495 ~30 min, 11:52 a 14,8 km; C-1472 ~70 min, 22:13 a 17,7 km; estacionou às
+23:25). Consertar = velocidade derivada da posição no `fontes_gps` (janela LAG na união — custo de consulta a medir).
+
+**Subir** (receita da §18.4): deploy → no container `grep -c "WINDOW w AS (PARTITION BY placa_chave ORDER BY em)"
+insignia_coleta.py` = 1 → snapshot → `docker service update --env-add EMBARQUES_FONTE_INSIGNIA_ESCOPO=todas`. As marcas
+entram sozinhas na rodada da coleta em que cada placa rodar ≥ 20 pontos (não há carga retroativa; quem está parado
+fica como está até rodar). Volta: `EMBARQUES_FONTE_INSIGNIA_ESCOPO=terceiro`; dado pelo snapshot.

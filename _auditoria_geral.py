@@ -49,6 +49,9 @@ PARADA_ABERTA_D = 5      # carga aberta sem sair da origem ha N dias
 HORIZONTE_D = 14         # depois disso a evidencia nao muda mais
 VEL_MAX_CRIVEL = 100.0   # km/h medios: acima disso o par saida/chegada nao descreve a viagem
 PARADAS_GR = fontes_gps.paradas_gr_ligado()   # saida/chegada pela parada da GR (13/10/26) — a regua do motor
+# o sensor emprestado do cavalo — a MESMA chave e o mesmo fator do motor (_robo_atemporal, 23/09/26)
+SENSOR_CAVALO = os.getenv('EMBARQUES_SENSOR_CAVALO', 'false').lower() in ('1', 'true', 'sim')
+SENSOR_CAVALO_FATOR = float(os.getenv('EMBARQUES_SENSOR_CAVALO_FATOR', '3'))
 
 ap = argparse.ArgumentParser()
 ap.add_argument('--desde', default='2026-08-01')
@@ -241,6 +244,21 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
     _gr_vale = (PARADAS_GR and papel == 'cavalo' and not vazia and robo and cont_em is None
                 and status not in ('Cancelada', 'Continuada'))
 
+    # SENSOR EMPRESTADO DO CAVALO (EMBARQUES_SENSOR_CAVALO, no ar desde 24/09) — a regua do motor: a carreta que
+    # fala pouco empresta a saida e a chegada do cavalo que ESTEVE na origem, se ele tem mais de FATOR vezes os
+    # pontos dela; o cavalo so preenche ou ANTECIPA (> 30 min). Ate 14/10/26 o aferidor nao tinha a regra e
+    # media pela carreta o que o motor provou pelo cavalo: C-2026-001364 virava C2 (saida "sem lastro") e a
+    # C-2026-001495 F2 ("fechou antes de chegar"). Rara enquanto so ~27% dos cavalos estavam na 3S; com a
+    # Insignia lendo todo cavalo (escopo `todas`) passa a ser comum.
+    _cav_vale, _saida_cav, _torg_cav = False, None, None
+    if (SENSOR_CAVALO and papel != 'cavalo' and pc and _P_ORG is not None
+            and _n_cav > SENSOR_CAVALO_FATOR * max(1, _n_princ)):
+        _d0c = dists(pc, _P_ORG[0], _P_ORG[1], _P_DST)
+        if _d0c and min(k for _, k, v in _d0c) <= RAIO_ORIGEM:
+            _cav_vale = True
+            _torg_cav = next(d for d, k, v in _d0c if k <= RAIO_ORIGEM)
+            _saida_cav = next((d for d, k, v in _d0c if k > RAIO_ORIGEM and d > _torg_cav), None)
+
     # ── VINCULO com a origem
     piso = None            # instante a partir do qual uma chegada e crivel (mesma regra do motor)
     if ola is not None:
@@ -278,6 +296,9 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
                 add(num, 'V1', 'alta',
                     f'a placa rastreada NUNCA esteve na origem ({_mino_cru:.0f} km no minimo) — {quem}',
                     f'origem={ocid}')
+                # o motor tira a saida do cavalo (sensor emprestado): o piso da chegada e o mesmo
+                if _cav_vale:
+                    piso = _saida_cav or _torg_cav
             else:
                 # PRIMEIRA presenca na origem, nao a de menor distancia: numa viagem que
                 # volta para a base (A->B->A) o ponto mais proximo da origem e a VOLTA, e
@@ -286,6 +307,9 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
                 t_org = next((d for d, k, v in d0 if k <= RAIO_ORIGEM), None) or \
                         next(d for d, k, v in d0 if k == mino)
                 saiu = next((d for d, k, v in d0 if k > RAIO_ORIGEM and d > t_org), None)
+                # sensor emprestado: a saida do cavalo preenche ou antecipa a da carreta (regua do motor)
+                if _cav_vale and _saida_cav is not None and (saiu is None or _saida_cav < saiu - timedelta(minutes=30)):
+                    saiu = _saida_cav
                 piso = saiu or t_org
                 # ── CICLO: saida
                 if saiu and not dsaida:
@@ -352,6 +376,15 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
         dd_cav = [(d, k, v) for d, k, v in dists(pc, float(dla), float(dln), _P_ORG)
                   if (piso_c is None or d >= piso_c) and (teto is None or d <= teto)]
         cheg, como = regua.chegada_emprestada(cheg, como, dd, dd_cav)
+    # sensor emprestado: a chegada do cavalo (parado no raio) antecipa a da carreta — o piso do motor e
+    # max(saida apurada, saida gravada)
+    if _cav_vale:
+        _piso_cv = max(x for x in (piso, dsaida) if x) if (piso or dsaida) else None
+        _dcv = [(d, k, v) for d, k, v in dists(pc, float(dla), float(dln), _P_ORG)
+                if (_piso_cv is None or d >= _piso_cv) and (teto is None or d <= teto)]
+        _cc, _comocc = perto_com_parada(_dcv, RAIO_CHEGADA, RAIO_METRO, exigir_parada=True) if _dcv else (None, None)
+        if _cc is not None and (cheg is None or _cc < cheg - timedelta(minutes=30)):
+            cheg, como = _cc, (_comocc or 'estrita') + '+cavalo'
     # CHEGADA PELA PARADA DA GR (EMBARQUES_PARADAS_GR, 13/10/26) — a regua do motor: a chegada do GPS e o
     # 1o ponto coletado (a coleta comecou no destino), e a 1a parada da GR na cidade de destino e a chegada.
     if (_gr_vale and cheg is not None
