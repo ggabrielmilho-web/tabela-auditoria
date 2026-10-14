@@ -36,3 +36,43 @@ lab_*/
 *.dump
 *.dump.gz
 eventos.json
+
+# Exportações com dado da contabilidade (nomes de clientes/fornecedores, contratos).
+# O repositório é PÚBLICO — levar ao servidor por docker cp, nunca pelo git.
+_plano_contas_*.json
+contratos_conta.json
+
+# ════════════════════════════════════════════════════════════════════════════
+# O repositório é PÚBLICO e leva SÓ O PROGRAMA (14/10/2026). Documentação de
+# trabalho (HANDOFF, plano, README), relatórios, planilhas, PDFs, dumps e scripts
+# de laboratório ficam só na máquina. Antes: 8 .md, 13 .csv e 47 scripts `_*.py`
+# de ensaio tinham subido com placas, cargas, nomes e valores da operação.
+# ════════════════════════════════════════════════════════════════════════════
+*.md
+*.csv
+*.json
+*.pdf
+*.xls
+*.docx
+!contrato_tac_template.docx
+# lotes .sql com dado de abastecimento e saídas .txt do aferidor
+*.sql
+*.txt
+!requirements.txt
+!fonts/OFL.txt
+# Scripts com `_` são laboratório (ensaio, simulação, auditoria, teste)...
+_*
+# ...menos os que o PROGRAMA chama: importados pelo app ou rodados por ele
+# (motor convergente do server.py, verda_job.py) e os de produção por docker exec.
+!_fita_documentos.py
+!_locais.py
+!_programacao.py
+!_robo_atemporal.py
+!_regerar_vazias_agosto.py
+!_tracar_rotas_agosto.py
+!_rederivar_vazias.py
+!_verda_demo.py
+!_verda_valida.py
+!_auditoria_geral.py
+!_snapshot_embarques.py
+!_ensaio_pipeline.py

@@ -206,8 +206,8 @@ def _placa(v):
 
 
 def _cpf(v):
-    """Só os dígitos. O manifesto do SSW traz '044.559.306-71' e o lançamento
-    manual grava '04455930671'; gravar no mesmo formato do manual é o que faz a
+    """Só os dígitos. O manifesto do SSW traz '123.456.789-09' e o lançamento
+    manual grava '12345678909'; gravar no mesmo formato do manual é o que faz a
     trava de conflito de motorista enxergar as duas fontes como o mesmo CPF."""
     return re.sub(r'[^0-9]', '', str(v or ''))
 
