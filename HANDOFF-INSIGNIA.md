@@ -1,8 +1,8 @@
 # Handoff — Insignia GR (2ª fonte de rastreamento)
 
-**14/10/2026 — §18.9 e §18.10:** escopo `todas` LIGADO em produção (`fa382eb`, confirmado); a
-`EMBARQUES_CARRETA_CONGELADA` ganhou a régua no aferidor e passou no gate sobre o dump de 14/10 — aguarda o ok.
-Depois: endereços como âncora (HANDOFF-EMBARQUES §28.13).
+**14/10/2026 — §18.9 a §18.12:** escopo `todas` e `EMBARQUES_CARRETA_CONGELADA` LIGADOS em produção; lista de
+embarques otimizada; `EMBARQUES_SAIDA_CARREGAMENTO` (C-1551) testada com o alarme P1 consertado — aguarda deploy e
+ligar. Endereços como âncora: `PROPOSTA-ANCORA.md` (etapas 1–2 feitas no lab).
 
 **13/10/2026 (tarde) — §18.6:** saída e chegada pela parada da GR (`EMBARQUES_PARADAS_GR`), gates fechados.
 
@@ -1239,6 +1239,12 @@ chave; ciclo até o ponto fixo, rodada 3 nos dois):
 C-1363, C-1472, rótulos) → `docker service update --env-add EMBARQUES_CARRETA_CONGELADA=true`. Volta: `=false`; dado
 pelo snapshot. **Prévia em produção (14/10): as 5 cargas do lab, mesmos instantes.**
 
+**PRODUÇÃO — LIGADA em 14/10/2026** (deploy de `3dc307b`, snapshot `snap_20261014_1416`; a lista `9a1b3c3` subiu
+depois, `grep -c "WITH _pa AS MATERIALIZED"` = 1). Conferido depois do refresh: C-1363 saída 06/10 10:28 / chegada
+06/10 14:21 (conclusão 07/10 14:45, a gravada — dentro da tolerância); C-1472 No destino 12/10 22:13; C-1276
+conclusão 06/10 20:22 (a do lab de 07/10); C-1362 e C-1522 o mesmo instante com rótulo `estrita`. Chaves no ar:
+`EMBARQUES_FONTE_INSIGNIA_ESCOPO=todas`, `EMBARQUES_CARRETA_CONGELADA=true`.
+
 ### 18.11 A lista de embarques travando em "Carregando..." (14/10)
 
 Com as simulações do motor rodando no container, o Postgres a 100% e três listas de 2–3 min na fila. Causa de fundo:
@@ -1248,3 +1254,37 @@ tapa-buraco) era refeita em cada uma — o relatório de 1.000 cargas: 6,5 s ant
 normalizada (`_pk`). Gate (`lab/lista_gate.py`, 8 filtros × 3 combinações de chave, commit × working tree): **resultado
 idêntico** (só a idade da posição anda com o relógio); relatório 12,8 s → **2,2 s**, home 1,1 → 0,6 s. O worker cita
 `atuais()` uma vez por placa, não por linha — fica. Simulação em produção: `nice -n 19` antes do `python`.
+
+### 18.12 C-1551 — saída em passagem (`EMBARQUES_SAIDA_CARREGAMENTO`) e o alarme de perna sem deslocamento (14/10)
+
+**O print do Gabriel:** C-1551 (Frota, só o cavalo OWH0F53, Uberlândia → Brasília) desenhava 1.050 km numa rota de 423.
+A saída gravada (12/10 20:45) era de uma ida e volta de ~210 km ANTES de carregar (13/10 20:57 → 14/10 00:15 parado a
+4–5 km de Uberlândia); o mapa recorta na saída gravada. É a saída em passagem da §15.3 (C): a chave existia desligada,
+"só junto da congelada" — que agora está no ar.
+
+**Gate** (clones de `_cgon` = produção de agora; `_scoff` × `_scon`, ciclo até o ponto fixo, rodada 2):
+- motor: 27 saídas mudam — 16 passam de velocidade implícita absurda a plausível (C-1551 11 → 43 km/h, C-661 4 → 78,
+  C-839 13 → 63), 3 melhoram mas seguem lentas (outras paradas), **0 pioram**; 3 de −5 min (a régua parte da saída do
+  motor e a gravada era do worker). Mapa da C-1551 1.050 → **380 km**; C-839 1.148 → 696.
+- **13 pernas novas** (o intervalo que a saída adiantada escondia dentro da carga seguinte). Conferidas no GPS: 11 com
+  a janela certa (começam quando a carreta deixa o destino da carga anterior); V-382 abre à 00:00 (conclusão
+  documental da anterior) com a carreta já em Jarinu desde 20:08 — problema que já existia, agora visível; V-388 vem
+  de uma carga anterior medida por cavalo Autotrac de velocidade 0.
+- **O alarme P1 ("perna sem deslocamento") estava errado** — testava só "chegou < 1 h depois de abrir", e entre cidades
+  vizinhas isso é perna real e curta (Guarulhos → Jundiaí sai de um raio e entra no outro em 5 min). Agora exige também
+  que a carreta NÃO esteja do lado da origem de 3 h antes a 1 h depois da abertura (`dists` com a outra ponta, a mesma
+  régua do motor); perna sem coordenada de origem não se julga. Duas tentativas descartadas, ficam como armadilha:
+  "1º ponto da janela a <= 20 km do destino" e "no destino há >= 1 h antes da abertura" derrubavam TODOS os alarmes,
+  inclusive os verdadeiros (a carreta que dorme no destino não transmite).
+- aferidor na produção de hoje (commit × regra nova): 735 → **700**, saem 35 P1 falsos (pernas curtas reais: Viana →
+  Serra 7×, Aparecida → Nerópolis 4×...), ficam os de conclusão documental à meia-noite com a carreta já no destino
+  (V-183 Guarulhos → Nerópolis "chega" 18 min depois da meia-noite, V-089, V-186, V-291). Ligando a chave: 700 → 708 —
+  somem C3/F2 de V-279 e V-366 (passam a ter chegada); entram P1 de V-382 e V-388 (verdadeiros), V1 de V-382 e 6
+  avisos de sinal/sensor nas pernas novas.
+- Lab sem o traçado de rotas (`EMBARQUES_AUTO_MAX_ROTAS=0`): perna nova nasce sem `origem_latitude`; no gate foi
+  preenchida pelo centroide do `municipios_ibge`, como o robô faz em produção.
+
+**Subir:** deploy (só o aferidor muda) → no container `grep -c "_sem_deslocamento" _auditoria_geral.py` = 3 → snapshot →
+prévia (`nice -n 19`, motor com a chave só no comando × sem, janela de 28 dias; esperado ~20 saídas dentro da janela,
+C-1551 em 14/10 00:15) → `docker service update --env-add EMBARQUES_SAIDA_CARREGAMENTO=true`. As pernas novas nascem
+no robô diário do refresh seguinte. Volta: `=false`; dado pelo snapshot.

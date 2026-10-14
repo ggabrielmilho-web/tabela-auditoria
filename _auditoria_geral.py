@@ -445,7 +445,20 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
     # esperando a proxima carga, e a "perna" e efeito cascata de um fechamento errado da
     # carga anterior (secao 16.3). A secao 17.4 tinha achado 9 casos assim olhando mapa a
     # mapa; aqui e uma linha.
-    if vazia and cheg and dsaida and (cheg - dsaida).total_seconds() / 3600.0 < 1.0:
+    #
+    # A chegada < 1 h so e "sem deslocamento" se a carreta NAO estava do lado da ORIGEM perto da abertura (14/10/26).
+    # Entre cidades VIZINHAS a perna real e curta: sair do raio de 30 km de Guarulhos e entrar no de 20 km de Jundiai
+    # leva 5 min (V-2026-000384), Rio -> Seropedica 15 min; a V-2026-000266 estava do lado da origem ate a abertura e
+    # chegou 36 min depois — deslocou. O caso de verdade e o da conclusao documental atrasada: a V-2026-000186 abre a
+    # 00:00 com a carreta ja a 3,5 km do destino e nenhum ponto do lado da origem. Janela de prova: 3 h antes a 1 h
+    # depois da abertura, com o lado da perna (`dists` com a outra ponta), a mesma regua do motor.
+    _sem_deslocamento = False
+    # Perna sem a coordenada da origem (rota ainda nao tracada) nao se julga: sem a ponta nao ha lado da origem.
+    if vazia and cheg and dsaida and ola is not None and (cheg - dsaida).total_seconds() / 3600.0 < 1.0:
+        _do = dists(principal, float(ola), float(oln), _P_DST)
+        _sem_deslocamento = not any(dsaida - timedelta(hours=3) <= d <= dsaida + timedelta(hours=1)
+                                    and k <= RAIO_ORIGEM for d, k, v in _do)
+    if _sem_deslocamento:
         add(num, 'P1', 'media',
             f'PERNA SEM DESLOCAMENTO: a carreta ja estava no destino quando a janela abriu '
             f'({str(dsaida)[:16]}) — nao ha reposicionamento a medir',
