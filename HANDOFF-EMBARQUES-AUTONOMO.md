@@ -5477,7 +5477,8 @@ hoje; aparece ~0,5–1 h mais tarde. Saída com aparelho congelado: janela cont�
 - Google Maps scraper (kit): não usar — viola termos, bloqueia IP, e a Geocoding oficial já basta.
 
 **Próximos passos, em ordem (todos aguardam o "pode fazer" do Gabriel):**
-1. Escrever a **proposta de implantação** (colunas novas, chave, ordem de ligar, gates) para revisão.
+1. ~~Escrever a **proposta de implantação**~~ — **escrita em 14/10/26: `PROPOSTA-ANCORA.md`** (aguarda as 5
+   decisões da §6 dela).
 2. Investigar o **vai-e-volta de 6,5% da régua de HOJE** (status recua entre refreshes, §28.12) —
    existe sem âncora nenhuma.
 3. Torre: trocar "Documento sem saída" por "viagem local" quando origem = destino (só tela, C-1221).

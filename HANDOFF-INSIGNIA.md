@@ -570,7 +570,9 @@ Insignia soma só +3 — ela só tem posição desde 05/10.
   ~13/10 antes de escrever regra.
 
 **Cache do Google atualizado (07/10):** `_estudo_2026-10-07/geocode_cache.json` (cópia do de 30/09 + 28 endereços
-novos, todos OK; o de 30/09 ficou intacto, backup em `geocode_cache.antes.json`). **Decisão do Gabriel (07/10/26): NÃO apagar — as coordenadas do Google vão ser guardadas no nosso banco.** Aviso registrado: os termos da Google Maps Platform só permitem cache de lat/lng por 30 dias (o `place_id` pode ficar para sempre); guardar a coordenada descumpre o contrato e arrisca suspensão da chave (a mesma do `preencher_km_google.py`). Alternativa oferecida e não adotada até aqui: guardar para sempre só o ponto CONFIRMADO pelo nosso GPS e o local da GR, com o Google como palpite inicial + `place_id`. Não commitar o arquivo de cache (dado de cliente). Rodar o lab com
+novos, todos OK; o de 30/09 ficou intacto, backup em `geocode_cache.antes.json`). **Decisão do Gabriel (07/10 e
+14/10/26), assunto encerrado:** as coordenadas vão para uma tabela nossa (HANDOFF-EMBARQUES §28.4). Não commitar o
+arquivo de cache (dado de cliente). Rodar o lab com
 `--cache _estudo_2026-10-07/geocode_cache.json`. Efeito: sem a GR a cobertura vai de 66% a 68% (a semana 41 de
 71% a 84%); com a GR (`apos_t1`) 80% → 80%, "no cliente" 349 → **350 de 476 (74%)**. Por semana, com a GR:
 cobertura 87–94% nas semanas 38–41, "no cliente" 70–100%. A semana 34 (19–23/08) segue em 11% — GPS daquelas
@@ -1194,6 +1196,16 @@ chave; ciclo até o ponto fixo, rodada 3 nos dois):
 - **Telas:** só a C-1472 (o mapa termina na chegada).
 
 **Subir:** deploy (só o aferidor muda; o motor já tem a régua) → `grep -c "fontes_gps.descongelar" _auditoria_geral.py`
-= 1 no container → snapshot → prévia (motor em simulação com a chave só no comando × sem, janela de 28 dias; esperado
+= 2 no container (comentário + chamada) → snapshot → prévia (motor em simulação com a chave só no comando × sem, janela de 28 dias; esperado
 C-1363, C-1472, rótulos) → `docker service update --env-add EMBARQUES_CARRETA_CONGELADA=true`. Volta: `=false`; dado
-pelo snapshot.
+pelo snapshot. **Prévia em produção (14/10): as 5 cargas do lab, mesmos instantes.**
+
+### 18.11 A lista de embarques travando em "Carregando..." (14/10)
+
+Com as simulações do motor rodando no container, o Postgres a 100% e três listas de 2–3 min na fila. Causa de fundo:
+`/api/embarques/cargas` cita `fontes_gps.atuais()` em TRÊS subconsultas por carga, e a união (3S + Insignia +
+tapa-buraco) era refeita em cada uma — o relatório de 1.000 cargas: 6,5 s antes das chaves de 13/10, 10–13 s com
+`todas` + tapa-buraco, no lab sem disputa. Conserto: CTE `WITH _pa AS MATERIALIZED` no topo do SQL, com a placa já
+normalizada (`_pk`). Gate (`lab/lista_gate.py`, 8 filtros × 3 combinações de chave, commit × working tree): **resultado
+idêntico** (só a idade da posição anda com o relógio); relatório 12,8 s → **2,2 s**, home 1,1 → 0,6 s. O worker cita
+`atuais()` uma vez por placa, não por linha — fica. Simulação em produção: `nice -n 19` antes do `python`.
