@@ -114,6 +114,7 @@
     <a href="/contabil/acni">Adiantamentos (571)</a>
     <a href="/contabil/eventos">Eventos</a>
     <a href="/contabil/contas-fixas">Contas fixas</a>
+    <a href="/contabil/arquivo">Arquivo de importação</a>
   </div>
 
   <div class="periodo-bar">
@@ -144,9 +145,9 @@
   </div>
 
   <div style="margin-top:20px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-    <button class="btn" disabled title="Depende do de-para evento → conta contábil">
+    <a class="btn" href="/contabil/arquivo" style="text-decoration:none">
       Gerar arquivo de importação
-    </button>
+    </a>
     <span class="dica" id="avisoImport" style="font-size:0.74rem;"></span>
   </div>
 </div>
@@ -290,7 +291,7 @@ function renderCards(t) {
 
   document.getElementById('cards').innerHTML = cards.join('');
   document.getElementById('avisoImport').textContent =
-    '⚠ depende do de-para evento → conta contábil estar preenchido';
+    'despesa, pagamentos, recebimentos, adiantamentos, desconto de duplicata e transferências — com prévia e conferência';
 }
 
 function renderTabela(bancos) {

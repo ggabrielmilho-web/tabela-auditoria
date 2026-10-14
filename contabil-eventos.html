@@ -102,6 +102,7 @@
     <a href="/contabil/acni">Adiantamentos (571)</a>
     <a href="/contabil/eventos" class="active">Eventos</a>
     <a href="/contabil/contas-fixas">Contas fixas</a>
+    <a href="/contabil/arquivo">Arquivo de importação</a>
   </div>
 
   <div class="placar" id="placar"><div class="status-box">Carregando…</div></div>
@@ -147,6 +148,10 @@ const esc = s => String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&l
 
 let dados = null, plano = [], atual = null;
 
+// Mesma regra do servidor: tem conta quem tem conta no evento, ou — evento de
+// consórcio/empréstimo — quem tem conta em TODOS os contratos.
+const temConta = e => !!e.conta_debito || (e.contratos > 0 && e.contratos === e.contratos_com_conta);
+
 async function carregar() {
   const [ev, pl] = await Promise.all([
     fetch('/api/contabil/eventos', {credentials:'same-origin'}).then(r=>r.json()),
@@ -185,7 +190,7 @@ function visiveis() {
   const soF = document.getElementById('soFalta').checked;
   return dados.eventos.filter(e => {
     if (soP && !e.precisa_conta) return false;
-    if (soF && e.conta_debito) return false;
+    if (soF && temConta(e)) return false;
     if (q && !(String(e.evento).includes(q) || (e.descricao||'').toLowerCase().includes(q))) return false;
     return true;
   });
@@ -200,10 +205,14 @@ function render() {
     const flag = (val, bom) => val
       ? `<span class="tag ${val===bom?'ok':'dim'}">${esc(val)}</span>`
       : '<span class="tag warn">—</span>';
-    const conta = (c, precisa) => c
-      ? `<span class="mono">${esc(c)}</span>`
-      : (precisa ? '<span class="tag warn">falta</span>'
-                 : '<span class="tag dim">conta fixa</span>');
+    const conta = (c, rotulo, precisa) => c
+      ? `<span class="mono" title="${esc(rotulo||'')}">${esc(c)}</span>`
+      : (e.contratos && precisa
+          ? `<span class="tag ${e.contratos===e.contratos_com_conta?'ok':'warn'}"
+               title="conta por contrato (consórcio, empréstimo…)">por contrato
+               ${int(e.contratos_com_conta)}/${int(e.contratos)}</span>`
+          : (precisa ? '<span class="tag warn">falta</span>'
+                     : '<span class="tag dim">conta fixa</span>'));
     return `<tr onclick="abrir('${esc(e.evento)}')">
       <td class="num" style="color:var(--text-dim)">${i+1}</td>
       <td class="mono">${esc(e.evento)}</td>
@@ -213,8 +222,8 @@ function render() {
       <td class="num" style="color:var(--text-dim)">${(e.pct_acumulado*100).toFixed(1)}%</td>
       <td>${flag(e.contabiliza_despesa,'SIM')}</td>
       <td>${flag(e.contabiliza_provisao,'SIM')}</td>
-      <td>${conta(e.conta_debito, e.precisa_conta)}</td>
-      <td>${conta(e.conta_credito, false)}</td>
+      <td>${conta(e.conta_debito, e.conta_debito_rotulo, e.precisa_conta)}</td>
+      <td>${conta(e.conta_credito, e.conta_credito_rotulo, false)}</td>
       <td class="mono" style="color:var(--text-dim)">${esc(e.conta_ssw||'')}</td>
     </tr>`;
   }).join('') : '<tr><td colspan="11" class="status-box">Nenhum evento com esses filtros</td></tr>';
@@ -224,15 +233,16 @@ function render() {
 function opcoesConta(sel) {
   // Campo de escolha, nunca digitação: '4.1.6.01.013' digitado torto quebra o
   // arquivo de importação sem ninguém saber por quê. Agrupado por grupo para
-  // as 269 analíticas ficarem navegáveis.
+  // as ~2.000 analíticas ficarem navegáveis. O VALOR é o código reduzido: a
+  // classificação não é única no plano (2.1.3.01.001 tem 320 contas).
   const grupos = {'1':'1 · Ativo','2':'2 · Passivo','3':'3 · Receitas',
                   '4':'4 · Custos e despesas','5':'5 · Apuração'};
   const por = {};
   plano.forEach(c => (por[c.grupo] = por[c.grupo] || []).push(c));
   return '<option value="">— sem conta —</option>' + Object.keys(por).sort().map(g =>
     `<optgroup label="${esc(grupos[g]||g)}">` + por[g].map(c =>
-      `<option value="${esc(c.classificacao)}"${c.classificacao===sel?' selected':''}>` +
-      `${esc(c.classificacao)} · ${esc(c.descricao)}${c.codigo?' (cód '+c.codigo+')':''}</option>`
+      `<option value="${esc(c.codigo)}"${String(c.codigo)===String(sel)?' selected':''}>` +
+      `${esc(c.codigo)} · ${esc(c.classificacao)} · ${esc(c.descricao)}</option>`
     ).join('') + '</optgroup>').join('');
 }
 
@@ -362,7 +372,7 @@ async function carregarHistorico(ev) {
     const d = new Date(h.criado_em);
     return `<div><b>${isNaN(d)?'':d.toLocaleString('pt-BR')}</b> · ${esc(h.usuario_nome||'—')}<br>
       despesa ${esc(h.contabiliza_despesa||'—')} · provisão ${esc(h.contabiliza_provisao||'—')} ·
-      D ${esc(h.conta_debito||'—')} / C ${esc(h.conta_credito||'—')}</div>`;
+      D ${esc(h.conta_debito_rotulo||'—')} / C ${esc(h.conta_credito_rotulo||'—')}</div>`;
   }).join('');
 }
 
@@ -372,8 +382,12 @@ async function carregarHistorico(ev) {
 function aplicarLocal(c) {
   const e = dados.eventos.find(x => String(x.evento) === String(c.evento));
   if (!e) return;
+  const rot = cod => { const p = plano.find(x => String(x.codigo) === String(cod));
+                       return p ? `${p.codigo} · ${p.classificacao} · ${p.descricao}` : null; };
   Object.assign(e, {
-    conta_debito: c.conta_debito || null, conta_credito: c.conta_credito || null,
+    conta_debito: c.conta_debito ? Number(c.conta_debito) : null,
+    conta_credito: c.conta_credito ? Number(c.conta_credito) : null,
+    conta_debito_rotulo: rot(c.conta_debito), conta_credito_rotulo: rot(c.conta_credito),
     tem_nota: c.tem_nota, contabiliza_despesa: c.contabiliza_despesa || null,
     contabiliza_provisao: c.contabiliza_provisao || null,
     aproveita_credito: c.aproveita_credito, importar_fiscal: c.importar_fiscal,
@@ -386,7 +400,7 @@ function aplicarLocal(c) {
   e.precisa_conta = ['SIM','PARCIAL'].includes(e.contabiliza_despesa) ||
                     e.contabiliza_provisao === 'NAO';
   const precisam = dados.eventos.filter(x => x.precisa_conta);
-  const prontos = precisam.filter(x => x.conta_debito);
+  const prontos = precisam.filter(temConta);
   Object.assign(dados.totais, {
     precisam_conta: precisam.length,
     valor_precisa: precisam.reduce((s,x)=>s+(x.valor||0),0),

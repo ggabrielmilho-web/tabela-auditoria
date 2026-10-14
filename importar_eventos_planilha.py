@@ -23,9 +23,11 @@ ARMADILHAS DO ARQUIVO (medidas, não supostas)
 • As 2 novas vêm SIM / NÃO / PARCIAL, em texto.
 • `Grupo de Importação` vem vazio na maioria (NaN).
 • Versão de 14/09/2026 ("… - contas.xlsx"): ganhou a coluna `CONTA`, em CÓDIGO
-  REDUZIDO (778), e a tabela guarda CLASSIFICAÇÃO (4.2.2.04.0019) — a tradução
-  é pelo plano, com a MESMA trava da tela (existe + analítica). Conta que não
-  passa fica em branco com o motivo na observação; nunca entra torta.
+  REDUZIDO (778). Desde 14/10/2026 a tabela guarda o próprio código
+  (`conta_debito_cod`) e a classificação vai só como snapshot legível — ela não
+  é única no plano completo (HANDOFF-CONTABIL §12.3). A trava é a mesma da tela
+  (existe no plano + analítica). Conta que não passa fica em branco com o motivo
+  na observação; nunca entra torta.
 • Essa versão também tem 24 sub-linhas de contas POR CONTRATO (consórcio,
   financiamento) com `Evento` vazio ou em texto ("contas de consórcios do
   balancete"). Não são eventos: são ignoradas aqui e listadas no fim.
@@ -133,24 +135,24 @@ def ler_excel(caminho):
 
 
 def traduzir_conta(cur, reduzida):
-    """Código reduzido da planilha -> classificação da tabela, ou (None, motivo).
+    """Código reduzido da planilha -> (código, classificação, None) ou (None, None, motivo).
 
     Mesma trava de `/api/contabil/eventos`: existe no plano E é analítica."""
     if reduzida is None:
-        return None, None
+        return None, None, None
     t = str(reduzida).strip()
     if t.endswith('.0'):
         t = t[:-2]
     if not t.isdigit():
-        return None, f'planilha: CONTA = "{t}"'
+        return None, None, f'planilha: CONTA = "{t}"'
     cur.execute("SELECT classificacao, analitica FROM contabil_plano_contas "
                 "WHERE codigo_reduzido = %s", (int(t),))
     r = cur.fetchone()
     if not r:
-        return None, f'planilha: conta reduzida {t} não existe no plano carregado'
+        return None, None, f'planilha: conta reduzida {t} não existe no plano carregado'
     if not r[1]:
-        return None, f'planilha: conta reduzida {t} ({r[0]}) é sintética'
-    return r[0], None
+        return None, None, f'planilha: conta reduzida {t} ({r[0]}) é sintética'
+    return int(t), r[0], None
 
 
 def main():
@@ -204,12 +206,12 @@ def main():
     # debita quando PROVISÃO=NÃO). A contrapartida é conta fixa, não vem daqui.
     linhas, recusadas = [], []
     for e in eventos:
-        conta, motivo = traduzir_conta(cur, e.get('conta_reduzida'))
+        cod, classif, motivo = traduzir_conta(cur, e.get('conta_reduzida'))
         if motivo:
             recusadas.append((e['evento'], e['descricao'], e.get('conta_reduzida'), motivo))
         linhas.append((
             e['evento'], e['descricao'],
-            conta, None,
+            classif, None, cod,
             e['tem_nota'], e['contabiliza_despesa'], e['contabiliza_provisao'],
             e['aproveita_credito'], e['importar_fiscal'], e['validar_simples'],
             e['grupo_importacao'], motivo, AUTOR,
@@ -217,7 +219,7 @@ def main():
 
     execute_values(cur, """
         INSERT INTO contabil_evento_conta
-            (evento, descricao, conta_debito, conta_credito, tem_nota,
+            (evento, descricao, conta_debito, conta_credito, conta_debito_cod, tem_nota,
              contabiliza_despesa, contabiliza_provisao, aproveita_credito,
              importar_fiscal, validar_simples, grupo_importacao, observacao,
              usuario_nome)
@@ -227,16 +229,16 @@ def main():
 
     resumo = {}
     for l in linhas:
-        resumo[l[5]] = resumo.get(l[5], 0) + 1
+        resumo[l[6]] = resumo.get(l[6], 0) + 1
     print(f'✅ {len(linhas)} eventos importados de {os.path.basename(caminho)}.')
     print('   CONTABILIZA DESPESA: ' + ', '.join(f'{k or "(vazio)"}={v}'
                                                  for k, v in sorted(resumo.items(), key=lambda x: -x[1])))
     prov = {}
     for l in linhas:
-        prov[l[6]] = prov.get(l[6], 0) + 1
+        prov[l[7]] = prov.get(l[7], 0) + 1
     print('   CONTABILIZA PROVISÃO: ' + ', '.join(f'{k or "(vazio)"}={v}'
                                                   for k, v in sorted(prov.items(), key=lambda x: -x[1])))
-    com_conta = sum(1 for l in linhas if l[2])
+    com_conta = sum(1 for l in linhas if l[4])
     print(f'   conta_debito preenchida: {com_conta} · em branco: {len(linhas) - com_conta}')
     for ev, desc, red, motivo in recusadas:
         print(f'   ⚠ {ev} {desc[:40]:40} CONTA={red!s:8} -> {motivo}')

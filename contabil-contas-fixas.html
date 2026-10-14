@@ -62,6 +62,7 @@
     <a href="/contabil/acni">Adiantamentos (571)</a>
     <a href="/contabil/eventos">Eventos</a>
     <a href="/contabil/contas-fixas" class="active">Contas fixas</a>
+    <a href="/contabil/arquivo">Arquivo de importação</a>
   </div>
 
   <div class="nota">
@@ -101,11 +102,11 @@ async function carregar() {
 
   const pend = document.getElementById('pendencia');
   if (cf.pendentes) {
-    const quais = linhas.filter(l => !l.classificacao).map(l => l.descricao).join(' e ');
+    const quais = linhas.filter(l => !l.codigo).map(l => l.descricao).join(' e ');
     pend.style.display = 'block';
-    pend.innerHTML = `⚠ <strong>${cf.pendentes} conta(s) sem correspondência no plano:
-      ${esc(quais)}</strong>. Enquanto não existirem, o lançamento de pagamento dessas
-      contas não tem para onde ir — a contadora precisa criá-las no plano primeiro.`;
+    pend.innerHTML = `⚠ <strong>${cf.pendentes} conta(s) sem conta contábil:
+      ${esc(quais)}</strong>. Enquanto estiverem em branco, o arquivo de importação deixa
+      de fora todo movimento delas (aparece na lista de pendências do arquivo).`;
   } else { pend.style.display = 'none'; }
 
   render();
@@ -118,8 +119,8 @@ function opcoes(sel) {
   plano.forEach(c => (por[c.grupo] = por[c.grupo] || []).push(c));
   return '<option value="">— sem conta —</option>' + Object.keys(por).sort().map(g =>
     `<optgroup label="${esc(grupos[g]||g)}">` + por[g].map(c =>
-      `<option value="${esc(c.classificacao)}"${c.classificacao===sel?' selected':''}>` +
-      `${esc(c.classificacao)} · ${esc(c.descricao)}</option>`).join('') +
+      `<option value="${esc(c.codigo)}"${String(c.codigo)===String(sel)?' selected':''}>` +
+      `${esc(c.codigo)} · ${esc(c.classificacao)} · ${esc(c.descricao)}</option>`).join('') +
     '</optgroup>').join('');
 }
 
@@ -132,8 +133,8 @@ function render() {
         <div class="obs mono" style="color:var(--text-dim)">${esc(l.chave)}</div>
         ${l.observacao ? `<div class="obs">${esc(l.observacao)}</div>` : ''}
       </td>
-      <td><select id="s${i}">${opcoes(l.classificacao)}</select>
-        ${l.classificacao ? '' : '<div class="obs"><span class="tag warn">não existe no plano</span></div>'}</td>
+      <td><select id="s${i}">${opcoes(l.codigo)}</select>
+        ${l.codigo ? '' : '<div class="obs"><span class="tag warn">sem conta</span></div>'}</td>
       <td class="mono">${l.codigo != null ? l.codigo : '—'}</td>
       <td><button class="btn" onclick="salvar(${i})">Salvar</button>
         <span class="aviso" id="a${i}"></span></td>
@@ -147,7 +148,8 @@ async function salvar(i) {
   try {
     const r = await fetch('/api/contabil/contas-fixas', {
       method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin',
-      body: JSON.stringify({chave: l.chave, classificacao: document.getElementById('s'+i).value})
+      body: JSON.stringify({chave: l.chave, codigo: document.getElementById('s'+i).value,
+                            observacao: l.observacao})
     });
     const j = await r.json();
     if (!j.ok) throw new Error(j.error);

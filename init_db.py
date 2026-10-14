@@ -4,7 +4,9 @@ Rode UMA VEZ antes de subir o servidor:  python init_db.py
 (Pode rodar novamente sem problemas — não apaga dados existentes)
 """
 
+import json
 import os
+import secrets
 import psycopg2
 from werkzeug.security import generate_password_hash
 from dotenv import load_dotenv
@@ -46,11 +48,13 @@ cur.execute("""
     ADD COLUMN IF NOT EXISTS paginas_permitidas TEXT[] DEFAULT ARRAY['auditoria','tarifas','embarques'];
 """)
 
-# Inserir admin padrão (ignora se já existir)
+# Inserir admin padrão (ignora se já existir). A senha inicial não mora no código
+# (o repositório é público): vem de ADMIN_SENHA_INICIAL ou é sorteada e impressa
+# uma única vez, na criação.
 admin_email = 'admin@rizzalog.com.br'
-admin_senha = 'admin123'
 cur.execute("SELECT id FROM auditoria_users WHERE email = %s", (admin_email,))
 if not cur.fetchone():
+    admin_senha = os.getenv('ADMIN_SENHA_INICIAL') or secrets.token_urlsafe(12)
     cur.execute(
         """INSERT INTO auditoria_users (nome, email, password_hash, role, tipos_permitidos)
            VALUES (%s, %s, %s, 'admin', ARRAY['Carreteiro','Agregado','Frota'])""",
@@ -196,6 +200,12 @@ for _col, _tipo in [
     ('contabiliza_provisao', 'VARCHAR(10)'), ('aproveita_credito', 'BOOLEAN'),
     ('importar_fiscal', 'BOOLEAN'), ('validar_simples', 'BOOLEAN'),
     ('grupo_importacao', 'VARCHAR(60)'),
+    # 14/10/2026 — a conta passa a ser o CÓDIGO REDUZIDO (HANDOFF-CONTABIL §12.3).
+    # A classificação não é única no plano (2.1.3.01.001 abriga 320 contas), e é o
+    # código que vai no arquivo de importação. As colunas antigas `conta_debito`/
+    # `conta_credito` ficam como snapshot legível da classificação — quem decide
+    # é o `_cod`. Linhas antigas são preenchidas por migrar_contas_reduzido.py.
+    ('conta_debito_cod', 'INTEGER'), ('conta_credito_cod', 'INTEGER'),
 ]:
     cur.execute(f"ALTER TABLE contabil_evento_conta "
                 f"ADD COLUMN IF NOT EXISTS {_col} {_tipo};")
@@ -213,57 +223,60 @@ cur.execute("""
         atualizado_em TIMESTAMP DEFAULT NOW()
     );
 """)
+# 14/10/2026 — chave de conta = código reduzido (ver contabil_evento_conta acima).
+cur.execute("ALTER TABLE contabil_conta_fixa ADD COLUMN IF NOT EXISTS codigo_reduzido INTEGER;")
 
 # Semente com o que já foi mapeado. ON CONFLICT DO NOTHING: quem já editou pela
 # tela não tem a edição sobrescrita por um init rodado de novo.
 #
-# Três contas fogem de 1.1.1.02 de propósito, e o motivo foi deduzido do
-# comportamento do movimento no 456, não lido de cadastro:
-#   BB GARANTIDA  — 6 lançamentos, todos saque de limite p/ a conta corrente do
-#                   BB. É conta garantida = empréstimo, logo passivo.
-#   D.D SOLAR     — 210 lançamentos transferindo o produto do desconto p/ o
-#                   Bradesco. DD = duplicatas descontadas, conta redutora.
-# E duas não existem no plano: TRIBANCO é conta bancária de verdade (entra por
-# FAT/ACN, sai por transferência) e CAIXA PAMBANK é instituição de pagamento
-# (4.418 lançamentos CPG pagando frete/pedágio). Ficam em branco de propósito —
-# é a pendência que aparece em destaque na tela.
-_CONTAS_FIXAS = [
-    ('FORNECEDOR_PADRAO',            '2.1.3.01.001',
-     'Contrapartida de crédito quando CONTABILIZA PROVISÃO = SIM',
-     'Confirmar com a contadora: a classificação tem 2 códigos reduzidos '
-     '(166 FORNECEDOR SC e 506 FORNECEDORES DIVERSOS)'),
-    ('BANCO:1/2591/106712',          '1.1.1.02.001', 'BB COBRANCA', None),
-    ('BANCO:1/2591/60494',           '1.1.1.02.015', 'BB APARECIDA DE GOIANIA', None),
-    ('BANCO:1/2591/1067129',         '2.1.1.08.001', 'BB GARANTIDA',
-     'PASSIVO — conta garantida, não disponibilidade'),
-    ('BANCO:21/59/3696171',          '1.1.1.02.007', 'BANESTES CONTA CORRENTE', None),
-    ('BANCO:33/3342/13005930',       '1.1.1.02.005', 'SANTANDER COBRANCA', None),
-    ('BANCO:237/2735/8653',          '1.1.1.02.003', 'BRADESCO COBRANCA', None),
-    ('BANCO:341/7734/6798',          '1.1.1.02.012', 'ITAU MOVIM FINANCEIRA (ag 7734)', None),
-    ('BANCO:341/7784/6798',          '1.1.1.02.004', 'ITAU MOVIM FINANCEIRA 2 (ag 7784)', None),
-    ('BANCO:422/13100/584531',       '1.1.1.02.006', 'SAFRA COBRANCA', None),
-    ('BANCO:756/4264/145026',        '1.1.1.02.016', 'SICOOB NCOBRANCA', None),
-    ('BANCO:999/55555/555555555',    '1.1.2.01.117', 'CAIXA D.D SOLAR CAPITAL',
-     'REDUTORA DE CLIENTES — duplicatas descontadas, não disponibilidade'),
-    ('BANCO:634/1/1063380',          None,           'TRIBANCO',
-     'Conta bancária de verdade, ausente do plano. Criar em 1.1.1.02.'),
-    ('BANCO:999/99999/9999999999',   None,           'CAIXA PAMBANK FRETE PEDAGIO',
-     'Instituição de pagamento, não banco. Ausente do plano — criar.'),
-]
-for _ch, _cl, _de, _ob in _CONTAS_FIXAS:
+# A semente é DADO DA RIZZA (nº das contas bancárias, decisões da contabilidade)
+# e não mora no código — o repositório é público. Fica em `contabil_seed.json`,
+# fora do git, ao lado deste arquivo; em produção vai por scp + docker cp junto
+# com os outros JSON da contabilidade (HANDOFF-CONTABIL §14.4). Sem o arquivo,
+# nada é semeado e a tabela continua editável pela tela (Contas fixas).
+#
+# Cada conta: chave · codigo_reduzido · descricao · observacao · confirmada
+# (confirmada = resposta escrita da contabilidade, não dedução nossa).
+_SEED = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'contabil_seed.json')
+_CONTAS_FIXAS = []
+if os.path.exists(_SEED):
+    with open(_SEED, encoding='utf-8') as _f:
+        _CONTAS_FIXAS = json.load(_f).get('contas_fixas', [])
+else:
+    print('ℹ️  contabil_seed.json ausente — contas fixas do Contábil não semeadas.')
+for _c in _CONTAS_FIXAS:
     cur.execute(
-        "INSERT INTO contabil_conta_fixa (chave, classificacao, descricao, observacao, "
+        "INSERT INTO contabil_conta_fixa (chave, codigo_reduzido, descricao, observacao, "
         "usuario_nome) VALUES (%s,%s,%s,%s,'semente do init_db') "
         "ON CONFLICT (chave) DO NOTHING",
-        (_ch, _cl, _de, _ob))
+        (_c['chave'], _c['codigo_reduzido'], _c['descricao'], _c['observacao']))
+
+# Banco que já tinha a semente antiga: aplica as respostas de 14/10 onde a linha
+# ainda é a da semente OU está em branco (branco não é decisão de ninguém — o
+# TRIBANCO local tinha autor 'QA' de um teste de 18/08 e conta vazia). Conta
+# preenchida por alguém pela tela não é sobrescrita.
+for _c in _CONTAS_FIXAS:
+    if _c.get('confirmada'):
+        cur.execute("""
+            UPDATE contabil_conta_fixa
+               SET codigo_reduzido = %s, observacao = %s, atualizado_em = NOW(),
+                   usuario_nome = 'resposta da contabilidade (14/10/2026)'
+             WHERE chave = %s
+               AND (codigo_reduzido IS NULL
+                    OR (usuario_nome = 'semente do init_db' AND codigo_reduzido = %s))
+        """, (_c['codigo_reduzido'], _c['observacao'], _c['chave'], _c['codigo_reduzido']))
 
 # Plano de contas da contabilidade (PERSETO). Referência: alimenta o campo de
 # escolha da tela, para que conta inexistente não entre por digitação.
-# Populado por seed_plano_contas.py a partir do arquivo que a contadora manda.
+# Populado por seed_plano_contas.py a partir do PDF "PLANO DE CONTAS" do Domínio.
+#
+# CHAVE = código reduzido (14/10/2026). Até então era a classificação, que não é
+# única: no plano completo 2.1.3.01.001 tem 320 contas e 4.2.2.04.0024 tem duas
+# (1451 viagens e diárias × 1735 depreciação de informática).
 cur.execute("""
     CREATE TABLE IF NOT EXISTS contabil_plano_contas (
-        classificacao   VARCHAR(30) PRIMARY KEY,
-        codigo_reduzido INTEGER,
+        codigo_reduzido INTEGER PRIMARY KEY,
+        classificacao   VARCHAR(30) NOT NULL,
         descricao       VARCHAR(200) NOT NULL,
         niveis          SMALLINT,
         analitica       BOOLEAN,
@@ -271,8 +284,47 @@ cur.execute("""
         atualizado_em   TIMESTAMP DEFAULT NOW()
     );
 """)
+# Banco que já tinha a tabela com PK na classificação: troca a chave. Todas as
+# linhas antigas (balancete) têm código, e o código é único — o ADD PRIMARY KEY
+# falharia alto se não fosse.
+cur.execute("""
+    SELECT a.attname FROM pg_index i
+      JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+     WHERE i.indrelid = 'contabil_plano_contas'::regclass AND i.indisprimary
+""")
+if [r[0] for r in cur.fetchall()] == ['classificacao']:
+    cur.execute("ALTER TABLE contabil_plano_contas DROP CONSTRAINT contabil_plano_contas_pkey;")
+    cur.execute("ALTER TABLE contabil_plano_contas ALTER COLUMN codigo_reduzido SET NOT NULL;")
+    cur.execute("ALTER TABLE contabil_plano_contas ADD PRIMARY KEY (codigo_reduzido);")
+    print("   contabil_plano_contas: chave trocada de classificacao para codigo_reduzido")
 cur.execute("CREATE INDEX IF NOT EXISTS ix_plano_contas_grupo "
             "ON contabil_plano_contas (grupo, classificacao);")
+
+# De-para POR CONTRATO (HANDOFF-CONTABIL §11.3 e §13). Consórcio, empréstimo,
+# FINAME, CDC e capital de giro são eventos únicos no SSW, mas cada contrato tem
+# conta própria na contabilidade. No 477 o contrato é o `numlancto` (parcelas
+# 01..N) — conferido em 14/10: cada numlancto dos 25 contratos tem um único
+# evento, unidade e nfiscal. O gerador resolve a conta em dois níveis:
+# contrato primeiro, evento depois.
+#
+# APPEND-ONLY, pelo mesmo motivo de contabil_evento_conta: o valor corrente é a
+# linha mais nova de cada (evento, numlancto).
+cur.execute("""
+    CREATE TABLE IF NOT EXISTS contabil_contrato_conta (
+        id            SERIAL PRIMARY KEY,
+        evento        VARCHAR(10) NOT NULL,
+        numlancto     VARCHAR(20) NOT NULL,
+        conta_cod     INTEGER,
+        nfiscal       VARCHAR(30),
+        fornecedor    VARCHAR(120),
+        observacao    TEXT,
+        usuario_id    INTEGER REFERENCES auditoria_users(id),
+        usuario_nome  VARCHAR(180),
+        criado_em     TIMESTAMP DEFAULT NOW()
+    );
+""")
+cur.execute("CREATE INDEX IF NOT EXISTS ix_contabil_contrato_conta "
+            "ON contabil_contrato_conta (evento, numlancto, criado_em DESC);")
 
 # Dedup case-insensitive da tabela clientes existente (para cadastro manual)
 cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_clientes_nome_ci ON clientes (LOWER(TRIM(nome)));")

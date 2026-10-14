@@ -2,29 +2,40 @@
 Carrega o plano de contas da contabilidade (PERSETO) em `contabil_plano_contas`.
 
 Rode quando o plano mudar (idempotente — substitui a tabela inteira):
-    python seed_plano_contas.py [caminho\\do\\arquivo.xls]
+    python seed_plano_contas.py ["..\\Rizza\\PLANO DE CONTAS RIZZA.pdf"]
+    python seed_plano_contas.py plano.pdf --exportar plano_contas.json
+    python seed_plano_contas.py plano_contas.json          (só stdlib + psycopg2)
 
 Por que em tabela e não lendo o arquivo na hora: a tela de eventos preenche a
 conta por CAMPO DE ESCOLHA, nunca por digitação. `4.1.6.01.013` digitado à mão
 numa tarde cansada quebra o arquivo de importação sem ninguém saber por quê.
 Para o select existir, o plano precisa estar no banco — o app roda em container
-e não alcança o Excel da máquina de ninguém.
+e não alcança o arquivo da máquina de ninguém.
 
 ═══════════════════════════════════════════════════════════════════════════════
-SOBRE O ARQUIVO
+SOBRE O ARQUIVO (HANDOFF-CONTABIL §12 e §13)
 ───────────────────────────────────────────────────────────────────────────────
-Vem da contadora com o título "Balancete", mas NÃO tem coluna de saldo: são
-`Código`, `Classificação` e `Descrição da conta`. É a listagem de contas.
+A fonte é o relatório "PLANO DE CONTAS" do Domínio, em PDF: Código · T ·
+Classificação · Nome · Grau. O de 14/10/2026 tem 2.295 contas.
 
-Está COMPLETO — conferido pela árvore: zero contas analíticas órfãs (sem a
-sintética pai) e zero sintéticas sem filha. As lacunas na numeração do `Código`
-(9, 11, 14, 17, 29…) são contas desativadas, não corte de exportação.
+Até 29/09/2026 a fonte era `rizza para teste.xls`, que é um BALANCETE: só lista
+conta com saldo/movimento (312). Por isso o leitor de .xls saiu — carregá-lo de
+novo apagaria 1.983 contas do plano em silêncio.
 
-O `Código` é o código reduzido, e é ele que vai no arquivo de importação
-`Z;data;DÉBITO;CRÉDITO;valor;...` — a classificação serve para gente ler.
+A CHAVE é o código reduzido. A classificação NÃO é única: `2.1.3.01.001` abriga
+320 contas (um fornecedor cada), `1.1.2.01.001` 168 clientes, `4.2.2.04.0024`
+duas contas diferentes. E é o código que vai no arquivo `Z;data;D;C;...`.
+
+Analítica = coluna T do relatório (S = sintética). A regra antiga ("folha da
+árvore") discorda do Domínio em 48 contas.
+
+Extração por COORDENADA: o texto corrido tem "1" soltos do sombreado das linhas
+(x < 10) e a primeira conta de algumas páginas fica em y = 76,5 — um corte de
+cabeçalho em y < 80 engoliu 5 contas na primeira tentativa.
 ═══════════════════════════════════════════════════════════════════════════════
 """
 
+import collections
 import json
 import os
 import sys
@@ -35,76 +46,115 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# `pandas` só é necessário para LER o Excel, e a imagem de produção não o tem
-# (custaria ~100 MB por causa de dois scripts de carga única). Por isso o
-# import é preguiçoso e existe o caminho do .json:
-#
-#   local      python seed_plano_contas.py "rizza para teste.xls" --exportar plano.json
-#   servidor   docker exec $CT python seed_plano_contas.py /app/plano.json
-#
-# O .json carrega com stdlib + psycopg2, que a imagem já tem.
-
 PADRAO = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                      '..', 'Rizza', 'rizza para teste.xls')
-MINIMO_CONTAS = 100   # piso de sanidade: o plano tinha 313 em 17/08/2026
+                      '..', 'Rizza', 'PLANO DE CONTAS RIZZA.pdf')
+MINIMO_CONTAS = 2000   # o plano tinha 2.283 em 29/09/2026 e 2.295 em 14/10/2026
+CNPJ_RIZZA = '02.572.512/0001-58'
+
+# Limites das colunas no PDF do Domínio (pontos). Medidos nos relatórios de
+# 29/09 e 14/10/2026 — os dois idênticos.
+_X_MIN, _X_COD, _X_T, _X_CLASSIF, _X_NOME = 10, 44, 60, 200, 520
+_Y_CABECALHO = 70
+
+# Conta criada pela contabilidade DEPOIS do último PDF, informada por mensagem.
+# Entra se o PDF não a trouxer; quando vier um plano reemitido que a contenha,
+# vale a do PDF (com a classificação certa). Sem isto, o seed abortaria: a
+# configuração já usa estas contas e elas "sumiriam" do plano.
+# Vem de `contabil_seed.json` (fora do git: é dado da Rizza, e o repositório é
+# público) — seção contas_avulsas: codigo_reduzido · descricao · origem.
+_SEED = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'contabil_seed.json')
+
+
+def _contas_avulsas():
+    if not os.path.exists(_SEED):
+        return []
+    with open(_SEED, encoding='utf-8') as f:
+        return json.load(f).get('contas_avulsas', [])
+
+
+def ler_pdf(caminho):
+    """Lê o relatório do Domínio. Precisa de PyMuPDF (está na imagem)."""
+    import fitz
+    doc = fitz.open(caminho)
+    if CNPJ_RIZZA not in doc[0].get_text() or 'PLANO DE CONTAS' not in doc[0].get_text():
+        raise ValueError(f'O PDF não é o plano de contas da Rizza ({CNPJ_RIZZA}).')
+
+    linhas, numeros_na_coluna = [], 0
+    for pagina in doc:
+        por_y = collections.defaultdict(list)
+        for w in pagina.get_text('words'):
+            if w[1] < _Y_CABECALHO or w[0] < _X_MIN:
+                continue
+            por_y[round(w[1])].append(w)
+            if _X_MIN <= w[0] < _X_COD and w[4].isdigit():
+                numeros_na_coluna += 1
+        for y in sorted(por_y):
+            ws = sorted(por_y[y], key=lambda w: w[0])
+            cod = [w[4] for w in ws if _X_MIN <= w[0] < _X_COD]
+            if not cod or not cod[0].isdigit():
+                continue
+            classif = ' '.join(w[4] for w in ws if _X_T <= w[0] < _X_CLASSIF)
+            grau = [w[4] for w in ws if w[0] >= _X_NOME]
+            linhas.append({
+                'codigo_reduzido': int(cod[0]),
+                'classificacao': classif,
+                'descricao': ' '.join(w[4] for w in ws if _X_CLASSIF <= w[0] < _X_NOME),
+                'niveis': classif.count('.') + 1,
+                'analitica': not any(w[4] == 'S' for w in ws if _X_COD <= w[0] < _X_T),
+                'grupo': classif[:1],
+                '_grau': int(grau[0]) if grau and grau[0].isdigit() else None,
+            })
+
+    # As conferências que provaram a extração (§12.3). Qualquer uma falhando =
+    # layout mudou ou o arquivo veio cortado: aborta antes de tocar no banco.
+    erros = []
+    if len(linhas) != numeros_na_coluna:
+        erros.append(f'{len(linhas)} contas lidas, mas {numeros_na_coluna} números na '
+                     f'coluna Código — alguma linha ficou de fora.')
+    torto = [l for l in linhas if l['_grau'] != l['niveis']]
+    if torto:
+        erros.append(f'{len(torto)} contas com Grau diferente do nº de níveis '
+                     f'(ex.: {torto[0]["codigo_reduzido"]} {torto[0]["classificacao"]}).')
+    rep = [c for c, n in collections.Counter(l['codigo_reduzido'] for l in linhas).items() if n > 1]
+    if rep:
+        erros.append(f'Código reduzido repetido: {rep[:10]}')
+    if erros:
+        raise ValueError('Extração do PDF não conferiu:\n   ' + '\n   '.join(erros))
+    for l in linhas:
+        del l['_grau']
+    return _validar(linhas)
 
 
 def ler_json(caminho):
-    """Carrega o que o --exportar gerou. Só stdlib — roda no container."""
+    """Carrega o que o --exportar gerou. Só stdlib — roda em qualquer lugar."""
     with open(caminho, encoding='utf-8') as f:
         linhas = json.load(f)
-    if len(linhas) < MINIMO_CONTAS:
-        raise ValueError(f'Só {len(linhas)} contas no JSON (mínimo {MINIMO_CONTAS}).')
+    if linhas and 'codigo_reduzido' not in linhas[0]:
+        raise ValueError('JSON em formato antigo (do balancete). Exporte de novo a partir do PDF.')
+    return _validar(linhas)
+
+
+def _com_avulsas(linhas):
+    tem = {l['codigo_reduzido'] for l in linhas}
+    for a in _contas_avulsas():
+        if a['codigo_reduzido'] not in tem:
+            print(f"   + conta avulsa {a['codigo_reduzido']} {a['descricao']} ({a['origem']}) "
+                  f"— classificação a confirmar")
+            linhas.append({'codigo_reduzido': a['codigo_reduzido'], 'classificacao': 'a confirmar',
+                           'descricao': a['descricao'], 'niveis': 5, 'analitica': True, 'grupo': '1'})
     return linhas
 
 
-def ler_plano(caminho):
-    """Lê o Excel e devolve as contas normalizadas. Precisa de pandas."""
-    import pandas as pd
-    d = pd.read_excel(caminho, header=2)
-    d.columns = [str(c).strip() for c in d.columns]
-    d = d.rename(columns={d.columns[0]: 'codigo',
-                          d.columns[1]: 'classificacao',
-                          d.columns[3]: 'descricao'})
-    d = d[['codigo', 'classificacao', 'descricao']].dropna(subset=['classificacao'])
-    d['classificacao'] = d['classificacao'].astype(str).str.strip()
-    d['descricao'] = d['descricao'].astype(str).str.strip()
-    d['codigo'] = pd.to_numeric(d['codigo'], errors='coerce')
-    d['niveis'] = d['classificacao'].str.count(r'\.') + 1
-    d['grupo'] = d['classificacao'].str[0]
-
-    # Analítica = FOLHA da árvore, não "tem N níveis". O plano mistura
-    # profundidades: `1.1.1.02.003` (banco) e `4.1.6.01.0013` (custo) têm 5
-    # níveis, mas `4.1.6.01` tem 4 e é sintética — ela tem filhas.
-    # Contar níveis deixaria passar conta sintética no campo de lançamento.
-    todas = set(d['classificacao'])
-    d['analitica'] = [not any(o.startswith(c + '.') for o in todas)
-                      for c in d['classificacao']]
-
-    if len(d) < MINIMO_CONTAS:
+def _validar(linhas):
+    linhas = _com_avulsas(linhas)
+    if len(linhas) < MINIMO_CONTAS:
         raise ValueError(
-            f'Só {len(d)} contas lidas (mínimo esperado {MINIMO_CONTAS}). '
-            f'Arquivo truncado ou layout mudou — abortando antes de gravar.')
-
-    # A mesma classificação com dois códigos existe de verdade no plano
-    # (2.1.3.01.001 aparece como 166 FORNECEDOR SC e 506 FORNECEDORES DIVERSOS).
-    # Mantém o de código maior — é a safra nova, criada junto com o 504
-    # CLIENTES DIVERSOS — e avisa, porque é escolha que a contadora precisa
-    # confirmar antes de o arquivo de importação referenciar por código.
-    dup = d[d.duplicated('classificacao', keep=False)].sort_values('classificacao')
-    if len(dup):
-        print('\n⚠️  Classificações repetidas no plano (mantido o código maior):')
-        for _, r in dup.iterrows():
-            print(f'      {r["classificacao"]:<16} cód {int(r["codigo"]):>5}  {r["descricao"]}')
-        print()
-    d = d.sort_values('codigo').drop_duplicates('classificacao', keep='last')
-
-    import pandas as pd
-    return [{'classificacao': r['classificacao'],
-             'codigo_reduzido': None if pd.isna(r['codigo']) else int(r['codigo']),
-             'descricao': r['descricao'], 'niveis': int(r['niveis']),
-             'analitica': bool(r['analitica']), 'grupo': r['grupo']}
-            for _, r in d.iterrows()]
+            f'Só {len(linhas)} contas (mínimo {MINIMO_CONTAS}). Arquivo truncado, '
+            f'ou é balancete e não plano — abortando antes de gravar.')
+    sem = [l for l in linhas if not l.get('codigo_reduzido') or not l.get('classificacao')]
+    if sem:
+        raise ValueError(f'{len(sem)} contas sem código ou classificação.')
+    return linhas
 
 
 def main():
@@ -116,17 +166,20 @@ def main():
 
     if not os.path.exists(caminho):
         print(f'❌ Arquivo não encontrado: {caminho}')
-        print('   Uso: python seed_plano_contas.py [arquivo.xls|arquivo.json] '
-              '[--exportar saida.json]')
+        print('   Uso: python seed_plano_contas.py [plano.pdf|plano.json] [--exportar saida.json]')
         sys.exit(1)
 
-    linhas = ler_json(caminho) if caminho.lower().endswith('.json') else ler_plano(caminho)
+    ext = caminho.lower().rsplit('.', 1)[-1]
+    if ext in ('xls', 'xlsx'):
+        print('❌ Planilha recusada: o .xls que veio da contabilidade é BALANCETE (só contas')
+        print('   com movimento). Use o PDF "PLANO DE CONTAS" do Domínio — ver o docstring.')
+        sys.exit(1)
+    linhas = ler_json(caminho) if ext == 'json' else ler_pdf(caminho)
 
     if exportar:
         with open(exportar, 'w', encoding='utf-8') as f:
             json.dump(linhas, f, ensure_ascii=False, indent=1)
         print(f'✅ {len(linhas)} contas exportadas para {exportar}.')
-        print('   Leve esse arquivo para o servidor — ele carrega sem pandas.')
         return
 
     conn = psycopg2.connect(
@@ -135,26 +188,39 @@ def main():
         password=os.getenv('DB_PASSWORD'))
     cur = conn.cursor()
 
+    # Conta que a configuração já usa e que sumiu do plano novo: não pode sair
+    # calada — o arquivo de importação passaria a referenciar código morto.
+    novos = {l['codigo_reduzido'] for l in linhas}
+    cur.execute("""
+        SELECT DISTINCT c FROM (
+            SELECT conta_debito_cod  AS c FROM contabil_evento_conta
+            UNION SELECT conta_credito_cod FROM contabil_evento_conta
+            UNION SELECT codigo_reduzido   FROM contabil_conta_fixa
+            UNION SELECT conta_cod         FROM contabil_contrato_conta
+        ) x WHERE c IS NOT NULL
+    """)
+    orfas = sorted(r[0] for r in cur.fetchall() if r[0] not in novos)
+    if orfas:
+        print(f'❌ O plano novo não tem {len(orfas)} conta(s) que a configuração usa: {orfas}')
+        print('   Abortado sem gravar. Confira com a contabilidade antes de trocar o plano.')
+        sys.exit(1)
+
     # Substituição total dentro de uma transação: se algo falhar, o plano
     # antigo continua de pé. Mesmo princípio das cargas do SSW.
     cur.execute('DELETE FROM contabil_plano_contas')
     execute_values(cur, """
         INSERT INTO contabil_plano_contas
-            (classificacao, codigo_reduzido, descricao, niveis, analitica, grupo)
+            (codigo_reduzido, classificacao, descricao, niveis, analitica, grupo)
         VALUES %s
-    """, [(r['classificacao'], r['codigo_reduzido'], r['descricao'],
-           r['niveis'], r['analitica'], r['grupo']) for r in linhas])
+    """, [(l['codigo_reduzido'], l['classificacao'], l['descricao'],
+           l['niveis'], l['analitica'], l['grupo']) for l in linhas])
     conn.commit()
 
-    ana = sum(1 for r in linhas if r['analitica'])
-    g34 = sum(1 for r in linhas if r['analitica'] and r['grupo'] in ('3', '4'))
-    grupos = {}
-    for r in linhas:
-        grupos[r['grupo']] = grupos.get(r['grupo'], 0) + 1
-    print(f'✅ {len(linhas)} contas gravadas em contabil_plano_contas.')
-    print(f'   analíticas: {ana}  |  destino de despesa/receita (grupos 3 e 4): {g34}')
+    ana = sum(1 for l in linhas if l['analitica'])
+    grupos = collections.Counter(l['grupo'] for l in linhas)
+    print(f'✅ {len(linhas)} contas gravadas em contabil_plano_contas '
+          f'({ana} analíticas, {len(linhas) - ana} sintéticas).')
     print('   por grupo: ' + ', '.join(f'{g}={n}' for g, n in sorted(grupos.items())))
-
     cur.close()
     conn.close()
 
