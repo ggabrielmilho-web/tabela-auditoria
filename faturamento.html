@@ -39,6 +39,9 @@
   .toggle button.active { background: var(--accent); color: var(--bg); }
   .search { flex: 1; min-width: 220px; padding: 9px 14px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 0.86rem; }
   .search:focus { outline: none; border-color: var(--accent); }
+  .sel-ano { padding: 8px 12px; background: var(--surface2); border: 1px solid var(--accent); border-radius: 8px; color: var(--accent); font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 0.86rem; cursor: pointer; }
+  .sel-ano:disabled { opacity: .5; cursor: wait; }
+  .dashboard.carregando .table-wrapper, .dashboard.carregando .kpis { opacity: .35; transition: opacity .2s; }
 
   .rota-bar { margin-top: -6px; gap: 8px; }
   .rota-lbl { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); font-weight: 700; }
@@ -94,6 +97,7 @@
   <div class="kpis" id="kpis"></div>
 
   <div class="controls">
+    <select id="selAno" class="sel-ano" title="Ano (data de autorização do CTe)" onchange="trocarAno(this.value)"></select>
     <div class="toggle">
       <button id="btnFat" class="active" onclick="setModo('fat')">R$ Faturamento</button>
       <button id="btnCargas" onclick="setModo('cargas')">Nº Cargas</button>
@@ -139,9 +143,12 @@
 </div>
 
 <script>
-const ANO = 2026;
+// O ano vem do endereço (/faturamento?ano=2024 — é o que o relatório do WhatsApp usa); sem ele, o corrente.
+// O ano corrente vem do Operacional; os fechados, do dataset da DRE (histórico desde fev/2021).
+let ANO = parseInt(new URLSearchParams(location.search).get('ano'), 10) || new Date().getFullYear();
 const MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 let DADOS = null;          // resposta do endpoint (grão tomador × origem × destino × mês)
+let NOME_USUARIO = '';
 let modo = 'fat';          // 'fat' | 'cargas'
 let ordem = { campo: 'total', dir: 'desc' };  // campo: 'nome' | 1..12 | 'total'
 
@@ -154,8 +161,40 @@ async function loadMe() {
   try {
     const r = await fetch('/api/me', { credentials: 'same-origin' });
     const j = await r.json();
-    if (j.ok) document.getElementById('userInfo').textContent = `👤 ${j.nome} · ${ANO}`;
+    if (j.ok) NOME_USUARIO = j.nome;
   } catch {}
+  atualizaInfoAno();
+}
+
+// "👤 nome · 2021 · dados a partir de Fev/2021" — o 1º ano do BI não começa em janeiro
+function atualizaInfoAno() {
+  let txt = `${NOME_USUARIO ? '👤 ' + NOME_USUARIO + ' · ' : ''}${ANO}`;
+  if (DADOS && DADOS.grupos.length) {
+    const m1 = Math.min(...DADOS.grupos.map(g => g.m));
+    if (m1 > 1 && ANO < new Date().getFullYear()) txt += ` · dados a partir de ${MESES[m1 - 1]}/${ANO}`;
+  }
+  document.getElementById('userInfo').textContent = txt;
+}
+
+function montaSeletorAno() {
+  const anos = (DADOS.anos || [ANO]).slice();
+  if (!anos.includes(ANO)) anos.push(ANO);
+  document.getElementById('selAno').innerHTML = anos.sort((a, b) => b - a)
+    .map(a => `<option value="${a}" ${a === ANO ? 'selected' : ''}>${a}</option>`).join('');
+}
+
+// Troca de ano: recarrega do servidor e mantém busca, modo e rota. Ano fechado vem do cache depois da 1ª vez.
+async function trocarAno(v) {
+  ANO = parseInt(v, 10);
+  const u = new URL(location.href); u.searchParams.set('ano', ANO); history.replaceState(null, '', u);
+  const sel = document.getElementById('selAno'), dash = document.getElementById('dashboard');
+  sel.disabled = true; dash.classList.add('carregando');
+  document.getElementById('contador').textContent = `carregando ${ANO}…`;
+  try {
+    await loadData();
+  } finally {
+    sel.disabled = false; dash.classList.remove('carregando');
+  }
 }
 
 async function loadData() {
@@ -164,11 +203,21 @@ async function loadData() {
     const j = await r.json();
     if (!j.ok) throw new Error(j.error + (j.detail ? '\n' + JSON.stringify(j.detail) : ''));
     DADOS = j;
+    montaSeletorAno();
+    atualizaInfoAno();
     montaListasRota();
     document.getElementById('loadingScreen').style.display = 'none';
     document.getElementById('dashboard').classList.add('active');
     render();
   } catch (err) {
+    if (DADOS) {   // troca de ano com a tela já aberta: avisa e volta para o ano que está na tela
+      const falhou = ANO;
+      ANO = DADOS.ano;
+      const u = new URL(location.href); u.searchParams.set('ano', ANO); history.replaceState(null, '', u);
+      montaSeletorAno(); atualizaInfoAno();
+      document.getElementById('contador').textContent = `erro ao carregar ${falhou}: ${err.message}`;
+      return;
+    }
     const box = document.getElementById('errorBox');
     box.innerHTML = `Erro ao carregar:<code>${err.message}</code>`;
     box.style.display = 'block';

@@ -3655,6 +3655,50 @@ def _raiz_cnpj(cnpj):
     return GRUPOS_ECONOMICOS.get(raiz, raiz)
 
 
+_FAT_CACHE = {}               # ano fechado -> (instante, resposta): ano fechado não muda
+_FAT_CACHE_S = 6 * 3600
+
+
+class _FatCortada(Exception):
+    """A API do Power BI devolveu a resposta pela metade."""
+
+
+def _fat_dax(ds, ini, fim):
+    """CTe de `ini` a `fim` agrupados por (tomador, rota, manifesto, dia), com soma e contagem.
+    A API corta CALADA: passa de ~15 MB, de 100 mil linhas ou de 1 milhão de valores e devolve as
+    linhas que couberam, com o motivo em `results[0].error` (2021 inteiro: 16,3 MB, voltavam 28 mil
+    de 58 mil linhas — `DaxByteCountNotSupported`). Por isso o erro é lido, não o tamanho."""
+    CE = "'public conhecimentos_emitidos'"
+    gcols = ['cnpj_pagador', 'cliente_pagador', 'cidade_origem_prestacao', 'uf_origem_prestacao',
+             'cidade_destinatario', 'uf_destinatario', 'primeiro_manifesto', 'data_autorizacao']
+    dax = (
+        f"EVALUATE SUMMARIZECOLUMNS({', '.join(f'{CE}[{c}]' for c in gcols)}, "
+        f"FILTER(ALL({CE}[data_autorizacao]), {CE}[data_autorizacao] >= DATE({ini.year},{ini.month},{ini.day}) && "
+        f"{CE}[data_autorizacao] <= DATE({fim.year},{fim.month},{fim.day})), "
+        f"\"f\", SUM({CE}[valor_frete]), \"n\", COUNTROWS({CE}))"
+    )
+    res = execute_dax(get_token(), dax, dataset_id=ds).get('results', [{}])[0]
+    if res.get('error'):
+        raise _FatCortada((res['error'] or {}).get('code') or str(res['error'])[:120])
+    rows = res.get('tables', [{}])[0].get('rows', [])
+    if len(rows) >= 100000 or len(rows) * (len(gcols) + 2) >= 1000000:
+        raise _FatCortada(f'{len(rows)} linhas')
+    return rows
+
+
+def _fat_linhas(ano, ds):
+    """O ano numa consulta; se a API cortar, mês a mês (4 por vez). Um mês cortado sobe o erro."""
+    from datetime import date, timedelta
+    from concurrent.futures import ThreadPoolExecutor
+    try:
+        return _fat_dax(ds, date(ano, 1, 1), date(ano, 12, 31))
+    except _FatCortada:
+        pass
+    meses = [(date(ano, m, 1), (date(ano + (m == 12), m % 12 + 1, 1) - timedelta(days=1))) for m in range(1, 13)]
+    with ThreadPoolExecutor(4) as ex:
+        return [r for parte in ex.map(lambda p: _fat_dax(ds, *p), meses) for r in parte]
+
+
 @app.route('/api/faturamento/tomadores')
 @page_required('faturamento')
 def api_faturamento_tomadores():
@@ -3673,29 +3717,29 @@ def api_faturamento_tomadores():
 
     Origem = cidade_origem_prestacao (de onde partiu ESTA prestação de serviço).
     Destino = cidade_destinatario. CTe sem manifesto entra no faturamento e NÃO conta como
-    carga (é complemento de frete, subcontratação ou cobrança de descarga — não é viagem)."""
+    carga (é complemento de frete, subcontratação ou cobrança de descarga — não é viagem).
+
+    De onde vem o ano: o CORRENTE do Operacional (atualiza ~8×/dia); os FECHADOS do dataset da
+    DRE, que tem a mesma `conhecimentos_emitidos` desde 22/02/2021 — o Operacional só guarda de
+    2025 em diante. 2025 é idêntico CTe a CTe nos dois (9.853 CTe, R$ 56.847.585,44 — 14/10/26).
+    O DAX já agrupa por (tomador, rota, manifesto, dia) e, se a API cortar, o ano vai mês a mês
+    (`_fat_linhas`). Ano fechado não muda: fica em cache."""
+    from datetime import datetime, timedelta, timezone
+    hoje = datetime.now(timezone(timedelta(hours=-3))).date()
     try:
-        ano = int(request.args.get('ano', 2026))
+        ano = int(request.args.get('ano', hoje.year))
     except Exception:
-        ano = 2026
-
-    CE = "'public conhecimentos_emitidos'"
-    cols = ['primeiro_manifesto', 'cnpj_pagador', 'cliente_pagador', 'cidade_origem_prestacao',
-            'uf_origem_prestacao', 'cidade_destinatario', 'uf_destinatario', 'valor_frete']
-    sel = ', '.join(f'"{c}",{CE}[{c}]' for c in cols)
-    dax = (
-        f"EVALUATE SELECTCOLUMNS(ADDCOLUMNS(FILTER({CE}, "
-        f"{CE}[data_autorizacao] >= DATE({ano},1,1) && "
-        f"{CE}[data_autorizacao] <= DATE({ano},12,31)), "
-        f"\"@mes\", FORMAT({CE}[data_autorizacao], \"MM\")), "
-        f"{sel}, \"mes\", [@mes])"
-    )
+        ano = hoje.year
+    fechado = ano < hoje.year
+    if fechado:
+        c = _FAT_CACHE.get(ano)
+        if c and time.time() - c[0] < _FAT_CACHE_S:
+            return jsonify(c[1])
 
     try:
-        token = get_token()
-        result = execute_dax(token, dax)
-        rows = result.get('results', [{}])[0].get('tables', [{}])[0].get('rows', [])
-        linhas = clean_rows(rows)
+        linhas = clean_rows(_fat_linhas(ano, CONFIG['dre_dataset_id'] if fechado else None))
+    except _FatCortada as e:
+        return jsonify({'ok': False, 'error': f'{ano}: o Power BI cortou a resposta mesmo mês a mês ({e})'}), 500
     except requests.exceptions.HTTPError as e:
         detail = ''
         try: detail = e.response.json()
@@ -3718,17 +3762,19 @@ def api_faturamento_tomadores():
         raiz = _raiz_cnpj(r.get('cnpj_pagador'))   # já resolve o grupo econômico
         chave = raiz or f"nome::{nome.upper()}"
         try:
-            mes = int(r.get('mes'))
+            mes = int(str(r.get('data_autorizacao'))[5:7])
         except Exception:
             continue
         if not 1 <= mes <= 12:
             continue
+        vf = float(r.get('f') or 0)          # linha agrupada: soma e nº de CTe do grupo
+        n = int(r.get('n') or 0)
 
         t = tomadores.get(chave)
         if not t:
             t = {'cnpj_raiz': raiz, 'nome': nome, '_nomes': {}}
             tomadores[chave] = t
-        t['_nomes'][nome] = t['_nomes'].get(nome, 0) + 1
+        t['_nomes'][nome] = t['_nomes'].get(nome, 0) + n     # o nome mais frequente POR CTe
 
         gk = (chave,
               _cid(r.get('cidade_origem_prestacao'), r.get('uf_origem_prestacao')),
@@ -3738,16 +3784,15 @@ def api_faturamento_tomadores():
         if g is None:
             g = {'f': 0.0, 'n': 0, 'fm': 0.0, 'nm': 0, 'mf': set()}
             grupos[gk] = g
-        vf = float(r.get('valor_frete') or 0)
         g['f'] += vf
-        g['n'] += 1
+        g['n'] += n
         man = str(r.get('primeiro_manifesto') or '').strip().upper()
         if man:
             # `fm`/`nm` = só o que tem manifesto, ou seja, só viagem. Com filtro de rota
             # a tela usa esse valor: complemento de frete e cobrança de descarga herdam
             # a cidade de quem emitiu e entrariam na rota sem terem rodado nela.
             g['fm'] += vf
-            g['nm'] += 1
+            g['nm'] += n
             idx = manifestos.get(man)
             if idx is None:
                 idx = len(manifestos)
@@ -3768,8 +3813,28 @@ def api_faturamento_tomadores():
                   'fm': round(g['fm'], 2), 'nm': g['nm'], 'mf': sorted(g['mf'])}
                  for k, g in grupos.items()]
 
-    return jsonify({'ok': True, 'ano': ano, 'tomadores': saida_tom, 'grupos': saida_grp,
-                    'manifestos': len(manifestos), 'count': len(saida_tom)})
+    resp = {'ok': True, 'ano': ano, 'anos': _fat_anos(hoje.year), 'tomadores': saida_tom, 'grupos': saida_grp,
+            'manifestos': len(manifestos), 'count': len(saida_tom)}
+    if fechado:
+        _FAT_CACHE[ano] = (time.time(), resp)
+    return jsonify(resp)
+
+
+def _fat_anos(ano_corrente):
+    """Anos com CTe para o seletor da tela: do 1º ano do dataset da DRE até o corrente. Em cache."""
+    c = _FAT_CACHE.get('anos')
+    if c and time.time() - c[0] < _FAT_CACHE_S and c[1][-1] == ano_corrente:
+        return c[1]
+    try:
+        CE = "'public conhecimentos_emitidos'"
+        r = execute_dax(get_token(), f"EVALUATE ROW(\"ini\", MIN({CE}[data_autorizacao]))",
+                        dataset_id=CONFIG['dre_dataset_id'])
+        ini = int(str(clean_rows(r['results'][0]['tables'][0]['rows'])[0]['ini'])[:4])
+    except Exception:
+        return [ano_corrente]                       # sem a DRE, só o ano corrente — e sem cache
+    anos = list(range(min(ini, ano_corrente), ano_corrente + 1))
+    _FAT_CACHE['anos'] = (time.time(), anos)
+    return anos
 
 
 # A implementação vive em placas.py para ser compartilhada com o PGR sem import
