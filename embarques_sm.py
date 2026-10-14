@@ -5,13 +5,20 @@ Uma linha por MANIFESTO: o que a regra exige, o que a Insignia mostra, e o estad
 cada rodada da fita documental (8×/dia, quando o BI atualiza). Só LÊ o Power BI e a Insignia;
 grava só as próprias tabelas (`embarques_sm`, `embarques_sm_log`).
 
-A REGRA (operação, 08/10/2026):
-    carga para o RIO DE JANEIRO (qualquer CTe com destinatário/entrega no RJ) → SM, sempre
+A REGRA (operação, 08/10/2026; o Rio revisto em 14/10):
+    carga que PASSA pelo RIO DE JANEIRO → SM, sempre. O caminho do caminhão é o CTRB (origem e destino da
+    viagem, os mesmos da carga — 195 de 195): sai do RJ ou chega no RJ pelo CTRB, ou algum CTe ENTREGA no RJ
+    (a entrega no meio da rota, ou a ida e volta Uberlândia → Uberlândia). Destinatário no RJ com entrega em
+    outro estado não conta — o caminhão não passa pelo Rio. O CTe sozinho engana: a subcontratação da
+    Martins vem formal (MG → MG) com o CTRB Hidrolândia → Duque de Caxias, e na 1ª perna de uma continuação o
+    CTe aponta a entrega final, não o hub
     valor da carga > R$ 150 mil (soma do `valor_mercadoria` dos CTes do manifesto) → SM, todos
     TERCEIRO até R$ 150 mil → a GR pega só o SINAL do cavalo (sem SM) — tem de haver posição
     Frota/Agregado até R$ 150 mil → nada (a 3S cobre)
     PAGADORES ISENTOS (raiz do CNPJ do pagador) → sem SM, mesmo no RJ: Martins 18485037 e Evidência
     Logística 07632502 (decisões de 08/10/26); outros por EMBARQUES_SM_ISENTOS
+    PAGADORES COM GR PRÓPRIA → a SM é da gerenciadora do EMBARCADOR, que a nossa unidade não enxerga:
+    Heinz 50955707 e Pernod Ricard 33856394 (operação, 14/10/26); outros por EMBARQUES_SM_GR_EMBARCADOR
 Fora da regra o seguro (PGR da gerenciadora) não cobre: é ALERTA MÁXIMO.
 Para abrir SM: o "embarcador da viagem" (sCd_CnpjEmbarcViagem) é o CNPJ do PAGADOR do frete (`pagador_cnpj`).
 
@@ -44,17 +51,33 @@ MARTINS_RAIZ = '18485037'
 #   Martins (08/10/26) — subcontratação; vem com R$ 1 e destino formal
 #   Evidência Logística (08/10/26) — subcontratação (SUBC FEC FORM CTRC), com valor real
 # Para incluir outro sem deploy: EMBARQUES_SM_ISENTOS="12345678:NOME,87654321:OUTRO" (soma a estes).
-ISENTOS = {MARTINS_RAIZ: 'Martins', '07632502': 'Evidência'}
-for _it in os.getenv('EMBARQUES_SM_ISENTOS', '').split(','):
-    if ':' in _it:
-        _r, _n = _it.split(':', 1)
-        if _r.strip().isdigit():
-            ISENTOS[_r.strip().zfill(8)[:8]] = _n.strip() or _r.strip()
+def _somar_env(base, var):
+    for it in os.getenv(var, '').split(','):
+        if ':' in it:
+            r, n = it.split(':', 1)
+            if r.strip().isdigit():
+                base[r.strip().zfill(8)[:8]] = n.strip() or r.strip()
+    return base
+
+
+ISENTOS = _somar_env({MARTINS_RAIZ: 'Martins', '07632502': 'Evidência'}, 'EMBARQUES_SM_ISENTOS')
+# Pagadores com GR PRÓPRIA (operação, 14/10/26: "Heinz e Pernod a SM é da GR deles"): a SM é aberta na
+# gerenciadora do embarcador, que a nossa unidade da Insignia não enxerga. Não é isenção — a viagem tem SM,
+# só não é nossa. O terceiro deles também não dá sinal: MJX-0E10 e BAY-5B97 (Pernod) = ER0121, 0 posições.
+# Medido 01–14/10: Heinz 8 de 8 manifestos sem SM na unidade; Pernod 1 de 20 com SM nossa (211360, aberta
+# pela Rizza) — as 3 "SM com outro conjunto" eram SMs de outras cargas do cavalo (Totalcare, Doce Mineiro,
+# Química Amparo). Outros sem deploy: EMBARQUES_SM_GR_EMBARCADOR="12345678:NOME" (soma a estes).
+GR_EMBARCADOR = _somar_env({'50955707': 'Heinz', '33856394': 'Pernod'}, 'EMBARQUES_SM_GR_EMBARCADOR')
 
 
 def isento_de(cte):
     """Nome do pagador isento deste CTe, ou None."""
     return ISENTOS.get(str(cte.get('cnpj_pagador') or '').zfill(14)[:8])
+
+
+def gr_embarcador_de(cte):
+    """Nome do pagador com GR própria deste CTe, ou None."""
+    return GR_EMBARCADOR.get(str(cte.get('cnpj_pagador') or '').zfill(14)[:8])
 UF_RIO = 'RJ'
 # SM: a coleta da Insignia existe desde 05/10/26 ~15h BRT. Manifesto anterior a isso sem SM achada é
 # "sem dado", não "sem SM" (a SM pode ter aberto e fechado antes de a coleta existir).
@@ -63,6 +86,11 @@ SM_DESDE = date.fromisoformat(os.getenv('EMBARQUES_SM_SM_DESDE', '2026-10-06'))
 SINAL_DESDE = date.fromisoformat(os.getenv('EMBARQUES_SM_SINAL_DESDE', '2026-10-08'))
 SM_TOLERANCIA_D = 2          # SM casa com o manifesto se começou até 2 dias antes/depois (= fontes_gps.tem_sm)
 SM_TARDIA_H = 1.0            # SM aberta mais de 1 h depois da saída real = o caminhão rodou descoberto
+# SM encerrada sem macro só se julga se a coleta a viu desde o pedido (00:00 BRT do SM_DESDE, em UTC)
+MACROS_DESDE = datetime.combine(SM_DESDE, datetime.min.time()) + timedelta(hours=3)
+# A GR grava o valor da carga sem os centavos: SM e CTes do mesmo manifesto diferem < R$ 1. Medido 01–14/10 em
+# 119 pares manifesto × SM do conjunto: 89 abaixo de R$ 2, os outros 30 acima de R$ 21 mil — nada no meio.
+SM_VALOR_TOL = 2.0
 
 # estado → (severidade, rótulo). A severidade ordena a tela e os cards.
 ESTADOS = {
@@ -77,6 +105,7 @@ ESTADOS = {
     'sinal_ok':           ('ok', 'Sinal ok (sem SM)'),
     'nao_exige':          ('ok', 'Não exige'),
     'isento':             ('ok', 'Isento (pagador dispensado)'),
+    'gr_embarcador':      ('ok', 'SM na GR do embarcador'),
 }
 
 DDL = """
@@ -103,7 +132,7 @@ CREATE TABLE IF NOT EXISTS embarques_sm (
     n_ctes_martins      INTEGER,                     -- CTes de pagador ISENTO (nome histórico: nasceu só com a Martins)
     uf_destinos         VARCHAR(60),
     rio                 BOOLEAN,
-    exige               VARCHAR(10),                 -- sm / sinal / nada / isento / ?
+    exige               VARCHAR(10),                 -- sm / sinal / nada / isento / gr (GR do embarcador) / ?
     motivos             VARCHAR(80),                 -- rio, valor, terceiro
     ctes                JSONB,
     -- o que a GR mostra
@@ -167,6 +196,7 @@ CE_COLS = ('serie_numero_ctrc', 'tipo_documento', 'data_emissao', 'primeiro_mani
            'valor_mercadoria', 'cnpj_pagador', 'cliente_pagador', 'cliente_destinatario',
            'cidade_entrega', 'uf_entrega', 'uf_destinatario')
 M = "'public manifestos'"
+OS_ = "'public ctrbs_oss'"
 
 
 def norm(s):
@@ -197,18 +227,31 @@ def _dia(v):
 
 
 # ── a regra (função pura) ─────────────────────────────────────────────────────────────────────────
-def regra(ctes, tipo):
-    """`ctes` = lista de dicts com valor_mercadoria / cnpj_pagador / uf_entrega / uf_destinatario.
-    Devolve dict com exige ('sm'|'sinal'|'nada'|'isento'|'?'), motivos, valor, rio e contagens."""
+def regra(ctes, tipo, rota=(None, None)):
+    """`ctes` = lista de dicts com valor_mercadoria / cnpj_pagador / uf_entrega; `rota` = (UF de origem, UF de
+    destino) do CTRB. Devolve dict com exige ('sm'|'sinal'|'nada'|'isento'|'gr'|'?'), motivos, valor, rio e
+    contagens. CTe de pagador isento ou com GR própria sai da conta (valor e UF): o resto segue a regra."""
     martins = [c for c in ctes if isento_de(c)]      # todos os pagadores isentos, não só a Martins
-    resto = [c for c in ctes if c not in martins]
+    gr = [c for c in ctes if c not in martins and gr_embarcador_de(c)]
+    resto = [c for c in ctes if c not in martins and c not in gr]
     valor = sum(_num(c.get('valor_mercadoria')) for c in resto)
-    ufs = sorted({u for c in resto for u in (c.get('uf_entrega'), c.get('uf_destinatario')) if u})
-    rio = UF_RIO in ufs
+    ufs = sorted({c.get('uf_entrega') for c in resto if c.get('uf_entrega')})
+    sai_rio = (rota[0] or '').upper() == UF_RIO
+    entra_rio = (rota[1] or '').upper() == UF_RIO
+    rio = UF_RIO in ufs or sai_rio or entra_rio
     out = {'valor': round(valor, 2), 'rio': rio, 'ufs': ufs, 'n': len(ctes), 'n_martins': len(martins), 'isentos': [],
+           'n_gr': len(gr), 'gr': sorted({gr_embarcador_de(c) for c in gr}),
            'motivos': [], 'exige': None, 'valor_conhecido': True}
     if not ctes:
         out['exige'] = '?'
+        return out
+    if not resto and gr:
+        # nada a comparar com o limite: valor e destino são os da carga, para a tela mostrar o que viaja na GR dele
+        out['valor'] = round(sum(_num(c.get('valor_mercadoria')) for c in gr), 2)
+        out['ufs'] = sorted({c.get('uf_entrega') for c in gr if c.get('uf_entrega')})
+        out['rio'] = UF_RIO in out['ufs'] or sai_rio or entra_rio
+        out['exige'] = 'gr'
+        out['motivos'] = ['gr_embarcador']
         return out
     if not resto:
         out['exige'] = 'isento'
@@ -217,8 +260,10 @@ def regra(ctes, tipo):
         return out
     # valor formal (≤ R$ 1 em todos) fora da Martins: não dá para dizer se passa de 150 mil
     out['valor_conhecido'] = any(_num(c.get('valor_mercadoria')) > 1 for c in resto)
-    if rio:
+    if UF_RIO in ufs or entra_rio:
         out['motivos'].append('rio')
+    elif sai_rio:
+        out['motivos'].append('rio_origem')
     if valor > LIMITE_VALOR:
         out['motivos'].append('valor')
     if out['motivos']:
@@ -240,6 +285,12 @@ def avaliar(r, dia, sm, sinal, saida_real, conjunto):
     if r['exige'] == 'isento':
         return 'isento', ('todos os CTes são de pagador isento (' + ', '.join(r.get('isentos') or []) +
                           ') — sem SM por decisão da operação')
+    if r['exige'] == 'gr':
+        nomes = ', '.join(r.get('gr') or [])
+        if sm and conjunto == 'igual':
+            return 'sm_ok', f"SM {sm['sm']} na nossa unidade (o pagador, {nomes}, tem GR própria)"
+        return 'gr_embarcador', (f'pagador com GR própria ({nomes}) — a SM é aberta na gerenciadora do embarcador, '
+                                 'que a nossa unidade da Insignia não enxerga (nem o sinal do terceiro)')
     if r['exige'] == '?':
         return 'valor_desconhecido', 'CTes com valor formal (≤ R$ 1) fora dos isentos — não dá para aplicar o limite de R$ 150 mil'
     if r['exige'] == 'nada':
@@ -256,7 +307,8 @@ def avaliar(r, dia, sm, sinal, saida_real, conjunto):
     if not sm:
         if dia < SM_DESDE:
             return 'sem_dado', f'a coleta de SM da Insignia só existe desde {SM_DESDE:%d/%m}'
-        return 'sem_sm', 'exige SM (' + ' + '.join(r['motivos']) + ') e nenhuma SM da unidade casa com o conjunto'
+        return 'sem_sm', ('exige SM (' + ' + '.join('sai do RJ' if x == 'rio_origem' else x for x in r['motivos']) +
+                          ') e nenhuma SM da unidade casa com o conjunto')
     if conjunto != 'igual':
         return 'sm_divergente', ('a SM casa só pelo cavalo — carreta diferente' if conjunto == 'so_cavalo'
                                  else 'a SM casa só pela carreta — cavalo diferente')
@@ -285,28 +337,76 @@ def coletar_manifestos(tok, desde):
     return {e._norm(r['CHAVE_MANIFESTO']): r for r in m if r.get('CHAVE_MANIFESTO')}
 
 
+def coletar_ctrbs(tok, desde):
+    """CTRB → linha com origem e destino, na chave do manifesto (`_chave_ctrb`). A fita já traz isto."""
+    import embarques_auto as e
+    o = e._dax(tok, f"EVALUATE SELECTCOLUMNS(FILTER({OS_}, {OS_}[emissao] >= DATE({desde.year},{desde.month},{desde.day})), "
+                    f"\"ctrb\",{OS_}[ctrb], \"cidade_uf_origem\",{OS_}[cidade_uf_origem], "
+                    f"\"cidade_uf_destino\",{OS_}[cidade_uf_destino])")
+    return {e._chave_ctrb(r.get('ctrb')): r for r in o if e._chave_ctrb(r.get('ctrb'))}
+
+
+def rota_ctrb(ctrbs, manifesto, carga_uf=None):
+    """(UF de origem, UF de destino) da viagem pelo CTRB do manifesto ('CIDADE/UF'); sem CTRB, a origem da carga."""
+    import embarques_auto as e
+    r = ctrbs.get(e._chave_ctrb(manifesto.get('CHAVE_CTRB'))) or {}
+    return (_uf(r.get('cidade_uf_origem')) or carga_uf, _uf(r.get('cidade_uf_destino')))
+
+
+def _uf(cidade_uf):
+    s = str(cidade_uf or '').strip()
+    return s[-2:].upper() if len(s) >= 2 else None
+
+
 def _sms(cur, desde):
-    cur.execute("""SELECT sm, placa_cavalo_chave, COALESCE(carretas_chave, ''), status, inicio, criada_em,
-                          encerrada_em, valor_carga, link_sm
-                     FROM insignia_sm WHERE COALESCE(inicio, criada_em) >= %s""", (desde - timedelta(days=3),))
+    macro = ("EXISTS (SELECT 1 FROM insignia_macros m WHERE m.sm = s.sm)" if _tem(cur, 'insignia_macros')
+             else "NULL")                         # sem a tabela, ninguém é julgado `sem_viagem`
+    cur.execute(f"""SELECT sm, placa_cavalo_chave, COALESCE(carretas_chave, ''), status, inicio, criada_em,
+                           encerrada_em, valor_carga, link_sm, origem_lat, origem_lng, {macro}
+                      FROM insignia_sm s WHERE COALESCE(inicio, criada_em) >= %s""", (desde - timedelta(days=3),))
     out = []
-    for sm, cav, cars, st, ini, cri, enc, val, link in cur.fetchall():
+    for sm, cav, cars, st, ini, cri, enc, val, link, o_lat, o_lng, macro in cur.fetchall():
         # O instante que conta é o PEDIDO (`criada_em`), não o `inicio`: a GR carimba o início dias
         # depois do pedido (SM 211360: criada 03/10 18:50, início 05/10; a carga saiu 03/10 19:12 —
         # coberta). Com o início, ela parecia 48 h tardia e casava com a viagem SEGUINTE da carreta.
         t = cri or ini
         out.append({'sm': sm, 'cavalo': cav, 'carretas': [c for c in cars.split(',') if c], 'status': st,
                     'pedida': t, 'inicio': ini, 'dia': (t - timedelta(hours=3)).date() if t else None,
-                    'encerrada_em': enc, 'valor': val, 'link': link})
+                    'encerrada_em': enc, 'valor': val, 'link': link,
+                    'origem_lat': o_lat, 'origem_lng': o_lng, 'macro': macro})
     return out
 
 
-def casar_sm(sms, cavalo, carreta, dia):
+def sem_viagem(s):
+    """A SM foi encerrada sem nenhuma macro do motorista: abortada ou nunca iniciada — não cobriu viagem.
+    Das 49 encerradas de 06–14/10, 45 têm macro (Autotrac, Onixsat, Omnilink, Sascar); as 4 sem macro são
+    212394 (encerrada 0,9 h depois, a duplicada da C-1444), 213347 (2,3 h) e 212273/212689, que nunca saíram
+    de 'Aguar. Início'. SM pedida antes de a coleta existir não se julga: a macro dela não foi vista."""
+    return bool(s['encerrada_em']) and s.get('macro') is False and bool(s['pedida']) and s['pedida'] >= MACROS_DESDE
+
+
+def _valor_bate(s, valores):
+    """O valor da SM é o destes CTes (a GR trunca os centavos)?"""
+    return s.get('valor') is not None and any(v and abs(float(s['valor']) - float(v)) < SM_VALOR_TOL for v in valores)
+
+
+def casar_sm(sms, cavalo, carreta, dia, origem=None, valores=(), descartes=None):
     """A SM do conjunto mais perto do dia do manifesto. Devolve (sm, conjunto).
       * conjunto igual: pedida até 2 dias antes/depois (= `fontes_gps.tem_sm`)
       * só cavalo ou só carreta: até 1 dia — com 2, a SM da viagem ANTERIOR do cavalo casava
       * SM encerrada antes do dia do manifesto não cobre o manifesto (HIK5A05: SM fechada 07/10,
-        manifesto 08/10 com outra carreta)"""
+        manifesto 08/10 com outra carreta)
+      * com EMBARQUES_SM_DA_CARGA (a chave e a régua do robô, `fontes_gps`): a SM com a origem a mais de
+        60 km da `origem` (lat, lng) da carga é de OUTRA perna do cavalo — a C-1381 (R$ 1,4 mi) casava com a
+        SM da C-1423 e parecia "tardia"; a C-1464 com a da C-1470; as 3 da Pernod com "outro conjunto" eram de
+        outros embarcadores. MAS o valor da SM igual a um dos `valores` (CTes ou manifesto) prova que a SM é
+        desta carga, longe ou não: 12 de 40 pares com a origem a > 60 km — a GR guarda o endereço do CNPJ do
+        embarcador (Casa Granado em GO, carregada em Limeira: C-1375), a origem da carga estava errada
+        (C-1409) ou a carga é a 2ª perna de uma continuação. Sem coordenada de um dos lados, como antes.
+        A SM `sem_viagem` não cobre, mesmo com o valor (a 212394 dava a C-1436 como coberta; a 212689 da
+        C-1454 nunca iniciou). `descartes`, se dado, recebe (sm, motivo) de cada SM que ficou de fora."""
+    import fontes_gps as fg
+    import geocoding as g
     cands = []
     for s in sms:
         if not s['dia']:
@@ -320,6 +420,16 @@ def casar_sm(sms, cavalo, carreta, dia):
             continue
         conj = 'igual' if (c_ok and (r_ok or not carreta)) else ('so_cavalo' if c_ok else 'so_carreta')
         if dd <= (SM_TOLERANCIA_D if conj == 'igual' else 1):
+            motivo = None
+            if fg.sm_da_carga_ligado() and sem_viagem(s):
+                motivo = 'pedida, mas encerrada sem viagem (nenhuma macro: abortada ou nunca iniciada)'
+            elif not _valor_bate(s, valores) and not fg._sm_origem_ok(s.get('origem_lat'), s.get('origem_lng'), origem):
+                k = g.km_entre(float(s['origem_lat']), float(s['origem_lng']), float(origem[0]), float(origem[1]))
+                motivo = f'origem a {k:.0f} km da origem da carga (outra perna)'
+            if motivo:
+                if descartes is not None:
+                    descartes.append((s['sm'], motivo))
+                continue
             cands.append((conj != 'igual', dd, s, conj))
     if not cands:
         return None, None
@@ -341,7 +451,7 @@ def _sinal(cur, cavalo, dia, fim):
 
 def _cargas(cur, desde):
     cur.execute("""SELECT id, numero, status, tipo_operacao, manifesto_origem, data_saida_real, data_conclusao,
-                          cliente_nome, embarcador, coleta_origem
+                          cliente_nome, embarcador, coleta_origem, origem_latitude, origem_longitude, origem_uf
                      FROM embarques_cargas
                     WHERE manifesto_origem IS NOT NULL AND data_carregamento >= %s""", (desde - timedelta(days=10),))
     return {norm(r[4]): r for r in cur.fetchall()}
@@ -400,9 +510,9 @@ CAMPOS = ('manifesto_exibir', 'data_emissao', 'unidade_origem', 'cavalo', 'carre
           'cliente', 'oc', 'oc_embarcador', 'pagador_cnpj', 'placa_gr_divergente')
 
 
-def atualizar(conn, tok, manifestos=None, cadastro=None, desde=None, agora=None):
-    """Recalcula a conformidade dos manifestos. `manifestos` = o retrato da fita (indexado por
-    `_norm(CHAVE_MANIFESTO)`); sem ele (backfill, `desde`), lê do BI. Devolve {estado: n}."""
+def atualizar(conn, tok, manifestos=None, cadastro=None, desde=None, agora=None, ctrbs=None):
+    """Recalcula a conformidade dos manifestos. `manifestos` e `ctrbs` = o retrato da fita (indexados por
+    `_norm(CHAVE_MANIFESTO)` e `_chave_ctrb`); sem eles (backfill, `desde`), lê do BI. Devolve {estado: n}."""
     agora = agora or datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
     cur = conn.cursor()
     cur.execute(DDL)
@@ -415,6 +525,8 @@ def atualizar(conn, tok, manifestos=None, cadastro=None, desde=None, agora=None)
     dias = [d for d in (_dia(m.get('data_emissao')) for m in manifestos.values()) if d]
     desde = min(dias) if dias else (desde or date.today() - timedelta(days=7))
     ctes = coletar_ctes(tok, desde - timedelta(days=10))
+    if ctrbs is None:
+        ctrbs = coletar_ctrbs(tok, desde - timedelta(days=10))
     por_man = {}
     for c in ctes:
         for k in {norm(c.get('primeiro_manifesto')), norm(c.get('ultimo_manifesto'))} - {''}:
@@ -448,12 +560,17 @@ def atualizar(conn, tok, manifestos=None, cadastro=None, desde=None, agora=None)
         else:
             tipo, tipo_fonte = None, None
         lista = por_man.get(k, [])
-        r = regra(lista, tipo)
-        sm, conj = casar_sm(sms, cav, car, dia)
+        r = regra(lista, tipo, rota_ctrb(ctrbs, m, cg[12] if cg else None))
+        descartes = []
+        sm, conj = casar_sm(sms, cav, car, dia, origem=(cg[10], cg[11]) if cg else None,
+                            valores=(r['valor'], _num(m.get('valor_total_mercadoria'))), descartes=descartes)
         saida = cg[5] if cg else None
         fim = (cg[6] if cg and cg[6] else agora)
         sinal = _sinal(cur, cav, dia, fim) if r['exige'] == 'sinal' and not sm else (0, None)
         estado, detalhe = avaliar(r, dia, sm, sinal, saida, conj)
+        if descartes and r['exige'] in ('sm', 'sinal', 'gr'):
+            # o responsável vê na gaveta a SM do conjunto que existia e por que não conta
+            detalhe += ' · fora da conta: ' + '; '.join(f'SM {n} {mot}' for n, mot in dict(descartes).items())
         sev = ESTADOS[estado][0]
         atraso = round((sm['pedida'] - saida).total_seconds() / 3600, 2) if sm and saida and sm.get('pedida') else None
         lin = {
@@ -470,7 +587,7 @@ def atualizar(conn, tok, manifestos=None, cadastro=None, desde=None, agora=None)
             'rio': r['rio'], 'exige': r['exige'], 'motivos': ','.join(r['motivos']) or None,
             'ctes': json.dumps([{'ctrc': c.get('serie_numero_ctrc'), 'tipo': c.get('tipo_documento'),
                                  'valor': _num(c.get('valor_mercadoria')), 'pagador': c.get('cliente_pagador'),
-                                 'martins': bool(isento_de(c)), 'isento': isento_de(c),
+                                 'martins': bool(isento_de(c)), 'isento': isento_de(c), 'gr': gr_embarcador_de(c),
                                  'destinatario': c.get('cliente_destinatario'),
                                  'entrega': f"{c.get('cidade_entrega') or ''}/{c.get('uf_entrega') or ''}"}
                                 for c in lista], ensure_ascii=False, default=str),

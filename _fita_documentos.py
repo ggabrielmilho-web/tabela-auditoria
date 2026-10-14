@@ -245,7 +245,8 @@ def _conformidade_sm(conn, tok, dados, cadastro):
     a Insignia e grava a própria tabela; falha aqui não derruba a rodada — a seguinte recalcula."""
     try:
         import embarques_sm
-        return embarques_sm.atualizar(conn, tok, manifestos=dados.get('manifesto'), cadastro=cadastro)
+        return embarques_sm.atualizar(conn, tok, manifestos=dados.get('manifesto'), cadastro=cadastro,
+                                     ctrbs=dados.get('ctrb'))
     except Exception as exc:
         try:
             conn.rollback()

@@ -880,6 +880,39 @@ formal, confirmado: 74 de 76 CTes `SUBC REC FORM LISO`). Fora da regra = ALERTA 
 - **Não ligado de propósito:** WhatsApp (fora por ora, talvez nunca — colunas `alerta_*` só reservadas) e abrir
   SM (colunas `disponibilidade*`, `sm_solicitada*`, `sm_retorno`; API devolve `solicitar_sm_ligado: false`).
 - Limite que a validação existe para pegar: SM aberta em OUTRA unidade da Insignia aparece como "sem SM".
+- **14/10 — GR do embarcador + régua da SM da carga na aba** (working tree, não commitado; lab `rizza_lab_1014`
+  + clones `_sma` (código de antes) / `_smb` (novo, chave ligada) / `_sme0` (novo, chave desligada), mesmo retrato
+  do BI, script `gate.py` no scratchpad da sessão):
+  - **Heinz (50955707) e Pernod (33856394): "a SM é da GR deles"** (operação, 14/10). Medido: Heinz 8/8 sem SM na
+    unidade; Pernod 1/20 com SM nossa (211360, aberta pela nossa central) — as 3 "SM com outro conjunto" eram SMs de
+    outros embarcadores (Totalcare, Doce Mineiro, Química Amparo). **Terceiro deles não tem sinal:** MJX-0E10 e
+    BAY-5B97 = ER0121 e 0 posições; a C-1430 nasceu pela trava antiga e foi cancelada pela correção (terceiro sem
+    GPS). Novo estado `gr_embarcador` (conforme), `exige='gr'` (a coluna é VARCHAR(10)); CTe desses pagadores sai da
+    conta como o isento; manifesto todo deles mostra valor/UF reais. SM nossa com conjunto igual → `sm_ok`.
+    Outros: `EMBARQUES_SM_GR_EMBARCADOR`.
+  - **A aba não tinha a régua do `EMBARQUES_SM_DA_CARGA`** (ligada desde 13/10): casava SM de outra perna (C-1381,
+    R$ 1,4 mi, "tardia 30,7 h" com a SM da C-1423 — na verdade **sem SM**; C-1464 com a da C-1470) e SM abortada
+    (212394 dava a C-1436 coberta; 212689 da C-1454, R$ 367 mil, nunca saiu de "Aguar. Início"). Agora atrás da mesma
+    chave: origem da SM ≤ 60 km (`fontes_gps._sm_origem_ok`) e SM encerrada sem macro não cobre (`sem_viagem`; 45 de
+    49 encerradas têm macro, as 4 sem são as abortadas/nunca iniciadas).
+  - **A régua dos 60 km sozinha erra 12 de 40 pares "longe":** a SM é da carga, com o valor idêntico (C-1375 Casa
+    Granado: a GR guarda o endereço do CNPJ em GO, carregou em Limeira; C-1409: a origem da carga está errada —
+    Vitória da Conquista; e as 2ªs pernas de continuação). Valor da SM × CTes: 89 de 119 pares < R$ 2 (a GR trunca
+    os centavos), os outros 30 > R$ 21 mil, nada no meio. Na aba, **valor batendo vence a distância**.
+    ⚠ O robô (`fontes_gps.tem_sm` / `encerramento_sm`) tem o mesmo ponto cego e **não foi mexido**.
+  - Gate: E0 (chave off) = 28 mudanças, todas Heinz/Pernod; B = 47 (28 + 19: 4 estados — C-1381/C-1454/C-1464 viram
+    `sem_sm`, C-1426 `sinal_ok`; C-1436/C-1444 passam à SM 212409; 13 só limpam a SM de outra carga em linha isenta
+    ou `nao_exige`). Alerta 38 → 22. Tela no lab (app local + navegador headless): 0 erro de console.
+  - **Rio revisto (Gabriel, 14/10): "se a origem for RJ, sim; destinatário no RJ com entrega em SP, não — não passou
+    pelo Rio".** A régua vira o caminho do caminhão: sai ou chega no RJ pelo CTRB (`cidade_uf_origem/destino`, os
+    mesmos da carga — 195/195; a fita passa `dados['ctrb']`, o backfill lê `ctrbs_oss`) ou algum CTe com `uf_entrega`
+    RJ (entrega no meio da rota; ida e volta UDI029588-4 Uberlândia → Uberlândia). O `uf_destinatario` saiu. O CTe
+    sozinho engana: Martins vem formal MG → MG com CTRB Hidrolândia → Duque de Caxias; a 1ª perna de continuação
+    aponta a entrega final. Motivo novo `rio_origem` ("sai do RJ"); o selo RJ da coluna Destino só para entrega no RJ.
+    As 4 devoluções Rio → Cordeirópolis (C-1442/1464/1477/1483) seguem `sem_sm`, agora por "sai do RJ". Efeito no
+    gate: 2 manifestos — RIO003307-3 `sem_sinal` → `sem_sm` (terceiro Nestlé saindo do Rio), RIO003295-6 → `sem_dado`.
+  - Robô × prova pelo valor: as 11 cargas cuja SM o robô descarta pela origem com o valor batendo são Frota/Agregado
+    e foram todas fechadas pela 3S (Entregue/Desengatada/Continuada) — efeito hoje zero; ver pendência na §16.5.
 
 ### 16.5 Pendências, em ordem
 
@@ -892,6 +925,12 @@ formal, confirmado: 74 de 76 CTes `SUBC REC FORM LISO`). Fora da regra = ALERTA 
 5. **Dump ~13/10:** macros como régua (CHEGADA → `No destino`, último FIM → concluída), com mais casos.
 6. Menores: V-101; 916/031 na virada do mês; commitar 455/073 no repositório da Rizza; perguntar ao Francisco
    em que unidade ficam as SMs de terceiro (e as exceções da §16.2).
+7. **Prova pelo valor no robô** (14/10, adiada de propósito): `fontes_gps._sm_origem_ok` descarta a SM com a origem
+   a > 60 km mesmo quando o valor da SM bate com o da carga (12 de 40 pares; a aba SM já usa o valor). Hoje sem
+   efeito: as 11 cargas são Frota/Agregado e a 3S as fechou. Vira problema no 1º TERCEIRO com a SM registrada no
+   endereço do CNPJ do embarcador ou na 2ª perna de continuação — trava (`tem_sm`) e `sm_encerrada` deixam de ver
+   a SM e a carga fica em `No destino`. Fazer junto do próximo gate do motor, com a função única (aba e robô
+   lendo a mesma `_valor_bate`), ou antes se o aferidor mostrar um terceiro preso assim.
 
 ### 16.6 Laboratório e artefatos
 

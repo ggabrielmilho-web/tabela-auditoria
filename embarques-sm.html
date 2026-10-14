@@ -79,10 +79,10 @@
   .t-Agregado { background: rgba(129,140,248,0.15); color: var(--accent2); }
   .t-Terceiro { background: rgba(251,191,36,0.14); color: var(--yellow); }
   .mot { font-size: 0.66rem; padding: 1px 6px; border-radius: 3px; margin-right: 3px; background: var(--surface2); border: 1px solid var(--border); }
-  .mot.rio { color: var(--accent); border-color: rgba(56,189,248,.4); }
+  .mot.rio, .mot.rio_origem { color: var(--accent); border-color: rgba(56,189,248,.4); }
   .mot.valor { color: var(--yellow); border-color: rgba(251,191,36,.35); }
   .mot.terceiro { color: var(--orange); border-color: rgba(251,146,60,.35); }
-  .mot.martins, .mot.isento { color: var(--text-dim); }
+  .mot.martins, .mot.isento, .mot.gr_embarcador { color: var(--text-dim); }
   .v-confirmado { color: var(--red); } .v-falso_alerta { color: var(--green); } .v-justificado { color: var(--accent2); }
   .lig { color: var(--accent); text-decoration: none; } .lig:hover { text-decoration: underline; }
   .info-vazio { padding: 40px; text-align: center; color: var(--text-dim); }
@@ -134,11 +134,12 @@
 
   <div class="regra">
     <span class="r-tit">Regra da gerenciadora</span>
-    <span class="r">destino <b>RJ</b> → SM</span>
+    <span class="r" title="pelo CTRB (origem ou destino da viagem) ou pela entrega de algum CTe — destinatário no RJ com entrega fora não conta">passa pelo <b>RJ</b> → SM</span>
     <span class="r">valor <b>&gt; <span id="lim">R$ 150 mil</span></b> → SM</span>
     <span class="r"><b>Terceiro</b> até o limite → sinal do cavalo na GR</span>
     <span class="r"><b>Frota/Agregado</b> até o limite → nada (3S)</span>
     <span class="r"><b>Martins</b> e <b>Evidência</b> → isentas</span>
+    <span class="r" title="a SM é aberta na gerenciadora do embarcador — a nossa unidade da Insignia não enxerga a SM nem o sinal do terceiro"><b>Heinz</b> e <b>Pernod</b> → SM na GR do embarcador</span>
     <span class="aviso" title="A API da Insignia só enxerga a unidade 02572512000158. Uma SM aberta em outra unidade não aparece aqui — por isso cada alerta pede a validação do responsável.">⚠ SM de outra unidade não aparece — valide os alertas</span>
   </div>
 
@@ -153,7 +154,7 @@
         <select id="fTipo"><option value="">todos</option><option>Frota</option><option>Agregado</option><option>Terceiro</option></select></div>
       <div class="ff"><label>Exige</label>
         <select id="fExige"><option value="">tudo</option><option value="sm">SM</option><option value="sinal">sinal</option>
-          <option value="nada">nada</option><option value="isento">isento</option><option value="?">indefinido</option></select></div>
+          <option value="nada">nada</option><option value="isento">isento</option><option value="gr">GR do embarcador</option><option value="?">indefinido</option></select></div>
       <div class="ff"><label>Validação</label>
         <select id="fValid"><option value="">todas</option><option value="pendente">pendente (alerta/atenção)</option>
           <option value="confirmado">confirmado</option><option value="falso_alerta">falso alerta</option><option value="justificado">justificado</option></select></div>
@@ -281,8 +282,9 @@ function filtrarEstado(k){ FILTRO_SEV=''; FILTRO_EST = FILTRO_EST===k ? '' : k; 
 
 function motivos(l){
   const m = (l.motivos || '').split(',').filter(Boolean);
-  const exige = {sm:'SM', sinal:'sinal', nada:'—', isento:'isento', '?':'?'}[l.exige] || '—';
-  return `<b>${exige}</b> ` + m.map(x => `<span class="mot ${x}">${x === 'valor' ? '> limite' : x}</span>`).join('');
+  const exige = {sm:'SM', sinal:'sinal', nada:'—', isento:'isento', gr:'GR', '?':'?'}[l.exige] || '—';
+  const rot = {valor:'> limite', gr_embarcador:'do embarcador', rio_origem:'sai do RJ'};
+  return `<b>${exige}</b> ` + m.map(x => `<span class="mot ${x}">${rot[x] || x}</span>`).join('');
 }
 function smCel(l){
   if (!l.sm) return l.exige === 'sinal' && l.sinal_pontos ? `<span class="dim">sinal · ${l.sinal_pontos} pts</span>` : '<span class="dim">—</span>';
@@ -317,7 +319,8 @@ function renderTabela(){
     const [sev, rot] = ESTADOS[l.estado] || ['pendente', l.estado];
     const carga = l.carga_id ? `<a class="lig mono" href="/embarques/cargas/${l.carga_id}/mapa" target="_blank" onclick="event.stopPropagation()">${esc(l.carga_numero)}</a> <span class="dim">${esc(l.carga_status||'')}</span>` : '<span class="dim">sem carga</span>';
     const tipo = l.tipo ? `<span class="badge t-${l.tipo}" title="${l.tipo_fonte==='carga'?'do robô (carga)':'pelo cadastro de veículos'}">${l.tipo}</span>` : '<span class="dim">?</span>';
-    const dest = (l.uf_destinos||'—') + (l.rio ? ' <span class="mot rio">RJ</span>' : '');
+    // o selo é de ENTREGA no RJ; a carga que sai do RJ mostra "sai do RJ" na coluna Exige
+    const dest = (l.uf_destinos||'—') + ((l.uf_destinos||'').split(',').includes('RJ') ? ' <span class="mot rio">RJ</span>' : '');
     const atr = l.sm_atraso_h == null ? '—' : `<span style="color:${l.sm_atraso_h > 1 ? 'var(--orange)' : 'var(--text-dim)'}">${l.sm_atraso_h > 0 ? '+' : ''}${l.sm_atraso_h.toFixed(1)} h</span>`;
     const canc = (l.sumiu_em ? ' <span class="badge s-pendente" title="o manifesto saiu do BI">cancelado</span>' : '')
       + (l.placa_gr_divergente ? ` <span class="badge s-atencao" title="${esc(l.placa_gr_divergente)} — a GR cadastrou com a grafia antiga; pedir atualização à central">⚠ placa antiga na GR</span>` : '');
@@ -359,8 +362,9 @@ function renderGaveta(j){
   VALID_ESCOLHA = l.validacao || '';
   document.getElementById('gTit').textContent = l.manifesto_exibir;
   document.getElementById('gSub').innerHTML = `emitido ${dia(l.data_emissao)} · ${esc(l.unidade_origem||'')} · ${l.tipo?`<span class="badge t-${l.tipo}">${l.tipo}</span>`:''}`;
+  const nGr = (l.ctes || []).filter(c => c.gr).length;
   const ctes = (l.ctes || []).map(c => `<tr><td class="mono">${esc(c.ctrc)}</td><td>${esc(c.destinatario||'')}<div class="dim">${esc(c.entrega)}</div></td>
-      <td class="dim">${esc(c.pagador||'')}${c.martins?` <span class="mot isento">${esc(c.isento||'isento')}</span>`:''}</td><td class="num mono">${brl(c.valor)}</td></tr>`).join('');
+      <td class="dim">${esc(c.pagador||'')}${c.martins?` <span class="mot isento">${esc(c.isento||'isento')}</span>`:''}${c.gr?` <span class="mot gr_embarcador" title="SM na GR do embarcador">GR ${esc(c.gr)}</span>`:''}</td><td class="num mono">${brl(c.valor)}</td></tr>`).join('');
   const sms = (j.sms || []).map(s => `<tr class="${s.sm===l.sm?'casada':''}"><td class="mono">${s.sm}${s.sm===l.sm?' ✔':''}</td>
       <td class="mono">${esc(s.cavalo||'')}<div class="dim">${esc(s.carretas||'')}</div></td><td>${esc(s.status||'')}<div class="dim">${esc(s.condutor||'')}</div></td>
       <td class="mono">${dt(s.criada_em)}<div class="dim">${s.encerrada_em?'fim '+dt(s.encerrada_em):''}</div></td><td class="num mono">${brl(s.valor)}</td></tr>`).join('');
@@ -387,8 +391,8 @@ function renderGaveta(j){
       <div class="k" title="na SM, o embarcador da viagem (sCd_CnpjEmbarcViagem) é o CNPJ de quem paga o frete">Pagador do frete</div><div class="mono">${esc(l.pagador_cnpj||'—')}</div>
       <div class="k">Ordem de coleta</div><div>${l.oc?`<span class="mono">${esc(l.oc)}</span> · aberta por <b>${esc(l.oc_embarcador||'?')}</b>`:'<span class="dim">sem OC ligada</span>'}</div>
       <div class="k">Valor NF (CTes)</div><div><b>${brl(l.valor_cte)}</b>${dif}</div>
-      <div class="k">CTes</div><div>${l.n_ctes}${l.n_ctes_martins?` · ${l.n_ctes_martins} de pagador isento (fora da conta)`:''}</div>
-      <div class="k">Destinos (UF)</div><div>${esc(l.uf_destinos||'—')}${l.rio?' <span class="mot rio">RJ</span>':''}</div>
+      <div class="k">CTes</div><div>${l.n_ctes}${l.n_ctes_martins?` · ${l.n_ctes_martins} de pagador isento (fora da conta)`:''}${nGr?` · ${nGr} de pagador com GR própria${l.exige==='gr'?'':' (fora da conta)'}`:''}</div>
+      <div class="k">Destinos (UF)</div><div>${esc(l.uf_destinos||'—')}${(l.uf_destinos||'').split(',').includes('RJ')?' <span class="mot rio">RJ</span>':''}</div>
       <div class="k">Exige</div><div>${motivos(l)}</div>
       <div class="k">Conjunto</div><div class="mono">${esc(l.cavalo||'—')} + ${esc(l.carreta||'—')}</div>
       <div class="k">Motorista</div><div>${esc(l.motorista||'—')} <span class="dim mono">${esc(l.motorista_cpf||'')}</span></div>

@@ -484,13 +484,17 @@ Configuradas no Portainer (em produção) ou no `.env` local (desenvolvimento):
 ### Conformidade de SM (`embarques_sm.py`, aba `/embarques/sm`)
 
 Recalculada a cada rodada da fita documental (`EMBARQUES_FITA`) — sem chave própria: só lê o BI e a
-Insignia e grava `embarques_sm` / `embarques_sm_log`. Regra: destino RJ → SM; valor (soma do
+Insignia e grava `embarques_sm` / `embarques_sm_log`. Regra: passa pelo RJ → SM (sai ou chega no RJ pelo CTRB, ou algum CTe com `uf_entrega` RJ; destinatário no RJ com entrega fora não conta — 14/10/2026); valor (soma do
 `valor_mercadoria` dos CTes) > limite → SM; Terceiro até o limite → sinal do cavalo na GR;
-Frota/Agregado até o limite → nada; pagadores isentos (raiz do CNPJ do pagador): Martins 18485037 e Evidência Logística 07632502 — outros por `EMBARQUES_SM_ISENTOS="raiz:NOME,..."`.
+Frota/Agregado até o limite → nada; pagadores isentos (raiz do CNPJ do pagador): Martins 18485037 e Evidência Logística 07632502 — outros por `EMBARQUES_SM_ISENTOS="raiz:NOME,..."`;
+pagadores com **GR própria** (a SM é da gerenciadora do embarcador, que a nossa unidade não enxerga — nem o sinal do terceiro dele): Heinz 50955707 e Pernod 33856394 (14/10/2026) → estado `gr_embarcador`, conforme.
+
+Qual SM é da carga (com `EMBARQUES_SM_DA_CARGA`, a mesma chave e régua do robô): SM com a origem a > 60 km da origem da carga é de outra perna — **salvo se o valor da SM bater com o dos CTes** (< R$ 2; a GR trunca os centavos), o que prova que é desta carga mesmo longe (endereço do CNPJ do embarcador, origem da carga errada, 2ª perna de continuação). SM encerrada sem nenhuma macro (abortada ou nunca iniciada) não cobre. A SM descartada aparece no detalhe ("fora da conta: …").
 
 | Variável | Descrição | Default |
 |---|---|---|
 | `EMBARQUES_SM_LIMITE_VALOR` | limite de valor da carga que exige SM | `150000` |
+| `EMBARQUES_SM_GR_EMBARCADOR` | pagadores com GR própria, além de Heinz e Pernod (`"raiz:NOME,..."`, soma aos do código) | — |
 | `EMBARQUES_SM_SM_DESDE` | antes disso, manifesto sem SM achada é "sem dado" (a coleta de SM começou 05/10/26) | `2026-10-06` |
 | `EMBARQUES_SM_SINAL_DESDE` | idem para o sinal do cavalo sem SM (`INSIGNIA_COLETA_CARGAS` desde 08/10/26) | `2026-10-08` |
 
