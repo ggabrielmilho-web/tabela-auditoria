@@ -1,7 +1,8 @@
 # Handoff — Insignia GR (2ª fonte de rastreamento)
 
-**14/10/2026 (manhã) — §18.9:** escopo `todas` pronto no lab (régua do cavalo no aferidor, janela por veículo no
-mapa, odômetro travado sem velocidade); aguarda o ok para commit, deploy e ligar.
+**14/10/2026 — §18.9 e §18.10:** escopo `todas` LIGADO em produção (`fa382eb`, confirmado); a
+`EMBARQUES_CARRETA_CONGELADA` ganhou a régua no aferidor e passou no gate sobre o dump de 14/10 — aguarda o ok.
+Depois: endereços como âncora (HANDOFF-EMBARQUES §28.13).
 
 **13/10/2026 (tarde) — §18.6:** saída e chegada pela parada da GR (`EMBARQUES_PARADAS_GR`), gates fechados.
 
@@ -1148,9 +1149,19 @@ Três mudanças, nenhuma atrás de chave nova (as duas primeiras só agem com ch
    mostram "—" em vez de km errado.
 
 **O que o `todas` faz** (clone `_tvtod` × `_tvter`): motor 6 cargas, conferidas no GPS cru — C-1362 e C-1507
-refinadas, C-1364 e C-1420 ganham saída e chegada (só o cavalo fez a viagem), C-1472 ganha chegada, C-1495 chegada
-12/10 00:56 → 10/10 11:52 e Entregue (a carreta dormiu; o cavalo estacionou a 2,6 km às 12:22) — + 1 perna (V-373,
-"SEM GPS"). Telas: 10 cargas passam a mostrar o cavalo (carreta muda ou parada).
+refinadas, C-1364 e C-1420 ganham saída e chegada (só o cavalo fez a viagem), C-1472 ganha chegada (**no lab só —
+ver produção abaixo**), C-1495 chegada 12/10 00:56 → 10/10 11:52 e Entregue (a carreta dormiu; o cavalo estacionou a
+2,6 km às 12:22) — + 1 perna (V-373, "SEM GPS"). Telas: 10 cargas passam a mostrar o cavalo (carreta muda ou parada).
+
+**PRODUÇÃO — ligado em 14/10/2026** (deploy de `fa382eb`, snapshot `snap_20261014_1250`). Prévia antes de ligar (motor
+em simulação, `todas` só no comando × `terceiro`, janela de 28 dias): 5 cargas, as do lab, mesmos instantes. Ligado e
+conferido depois do refresh: C-1362 chegada 08:39 · C-1364 saída 05/10 22:25 / chegada 06/10 03:13 · C-1420 Entregue
+(chegada 13/10 02:36, conclusão 14/10 02:36) · C-1495 Entregue (10/10 11:52) · C-1507 06:37. **A C-1472 ficou Aberta
+— e está certo, pela régua de hoje:** a carreta QXG2651 CONGELOU na 3S em 08/10 12:02 (Porto Ferreira, mesma
+posição, odômetro 223087 e 64 km/h repetidos por 6 dias) e a 3S entregou atrasados os pontos repetidos de 12–13/10;
+a "carreta dormida" (`chegada_emprestada`) vê carreta transmitindo nas 48 h e recusa o cavalo. A SM 212905 (JQZ3I38 +
+QXG2651, "Em Cliente") prova que estavam juntos → é caso da `EMBARQUES_CARRETA_CONGELADA` (§18.10). Lição: conferir
+no GPS cru que o cavalo CHEGOU não basta — conferir que a carreta estava com ele (SM ou série das duas).
 
 **Limite conhecido, não tratado:** aparelho com velocidade 0 sempre faz o 1º ponto dentro dos 20 km contar como
 "parado" — a chegada sai adiantada (C-1495 ~30 min, 11:52 a 14,8 km; C-1472 ~70 min, 22:13 a 17,7 km; estacionou às
@@ -1160,3 +1171,29 @@ refinadas, C-1364 e C-1420 ganham saída e chegada (só o cavalo fez a viagem), 
 insignia_coleta.py` = 1 → snapshot → `docker service update --env-add EMBARQUES_FONTE_INSIGNIA_ESCOPO=todas`. As marcas
 entram sozinhas na rodada da coleta em que cada placa rodar ≥ 20 pontos (não há carga retroativa; quem está parado
 fica como está até rodar). Volta: `EMBARQUES_FONTE_INSIGNIA_ESCOPO=terceiro`; dado pelo snapshot.
+Armadilha da prévia: `_robo_atemporal.py` rodado à mão usa `--desde 2026-08-01 --ate 2026-09-08` por padrão — sempre
+passar a janela do robô (`--desde <hoje−28> --ate <amanhã>`); a 1ª prévia de 14/10 comparou 74 cargas de agosto.
+
+### 18.10 `EMBARQUES_CARRETA_CONGELADA` — a régua no aferidor e o gate sobre a produção de 14/10
+
+A chave existe no motor desde 07/10 (§15, `fontes_gps.descongelar`): trecho de ≥ 4 pontos da carreta no mesmo lugar
+com o mesmo odômetro, ENQUANTO a SM da GR desta carga lista a carreta no cavalo e o cavalo está a > 5 km, sai da série;
+os pontos do cavalo entram. Faltava a mesma régua no AFERIDOR (§15.6 nº 2) — escrita em 14/10, no mesmo ponto da
+escolha do sensor; S3 e o empréstimo do cavalo contam a série original, como no motor.
+
+**Gate** (dump de 14/10 13:29 UTC → `rizza_lab_1014`, com `todas` ligado; clones `_cgoff` = produção × `_cgon` = +
+chave; ciclo até o ponto fixo, rodada 3 nos dois):
+- **Motor, 5 cargas:** C-1363 saída 14:12 → 10:28 e chegada 07/10 09:18 → 06/10 14:21 (os instantes da Insignia, os do
+  lab de 07/10); **C-1472 Aberta → No destino 12/10 22:13** (SM 212905; ~70 min cedo pela velocidade 0 do JQZ3I38, §18.9);
+  C-1276, C-1362, C-1522 só o rótulo (`estrita+cavalo` → `estrita`: o mesmo instante, agora pela série descongelada).
+- **Aferidor:** E0 (chave desligada) idêntico byte a byte ao de `fa382eb`; as mudanças do motor sozinhas não mexem no
+  aferidor (734 = 734). Com a régua: 734 = 734, 3 achados FALSOS trocados por 3 VERDADEIROS, todos em carga que o motor
+  não decide — C-1441 (Desengatada com ligação, do robô diário) e C-1468 (Cancelada) perdem o V1 "carreta nunca esteve
+  na origem"; a C-1441 ganha C1 (saiu 08/10 19:17, não gravado); a V-341 (perna, da janela) troca o F1d "nunca chegou a
+  menos de 150 km" por C3 + F2 (chegou a Goiânia 08/10 17:42; fechada à meia-noite pelo manifesto novo).
+- **Telas:** só a C-1472 (o mapa termina na chegada).
+
+**Subir:** deploy (só o aferidor muda; o motor já tem a régua) → `grep -c "fontes_gps.descongelar" _auditoria_geral.py`
+= 1 no container → snapshot → prévia (motor em simulação com a chave só no comando × sem, janela de 28 dias; esperado
+C-1363, C-1472, rótulos) → `docker service update --env-add EMBARQUES_CARRETA_CONGELADA=true`. Volta: `=false`; dado
+pelo snapshot.

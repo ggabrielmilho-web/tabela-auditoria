@@ -5266,7 +5266,7 @@ Nenhuma régua lê essas colunas (§21.4) — nada de status/data/rota mudou.
 - Resolve a viagem local (C-1221) e a chegada no pátio (C-1015) com a mesma peça.
 - Enquanto isso: rótulo "viagem local" na torre no lugar do "Documento sem saída" (só tela) — proposto,
   sem ok ainda.
-- Cache de estudo em `_estudo_2026-09-30/geocode_cache.json` — não commitar. **Decisão do Gabriel (07/10/26): NÃO apagar — as coordenadas do Google vão ser guardadas no nosso banco.** Aviso registrado: os termos da Google Maps Platform só permitem cache de lat/lng por 30 dias (o `place_id` pode ficar para sempre); guardar a coordenada descumpre o contrato e arrisca suspensão da chave (a mesma do `preencher_km_google.py`). Alternativa oferecida e não adotada até aqui: guardar para sempre só o ponto CONFIRMADO pelo nosso GPS e o local da GR, com o Google como palpite inicial + `place_id`. Não commitar o arquivo de cache (dado de cliente).
+- Cache de estudo em `_estudo_2026-09-30/geocode_cache.json` — não commitar (dado de cliente). **Decisão do Gabriel (07/10 e 14/10/26), assunto encerrado:** as lat/lng geocodificadas vão para uma tabela nossa, sem marcar a origem; a âncora só distingue endereço × aprendido pelo GPS × local da GR, porque a régua precisa da ordem.
 
 ### 28.5 Cobertura com TODAS as fontes — `_medir_cobertura_ancora.py` (30/09/2026)
 
@@ -5483,7 +5483,7 @@ hoje; aparece ~0,5–1 h mais tarde. Saída com aparelho congelado: janela cont�
 3. Torre: trocar "Documento sem saída" por "viagem local" quando origem = destino (só tela, C-1221).
 4. Pendências de dado: C-2026-001013 segue `Entregue` a 624 km do destino (§27.13).
 
-**Artefatos (nada commitado nesta frente; o cache do Google NÃO vai para o git; decisão de 07/10: guardar as coordenadas, ver §28.4):**
+**Artefatos (nada commitado nesta frente; o cache do Google NÃO vai para o git — dado de cliente; as coordenadas vão para tabela nossa, §28.4):**
 
 | arquivo / objeto | o que é |
 |---|---|
@@ -5493,7 +5493,7 @@ hoje; aparece ~0,5–1 h mais tarde. Saída com aparelho congelado: janela cont�
 | `_lab_d2_hoje.py` | defesas aplicadas à régua de hoje — regressão × ganho (§28.9–28.10) |
 | `_lab_saida.py` | saída com aparelho congelado → janela, gabarito pelo cavalo (§28.11) |
 | `_lab_replay.py` | replay ao vivo pelo relógio de gravação (§28.12) |
-| `_estudo_2026-09-30/` | `geocode_cache.json` (Google — guardar, decisão de 07/10; ver §28.4), `cte_manifesto.json`, saídas `lab_[A-H].txt`, `replay*.txt`, CSVs |
+| `_estudo_2026-09-30/` | `geocode_cache.json` (coordenadas que vão para a tabela de âncoras), `cte_manifesto.json`, saídas `lab_[A-H].txt`, `replay*.txt`, CSVs |
 | banco local `rizza_lab_0930` | dump de produção de 30/09 + retroativos + tabela `lab_vis` (relógio de gravação) |
 | banco local da Rizza, `ocorrencias_031` | oc. 01 de ago+set (2.318 baixas) e 15/19/35 de ago+set |
 | `../emb_20260930.dump` | o dump (dado de cliente — fora de qualquer repositório) |

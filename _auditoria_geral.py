@@ -234,6 +234,17 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
             f'cavalo tem {_n_cav} pontos contra {_n_princ} da carreta — sensor mais pobre em uso',
             f'{papel}={c1 or c2}')
 
+    # CARRETA CONGELADA NA 3S (EMBARQUES_CARRETA_CONGELADA) — a regua do motor, no mesmo ponto: o trecho em que
+    # a carreta repete posicao e odometro ENQUANTO a SM da GR diz que o cavalo engatado estava longe sai da serie,
+    # e os pontos do cavalo entram (`fontes_gps.descongelar`). Sem isto o aferidor mediria pela repeticao o que o
+    # motor provou pelo cavalo (C-2026-001472: QXG2651 congelada em Porto Ferreira desde 08/10, SM 212905 "Em
+    # Cliente" em Anapolis). As contagens do S3 e do emprestimo do cavalo ficam na serie ORIGINAL, como no motor.
+    if papel != 'cavalo' and cav and pc and fontes_gps.congelada_ligado():
+        _desc, _ntir, _npos = fontes_gps.descongelar(cur, c1 if papel == 'carreta1' else c2, cav,
+                                                     principal, pc, dcarg)
+        if _ntir:
+            principal = _desc
+
     # As duas pontas da perna, para o lado da perna (mesma regua do motor, §20.6).
     _P_ORG = (float(ola), float(oln)) if ola is not None else None
     _P_DST = (float(dla), float(dln)) if dla is not None else None
