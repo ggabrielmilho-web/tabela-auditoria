@@ -626,7 +626,7 @@ def tapar_com_cavalo(cur, carreta, cavalo, pts_carreta, pts_cavalo, dia_carga=No
             continue
         faixas.append((ta, tb, 'meio'))
     # ponta de trás: calou (ou congelou) andando junto do cavalo, antes do destino
-    cauda = False
+    cauda = cauda_aberta = False
     if vivos:
         z = vivos[-1]
         pz = pts_carreta[z]
@@ -655,6 +655,7 @@ def tapar_com_cavalo(cur, carreta, cavalo, pts_carreta, pts_cavalo, dia_carga=No
                     dmin = min(dmin, dd)
             faixas.append((pz[0], fim_c or (pts_cavalo[-1][0] + timedelta(seconds=1)), 'cauda'))
             cauda = True
+            cauda_aberta = fim_c is None      # o cavalo AINDA leva a carreta (não desviou, não saiu do destino)
     if not faixas:
         return base, _info_base()
     dentro_f = lambda t: any(a < t < b for a, b, _ in faixas)
@@ -673,7 +674,7 @@ def tapar_com_cavalo(cur, carreta, cavalo, pts_carreta, pts_cavalo, dia_carga=No
     do_cavalo = {p[0] for p in novos if id(p) not in ids_car}
     return novos, {'prova': prova if not b_tir else prova + '+sm', 'tirados': len(tirar) + b_tir,
                    'postos': len(do_cavalo), 'buracos': [(a, b, t) for a, b, t in faixas], 'cauda': cauda,
-                   'instantes_do_cavalo': do_cavalo}
+                   'cauda_aberta': cauda_aberta, 'instantes_do_cavalo': do_cavalo}
 
 
 def terceiro_gps_ligado():

@@ -9594,17 +9594,21 @@ def api_rastreamento_trajeto(carga_id):
                     pos_agora = {'data': _pa[0].isoformat() + 'Z', 'lat': float(_pa[1]),
                                  'lng': float(_pa[2]), 'velocidade': _pa[3], 'ignicao': _pa[4],
                                  'cidade': _pa[5], 'uf': _pa[6]}
-                # A carreta calou (ou congelou) andando junto do cavalo e o cavalo tapa a CAUDA do trajeto: a posição de
-                # agora é a do cavalo. A da carreta é a repetição — "São Gonçalo do Abaeté, 0 km/h, há 58 min" com o
-                # caminhão em Cristalina a 85 km/h (C-1563). Só se a do cavalo for mais nova.
-                if _tapa_vale and _tapa.get('cauda'):
+                # A carreta calou (ou congelou) andando junto do cavalo e o cavalo ainda tapa a CAUDA do trajeto: a posição
+                # de agora é a do cavalo. A da carreta é a repetição — "São Gonçalo do Abaeté, 0 km/h" com o caminhão em
+                # Cristalina a 85 km/h (C-1563). NÃO se compara com a hora da carreta: a 3S manda a repetição com hora
+                # nova ("há 3 min" em produção, 15/10) e o cavalo parado fala de hora em hora — a repetição ganhava. Vale
+                # a do cavalo posterior ao instante em que a carreta calou, e só com a cauda ABERTA (o cavalo não desviou
+                # nem saiu do destino: depois disso ele pode estar sem ela).
+                _ini_cauda = min((a for a, b, t in (_tapa or {}).get('buracos', []) if t == 'cauda'), default=None)
+                if _tapa_vale and _tapa.get('cauda_aberta') and _ini_cauda is not None:
                     cur.execute(f"""
                         SELECT data_posicao, latitude, longitude, velocidade, ignicao, cidade, uf
                           FROM {fontes_gps.atuais(cur)} pa WHERE placa = ANY(%s)
                          ORDER BY data_posicao DESC LIMIT 1
                     """, (placas.grafias(str(carga['cavalo_placa']).strip().upper()),))
                     _pc = cur.fetchone()
-                    if _pc and _pc[1] is not None and (pos_agora is None or _pa is None or _pc[0] > _pa[0]):
+                    if _pc and _pc[1] is not None and _pc[0] > _ini_cauda:
                         pos_agora = {'data': _pc[0].isoformat() + 'Z', 'lat': float(_pc[1]),
                                      'lng': float(_pc[2]), 'velocidade': _pc[3], 'ignicao': _pc[4],
                                      'cidade': _pc[5], 'uf': _pc[6], 'fonte': 'cavalo'}
