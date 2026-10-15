@@ -7644,6 +7644,19 @@ def api_embarques_cargas_list():
                NULL::text AS coleta_origem, NULL::text AS coleta_via, NULL::text AS embarcador,
                NULL::text AS origem_cnpj, NULL::text AS destino_cnpj, NULL::text AS origem_endereco,
                NULL::text AS destino_endereco,""")
+    # ÂNCORA (EMBARQUES_ANCORA, 15/10/26 — PROPOSTA-ANCORA.md): os três campos novos e o tipo da âncora, só com a
+    # chave (desligada, a resposta é a de antes). Filtro `no_cliente`: provado | nao_provado | sem_ancora.
+    import embarques_ancora as _anc
+    _ca = get_db(); _cura = _ca.cursor(); _anc_on = _anc.ligado() and _anc.colunas_existem(_cura); _cura.close(); _ca.close()
+    if _anc_on:
+        _cols24 += " c.cliente_chegada_em, c.cliente_saida_em, c.cliente_regiao_em, c.ancora_tipo,"
+        _nc = args.get('no_cliente')
+        if _nc == 'provado':
+            where.append("c.cliente_chegada_em IS NOT NULL")
+        elif _nc == 'nao_provado':
+            where.append("c.ancora_tipo IS NOT NULL AND c.cliente_chegada_em IS NULL")
+        elif _nc == 'sem_ancora':
+            where.append("c.ancora_tipo IS NULL AND NOT COALESCE(c.viagem_vazia, FALSE)")
     _placa_mede = ("CASE WHEN c.status = 'Desengatada' THEN c.carreta1_placa "
                    "ELSE COALESCE(NULLIF(trim(c.carreta1_placa),''), c.cavalo_placa) END")
 
@@ -7757,6 +7770,9 @@ def api_embarques_cargas_list():
                 obj['data_saida_real'] = obj['data_saida_real'].isoformat() + 'Z'
             if obj.get('desengatada_em'):
                 obj['desengatada_em'] = obj['desengatada_em'].isoformat() + 'Z'
+            for k in ('cliente_chegada_em', 'cliente_saida_em', 'cliente_regiao_em'):   # âncora (só com a chave)
+                if obj.get(k):
+                    obj[k] = obj[k].isoformat() + 'Z'
             # Agendamento (UTC) — marca com 'Z' p/ o front converter pra local
             if obj.get('agendamento_final'):
                 obj['agendamento_final'] = obj['agendamento_final'].isoformat() + 'Z'
@@ -7863,6 +7879,15 @@ def api_embarques_carga_detail(carga_id):
                 carga['continuacao_de_id'], carga['continuacao_de'], carga['continuacao_de_reemissao'] = r
         if carga.get('desengatada_em') and not isinstance(carga['desengatada_em'], str):
             carga['desengatada_em'] = carga['desengatada_em'].isoformat()
+        # ÂNCORA (EMBARQUES_ANCORA, 15/10/26): os campos novos só com a chave — as colunas podem ter ficado de uma
+        # ligação anterior, e desligada a resposta é a de antes. Eventos em UTC com Z, como a saída na lista.
+        import embarques_ancora as _anc
+        _anc_on = _anc.ligado()
+        for k in _anc.CAMPOS:
+            if not _anc_on:
+                carga.pop(k, None)
+            elif k.endswith('_em') and carga.get(k) is not None:
+                carga[k] = carga[k].isoformat() + 'Z'
         cur.close(); conn.close()
         return jsonify({'ok': True, 'data': carga})
     except Exception as e:
@@ -8175,6 +8200,21 @@ def api_embarques_cargas_csv():
 
     nome = f"cargas_{args.get('start','')}_{args.get('end','')}.csv".strip('_')
 
+    # ÂNCORA (EMBARQUES_ANCORA, 15/10/26): três colunas novas NO FIM (quem importa a planilha não perde a posição das
+    # de hoje) e o mesmo filtro `no_cliente` da lista — só com a chave; desligada, o arquivo é o de antes.
+    import embarques_ancora as _anc
+    _ca = get_db(); _cura = _ca.cursor(); _anc_on = _anc.ligado() and _anc.colunas_existem(_cura); _cura.close(); _ca.close()
+    _cols_anc = ''
+    if _anc_on:
+        _cols_anc = ', c.cliente_chegada_em, c.cliente_saida_em, c.cliente_regiao_em'
+        _nc = args.get('no_cliente')
+        if _nc == 'provado':
+            where.append("c.cliente_chegada_em IS NOT NULL")
+        elif _nc == 'nao_provado':
+            where.append("c.ancora_tipo IS NOT NULL AND c.cliente_chegada_em IS NULL")
+        elif _nc == 'sem_ancora':
+            where.append("c.ancora_tipo IS NULL AND NOT COALESCE(c.viagem_vazia, FALSE)")
+
     sql = f"""
         SELECT c.numero, c.data_carregamento, c.previsao_entrega, c.status, c.tipo_operacao,
                CASE WHEN c.viagem_vazia THEN 'Sim' ELSE 'Não' END AS viagem_vazia,
@@ -8189,7 +8229,7 @@ def api_embarques_cargas_csv():
                c.carreta1_placa, c.carreta1_proprietario,
                c.carreta2_placa, c.carreta2_proprietario,
                c.observacoes,
-               c.criado_por_nome, c.criado_em
+               c.criado_por_nome, c.criado_em{_cols_anc}
         FROM embarques_cargas c
         WHERE {' AND '.join(where)}
         ORDER BY c.data_carregamento DESC, c.id DESC
@@ -8202,7 +8242,7 @@ def api_embarques_cargas_csv():
         'carreta1_placa', 'carreta1_proprietario',
         'carreta2_placa', 'carreta2_proprietario',
         'observacoes', 'lancado_por', 'lancado_em'
-    ]
+    ] + (['no_cliente_desde_utc', 'saiu_do_cliente_utc', 'na_regiao_do_cliente_utc'] if _anc_on else [])
 
     def gerar():
         yield '﻿'
@@ -9512,6 +9552,23 @@ def api_rastreamento_trajeto(carga_id):
                 carga.get('distancia_planejada_km'),
                 carga.get('no_local_desde') is not None),
         }
+        # ÂNCORA (EMBARQUES_ANCORA, 15/10/26): o ponto do cliente (para o marcador com o raio de 2 km) e os três eventos
+        # novos — só com a chave; desligada, a resposta é a de antes.
+        import embarques_ancora as _anc_t
+        if _anc_t.ligado():
+            _ct = get_db(); _curt = _ct.cursor()
+            try:
+                if _anc_t.colunas_existem(_curt):
+                    _curt.execute("""SELECT ancora_tipo, ancora_lat, ancora_lng, cliente_chegada_em, cliente_saida_em,
+                                            cliente_regiao_em FROM embarques_cargas WHERE id = %s""", (carga_id,))
+                    _ra = _curt.fetchone()
+                    if _ra:
+                        resp['ancora'] = ({'tipo': _ra[0], 'lat': _ra[1], 'lng': _ra[2], 'raio_km': _anc_t.R_CHEGADA_KM}
+                                          if _ra[0] else None)
+                        for _k, _v in zip(('cliente_chegada_em', 'cliente_saida_em', 'cliente_regiao_em'), _ra[3:]):
+                            resp['carga'][_k] = (_v.isoformat() + 'Z') if _v else None
+            finally:
+                _curt.close(); _ct.close()
         return jsonify(resp)
     except Exception as e:
         try: conn.close()

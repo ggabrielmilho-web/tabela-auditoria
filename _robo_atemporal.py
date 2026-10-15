@@ -64,6 +64,11 @@ VEL_MAX_CRIVEL = 100.0    # km/h medios: acima disso o par saida/chegada nao e a
 AUTOR = 'Robo atemporal'
 ROTULO_ESTAVEL = os.getenv('EMBARQUES_ROTULO_ESTAVEL', 'false').lower() in ('1', 'true', 'sim')
 PARADAS_GR = fontes_gps.paradas_gr_ligado()
+# ÂNCORA (EMBARQUES_ANCORA, 15/10/26 — PROPOSTA-ANCORA.md): o ponto do CLIENTE de destino e três campos NOVOS ao lado
+# dos de hoje ("No cliente desde", "Saiu do cliente", "Na região do cliente"). Nunca toca saída, chegada, conclusão
+# ou status. Desligada, nada aqui roda e a leitura é a de sempre (E0).
+import embarques_ancora as _anc
+ANCORA = _anc.ligado()
 import re as _re
 
 
@@ -135,6 +140,22 @@ _COL = {c: i for i, c in enumerate(
      'origem_cidade', 'origem_uf', 'dest_uf', 'saida_fonte'))}
 assert len(_COL) == len(CARGAS[0]), (
     'o SELECT e o mapa de colunas divergiram: %d x %d' % (len(_COL), len(CARGAS[0])))
+
+# ÂNCORA: com --aplicar o motor prepara (colunas, geocodificação nova, pátios 1x/dia, aprendizado incremental) e
+# lê, numa consulta à parte, o CNPJ/tomador de cada carga e os campos novos gravados. Em simulação (sem --aplicar)
+# usa o aprendizado que já estiver no banco.
+_ANC = {}
+if ANCORA:
+    if A.aplicar:
+        _res_anc = _anc.preparar(cur, A.desde)
+        cn.commit()
+        print(f'ancora: {_res_anc}')
+    _tem_anc = _anc.colunas_existem(cur)
+    _cols_anc = ', '.join(f'c.{k}' if _tem_anc else f'NULL AS {k}' for k in _anc.CAMPOS)
+    cur.execute(f"""SELECT c.id, c.destino_cnpj, c.cliente_nome, {_cols_anc} FROM embarques_cargas c
+                     WHERE c.data_carregamento BETWEEN %s AND %s""", (A.desde, A.ate))
+    for _r in cur.fetchall():
+        _ANC[_r[0]] = dict(zip(('dcnpj', 'tomador') + _anc.CAMPOS, _r[1:]))
 
 prox = defaultdict(list)
 for r in CARGAS:
@@ -857,6 +878,26 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
         if _sf != saida_fonte:
             campos['saida_fonte'] = _sf
 
+    # ── ÂNCORA (EMBARQUES_ANCORA): os três campos novos e a âncora usada, pela MESMA série da carga (a do sensor,
+    # já descongelada) e a partir da saída que fica gravada. Perna vazia não tem cliente. Só escreve o que mudou.
+    if ANCORA and not vazia and dla is not None and cid in _ANC:
+        _x = _ANC[cid]
+        _c = {'id': cid, 'dcnpj': _x['dcnpj'], 'tomador': _x['tomador'], 'dcid': dcid, 'duf': duf,
+              'dlat': float(dla), 'dlng': float(dln), 'carreg': dcarg, 'ocid': ocid, 'ouf': ouf,
+              'saida': campos.get('data_saida_real', dsaida)}
+        _a = _anc.ancora_da_carga(cur, _c)
+        _novo = dict(_anc.eventos(_c, pts, _a),
+                     ancora_tipo=_a['tipo'] if _a else None,
+                     ancora_lat=round(_a['lat'], 6) if _a else None,
+                     ancora_lng=round(_a['lng'], 6) if _a else None)
+        for _k, _v in _novo.items():
+            _atual = _x.get(_k)
+            if _k in ('ancora_lat', 'ancora_lng') and _atual is not None:
+                _atual = round(float(_atual), 6)
+            if _v != _atual:
+                campos[_k] = _v
+                resumo[f'ancora: {_k}'] += 1
+
     if campos:
         mudancas.append((cid, num, campos, sensor, como_cheg))
         for k in campos:
@@ -908,11 +949,13 @@ n = 0
 for cid, num, campos, sensor, como in mudancas:
     cur.execute("""SELECT status,data_saida_real,inicio_viagem,no_local_desde,data_conclusao,
                           encerrada_motivo,saida_auto,entregue_auto,no_local_fonte"""
-                + (',saida_fonte' if PARADAS_GR else '') + """
+                + (',saida_fonte' if PARADAS_GR else '')
+                + (''.join(',' + k for k in _anc.CAMPOS) if ANCORA else '') + """
                      FROM embarques_cargas WHERE id=%s""", (cid,))
     antes = dict(zip(['status', 'data_saida_real', 'inicio_viagem', 'no_local_desde',
                       'data_conclusao', 'encerrada_motivo', 'saida_auto', 'entregue_auto',
-                      'no_local_fonte'] + (['saida_fonte'] if PARADAS_GR else []),
+                      'no_local_fonte'] + (['saida_fonte'] if PARADAS_GR else [])
+                     + (list(_anc.CAMPOS) if ANCORA else []),
                      cur.fetchone()))
     sets = ', '.join(f'{k}=%s' for k in campos)
     cur.execute(f"UPDATE embarques_cargas SET {sets}, atualizado_em=NOW() WHERE id=%s",

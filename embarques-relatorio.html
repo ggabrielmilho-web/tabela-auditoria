@@ -214,6 +214,14 @@
         <select id="fDestinoUF"><option value="">Todas</option></select>
       </div>
       <div class="ff" style="grid-column: span 2;"><label>Busca livre (Nº, placa, cliente, motorista)</label><input type="text" id="fQ" placeholder="Digite e clique aplicar..."></div>
+      <div class="ff" id="ffNoCliente" style="display:none;"><label>No cliente</label>
+        <select id="fNoCliente">
+          <option value="">Todas</option>
+          <option value="provado">Provado</option>
+          <option value="nao_provado">Não provado</option>
+          <option value="sem_ancora">Sem ponto do cliente</option>
+        </select>
+      </div>
     </div>
     <div class="filtros-acoes">
       <button class="btn-sm" onclick="aplicarFiltros()">🔍 Aplicar</button>
@@ -242,6 +250,7 @@
             <th>Carreta(s)</th>
             <th onclick="ordenar('previsao_entrega')">Agendamento</th>
             <th onclick="ordenar('criado_por_nome')">Embarcador</th>
+            <th id="thNoCliente" onclick="ordenar('cliente_chegada_em')" style="display:none;" title="Chegada ao ponto do CLIENTE (parou ≥ 10 min a ≤ 2 km), não à cidade">No cliente</th>
             <th>Ações</th>
           </tr>
         </thead>
@@ -360,6 +369,28 @@
   const UFs = ['AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS','MT','PA','PB','PE','PI','PR','RJ','RN','RO','RR','RS','SC','SE','SP','TO'];
 
   let CARGAS = [];
+  let ANCORA_ON = false;
+  // ÂNCORA (PROPOSTA-ANCORA.md): os três campos novos, ao lado da chegada de hoje — nunca no lugar dela
+  const FONTE_ANCORA = { aprendido_cnpj: 'aprendido pelo GPS nas entregas anteriores ao mesmo CNPJ',
+                         gr: 'local cadastrado na GR', endereco: 'endereço do cadastro',
+                         aprendido_tomador: 'aprendido pelo GPS nas entregas do mesmo tomador na cidade' };
+  function colunaCliente(c) {
+    const dim = t => `<span style="color:var(--text-dim);">${t}</span>`;
+    if (c.viagem_vazia) return dim('—');
+    const fonte = c.ancora_tipo ? (FONTE_ANCORA[c.ancora_tipo] || c.ancora_tipo) : null;
+    // Sem prova no cliente, vale a régua de hoje: a chegada na CIDADE (o mesmo campo de sempre), marcada como tal
+    const cidade = motivo => c.no_local_desde
+      ? `<span style="color:var(--text-dim);" title="${motivo} — vale a chegada na cidade (régua de hoje)">🏙 ${fmtDateTime(c.no_local_desde)}</span>`
+      : dim('—');
+    if (!c.ancora_tipo) return cidade('Sem ponto do cliente conhecido');
+    if (c.cliente_chegada_em) {
+      let s = `<span title="Parou ≥ 10 min a ≤ 2 km do ponto do cliente (${fonte})">📍 ${fmtDateTime(c.cliente_chegada_em)}</span>`;
+      if (c.cliente_saida_em) s += `<br><span style="color:var(--text-dim);font-size:0.72rem;" title="Afastou-se mais de 3 km e não voltou em 30 min">saiu ${fmtDateTime(c.cliente_saida_em)}</span>`;
+      return s;
+    }
+    if (c.cliente_regiao_em) return `<span style="color:var(--accent2);" title="Passou a ≤ 5 km do cliente sem parar nele (${fonte})">na região ${fmtDateTime(c.cliente_regiao_em)}</span>`;
+    return cidade(`Ponto do cliente: ${fonte}. Ainda sem parada provada nele`);
+  }
   let ORDEM = { campo: 'data_carregamento', dir: 'desc' };
   let CARGA_EDIT = null;
   const URL = new URLSearchParams(window.location.search);
@@ -550,7 +581,7 @@
       fViagem: 'viagem_vazia',
       fCliente: 'cliente_id', fEmbarcador: 'embarcador',
       fMotorista: 'motorista', fOrigemUF: 'origem_uf', fDestinoUF: 'destino_uf',
-      fQ: 'q'
+      fQ: 'q', fNoCliente: 'no_cliente'
     };
     for (const id in map) {
       const v = document.getElementById(id).value;
@@ -567,6 +598,10 @@
       const j = await r.json();
       if (j.ok) {
         CARGAS = j.data;
+        // âncora (EMBARQUES_ANCORA): a API só manda os campos com a chave ligada
+        ANCORA_ON = ANCORA_ON || CARGAS.some(c => 'ancora_tipo' in c);
+        document.getElementById('thNoCliente').style.display = ANCORA_ON ? '' : 'none';
+        document.getElementById('ffNoCliente').style.display = ANCORA_ON ? '' : 'none';
         renderTabela();
         document.getElementById('contagem').textContent = `${j.count} ${j.count === 1 ? 'carga' : 'cargas'}`;
         // CSV link
@@ -589,7 +624,7 @@
   }
 
   function limparFiltros() {
-    for (const id of ['fStart','fEnd','fTipo','fStatus','fViagem','fCliente','fEmbarcador','fMotorista','fOrigemUF','fDestinoUF','fQ']) {
+    for (const id of ['fStart','fEnd','fTipo','fStatus','fViagem','fCliente','fEmbarcador','fMotorista','fOrigemUF','fDestinoUF','fQ','fNoCliente']) {
       document.getElementById(id).value = '';
     }
     document.getElementById('fDataCampo').value = 'carregamento';
@@ -607,7 +642,7 @@
     // Atualiza classes nos th
     document.querySelectorAll('thead th').forEach(th => { th.classList.remove('asc', 'desc'); });
     const ths = document.querySelectorAll('thead th');
-    const idx = ['numero','data_carregamento','status','tipo_operacao','cliente_nome','','motorista_nome','','','previsao_entrega','criado_por_nome',''].indexOf(campo);
+    const idx = ['numero','data_carregamento','status','tipo_operacao','cliente_nome','','motorista_nome','','','previsao_entrega','criado_por_nome','cliente_chegada_em',''].indexOf(campo);
     if (idx >= 0 && ths[idx]) ths[idx].classList.add(ORDEM.dir);
     renderTabela();
   }
@@ -650,6 +685,7 @@
         <td>${carretas}</td>
         <td>${colunaAgendamento(c)}</td>
         <td title="${c.coleta_origem ? 'ordem de coleta ' + c.coleta_origem + ' (' + c.coleta_via + ')' : 'sem ordem de coleta ligada'}">${c.embarcador ? c.embarcador : (c.criado_por_nome || '—')}${c.embarcador ? '' : ''}</td>
+        <td style="${ANCORA_ON ? '' : 'display:none;'}">${colunaCliente(c)}</td>
         <td class="acoes">
           ${btnEditar}
           ${btnDesengate}

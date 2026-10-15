@@ -165,6 +165,10 @@
       <div class="info-row"><span class="k">Rastreado via</span><span class="v mono" id="iRastreio">—</span></div>
       <div class="info-row"><span class="k">Data de saída</span><span class="v" id="iDataSaida">—</span></div>
       <div class="info-row"><span class="k">Chegada no destino</span><span class="v" id="iDataChegada">—</span></div>
+      <!-- ÂNCORA (EMBARQUES_ANCORA): o ponto do CLIENTE — linhas escondidas sem a chave -->
+      <div class="info-row" id="rowNoCliente" style="display:none;"><span class="k" title="Parou ≥ 10 min a ≤ 2 km do ponto do cliente — ao lado da chegada na cidade, nunca no lugar dela">No cliente desde</span><span class="v" id="iNoCliente">—</span></div>
+      <div class="info-row" id="rowSaiuCliente" style="display:none;"><span class="k" title="Afastou-se mais de 3 km e não voltou em 30 min">Saiu do cliente</span><span class="v" id="iSaiuCliente">—</span></div>
+      <div class="info-row" id="rowPontoCliente" style="display:none;"><span class="k">Ponto do cliente</span><span class="v" id="iPontoCliente">—</span></div>
       <!-- §24: a ligacao entre cargas. Linhas escondidas ate haver o que mostrar. -->
       <div class="info-row" id="rowDesengate" style="display:none;"><span class="k">Desengate</span><span class="v" id="iDesengate">—</span></div>
       <div class="info-row" id="rowContinuaEm" style="display:none;"><span class="k">Continua em</span><span class="v" id="iContinuaEm">—</span></div>
@@ -367,6 +371,24 @@
     document.getElementById('iDataSaida').textContent = fmtData(c.data_saida_real);
     document.getElementById('iDataChegada').textContent = fmtData(c.no_local_desde);
 
+    // ÂNCORA (EMBARQUES_ANCORA): só aparece quando a API manda o ponto do cliente (chave ligada)
+    if ('ancora' in d) {
+      const FONTE = { aprendido_cnpj: 'aprendido pelo GPS (entregas ao mesmo CNPJ)', gr: 'local da GR',
+                      endereco: 'endereço do cadastro', aprendido_tomador: 'aprendido pelo GPS (tomador + cidade)' };
+      document.getElementById('rowPontoCliente').style.display = '';
+      document.getElementById('iPontoCliente').textContent = d.ancora ? (FONTE[d.ancora.tipo] || d.ancora.tipo) : 'sem ponto conhecido — vale a chegada no destino acima';
+      if (d.ancora) {
+        document.getElementById('rowNoCliente').style.display = '';
+        document.getElementById('iNoCliente').textContent = c.cliente_chegada_em ? fmtData(c.cliente_chegada_em)
+          : (c.cliente_regiao_em ? 'na região desde ' + fmtData(c.cliente_regiao_em) + ' (não parou no cliente)'
+             : 'não provado — vale a chegada no destino acima');
+        if (c.cliente_saida_em) {
+          document.getElementById('rowSaiuCliente').style.display = '';
+          document.getElementById('iSaiuCliente').textContent = fmtData(c.cliente_saida_em);
+        }
+      }
+    }
+
     // §24 — a ligacao. Esta carga terminou onde a carreta ficou; a mercadoria seguiu em B.
     const ligada = !!c.continua_em;
     if (c.status === 'Desengatada' && (c.desengatada_em || c.desengate_local)) {
@@ -420,6 +442,14 @@
       addLayer(L.circle(ll, { radius: 5000, color: '#3b82f6', weight: 1, fillOpacity: 0.05, dashArray: '4,4' }));
       bounds.push(ll);
     });
+
+    // Ponto do cliente (âncora) com o raio de chegada — só com a chave
+    if (d.ancora && d.ancora.lat != null) {
+      const ll = [d.ancora.lat, d.ancora.lng];
+      addLayer(L.marker(ll, { icon: icon('📍', '#f472b6') }).bindPopup(`<strong>Ponto do cliente</strong><br>raio de ${d.ancora.raio_km} km`));
+      addLayer(L.circle(ll, { radius: (d.ancora.raio_km || 2) * 1000, color: '#f472b6', weight: 1, fillOpacity: 0.08 }));
+      bounds.push(ll);
+    }
 
     // Rota planejada (polyline azul)
     if (d.rota_planejada.polyline) {

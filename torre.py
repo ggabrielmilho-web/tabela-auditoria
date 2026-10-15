@@ -653,8 +653,16 @@ def excecoes(cur, t, cargas, ordens, frota_):
         if c['etapa'] == 'Aberta':
             h = _h(t, c['criado'])
             if h is not None and h >= LIM_DOC_SEM_SAIDA_H:
-                add('media', 'Documento sem saída', ref, rota,
-                    f"carga existe há {h:.0f} h e o GPS não mostrou a saída", h, c['embarcador'])
+                # VIAGEM LOCAL (EMBARQUES_ANCORA, 15/10/26 — C-2026-001221): origem e destino na mesma cidade não têm
+                # "saída" a medir (o raio de 30 km cobre a cidade inteira); quem diz se andou é a chegada ao cliente.
+                import embarques_ancora as _anc
+                if _anc.ligado() and c['origem'] and _anc._sem_acento(c['origem']) == _anc._sem_acento(c['destino']):
+                    add('baixa', 'Viagem local', ref, rota,
+                        "origem e destino na mesma cidade: não há saída a medir — acompanhe pela chegada ao cliente",
+                        h, c['embarcador'])
+                else:
+                    add('media', 'Documento sem saída', ref, rota,
+                        f"carga existe há {h:.0f} h e o GPS não mostrou a saída", h, c['embarcador'])
             _exc_prazo(add, c, t, ref, rota)
         elif c['etapa'] == 'Em rota':
             _exc_prazo(add, c, t, ref, rota)
