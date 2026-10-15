@@ -275,7 +275,16 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
     # Repeticao de posicao com odometro parado ENQUANTO a SM da Insignia diz que o cavalo
     # engatado estava longe: o trecho repetido nao e evidencia, e o cavalo tapa. Ver
     # fontes_gps.descongelar (C-1363, C-1276).
-    if sensor and sensor.startswith('carreta') and cav and fontes_gps.congelada_ligado():
+    # O CAVALO TAPA A CARRETA (EMBARQUES_CAVALO_TAPA, 15/10/26): o mesmo, com a prova também pelas duas séries
+    # (sem SM) e os SILÊNCIOS da carreta tapados — C-2026-001563. A troca da SM continua sendo o piso.
+    if sensor and sensor.startswith('carreta') and cav and fontes_gps.cavalo_tapa_ligado():
+        _pts2, _tapa = fontes_gps.tapar_com_cavalo(cur, sensor.split(':', 1)[1], cav, pts,
+                                                   serie(cav, ini, _fim_de(cav)), dcarg,
+                                                   dest=(float(dla), float(dln)) if dla is not None else None)
+        if _tapa:
+            pts = _pts2
+            resumo[f"cavalo tapou a carreta (prova: {_tapa['prova']})"] += 1
+    elif sensor and sensor.startswith('carreta') and cav and fontes_gps.congelada_ligado():
         _pts2, _ntir, _npos = fontes_gps.descongelar(cur, sensor.split(':', 1)[1], cav, pts,
                                                      serie(cav, ini, _fim_de(cav)), dcarg)
         if _ntir:

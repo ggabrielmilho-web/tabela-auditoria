@@ -358,6 +358,13 @@
       if (rv.fallback_carreta_muda) {
         elRastreio.innerHTML += ` <span style="color:var(--yellow,#facc15);font-size:0.82em;cursor:help;" title="Carreta sem sinal — exibindo a posição do cavalo (origem→destino)">· carreta sem sinal</span>`;
       }
+      // O cavalo tapou os buracos da carreta (EMBARQUES_CAVALO_TAPA): trecho congelado ou silêncio da carreta,
+      // com prova de que os dois andavam juntos (SM da GR ou as duas séries coincidindo).
+      if (rv.tapa_cavalo) {
+        const tc = rv.tapa_cavalo;
+        const pr = (tc.prova || '').indexOf('series') >= 0 ? 'as duas séries andam juntas' : 'SM da GR';
+        elRastreio.innerHTML += ` <span style="color:var(--yellow,#facc15);font-size:0.82em;cursor:help;" title="A carreta ficou congelada ou sem sinal em parte da viagem — ${tc.pontos} posições do cavalo ${tc.placa} tapam esses trechos (prova: ${pr})">· + cavalo nos buracos</span>`;
+      }
       // Fora do cadastro de rastreio: a placa NÃO está em embarques_veiculos_rastreio (cópia
       // local, sincronizada no Admin), mas tem posição gravada — o trajeto abaixo é real.
       // Antes disto a tela dizia "Sem rastreio" e desenhava o cavalo, que podia ser a placa

@@ -239,7 +239,13 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
     # e os pontos do cavalo entram (`fontes_gps.descongelar`). Sem isto o aferidor mediria pela repeticao o que o
     # motor provou pelo cavalo (C-2026-001472: QXG2651 congelada em Porto Ferreira desde 08/10, SM 212905 "Em
     # Cliente" em Anapolis). As contagens do S3 e do emprestimo do cavalo ficam na serie ORIGINAL, como no motor.
-    if papel != 'cavalo' and cav and pc and fontes_gps.congelada_ligado():
+    # O CAVALO TAPA A CARRETA (EMBARQUES_CAVALO_TAPA, 15/10/26) — a regua do motor, no mesmo ponto.
+    if papel != 'cavalo' and cav and pc and fontes_gps.cavalo_tapa_ligado():
+        _desc, _tapa = fontes_gps.tapar_com_cavalo(cur, c1 if papel == 'carreta1' else c2, cav, principal, pc, dcarg,
+                                                   dest=(float(dla), float(dln)) if dla is not None else None)
+        if _tapa:
+            principal = _desc
+    elif papel != 'cavalo' and cav and pc and fontes_gps.congelada_ligado():
         _desc, _ntir, _npos = fontes_gps.descongelar(cur, c1 if papel == 'carreta1' else c2, cav,
                                                      principal, pc, dcarg)
         if _ntir:

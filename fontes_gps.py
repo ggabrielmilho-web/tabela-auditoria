@@ -418,6 +418,264 @@ def descongelar(cur, carreta, cavalo, pts_carreta, pts_cavalo, dia_carga=None):
     return novos, len(tirar), len(postos)
 
 
+# ── O CAVALO TAPA A CARRETA (15/10/26) ──────────────────────────────────────────────────────────────
+#
+# `descongelar` só age com a SM da GR, e só no trecho congelado. A C-2026-001563 (agregado, sem SM, cavalo
+# HIF2439 com 3S própria) mostrou o resto: o aparelho da carreta QXE8460 dormiu em Ibiá na viagem anterior,
+# a 3S repetiu "Ibiá" com hora nova por 4 dias e meio, a carreta acordou em BH junto do cavalo (0,2–1,6 km em
+# 18 pares andando) e dormiu de novo num posto — e o mapa media 266 km de uma viagem de 1.124, com a posição
+# atual 330 km atrás do caminhão. Medido nos 28 dias até 15/10 (`_estudo_2026-10-15/lab/medir_muda.py`): 51
+# cargas com a carreta congelada ou muda em parte da viagem e o cavalo provadamente junto, só 27 com SM.
+
+def cavalo_tapa_ligado():
+    """`EMBARQUES_CAVALO_TAPA=true`: os buracos da carreta (trecho congelado e silêncio) são tapados pelo cavalo
+    da MESMA carga quando há prova de que andam juntos — a SM da GR ou as duas séries. Desligada, é o
+    `descongelar` de sempre."""
+    return os.getenv('EMBARQUES_CAVALO_TAPA', 'false').strip().lower() == 'true'
+
+
+TAPA_PAR_KMH = 20          # a CARRETA andando: ponto congelado tem 0, e carreta andando é puxada por algum cavalo
+TAPA_JUNTO_KM = 3.0        # carreta × cavalo interpolado no mesmo instante: "junto"
+TAPA_SEP_KM = 20.0         # ... "separado" (outro cavalo puxa a carreta)
+TAPA_MIN_PARES = 3
+TAPA_JUNTO_FRAC = 0.8      # Insignia × 3S: relógios e cadência diferentes — a 80 km/h, 5 min são 6 km
+TAPA_SEP_FRAC = 0.05       # 1 par fora em 234 (C-1009) não separa ninguém
+TAPA_SEP_FRAC_MAX = 0.2    # acima disto (com >= 3 pares longe) são outra dupla (C-1321: 265 de 273)
+TAPA_BURACO_MIN = 30       # silêncio da carreta que vale tapar
+TAPA_MOVEU_KM = 5.0        # buraco do meio: a carreta tem de reaparecer longe de onde calou
+TAPA_VOLTA_SAIU_KM = 10.0  # o cavalo se afastou do ponto onde a carreta calou...
+TAPA_VOLTA_KM = 5.0        # ... e VOLTOU a ele: ela estava lá (estacionada), a volta foi só do cavalo
+TAPA_CAUDA_DESVIO_KM = 30.0  # cauda: o cavalo se afastou do destino isto além do mais perto que chegou — parou de ir
+TAPA_INTERP_MIN = 10       # vizinhos do cavalo para interpolar a posição num instante
+TAPA_UM_VIZINHO_MIN = 3
+
+
+def _cavalo_em(pts, t):
+    """(lat, lng) do cavalo no instante t: linear entre os vizinhos (cada um a <= TAPA_INTERP_MIN), ou o
+    vizinho a <= TAPA_UM_VIZINHO_MIN. `pts` ordenado por instante. Sem vizinho perto, None."""
+    lo, hi = 0, len(pts)
+    while lo < hi:
+        m = (lo + hi) // 2
+        if pts[m][0] < t:
+            lo = m + 1
+        else:
+            hi = m
+    a = pts[lo - 1] if lo > 0 else None
+    b = pts[lo] if lo < len(pts) else None
+    da = (t - a[0]).total_seconds() / 60 if a else None
+    db = (b[0] - t).total_seconds() / 60 if b else None
+    if a and b and da <= TAPA_INTERP_MIN and db <= TAPA_INTERP_MIN:
+        f = da / (da + db) if da + db > 0 else 0.0
+        return (float(a[1]) + f * (float(b[1]) - float(a[1])), float(a[2]) + f * (float(b[2]) - float(a[2])))
+    for x, dx in ((a, da), (b, db)):
+        if x is not None and dx is not None and dx <= TAPA_UM_VIZINHO_MIN:
+            return (float(x[1]), float(x[2]))
+    return None
+
+
+def juntos(pts_carreta, pts_cavalo):
+    """As duas séries andam juntas? Pares = ponto da carreta ANDANDO × cavalo interpolado no mesmo instante.
+    Devolve (veredito, pares, perto, longe), veredito ∈ 'juntos' · 'separados' · 'inconclusivo' · 'sem par'."""
+    import geocoding as g
+    pares = perto = longe = 0
+    for p in pts_carreta:
+        if (p[3] or 0) <= TAPA_PAR_KMH:
+            continue
+        q = _cavalo_em(pts_cavalo, p[0])
+        if not q:
+            continue
+        d = g.km_entre(float(p[1]), float(p[2]), q[0], q[1])
+        if d is None:
+            continue
+        pares += 1
+        perto += d <= TAPA_JUNTO_KM
+        longe += d > TAPA_SEP_KM
+    if pares >= TAPA_MIN_PARES and perto >= TAPA_JUNTO_FRAC * pares and longe <= TAPA_SEP_FRAC * pares:
+        return 'juntos', pares, perto, longe
+    if longe >= TAPA_MIN_PARES and longe > TAPA_SEP_FRAC_MAX * pares:
+        return 'separados', pares, perto, longe
+    return ('inconclusivo' if pares else 'sem par'), pares, perto, longe
+
+
+def tapar_com_cavalo(cur, carreta, cavalo, pts_carreta, pts_cavalo, dia_carga=None, dest=None, raio_dest_km=20.0):
+    """A série da carreta com os buracos tapados pelo cavalo da mesma carga. Três regras, cada uma com o caso:
+
+    0. O PISO é o `descongelar` de hoje (SM): o que ele troca continua trocado; as regras abaixo SOMAM.
+    1. PROVA de que os dois andam juntos NESTA janela: a SM da GR desta carga (a de `descongelar`) ou as duas
+       séries (`juntos`). Séries que dizem 'separados' vencem a SM — o documento não move carreta (C-1321: outra
+       carreta, 265 de 273 pares a mais de 20 km). Sem prova, nada muda.
+    2. BURACO = trecho congelado (>= CONGELADA_MIN_PTS no mesmo lugar com o odômetro parado, a partir do ponto
+       em que o cavalo DAQUELE instante está a > CONGELADA_LONGE_KM) ou silêncio >= TAPA_BURACO_MIN. Só é tapado
+       quem tem prova nas BORDAS — a carreta junto do cavalo onde calou e onde voltou — e se DESLOCOU (reaparece
+       a > TAPA_MOVEU_KM de onde calou, e o cavalo NÃO voltou ao ponto onde ela calou). Carreta estacionada
+       enquanto o cavalo dá uma volta e vem buscá-la não ganha a volta: o trecho repetido fica (é verdade).
+       Na PONTA DE TRÁS (calou e não voltou) não há borda de chegada: vale se calou ANDANDO junto do cavalo e
+       antes do destino (só com destino conhecido), e o cavalo tapa até sair do destino — depois disso pode ser
+       desengate; para antes se ele desvia do destino ou volta aonde a carreta calou. Na PONTA DA FRENTE
+       (a janela já começa com ela congelada, C-1563 em Ibiá) não há borda de saída: vale o trecho congelado cujo
+       ponto está longe de onde a carreta reaparece junto do cavalo. Silêncio na frente não se tapa: sem ponto de
+       partida não há como saber se ela andou (o cavalo pode estar vindo buscá-la).
+    3. O ponto do cavalo entra como ele é. Quem soma odômetro tem de saber de que aparelho é cada ponto — o
+       contador da carreta e o do cavalo são outros (`instantes_do_cavalo` no retorno).
+
+    `pts_*` = tuplas ordenadas (instante, lat, lng, vel, ...). Devolve (pts_novos, info); info None = nada mudou,
+    senão {'prova', 'tirados', 'postos', 'buracos': [(ini, fim, tipo)], 'cauda': bool,
+    'instantes_do_cavalo': set}."""
+    if not (cavalo_tapa_ligado() and pts_carreta and pts_cavalo and cavalo and carreta):
+        return pts_carreta, None
+    # A régua de hoje é o PISO: o que o `descongelar` troca com a SM continua trocado, do mesmo jeito (C-1363 e
+    # C-1472 não têm um ponto vivo da carreta — sem borda nenhuma, só a SM as prova). O que vem abaixo SOMA.
+    base, b_tir, _b_pos = descongelar(cur, carreta, cavalo, pts_carreta, pts_cavalo, dia_carga)
+    ids_car = {id(p) for p in pts_carreta}
+
+    def _info_base():
+        if not b_tir:
+            return None
+        return {'prova': 'sm', 'tirados': b_tir, 'postos': _b_pos, 'buracos': [], 'cauda': False,
+                'instantes_do_cavalo': {p[0] for p in base if id(p) not in ids_car}}
+    import geocoding as g
+    km = lambda a, b: g.km_entre(float(a[0]), float(a[1]), float(b[0]), float(b[1])) or 0.0
+    car = pl.mercosul(carreta or '')
+    # odômetro: as tuplas do motor já não o trazem (sem_posicao_falsa) — relê da série bruta da 3S
+    cur.execute("SELECT data_posicao, odometer FROM embarques_posicoes_historico WHERE placa = ANY(%s) "
+                "AND data_posicao BETWEEN %s AND %s", (pl.grafias(carreta), pts_carreta[0][0], pts_carreta[-1][0]))
+    odo = dict(cur.fetchall())
+    n = len(pts_carreta)
+    # ── trechos congelados (a régua de `descongelar`), marcados pelo cavalo DAQUELE instante
+    cong = set()
+    i = 0
+    while i < n:
+        j = i
+        while (j + 1 < n and odo.get(pts_carreta[j + 1][0]) is not None
+               and odo.get(pts_carreta[j + 1][0]) == odo.get(pts_carreta[i][0])
+               and g.km_entre(pts_carreta[j + 1][1], pts_carreta[j + 1][2],
+                              pts_carreta[i][1], pts_carreta[i][2]) <= CONGELADA_TOL_KM):
+            j += 1
+        if j - i + 1 >= CONGELADA_MIN_PTS:
+            spot = (pts_carreta[i][1], pts_carreta[i][2])
+            for k in range(i, j + 1):
+                q = _cavalo_em(pts_cavalo, pts_carreta[k][0])
+                if q and km(q, spot) > CONGELADA_LONGE_KM:
+                    cong.update(range(k, j + 1))
+                    break
+        i = j + 1
+    vivos = [k for k in range(n) if k not in cong]
+    # ── prova
+    veredito = juntos([pts_carreta[k] for k in vivos], pts_cavalo)[0]
+    if veredito == 'separados':
+        return base, _info_base()
+    prova = 'series' if veredito == 'juntos' else None
+    if prova is None and _tem_insignia(cur) and dia_carga is not None:
+        cur.execute("""SELECT 1 FROM insignia_sm
+                        WHERE placa_cavalo_chave = %s AND %s = ANY(string_to_array(COALESCE(carretas_chave, ''), ','))
+                          AND (COALESCE(inicio, criada_em) - interval '3 hours')::date BETWEEN %s::date - 3 AND %s::date + 2
+                        LIMIT 1""", (pl.mercosul(cavalo), car, dia_carga, dia_carga))
+        prova = 'sm' if cur.fetchone() else None
+    if prova is None:
+        return base, _info_base()
+
+    def borda(k):
+        """a carreta no ponto k estava junto do cavalo?"""
+        q = _cavalo_em(pts_cavalo, pts_carreta[k][0])
+        return q is not None and km(q, (pts_carreta[k][1], pts_carreta[k][2])) <= TAPA_JUNTO_KM
+
+    def no_destino(p):
+        return dest is not None and dest[0] is not None and km((p[1], p[2]), dest) <= raio_dest_km
+
+    def voltou(spot, ta, tb):
+        """o cavalo se afastou do ponto onde a carreta calou e voltou a ele entre ta e tb? É a carreta que ficou
+        estacionada enquanto o cavalo deu uma volta e veio buscá-la — a bateria de falhas (cenário 3) pegou: o 1o
+        ponto depois do buraco, a 80 km/h, já está a 6,7 km do lugar, e só a distância não separava as duas."""
+        saiu = False
+        for p in pts_cavalo:
+            if p[0] <= ta:
+                continue
+            if p[0] >= tb:
+                break
+            d = km((p[1], p[2]), spot)
+            if d > TAPA_VOLTA_SAIU_KM:
+                saiu = True
+            elif saiu and d <= TAPA_VOLTA_KM:
+                return True
+        return False
+
+    faixas = []        # (ini exclusivo, fim exclusivo, tipo)
+    # ponta da frente: janela começa congelada
+    if vivos and vivos[0] > 0 and 0 in cong:
+        f = vivos[0]
+        k0 = min(k for k in range(f) if k in cong)
+        spot0 = (pts_carreta[k0][1], pts_carreta[k0][2])
+        if (borda(f) and km(spot0, (pts_carreta[f][1], pts_carreta[f][2])) > TAPA_MOVEU_KM
+                and not any(km((p[1], p[2]), spot0) <= TAPA_VOLTA_KM
+                            for p in pts_cavalo if pts_carreta[k0][0] <= p[0] < pts_carreta[f][0])):
+            faixas.append((pts_carreta[k0][0] - timedelta(seconds=1), pts_carreta[f][0], 'frente'))
+    # meio
+    for a, b in zip(vivos, vivos[1:]):
+        ta, tb = pts_carreta[a][0], pts_carreta[b][0]
+        tem_cong = any(k in cong for k in range(a + 1, b))
+        if not tem_cong and (tb - ta).total_seconds() / 60 < TAPA_BURACO_MIN:
+            continue
+        if not (borda(a) and borda(b)):
+            continue
+        if km((pts_carreta[a][1], pts_carreta[a][2]), (pts_carreta[b][1], pts_carreta[b][2])) <= TAPA_MOVEU_KM:
+            continue
+        # onde ela calou: o ponto congelado, se o buraco tem; senão o último vivo
+        kc = next((k for k in range(a + 1, b) if k in cong), None)
+        spot = (pts_carreta[kc][1], pts_carreta[kc][2]) if kc is not None else (pts_carreta[a][1], pts_carreta[a][2])
+        if voltou(spot, ta, tb):
+            continue
+        faixas.append((ta, tb, 'meio'))
+    # ponta de trás: calou (ou congelou) andando junto do cavalo, antes do destino
+    cauda = False
+    if vivos:
+        z = vivos[-1]
+        pz = pts_carreta[z]
+        # só com destino: é ele que diz até onde o cavalo ainda está levando a carreta
+        if (dest is not None and dest[0] is not None and (pz[3] or 0) > TAPA_PAR_KMH and borda(z) and not no_destino(pz)
+                and (z < n - 1 or (pts_cavalo[-1][0] - pz[0]).total_seconds() / 60 >= TAPA_BURACO_MIN)):
+            fim_c, dentro, saiu = None, False, False
+            dmin = km((pz[1], pz[2]), dest)
+            for p in pts_cavalo:
+                if p[0] <= pz[0]:
+                    continue
+                if no_destino(p):
+                    dentro = True
+                elif dentro:
+                    fim_c = p[0] + timedelta(seconds=1)     # o 1o ponto fora depois de ter estado: entra
+                    break
+                else:
+                    dd = km((p[1], p[2]), dest)
+                    dz = km((p[1], p[2]), (pz[1], pz[2]))
+                    saiu = saiu or dz > TAPA_VOLTA_SAIU_KM
+                    # parou de ir para o destino (desviou) ou voltou aonde a carreta calou: daqui em diante pode ser
+                    # o cavalo sem ela (desengate no caminho) — o tapa para ANTES deste ponto
+                    if dd > dmin + TAPA_CAUDA_DESVIO_KM or (saiu and dz <= TAPA_VOLTA_KM):
+                        fim_c = p[0]
+                        break
+                    dmin = min(dmin, dd)
+            faixas.append((pz[0], fim_c or (pts_cavalo[-1][0] + timedelta(seconds=1)), 'cauda'))
+            cauda = True
+    if not faixas:
+        return base, _info_base()
+    dentro_f = lambda t: any(a < t < b for a, b, _ in faixas)
+    tirar = {k for k in cong if dentro_f(pts_carreta[k][0])}
+    if cauda:
+        tirar |= {k for k in range(vivos[-1] + 1, n)}      # o que vem depois do último vivo é repetição
+    postos = [p for p in pts_cavalo if dentro_f(p[0])]
+    if not postos and not tirar:
+        return base, _info_base()
+    # SOMA sobre o piso: tira da base os pontos da carreta dos buracos aceitos e acrescenta os do cavalo que ela
+    # ainda não tem (identidade da tupla: o `descongelar` devolve os MESMOS objetos)
+    fora = {id(pts_carreta[k]) for k in tirar}
+    ja = {id(p) for p in base}
+    novos = sorted([p for p in base if id(p) not in fora] + [p for p in postos if id(p) not in ja],
+                   key=lambda p: p[0])
+    do_cavalo = {p[0] for p in novos if id(p) not in ids_car}
+    return novos, {'prova': prova if not b_tir else prova + '+sm', 'tirados': len(tirar) + b_tir,
+                   'postos': len(do_cavalo), 'buracos': [(a, b, t) for a, b, t in faixas], 'cauda': cauda,
+                   'instantes_do_cavalo': do_cavalo}
+
+
 def terceiro_gps_ligado():
     """`EMBARQUES_TERCEIRO_GPS=true` (08/10/26): o Terceiro nasce se a Insignia tem GPS do cavalo — com
     ou sem SM. Sem a chave, a trava é a de 06/10 (só com SM)."""

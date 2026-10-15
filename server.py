@@ -8481,6 +8481,134 @@ def _indice_chegada_destino(traj, dest_lat, dest_lng, raio_km=None):
     return min(dentro, key=lambda x: x[1])[0]
 
 
+def _tapar_trajeto(cur, carreta, cavalo, traj_car, traj_cav, dia_carga, dest):
+    """O trajeto da carreta com os buracos tapados pelo cavalo (EMBARQUES_CAVALO_TAPA, 15/10/26) — a MESMA
+    decisão do motor (`fontes_gps.tapar_com_cavalo`, sobre as séries sem posição falsa), aplicada aos pontos
+    crus do desenho. Sai o que a decisão tirou; sai também o ponto FALSO da carreta (que a régua de posição falsa
+    já tinha tirado da decisão) que cai dentro de um trecho tapado ou de um buraco aceito — é a repetição velha
+    da emenda: o "Ibiá" das 05:30 da C-1563, e o "Jundiaí, 0 km/h" das 12:35 da C-1403 logo depois de o cavalo
+    tapar Itupeva → Limeira, que desenhava um salto de 80 km de volta. Entra o ponto do cavalo marcado
+    `fonte='cavalo'` e SEM odômetro: o contador é de outro aparelho, e na linha ele faria o corte de perna
+    impossível acusar a emenda. O odômetro do cavalo volta à parte, para o km do rastreador (`_odo_tapado`).
+    Devolve (trajeto, info, [(instante, odômetro do cavalo)]); info None = nada mudou."""
+    from datetime import datetime as _d
+    import embarques_regua as _rg
+
+    def _t(p):
+        return _d.fromisoformat(str(p['data']).replace('Z', ''))
+    car_l = _rg.sem_posicao_falsa([(_t(p), p['lat'], p['lng'], p.get('velocidade'), p.get('odometer'))
+                                   for p in traj_car])
+    cav_l = _rg.sem_posicao_falsa([(_t(p), p['lat'], p['lng'], p.get('velocidade'), p.get('odometer'))
+                                   for p in traj_cav])
+    novos, info = fontes_gps.tapar_com_cavalo(cur, carreta, cavalo, car_l, cav_l, dia_carga, dest=dest)
+    if not info:
+        return traj_car, None, []
+    ids_car = {id(x) for x in car_l}
+    mantidos = {x[0] for x in novos if id(x) in ids_car}
+    na_decisao = {x[0] for x in car_l}
+    # trechos tapados: do ponto da carreta que fica antes de cada sequência do cavalo até o que fica depois
+    trechos, k, n = [], 0, len(novos)
+    while k < n:
+        if id(novos[k]) in ids_car:
+            k += 1
+            continue
+        j = k
+        while j + 1 < n and id(novos[j + 1]) not in ids_car:
+            j += 1
+        trechos.append((novos[k - 1][0] if k > 0 else None, novos[j + 1][0] if j + 1 < n else None))
+        k = j + 1
+    trechos += [(a, b) for a, b, _ in info['buracos']]
+
+    def _dentro(t):
+        return any((a is None or a < t) and (b is None or t < b) for a, b in trechos)
+    out = []
+    for p in traj_car:
+        tp = _t(p)
+        if tp in na_decisao:
+            if tp in mantidos:
+                out.append(p)
+        elif not _dentro(tp):
+            out.append(p)              # ponto falso fora de trecho tapado: segue como hoje (o mapa quebra a linha)
+    do_cav = info['instantes_do_cavalo']
+    out += [dict(p, odometer=None, fonte='cavalo') for p in traj_cav if _t(p) in do_cav]
+    out.sort(key=_t)
+    cav_odo = []
+    for p in traj_cav:
+        try:
+            o = p.get('odometer')
+            if o is not None and int(o) > 0:
+                cav_odo.append((_t(p), int(o)))
+        except (TypeError, ValueError):
+            pass
+    return out, info, cav_odo
+
+
+def _odo_tapado(traj, cav_odo):
+    """O trajeto tapado com o odômetro do cavalo EMENDADO no da carreta, só para o km do rastreador. Cada trecho do
+    cavalo é deslocado para que o contador dele, no INSTANTE da leitura da carreta que fica antes do trecho (ou
+    depois, quando o trecho abre a série), seja a leitura da carreta — o contador do cavalo naquele instante sai
+    da série dele, interpolado. Interpolar, e não casar a 1a/última leitura do trecho, porque o trecho pode
+    começar ou terminar em ponto sem leitura (o tapa-buraco da Insignia vem sem odômetro): na C-2026-001593 a
+    última leitura do trecho era das 10:30 e a carreta voltava às 11:41 — casar as duas perdia os 74 km entre
+    elas. O ponto do cavalo sem leitura própria ganha a interpolada, quando cabe. A volta para o contador da
+    carreta que dormiu (não andou) dá delta <= 0, e o `_kpi_ao_vivo` não soma nada ali."""
+    from datetime import datetime as _d
+    out = [dict(p) for p in traj]
+    n, i = len(out), 0
+
+    def _t(p):
+        return _d.fromisoformat(str(p['data']).replace('Z', ''))
+
+    def _no_cavalo(t):
+        lo, hi = 0, len(cav_odo)
+        while lo < hi:
+            m = (lo + hi) // 2
+            if cav_odo[m][0] < t:
+                lo = m + 1
+            else:
+                hi = m
+        a = cav_odo[lo - 1] if lo > 0 else None
+        b = cav_odo[lo] if lo < len(cav_odo) else None
+        if a and b:
+            if b[0] == t:
+                return float(b[1])
+            if (b[0] - a[0]).total_seconds() > 6 * 3600:
+                return None                     # buraco grande no próprio cavalo: não inventa
+            f = (t - a[0]).total_seconds() / (b[0] - a[0]).total_seconds()
+            return a[1] + f * (b[1] - a[1])
+        x = a or b
+        if x and abs((x[0] - t).total_seconds()) <= 1800:
+            return float(x[1])
+        return None
+
+    def _leitura(p):
+        try:
+            o = p.get('odometer')
+            return int(o) if o is not None and int(o) > 0 else None
+        except (TypeError, ValueError):
+            return None
+    while i < n:
+        if out[i].get('fonte') != 'cavalo':
+            i += 1
+            continue
+        j = i
+        while j + 1 < n and out[j + 1].get('fonte') == 'cavalo':
+            j += 1
+        off = None
+        k_antes = next((k for k in range(i - 1, -1, -1) if _leitura(out[k]) is not None), None)
+        k_depois = next((k for k in range(j + 1, n) if _leitura(out[k]) is not None), None)
+        for kk in (k_antes, k_depois):
+            if kk is not None and off is None:
+                c = _no_cavalo(_t(out[kk]))
+                if c is not None:
+                    off = _leitura(out[kk]) - c
+        for k in range(i, j + 1):
+            c = _no_cavalo(_t(out[k])) if off is not None else None
+            out[k]['odometer'] = int(round(c + off)) if c is not None else None
+        i = j + 1
+    return out
+
+
 def _kpi_ao_vivo(traj, traj_odo=None, _um_ponto_bruto=False):
     """KPIs calculados ao vivo a partir dos pontos do trajeto da viagem (só da viagem,
     pois traj já vem filtrado por data_saida_real). Espelha _consolidar_kpi do worker.
@@ -9037,6 +9165,31 @@ def api_rastreamento_trajeto(carga_id):
             for _g in placas.grafias(str(_p).strip().upper()):
                 _bruto[_g] = _t
 
+        # ── O CAVALO TAPA A CARRETA (EMBARQUES_CAVALO_TAPA, 15/10/26) — a régua do motor no desenho, no KPI e na
+        # posição atual. A C-2026-001563 desenhava 266 km de uma viagem de 1.124 e punha o caminhão 330 km atrás:
+        # a carreta dormiu (a 3S repetiu a posição velha com hora nova) e o fallback abaixo só troca para o cavalo
+        # depois de 12 h SEM ponto — repetição não é silêncio. Antes do recorte de origem, para a decisão ver a
+        # janela inteira, como o motor. Perna vazia fica de fora (o cavalo pode estar em outra viagem; a regra do
+        # arquivo para ela é não desenhar o que a placa não fez). Desligada, nada aqui roda.
+        _tapa, _tapa_papel, _tapa_odo = None, None, []
+        if fontes_gps.cavalo_tapa_ligado() and traj_cavalo and not carga.get('viagem_vazia'):
+            for _papel_t, _placa_t, _traj_t in (('carreta1', carga.get('carreta1_placa'), traj_c1),
+                                                ('carreta2', carga.get('carreta2_placa'), traj_c2)):
+                if _placa_t and _traj_t:
+                    _dz_t = destinos[-1] if destinos else {}
+                    _dst_t = ((_dz_t['latitude'], _dz_t['longitude'])
+                              if _dz_t.get('latitude') is not None and _dz_t.get('longitude') is not None else None)
+                    _d0_t = _dcarr.date() if isinstance(_dcarr, _dt) else _dcarr
+                    _merg, _tapa, _tapa_odo = _tapar_trajeto(cur, _placa_t, carga['cavalo_placa'], _traj_t,
+                                                             traj_cavalo, _d0_t, _dst_t)
+                    if _tapa:
+                        _tapa_papel = _papel_t
+                        if _papel_t == 'carreta1':
+                            traj_c1 = _merg
+                        else:
+                            traj_c2 = _merg
+                    break
+
         # Recorta o trecho PRÉ-origem (caminhão já rodando antes do lançamento) — a linha e o
         # KPI passam a começar na saída da origem, não antes.
         _olat, _olng = carga.get('origem_latitude'), carga.get('origem_longitude')
@@ -9310,11 +9463,18 @@ def api_rastreamento_trajeto(carga_id):
             FROM embarques_cargas_rastreio_kpi WHERE carga_id=%s
         """, (carga_id,))
         rk = cur.fetchone()
+        # O trajeto principal é a carreta TAPADA pelo cavalo (EMBARQUES_CAVALO_TAPA): o KPI consolidado pelo worker
+        # é da carreta crua (a repetição contada como parada, o buraco fora do km) — vale o cálculo ao vivo, como
+        # no fallback para o cavalo; e o km do rastreador emenda os dois contadores (`_odo_tapado`).
+        _tapa_vale = bool(_tapa and rastreado_via and rastreado_via.get('tipo') == _tapa_papel and not fallback_cavalo)
+        _odo_kpi = _traj_odo()
+        if _tapa_vale and _odo_kpi is None:
+            _odo_kpi = _odo_tapado(traj_principal, _tapa_odo)
         # `rk[0] is not None`: o ramo `len(rows) < 2` do `_consolidar_kpi` grava a linha com
         # consolidado_final=TRUE e TODAS as metricas nulas. Sem esta condicao o endpoint
         # preferia esse vazio ao calculo ao vivo, e o `(rk[0] or 0)` logo abaixo virava
         # "0,0 km percorridos" — ausencia virando afirmacao, o oposto do §12.13.
-        if rk and rk[5] and rk[0] is not None and not fallback_cavalo:
+        if rk and rk[5] and rk[0] is not None and not fallback_cavalo and not _tapa_vale:
             # KPI final consolidado (carga entregue) — usa o valor persistido.
             # O km do rastreador NÃO está na tabela de KPI (que é anterior ao campo),
             # então vem do trajeto, que continua disponível enquanto a retenção não
@@ -9332,7 +9492,12 @@ def api_rastreamento_trajeto(carga_id):
             }
         else:
             # Em viagem: calcula ao vivo a partir do trajeto da placa rastreada (só da viagem)
-            kpi = _kpi_ao_vivo(traj_principal, _traj_odo())
+            kpi = _kpi_ao_vivo(traj_principal, _odo_kpi)
+        # o selo só quando o desenho TEM ponto do cavalo (o tapa pode ter caído todo antes do recorte de origem)
+        _n_tapa = sum(1 for p in traj_principal if p.get('fonte') == 'cavalo') if _tapa_vale else 0
+        if _n_tapa:
+            rastreado_via = dict(rastreado_via, tapa_cavalo={
+                'placa': carga['cavalo_placa'], 'prova': _tapa['prova'], 'pontos': _n_tapa})
 
         # Card "Posição atual": em carga ainda ABERTA a janela do trajeto passou a fechar na
         # chegada (senão o km cresce com as viagens seguintes da placa), mas o card promete o
@@ -9429,6 +9594,20 @@ def api_rastreamento_trajeto(carga_id):
                     pos_agora = {'data': _pa[0].isoformat() + 'Z', 'lat': float(_pa[1]),
                                  'lng': float(_pa[2]), 'velocidade': _pa[3], 'ignicao': _pa[4],
                                  'cidade': _pa[5], 'uf': _pa[6]}
+                # A carreta calou (ou congelou) andando junto do cavalo e o cavalo tapa a CAUDA do trajeto: a posição de
+                # agora é a do cavalo. A da carreta é a repetição — "São Gonçalo do Abaeté, 0 km/h, há 58 min" com o
+                # caminhão em Cristalina a 85 km/h (C-1563). Só se a do cavalo for mais nova.
+                if _tapa_vale and _tapa.get('cauda'):
+                    cur.execute(f"""
+                        SELECT data_posicao, latitude, longitude, velocidade, ignicao, cidade, uf
+                          FROM {fontes_gps.atuais(cur)} pa WHERE placa = ANY(%s)
+                         ORDER BY data_posicao DESC LIMIT 1
+                    """, (placas.grafias(str(carga['cavalo_placa']).strip().upper()),))
+                    _pc = cur.fetchone()
+                    if _pc and _pc[1] is not None and (pos_agora is None or _pa is None or _pc[0] > _pa[0]):
+                        pos_agora = {'data': _pc[0].isoformat() + 'Z', 'lat': float(_pc[1]),
+                                     'lng': float(_pc[2]), 'velocidade': _pc[3], 'ignicao': _pc[4],
+                                     'cidade': _pc[5], 'uf': _pc[6], 'fonte': 'cavalo'}
 
         cur.close(); conn.close()
         import embarques_regua as _regua_mapa

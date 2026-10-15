@@ -303,7 +303,12 @@ def serie_da_carga(cur, c):
     t0 = datetime.combine(c['carreg'], _time()) - timedelta(hours=24)
     t1 = (c['conc'] or c['nolocal'] or t0 + timedelta(days=10)) + timedelta(hours=48)
     pts = serie(cur, c['carreta'], t0, t1)
-    if pts and c['cavalo'] and fontes_gps.congelada_ligado():
+    if pts and c['cavalo'] and fontes_gps.cavalo_tapa_ligado():
+        # o cavalo tapa a carreta (EMBARQUES_CAVALO_TAPA, 15/10/26) — a régua do motor
+        _dst = (float(c['dlat']), float(c['dlng'])) if c.get('dlat') is not None else None
+        pts, _ = fontes_gps.tapar_com_cavalo(cur, c['carreta'], c['cavalo'], pts, serie(cur, c['cavalo'], t0, t1),
+                                             c['carreg'], dest=_dst)
+    elif pts and c['cavalo'] and fontes_gps.congelada_ligado():
         pts, _, _ = fontes_gps.descongelar(cur, c['carreta'], c['cavalo'], pts, serie(cur, c['cavalo'], t0, t1),
                                            c['carreg'])
     return pts or serie(cur, c['cavalo'], t0, t1), t0, t1
