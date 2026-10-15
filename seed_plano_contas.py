@@ -197,6 +197,7 @@ def main():
             UNION SELECT conta_credito_cod FROM contabil_evento_conta
             UNION SELECT codigo_reduzido   FROM contabil_conta_fixa
             UNION SELECT conta_cod         FROM contabil_contrato_conta
+            UNION SELECT conta_cod         FROM contabil_regra_456 WHERE ativo
         ) x WHERE c IS NOT NULL
     """)
     orfas = sorted(r[0] for r in cur.fetchall() if r[0] not in novos)

@@ -67,6 +67,37 @@
   .filtros { display:flex; gap:10px; align-items:center; padding:0 16px 12px; flex-wrap:wrap; }
   .filtros input, .filtros select { padding:7px 11px; background:var(--surface2); border:1px solid var(--border); border-radius:8px; color:var(--text); font-family:'DM Sans',sans-serif; font-size:0.8rem; color-scheme:dark; }
   .filtros .contagem { margin-left:auto; font-size:0.76rem; color:var(--text-dim); font-family:'JetBrains Mono',monospace; }
+
+  tr.clicavel { cursor:pointer; }
+  tr.clicavel:hover td { background:var(--surface2); }
+  tr.sub > td { padding:0 0 10px 0; background:var(--bg); }
+  table.itens { font-size:0.76rem; }
+  table.itens thead th { background:var(--bg); position:static; }
+  tr.desligada td { opacity:.55; }
+  .btn.mini { padding:4px 10px; font-size:0.74rem; }
+
+  .drawer-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:200; opacity:0; pointer-events:none; transition:opacity .2s; }
+  .drawer-overlay.open { opacity:1; pointer-events:auto; }
+  .drawer { position:fixed; top:0; right:0; height:100vh; width:min(640px,96vw); z-index:201;
+    background:var(--bg); border-left:1px solid var(--border); box-shadow:-16px 0 40px rgba(0,0,0,.5);
+    transform:translateX(100%); transition:transform .25s ease; display:flex; flex-direction:column; }
+  .drawer.open { transform:translateX(0); }
+  .drawer-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; padding:18px 22px; border-bottom:1px solid var(--border); }
+  .drawer-head h2 { font-size:1.1rem; font-weight:700; background:linear-gradient(135deg,var(--accent),var(--accent2)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+  .drawer-head .sub { font-size:0.76rem; color:var(--text-dim); margin-top:3px; }
+  .drawer-close { background:var(--surface2); border:1px solid var(--border); color:var(--text); width:32px; height:32px; border-radius:8px; cursor:pointer; font-size:1.1rem; flex-shrink:0; }
+  .drawer-body { overflow-y:auto; padding:18px 22px 40px; flex:1; }
+  .drawer-foot { padding:14px 22px; border-top:1px solid var(--border); display:flex; gap:10px; align-items:center; }
+  .campo { margin-bottom:16px; }
+  .campo > label { display:block; font-size:0.68rem; font-weight:700; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px; }
+  .campo select, .campo input[type=text] { width:100%; padding:9px 12px; background:var(--surface2); border:1px solid var(--border); border-radius:8px; color:var(--text); font-family:'DM Sans',sans-serif; font-size:0.85rem; color-scheme:dark; }
+  .campo select:focus, .campo input:focus { outline:none; border-color:var(--accent); }
+  .campo input:disabled { opacity:.5; }
+  .campo .dica { font-size:0.72rem; color:var(--text-dim); margin-top:5px; line-height:1.5; }
+  .campo .opcao { display:flex; gap:8px; align-items:center; font-size:0.85rem; margin-bottom:8px; cursor:pointer;
+    text-transform:none; letter-spacing:0; font-weight:500; color:var(--text); }
+  .hist { font-family:'JetBrains Mono',monospace; font-size:0.78rem; background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:10px 12px; line-height:1.5; }
+  #dAviso { font-size:0.78rem; color:var(--red); }
 </style>
 </head>
 <body>
@@ -101,14 +132,30 @@
     <strong>Para validar no 1º teste com a contabilidade.</strong> Entram a despesa por competência, o pagamento
     a fornecedor (com juros e desconto; os lotes "DEBITO VIA RET BCO" detalhados pelo 477), as transferências
     entre contas próprias, o recebimento (504), o adiantamento de cliente (844), o desconto de duplicata (591) e os
-    juros/descontos das faturas (441) — contas confirmadas pela contabilidade em 14/10. Ficam de fora o estorno
-    manual e o que a especificação não cobre (lista abaixo). Ainda provisórios: o texto do complemento, a data da
-    despesa (data contábil do 477 quando cai no mês, senão o último dia) e a codificação UTF-8.
+    juros/descontos das faturas (441) — contas confirmadas pela contabilidade em 14/10. O lançamento manual que
+    nenhuma regra reconhece fica em "Fora do arquivo": clique para ver cada um e classificar — só ele, ou sempre que
+    o histórico tiver um trecho (vale para os meses seguintes). Lançamento desfeito no mesmo mês (o original e o
+    estorno dele) se anula e não entra. Ainda provisórios: o texto do complemento, a data da despesa (data contábil
+    do 477 quando cai no mês, senão o último dia) e a codificação UTF-8.
   </div>
 
   <div id="saida"><div class="status-box">Escolha o mês e clique em <strong>Gerar prévia</strong>.
     Leva uns 10 segundos — lê o 477 e o 456 no Power BI.</div></div>
 </div>
+
+<div class="drawer-overlay" id="drawerOverlay" onclick="fecharDrawer()"></div>
+<aside class="drawer" id="drawer">
+  <div class="drawer-head">
+    <div><h2 id="dTitulo">Classificar lançamento</h2><div class="sub" id="dSub"></div></div>
+    <button class="drawer-close" onclick="fecharDrawer()">✕</button>
+  </div>
+  <div class="drawer-body" id="dBody"></div>
+  <div class="drawer-foot">
+    <button class="btn primary" id="btnSalvar" onclick="salvarRegra()">Salvar e refazer a prévia</button>
+    <button class="btn" onclick="fecharDrawer()">Cancelar</button>
+    <span id="dAviso"></span>
+  </div>
+</aside>
 
 <script>
 const brl = v => Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -122,8 +169,15 @@ const TIPOS = {despesa:'Despesa (competência)', pagamento:'Pagamento (CPG)',
                financeiro:'Financeiro (garantida, aplicação, juros TD…)', socios_ligadas:'Sócio e empresas do grupo',
                sinistro_imobilizado:'Sinistro e veículos', transferencia_externa:'Transf. p/ conta fora do 456',
                aplicacao_adiantamento:'Aplicação de adiantamento (571)',
-               pagamento_fora_456:'Pagamento por conta fora do 456'};
+               pagamento_fora_456:'Pagamento por conta fora do 456',
+               classificado_tela:'Classificado na tela (conta do plano)'};
+const dataBR = d => d ? new Date(String(d).slice(0,10)+'T12:00').toLocaleDateString('pt-BR') : '';
+const dataHoraBR = d => d ? new Date(d).toLocaleString('pt-BR',{dateStyle:'short',timeStyle:'short'}) : '';
+// mesma normalização do servidor (contabil_gerador.norm_txt): maiúsculas, sem acento
+const norm = s => String(s||'').normalize('NFKD').replace(/[̀-ͯ]/g,'').toUpperCase().replace(/\s+/g,' ').trim();
 let dados = null;
+let alvos = [], regras = [], plano = null, itemAtual = null;
+const abertos = new Set();
 
 (function meses() {
   const sel = document.getElementById('mes');
@@ -145,10 +199,13 @@ async function gerar(refazer) {
   document.getElementById('meta').textContent = '';
   document.getElementById('saida').innerHTML = '<div class="status-box">Gerando… lendo o 477 e o 456 no Power BI.</div>';
   try {
-    const j = await (await fetch(`/api/contabil/arquivo?mes=${mes}${refazer?'&refazer=1':''}`,
-                                 {credentials:'same-origin'})).json();
+    const [j, rg] = await Promise.all([
+      fetch(`/api/contabil/arquivo?mes=${mes}${refazer?'&refazer=1':''}`, {credentials:'same-origin'}).then(r=>r.json()),
+      fetch('/api/contabil/regras-456', {credentials:'same-origin'}).then(r=>r.json())]);
     if (!j.ok) throw new Error(j.error);
+    if (!rg.ok) throw new Error(rg.error);
     dados = j;
+    alvos = rg.alvos; regras = rg.data;
     render();
     const r = j.resumo;
     document.getElementById('meta').textContent = `gerado em ${new Date(r.gerado_em).toLocaleString('pt-BR')} · ${r.versao}`;
@@ -197,13 +254,34 @@ function render() {
         <td class="num">${int(p.n)}</td><td class="num">${brl(p.valor)}</td></tr>`).join('')
         : '<tr><td colspan="5" class="status-box">Nenhuma pendência</td></tr>'}</tbody></table>
     </div>
-    <div class="bloco"><h3>Fora do arquivo — regra ainda não definida</h3>
-      <table><thead><tr><th>Regra do 456</th><th>Por quê</th><th class="num">Linhas</th><th class="num">R$</th></tr></thead>
-      <tbody>${r.fora_da_fase.map(f => `<tr><td class="mono">${esc(f.regra)}</td><td>${esc(f.motivo)}</td>
-        <td class="num">${int(f.n)}</td><td class="num">${brl(f.valor)}</td></tr>`).join('')}</tbody></table>
-      <div class="nota">Valores com o sinal do extrato (crédito positivo, débito negativo).</div>
-    </div>
+    ${blocoFora()}
   </div>`;
+
+  if (r.anulados.length) {
+    h += `<div class="bloco"><h3>Desfeitos no mês — se anulam e não entram</h3>
+      <table><thead><tr><th>Conta</th><th>Lançamento</th><th>Estorno</th><th class="num">R$</th></tr></thead>
+      <tbody>${r.anulados.map(p => `<tr><td>${esc(p.conta_apelido)}</td>
+        ${[p.original, p.estorno].map(x => `<td><span class="mono">${dataBR(x.data)} · nº ${esc(x.nlanca||'—')} · ${brl(x.valor)}</span>
+          <br><span class="dim">${esc(x.historico)}</span></td>`).join('')}
+        <td class="num">${brl(p.valor)}</td></tr>`).join('')}</tbody></table>
+      <div class="nota">O lançamento e o estorno dele caíram no mesmo mês, na mesma conta e com o mesmo valor: o
+        efeito é zero. Não entram no arquivo e não são pendência.</div></div>`;
+  }
+
+  if (regras.length) {
+    h += `<div class="bloco"><h3>Regras criadas na tela${r.classificadas_tela ? ` <span class="tag info">${int(r.classificadas_tela)} lançamento(s) deste mês entraram por elas</span>` : ''}</h3>
+      <table><thead><tr><th></th><th>Quando</th><th>Vira</th><th>Criada por</th><th>Lançamento que originou</th><th></th></tr></thead>
+      <tbody>${regras.map(x => `<tr class="${x.ativo?'':'desligada'}">
+        <td>${x.ativo ? '<span class="tag ok">ativa</span>' : '<span class="tag dim">desligada</span>'}</td>
+        <td>${x.escopo === 'padrao' ? `histórico tem <span class="mono">“${esc(x.padrao)}”</span>` : 'só aquele lançamento'}</td>
+        <td>${esc(x.alvo_nome)}${x.conta_rotulo ? `<br><span class="dim">${esc(x.conta_rotulo)}</span>` : ''}</td>
+        <td>${esc(x.usuario_nome||'')}<br><span class="dim">${dataHoraBR(x.criado_em)}</span>
+          ${x.observacao ? `<br><span class="dim">${esc(x.observacao)}</span>` : ''}</td>
+        <td class="dim">${dataBR(x.exemplo_data)} · ${esc(x.exemplo_conta||'')} · ${brl(x.exemplo_valor)}<br>${esc(x.exemplo_historico||'')}</td>
+        <td>${x.ativo ? `<button class="btn mini" onclick="desligar(${x.id})">Desligar</button>`
+                      : `<span class="dim">por ${esc(x.desligado_por||'')}<br>${dataHoraBR(x.desligado_em)}</span>`}</td>
+      </tr>`).join('')}</tbody></table></div>`;
+  }
 
   if (r.liquidacoes_fora_do_456.length) {
     h += `<div class="faixa aviso">⚠ <strong>Liquidações do 477 em conta que não está no extrato (456):</strong>
@@ -249,8 +327,139 @@ function renderLanc() {
       <td><span class="mono">${l.debito}</span> <span class="dim">${esc(l.debito_nome)}</span></td>
       <td><span class="mono">${l.credito}</span> <span class="dim">${esc(l.credito_nome)}</span></td>
       <td class="num">${brl(l.valor)}</td>
-      <td class="dim">${esc(l.complemento)}</td></tr>`).join('') +
+      <td class="dim">${l.origem && l.origem.regra_tela ? `<span class="tag info">regra da tela nº ${l.origem.regra_tela}</span> ` : ''}${esc(l.complemento)}</td></tr>`).join('') +
     (v.length > mostra.length ? `<tr><td colspan="6" class="status-box">mostrando ${int(mostra.length)} de ${int(v.length)} — use a busca ou o filtro de tipo</td></tr>` : '');
+}
+
+// ── fora do arquivo: clique abre os itens; cada item pode ser classificado ──
+function blocoFora() {
+  const r = dados.resumo;
+  const itens = r.fora_itens;
+  return `<div class="bloco" id="blocoFora"><h3>Fora do arquivo — clique para ver e classificar</h3>
+    <table><thead><tr><th>Regra do 456</th><th>Por quê</th><th class="num">Linhas</th><th class="num">R$</th></tr></thead>
+    <tbody>${r.fora_da_fase.length ? r.fora_da_fase.map((f, k) => `
+      <tr class="clicavel" onclick="alternar(${k})"><td class="mono">${abertos.has(f.regra)?'▾':'▸'} ${esc(f.regra)}</td>
+        <td>${esc(f.motivo)}</td><td class="num">${int(f.n)}</td><td class="num">${brl(f.valor)}</td></tr>
+      ${abertos.has(f.regra) ? `<tr class="sub"><td colspan="4"><table class="itens">
+        <thead><tr><th>Data</th><th>Conta</th><th>Nº</th><th>Histórico</th><th class="num">R$</th><th></th></tr></thead>
+        <tbody>${itens.map((i, n) => i.regra !== f.regra ? '' : `<tr>
+          <td class="mono">${dataBR(i.data)}</td><td>${esc(i.conta_apelido)}</td><td class="mono">${esc(i.nlanca||'—')}</td>
+          <td>${esc(i.historico)}</td><td class="num">${brl(i.valor)}</td>
+          <td><button class="btn mini" onclick="classificar(${n})">Classificar</button></td></tr>`).join('')}</tbody>
+        </table></td></tr>` : ''}`).join('')
+      : '<tr><td colspan="4" class="status-box">Nada fora do arquivo</td></tr>'}</tbody></table>
+    <div class="nota">Valores com o sinal do extrato (crédito positivo, débito negativo).</div>
+  </div>`;
+}
+
+function alternar(k) {
+  const rg = dados.resumo.fora_da_fase[k].regra;
+  abertos.has(rg) ? abertos.delete(rg) : abertos.add(rg);
+  document.getElementById('blocoFora').outerHTML = blocoFora();
+}
+
+function classificar(n) {
+  const i = itemAtual = dados.resumo.fora_itens[n];
+  document.getElementById('dSub').textContent =
+    `${dataBR(i.data)} · ${i.conta_apelido} · nº ${i.nlanca || '—'} · R$ ${brl(i.valor)}`;
+  document.getElementById('dAviso').textContent = '';
+  document.getElementById('dBody').innerHTML = `
+    <div class="campo"><label>Histórico no extrato</label><div class="hist">${esc(i.historico)}</div></div>
+    <div class="campo"><label>O que é</label>
+      <select id="fAlvo" onchange="mudouAlvo()">${alvos.map(a => `<option value="${esc(a.alvo)}">${esc(a.nome)}</option>`).join('')}</select>
+      <div class="dica" id="dConta"></div></div>
+    <div class="campo" id="cPlano" style="display:none"><label>Conta do plano</label>
+      <select id="fConta"><option value="">carregando o plano…</option></select></div>
+    <div class="campo"><label>Vale para</label>
+      <label class="opcao"><input type="radio" name="escopo" value="item" checked onchange="mudouEscopo()"> Só este lançamento</label>
+      <label class="opcao"><input type="radio" name="escopo" value="padrao" onchange="mudouEscopo()"> Sempre que o histórico tiver o trecho abaixo — também nos próximos meses</label>
+      <input type="text" id="fPadrao" value="${esc(i.sugestao)}" oninput="contarPadrao()" disabled>
+      <div class="dica" id="dPadrao"></div></div>
+    <div class="campo"><label>Observação (opcional)</label>
+      <input type="text" id="fObs" placeholder="por que é isso — fica gravado junto da regra"></div>
+    <div class="campo"><div class="dica">Entra contra a conta do banco (${esc(i.conta_apelido)}), pelo sinal do extrato:
+      crédito = débito no banco; débito = crédito no banco. Fica gravado quem classificou e quando; a regra pode ser
+      desligada depois, na lista "Regras criadas na tela".</div></div>`;
+  mudouAlvo(); mudouEscopo();
+  document.getElementById('drawer').classList.add('open');
+  document.getElementById('drawerOverlay').classList.add('open');
+}
+
+function fecharDrawer() {
+  document.getElementById('drawer').classList.remove('open');
+  document.getElementById('drawerOverlay').classList.remove('open');
+}
+
+async function mudouAlvo() {
+  const a = alvos.find(x => x.alvo === document.getElementById('fAlvo').value);
+  const dc = document.getElementById('dConta');
+  document.getElementById('cPlano').style.display = a.alvo === 'CONTA' ? '' : 'none';
+  if (a.alvo === 'CONTA') {
+    dc.textContent = 'Escolha abaixo a conta que recebe o lançamento.';
+    if (!plano) {
+      const j = await (await fetch('/api/contabil/plano-contas?analitica=1', {credentials:'same-origin'})).json();
+      plano = j.ok ? j.data : [];
+    }
+    const grupos = {'1':'1 · Ativo','2':'2 · Passivo','3':'3 · Receitas','4':'4 · Custos e despesas','5':'5 · Apuração'};
+    const por = {};
+    plano.forEach(c => (por[c.grupo] = por[c.grupo] || []).push(c));
+    document.getElementById('fConta').innerHTML = '<option value="">— escolha —</option>' +
+      Object.keys(por).sort().map(g => `<optgroup label="${esc(grupos[g]||g)}">` + por[g].map(c =>
+        `<option value="${esc(c.codigo)}">${esc(c.codigo)} · ${esc(c.classificacao)} · ${esc(c.descricao)}</option>`
+      ).join('') + '</optgroup>').join('');
+  } else if (a.por_banco) {
+    dc.textContent = `Usa a conta "${a.nome}" do banco desta linha, cadastrada em Contas fixas.`;
+  } else {
+    dc.innerHTML = a.conta ? `Vai na conta <span class="mono">${esc(a.conta_rotulo || a.conta)}</span> (Contas fixas).`
+                           : '⚠ A conta fixa desta opção está em branco — preencha em Contas fixas antes.';
+  }
+}
+
+function mudouEscopo() {
+  const padrao = document.querySelector('input[name=escopo]:checked').value === 'padrao';
+  document.getElementById('fPadrao').disabled = !padrao;
+  contarPadrao();
+}
+
+function contarPadrao() {
+  const d = document.getElementById('dPadrao');
+  if (document.getElementById('fPadrao').disabled) { d.textContent = ''; return; }
+  const p = norm(document.getElementById('fPadrao').value);
+  if (p.length < 8) { d.textContent = 'O trecho precisa de ao menos 8 caracteres.'; return; }
+  if (!norm(itemAtual.historico).includes(p)) { d.textContent = 'O trecho tem de aparecer no histórico deste lançamento.'; return; }
+  const n = dados.resumo.fora_itens.filter(i => norm(i.historico).includes(p)).length;
+  d.textContent = `Neste mês pega ${n} lançamento(s) que estão fora do arquivo. Deixe o trecho só com o que ` +
+                  'identifica o tipo de lançamento — nome de pessoa ou número muda de um mês para o outro.';
+}
+
+async function salvarRegra() {
+  const i = itemAtual;
+  const alvo = document.getElementById('fAlvo').value;
+  const body = {alvo, escopo: document.querySelector('input[name=escopo]:checked').value,
+                padrao: document.getElementById('fPadrao').value,
+                conta_cod: alvo === 'CONTA' ? document.getElementById('fConta').value : null,
+                observacao: document.getElementById('fObs').value,
+                item: {chave: i.chave, historico: i.historico, data: i.data, valor: i.valor, conta_apelido: i.conta_apelido}};
+  const btn = document.getElementById('btnSalvar');
+  btn.disabled = true;
+  try {
+    const j = await (await fetch('/api/contabil/regras-456', {method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)})).json();
+    if (!j.ok) throw new Error(j.error);
+    fecharDrawer();
+    gerar(true);
+  } catch (e) {
+    document.getElementById('dAviso').textContent = e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function desligar(id) {
+  if (!confirm('Desligar esta regra? Os lançamentos que ela classificava voltam para "Fora do arquivo".')) return;
+  const j = await (await fetch(`/api/contabil/regras-456/${id}/desligar`, {method:'POST', credentials:'same-origin'})).json();
+  if (!j.ok) { alert(j.error); return; }
+  gerar(true);
 }
 </script>
 <script src="/nav-perms.js"></script>

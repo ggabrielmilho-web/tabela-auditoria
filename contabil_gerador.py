@@ -46,6 +46,15 @@ Tudo o mais fica de fora COM MOTIVO — nunca calado, nunca torto:
   - pendência: era para entrar e falta algo (conta, valor diverge…);
   - fora: regra que a especificação não cobre ou que aguarda resposta.
 
+O que sobra no "fora" (15/10/2026):
+  - par desfeito no mês: lançamento + "ESTORNO <mesmo histórico>", mesma conta,
+    valor oposto — os dois se anulam, não entram e não são pendência
+    (anular_pares); a tela os lista à parte;
+  - classificado na tela: alguém escolhe o que é — só aquele lançamento, ou
+    "sempre que o histórico tiver…" (regra que vale para os meses seguintes).
+    Entra pela contrapartida da regra escolhida ou por uma conta do plano
+    (alvo CONTA). As regras moram em contabil_regra_456 (aplicar_regras_tela).
+
 Formato (PARA GABRIEL - MODELO IMPORTAÇÃO.txt, conferido byte a byte):
     X\r\n
     Z;DD/MM/AAAA;DÉBITO;CRÉDITO;VALOR;HISTÓRICO;COMPLEMENTO\r\n
@@ -65,7 +74,7 @@ import unicodedata
 from datetime import date, datetime
 
 HISTORICO = 2
-VERSAO = '1.1 (14/10/2026 — com as respostas da contabilidade)'
+VERSAO = '1.2 (15/10/2026 — classificação na tela e pares anulados)'
 
 # Motivos de pendência: o que é, e de quem depende resolver.
 MOTIVOS = {
@@ -102,6 +111,7 @@ TIPOS_NOME = {
     'transferencia_externa': 'Transferência para conta fora do 456 (ponte 1453, as duas pontas)',
     'pagamento_fora_456': 'Pagamento por conta fora do 456 (liquidação do 477)',
     'aplicacao_adiantamento': 'Aplicação de adiantamento na fatura (571): 844 → 504',
+    'classificado_tela': 'Classificado na tela com conta do plano',
 }
 
 # Lançamento MANUAL que a especificação não cobre (o SWITCH do 456 o deixa em
@@ -139,6 +149,84 @@ def classificar_man(historico):
             return regra
     return None
 
+
+# ── o que sobra fora: par desfeito no mês e classificação da tela ───────────
+
+_RE_LOGIN = re.compile(r'\s*-\s*LOGIN:.*$')
+
+
+def sem_login(historico):
+    """'DEBITO REF X - Login: fulano' -> 'DEBITO REF X' (normalizado). O login é
+    de quem digitou, não do fato: o estorno pode ter sido feito por outra pessoa."""
+    return _RE_LOGIN.sub('', norm_txt(historico)).strip()
+
+
+def chave_linha_456(m):
+    """Identidade de UMA linha do 456, para a regra "só este lançamento". O nlanca
+    é único em 2026 (29.383 linhas com número, medido em 15/10/2026), mas 475
+    linhas vêm sem ele: conta, data e valor completam a chave nos dois casos."""
+    d = _data(m.get('data'))
+    return (f"{chave_banco(m.get('banco'), m.get('agencia'), m.get('conta'))}|"
+            f"{str(m.get('nlanca') or '').strip()}|{d.isoformat() if d else ''}|"
+            f"{_r2(m.get('valor')):.2f}")
+
+
+def sugerir_padrao(historico):
+    """O trecho que a tela propõe para "sempre que o histórico tiver": o histórico
+    sem o login e sem o 'ESTORNO ' da frente — assim o estorno cai na mesma regra
+    e, lançado pelo sinal, desfaz o original."""
+    t = sem_login(historico)
+    return t[8:].strip() if t.startswith('ESTORNO ') else t
+
+
+def anular_pares(linhas):
+    """Separa o lançamento desfeito no mesmo mês: o original e o "ESTORNO <mesmo
+    histórico>", na mesma conta, com o valor oposto e não antes do original. Os
+    dois se anulam — não entram no arquivo nem viram pendência ("entra e sai",
+    15/10/2026). Devolve (resto, [(original, estorno)])."""
+    ordem = sorted(range(len(linhas)), key=lambda i: (
+        _data(linhas[i].get('data')) or date.min, str(linhas[i].get('nlanca') or '')))
+    usados, pares = set(), []
+    for i in ordem:
+        e = linhas[i]
+        h = sem_login(e.get('historico'))
+        v = _r2(e.get('valor'))
+        if i in usados or not v or not h.startswith('ESTORNO '):
+            continue
+        cb, de = chave_banco(e.get('banco'), e.get('agencia'), e.get('conta')), _data(e.get('data'))
+        for j in ordem:
+            o = linhas[j]
+            if (j not in usados and j != i and _r2(o.get('valor')) == -v
+                    and chave_banco(o.get('banco'), o.get('agencia'), o.get('conta')) == cb
+                    and sem_login(o.get('historico')) == h[8:].strip()
+                    and (_data(o.get('data')) or date.min) <= (de or date.max)):
+                usados.update((i, j))
+                pares.append((o, e))
+                break
+    return [l for k, l in enumerate(linhas) if k not in usados], pares
+
+
+def aplicar_regras_tela(linhas, regras):
+    """Classificação feita na tela. regras = [{'id', 'escopo': 'item'|'padrao',
+    'item_chave', 'padrao', 'alvo', 'conta_cod'}] na ordem de criação. A regra do
+    item vence a de padrão; entre padrões vale a MAIS ANTIGA — uma regra nova não
+    rouba calada o que outra já classificava. Devolve ([(alvo, linha)], resto); a
+    linha classificada leva _regra_tela e, no alvo CONTA, _conta_cod."""
+    validas = [r for r in regras if r['alvo'] in CONTRAPARTIDA]
+    por_item = {r['item_chave']: r for r in validas if r['escopo'] == 'item'}
+    padroes = [r for r in validas if r['escopo'] == 'padrao' and r.get('padrao')]
+    feitas, resto = [], []
+    for m in linhas:
+        r = por_item.get(chave_linha_456(m))
+        if not r:
+            h = norm_busca(m.get('historico'))
+            r = next((p for p in padroes if norm_busca(p['padrao']) in h), None)
+        if not r:
+            resto.append(m)
+            continue
+        feitas.append((r['alvo'], dict(m, _regra_tela=r['id'], _conta_cod=r.get('conta_cod'))))
+    return feitas, resto
+
 # Regra do 456 → (tipo do lançamento, conta fixa de contrapartida, rótulo)
 CONTRAPARTIDA = {
     'CLIENTE':         ('recebimento', 'CLIENTE_PADRAO', 'RECEBIMENTO'),
@@ -174,7 +262,32 @@ CONTRAPARTIDA = {
     'IMOBILIZADO':     ('sinistro_imobilizado', 'IMOBILIZADO_VEICULOS', 'VEICULO'),
     'TRANSF EXTERNA':  ('transferencia_externa', 'TRANSFERENCIA_ENTRE_CONTAS', 'TRANSF'),
     'TRANSFERENCIA':   ('transferencia', 'TRANSFERENCIA_ENTRE_CONTAS', 'TRANSF ENTRE CONTAS'),
+    # --- classificado na tela com uma conta do plano: a conta vem da regra
+    # (contabil_regra_456), linha a linha em m['_conta_cod'] — não há conta fixa
+    'CONTA':           ('classificado_tela', None, 'CLASSIFICADO'),
 }
+
+# O que a tela oferece para classificar o que ficou fora, na ordem do menu. A
+# conta de cada opção é a da contrapartida da regra (Contas fixas); nas que têm
+# '{banco}' é a do banco da própria linha.
+ALVOS_TELA = [
+    ('ACERTO FORNECEDOR', 'Acerto com fornecedor — pago indevido, duplicado, a maior, devolução'),
+    ('ACERTO CTRB',       'Acerto de pagamento de CTRB'),
+    ('CLIENTE',           'Recebimento de cliente'),
+    ('ADTO CLIENTE',      'Adiantamento de cliente / crédito não identificado'),
+    ('DESC DUPLICATA',    'Desconto de duplicata'),
+    ('JUROS TD',          'Juros de título descontado'),
+    ('DEV TARIFA',        'Tarifa bancária'),
+    ('RENDIMENTO',        'Rendimento de aplicação'),
+    ('APLICACAO',         'Aplicação / resgate (do banco da linha)'),
+    ('CONTA GARANTIDA',   'Conta garantida (do banco da linha)'),
+    ('SOCIO CLEIVON',     'Sócio'),
+    ('SINGULAR SERVICOS', 'Singular Serviços (empresa do grupo)'),
+    ('SINGULAR FLEET',    'Singular Fleet (empresa do grupo)'),
+    ('SINISTRO',          'Sinistro / indenização'),
+    ('IMOBILIZADO',       'Compra / venda de veículo'),
+    ('CONTA',             'Outra conta do plano (escolher)'),
+]
 
 # Juros e tarifa pagos pela Pecúnia vão na 374 (contabilidade, 14/10/2026), não na
 # conta do evento (372/781 dos demais bancos). Chave por banco em contas fixas.
@@ -212,6 +325,12 @@ def norm_num(v):
 def norm_txt(v):
     s = unicodedata.normalize('NFKD', str(v or '').strip().upper())
     return ''.join(c for c in s if not unicodedata.combining(c))
+
+
+def norm_busca(v):
+    """norm_txt com os espaços repetidos juntados — a comparação do trecho da
+    regra da tela (a tela normaliza igual, em JavaScript)."""
+    return re.sub(r'\s+', ' ', norm_txt(v)).strip()
 
 
 def chave_477(uni, numlancto, parcela):
@@ -463,7 +582,10 @@ class Gerador:
             data_ = _data(m.get('data'))
             ident = f"{m.get('conta_apelido')} nlanca {m.get('nlanca')}"
             cb = chave_banco(m.get('banco'), m.get('agencia'), m.get('conta'))
-            chave = chave_fixa.format(banco=cb) if '{banco}' in chave_fixa else chave_fixa
+            if chave_fixa:
+                chave = chave_fixa.format(banco=cb) if '{banco}' in chave_fixa else chave_fixa
+            else:   # 'CONTA': a conta veio da regra da tela, linha a linha
+                chave = f"conta {m.get('_conta_cod')}"
             outra = None
             if regra == 'TRANSF EXTERNA':
                 # a outra conta não tem extrato: a ponta dela é lançada daqui
@@ -474,7 +596,7 @@ class Gerador:
                 if not outra:
                     self._pendencia(tipo, 'banco_sem_conta', abs(v), data_, ident, ko)
                     continue
-            contra = self.fixas.get(chave)
+            contra = self.fixas.get(chave) if chave_fixa else m.get('_conta_cod')
             if not contra:
                 motivo = 'banco_sem_conta' if chave.startswith('BANCO:') else 'conta_fixa_ausente'
                 self._pendencia(tipo, motivo, abs(v), data_, ident, chave)
@@ -489,8 +611,10 @@ class Gerador:
             if outra:   # sinal oposto na outra conta: saiu daqui = entrou lá
                 partidas.append(('outra_ponta', *((contra, outra) if v > 0 else (outra, contra)),
                                  abs(v), f'{rotulo} (outra ponta) - {texto}'))
-            self._lanca(tipo, data_, partidas,
-                        {'fonte': '456', 'regra': regra, 'nlanca': m.get('nlanca')}, ident, abs(v))
+            origem = {'fonte': '456', 'regra': regra, 'nlanca': m.get('nlanca')}
+            if m.get('_regra_tela'):
+                origem['regra_tela'] = m['_regra_tela']
+            self._lanca(tipo, data_, partidas, origem, ident, abs(v))
 
     # -- 6. juros e descontos do recebimento (441) --------------------------
     def juros_descontos_441(self, faturas):

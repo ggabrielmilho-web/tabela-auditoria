@@ -326,6 +326,34 @@ cur.execute("""
 cur.execute("CREATE INDEX IF NOT EXISTS ix_contabil_contrato_conta "
             "ON contabil_contrato_conta (evento, numlancto, criado_em DESC);")
 
+# Classificação feita na tela do arquivo (/contabil/arquivo, 15/10/2026) para o
+# lançamento do 456 que nenhuma regra do código reconhece. escopo 'item' = só
+# aquela linha (item_chave = contabil_gerador.chave_linha_456); 'padrao' =
+# sempre que o histórico tiver o trecho, nos meses seguintes também. alvo = uma
+# contrapartida do gerador (CONTRAPARTIDA) ou 'CONTA' (conta_cod do plano).
+# Nunca se apaga: desliga, com quem e quando. O exemplo_* guarda o lançamento
+# que originou a regra, para quem olhar depois entender o porquê.
+cur.execute("""
+    CREATE TABLE IF NOT EXISTS contabil_regra_456 (
+        id                SERIAL PRIMARY KEY,
+        escopo            VARCHAR(10) NOT NULL CHECK (escopo IN ('item', 'padrao')),
+        item_chave        TEXT,
+        padrao            TEXT,
+        alvo              VARCHAR(40) NOT NULL,
+        conta_cod         INTEGER,
+        exemplo_historico TEXT,
+        exemplo_data      DATE,
+        exemplo_valor     NUMERIC(14,2),
+        exemplo_conta     VARCHAR(80),
+        observacao        TEXT,
+        ativo             BOOLEAN NOT NULL DEFAULT TRUE,
+        usuario_nome      VARCHAR(180),
+        criado_em         TIMESTAMP NOT NULL DEFAULT NOW(),
+        desligado_por     VARCHAR(180),
+        desligado_em      TIMESTAMP
+    );
+""")
+
 # Dedup case-insensitive da tabela clientes existente (para cadastro manual)
 cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_clientes_nome_ci ON clientes (LOWER(TRIM(nome)));")
 

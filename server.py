@@ -6409,6 +6409,18 @@ def gerar_arquivo_contabil(mes):
         if resto:
             por_regra[rg] = resto
 
+    # O que ainda sobra (15/10/2026): o lançamento desfeito no mesmo mês sai em
+    # par — não entra nem é pendência; o que alguém classificou na tela entra
+    # pela regra escolhida lá. O resto é o "fora do arquivo", item a item.
+    tratadas = {'477 (evento)', 'RET BCO DEBITO', *_cg.CONTRAPARTIDA}
+    sobra = [r for rg in [k for k in por_regra if k not in tratadas] for r in por_regra.pop(rg)]
+    sobra, anulados = _cg.anular_pares(sobra)
+    classificadas, sobra = _cg.aplicar_regras_tela(sobra, _regras_tela())
+    for alvo, r in classificadas:
+        por_regra.setdefault(alvo, []).append(r)
+    for r in sobra:
+        por_regra.setdefault(r['regra'], []).append(r)
+
     cpg = por_regra.get('477 (evento)', [])
     nls = {_cg.norm_num(r['ref_477_numlancto']) for r in cpg}
     pagos = {_cg.chave_477(d['uni'], d['numlancto'], d['parcela']): d
@@ -6452,10 +6464,17 @@ def gerar_arquivo_contabil(mes):
         f'"liquidac", [liquidac], "valor_doc", [valor_doc], "cliente", [cliente])')
     g.aplicacoes_571(apl571)
 
-    tratadas = {'477 (evento)', 'RET BCO DEBITO', *_cg.CONTRAPARTIDA}
     fora = [{'regra': rg, 'motivo': _cg.FORA.get(rg, 'sem tratamento no gerador'),
              'n': len(ls), 'valor': round(sum(x['valor'] or 0 for x in ls), 2)}
             for rg, ls in sorted(por_regra.items()) if rg not in tratadas]
+
+    def _item(r):
+        return {'regra': r['regra'], 'chave': _cg.chave_linha_456(r), 'data': str(r['data'])[:10],
+                'conta_apelido': r['conta_apelido'], 'nlanca': r['nlanca'],
+                'historico': r['historico'], 'valor': round(r['valor'] or 0, 2),
+                'sugestao': _cg.sugerir_padrao(r['historico'])}
+    fora_itens = [_item(r) for rg, ls in sorted(por_regra.items()) if rg not in tratadas
+                  for r in sorted(ls, key=lambda x: (str(x['data']), str(x['nlanca'])))]
 
     # Liquidação do 477 em conta que NÃO está no 456 (achado de 14/10: banco 613).
     # Não tem extrato, então não tem pagamento para lançar — só aparece aqui.
@@ -6514,6 +6533,10 @@ def gerar_arquivo_contabil(mes):
                  'ok': all(l['debito'] != l['credito'] and l['valor'] > 0 for l in lanc)})
 
     resumo = _cg.resumir(g, fora, conf)
+    resumo['fora_itens'] = fora_itens
+    resumo['anulados'] = [{'conta_apelido': o['conta_apelido'], 'valor': abs(round(o['valor'] or 0, 2)),
+                           'original': _item(o), 'estorno': _item(e)} for o, e in anulados]
+    resumo['classificadas_tela'] = len(classificadas)
     resumo['liquidacoes_fora_do_456'] = fora_456
     resumo['ok'] = all(c['ok'] for c in conf)
     from datetime import datetime as _dt
@@ -6598,6 +6621,150 @@ def api_contabil_arquivo_pendencias():
                'valor': p['valor'], 'identificacao': p['identificacao'], 'detalhe': p['detalhe']}
               for p in g.pendencias]
     return _csv_contabil(f'pendencias_importacao_{mes}.csv', lambda: linhas)
+
+
+# ── Classificação na tela do que ficou fora (15/10/2026) ─────────────────────
+# Quem tem a aba Contábil classifica o lançamento que nenhuma regra reconhece:
+# só aquele, ou "sempre que o histórico tiver…" — e a regra vale nos meses
+# seguintes. Regra, não adivinhação: o mesmo histórico dá sempre a mesma conta e
+# a contabilidade vê quem criou. Nunca se apaga — desliga, com quem e quando.
+
+def _regras_tela():
+    """Regras ATIVAS, na ordem de criação (a mais antiga vence entre padrões)."""
+    conn = get_db(); cur = conn.cursor()
+    try:
+        cur.execute("SELECT to_regclass('contabil_regra_456')")
+        if not cur.fetchone()[0]:      # init_db ainda não rodou: sem regras
+            return []
+        cur.execute("""SELECT id, escopo, item_chave, padrao, alvo, conta_cod
+                         FROM contabil_regra_456 WHERE ativo ORDER BY id""")
+        return [{'id': r[0], 'escopo': r[1], 'item_chave': r[2], 'padrao': r[3],
+                 'alvo': r[4], 'conta_cod': r[5]} for r in cur.fetchall()]
+    finally:
+        cur.close(); conn.close()
+
+
+def _conta_do_alvo(alvo, chave_linha, conta_cod, fixas):
+    """Código que o alvo usa para AQUELA linha, ou ValueError com o que falta."""
+    if alvo == 'CONTA':
+        if not conta_cod:
+            raise ValueError('Escolha a conta do plano')
+        return conta_cod
+    chave_fixa = _cg.CONTRAPARTIDA[alvo][1]
+    k = chave_fixa.format(banco=chave_linha.split('|')[0]) if '{banco}' in chave_fixa else chave_fixa
+    cod = (fixas.get(k) or (None, None))[1]
+    if not cod:
+        raise ValueError(f'A conta fixa {k} está em branco — preencha em Contas fixas antes.')
+    return cod
+
+
+@app.route('/api/contabil/regras-456')
+@page_required('contabil')
+def api_contabil_regras_456():
+    """As regras criadas na tela (ativas e desligadas) e o menu do que dá para escolher."""
+    try:
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("SELECT to_regclass('contabil_regra_456')")
+        regras = []
+        if cur.fetchone()[0]:
+            cur.execute("""
+                SELECT r.id, r.escopo, r.padrao, r.alvo, r.conta_cod, r.exemplo_historico,
+                       r.exemplo_data, r.exemplo_valor, r.exemplo_conta, r.observacao, r.ativo,
+                       r.usuario_nome, r.criado_em, r.desligado_por, r.desligado_em,
+                       p.classificacao, p.descricao
+                  FROM contabil_regra_456 r
+                  LEFT JOIN contabil_plano_contas p ON p.codigo_reduzido = r.conta_cod
+                 ORDER BY r.ativo DESC, r.id DESC""")
+            for x in cur.fetchall():
+                regras.append({
+                    'id': x[0], 'escopo': x[1], 'padrao': x[2], 'alvo': x[3],
+                    'alvo_nome': dict(_cg.ALVOS_TELA).get(x[3], x[3]), 'conta_cod': x[4],
+                    'conta_rotulo': _rotulo_conta(x[4], x[15], x[16]) if x[4] else None,
+                    'exemplo_historico': x[5], 'exemplo_data': x[6].isoformat() if x[6] else None,
+                    'exemplo_valor': float(x[7]) if x[7] is not None else None,
+                    'exemplo_conta': x[8], 'observacao': x[9], 'ativo': x[10],
+                    'usuario_nome': x[11], 'criado_em': x[12].isoformat() if x[12] else None,
+                    'desligado_por': x[13], 'desligado_em': x[14].isoformat() if x[14] else None})
+        fixas = contas_fixas()
+        alvos = []
+        for alvo, nome in _cg.ALVOS_TELA:
+            chave_fixa = _cg.CONTRAPARTIDA[alvo][1]
+            por_banco = bool(chave_fixa and '{banco}' in chave_fixa)
+            cod = (fixas.get(chave_fixa) or (None, None))[1] if chave_fixa and not por_banco else None
+            alvos.append({'alvo': alvo, 'nome': nome, 'por_banco': por_banco, 'conta': cod})
+        cods = [a['conta'] for a in alvos if a['conta']]
+        cur.execute("SELECT codigo_reduzido, classificacao, descricao FROM contabil_plano_contas "
+                    "WHERE codigo_reduzido = ANY(%s)", (cods,))
+        nomes = {r[0]: _rotulo_conta(*r) for r in cur.fetchall()}
+        for a in alvos:
+            a['conta_rotulo'] = nomes.get(a['conta'])
+        cur.close(); conn.close()
+        return jsonify({'ok': True, 'data': regras, 'alvos': alvos})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/contabil/regras-456', methods=['POST'])
+@page_required('contabil')
+def api_contabil_regras_456_salvar():
+    b = request.get_json(silent=True) or {}
+    alvo, escopo, item = (b.get('alvo') or '').strip(), b.get('escopo'), b.get('item') or {}
+    chave, hist = (item.get('chave') or '').strip(), item.get('historico') or ''
+    if alvo not in dict(_cg.ALVOS_TELA):
+        return jsonify({'ok': False, 'error': 'Escolha o que é o lançamento'}), 400
+    if escopo not in ('item', 'padrao') or not chave:
+        return jsonify({'ok': False, 'error': 'Lançamento ou alcance da regra não informado'}), 400
+    padrao = None
+    if escopo == 'padrao':
+        # Trecho curto pega o que não devia ("DEV" está em "DEVOLUCAO" e em
+        # "ADEVALDO"). E tem de estar no histórico de quem originou a regra.
+        padrao = _cg.norm_busca(b.get('padrao'))
+        if len(padrao) < 8:
+            return jsonify({'ok': False, 'error': 'O trecho precisa de ao menos 8 caracteres — '
+                                                  'curto demais pega lançamento que não devia.'}), 400
+        if padrao not in _cg.norm_busca(hist):
+            return jsonify({'ok': False, 'error': 'O trecho tem de aparecer no histórico deste lançamento.'}), 400
+    try:
+        conn = get_db(); cur = conn.cursor()
+        try:
+            conta_cod = _codigo_conta(b.get('conta_cod')) if alvo == 'CONTA' else None
+            cod = _conta_do_alvo(alvo, chave, conta_cod, contas_fixas(forcar=True))
+            _conta_do_plano(cur, cod)          # existe e é analítica
+        except ValueError as e:
+            cur.close(); conn.close()
+            return jsonify({'ok': False, 'error': str(e)}), 400
+        cur.execute("""
+            INSERT INTO contabil_regra_456
+                (escopo, item_chave, padrao, alvo, conta_cod, exemplo_historico, exemplo_data,
+                 exemplo_valor, exemplo_conta, observacao, usuario_nome)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id
+        """, (escopo, chave if escopo == 'item' else None, padrao, alvo, conta_cod, hist,
+              item.get('data') or None, item.get('valor'), item.get('conta_apelido'),
+              (b.get('observacao') or '').strip() or None, session.get('nome')))
+        rid = cur.fetchone()[0]
+        conn.commit(); cur.close(); conn.close()
+        _cache_arquivo.clear()     # a regra vale para qualquer mês: toda prévia guardada envelheceu
+        return jsonify({'ok': True, 'id': rid})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/contabil/regras-456/<int:rid>/desligar', methods=['POST'])
+@page_required('contabil')
+def api_contabil_regras_456_desligar(rid):
+    try:
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("""UPDATE contabil_regra_456 SET ativo = FALSE, desligado_por = %s,
+                              desligado_em = NOW() WHERE id = %s AND ativo""",
+                    (session.get('nome'), rid))
+        n = cur.rowcount
+        conn.commit(); cur.close(); conn.close()
+        if not n:
+            return jsonify({'ok': False, 'error': 'Regra não encontrada ou já desligada'}), 404
+        _cache_arquivo.clear()
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
 
 
 def _csv_contabil(nome, dax_fn):
