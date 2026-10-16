@@ -26,10 +26,15 @@ O que entra (cada linha do arquivo é UM débito e UM crédito):
   pagamento fora  liquidação do 477 por conta que o robô do 456 não baixa
   do 456          (Pecúnia): mesmo lançamento do pagamento, pela data da
                   liquidação — desliga sozinho quando a conta entrar no 456
-  recebimento     456 FAT (CLIENTE): banco × CLIENTE_PADRAO (504)
+  recebimento     456 FAT (CLIENTE): banco × CLIENTE_PADRAO (504); também o
+                  "CREDITO VIA RET BCO" DIGITADO (MAN, não estorno) — a liquidação
+                  de duplicata descontada que a tesouraria lança à mão (16/10/2026)
   adiantamento    456 ACN (ADTO CLIENTE): banco × ADTO_CLIENTE (844)
-  desc. duplicata 456 "CREDITO VIA RET BCO… OU CART DESCONTO" e FDBI: banco ×
-                  DESCONTO_DUPLICATA (591)
+  desc. duplicata 456 "CREDITO VIA RET BCO… OU CART DESCONTO" do banco (BCO) e os
+                  estornos, FDBI e a FATURA A DÉBITO (FAT negativo): banco ×
+                  DESCONTO_DUPLICATA (591). Com o recebimento acima, o par vira
+                  D 591 / C 504 — a duplicata descontada paga pelo cliente baixa a
+                  504 e a 591 (regra do arquivo de julho do escritório, 16/10/2026)
                   — estes três pelo SINAL do extrato: crédito = D banco / C conta,
                     débito = D conta / C banco. Estorno de um deles (que o SSW
                     registra com sinal trocado) vira o contrário exato, e os pares
@@ -55,17 +60,20 @@ O que sobra no "fora" (15/10/2026):
     Entra pela contrapartida da regra escolhida ou por uma conta do plano
     (alvo CONTA). As regras moram em contabil_regra_456 (aplicar_regras_tela).
 
-Formato (PARA GABRIEL - MODELO IMPORTAÇÃO.txt, conferido byte a byte):
-    X\r\n
-    Z;DD/MM/AAAA;DÉBITO;CRÉDITO;VALOR;HISTÓRICO;COMPLEMENTO\r\n
-UTF-8, CRLF, uma linha "X" antes de cada "Z", valor com vírgula e 2 casas,
-contas pelo CÓDIGO REDUZIDO, histórico 2.
+Formato — leiaute de importação do Domínio (16/10/2026). O "X / Z;…" do modelo
+da contadora dava erro no Domínio até com o arquivo de exemplo dela; o escritório
+mandou o modelo novo (os arquivos de julho e o "parametrizações.txt"):
+    |0000|02572512000158|                          uma vez, na 1ª linha
+    |6000|X||||                                    abre cada lançamento
+    |6100|DD/MM/AAAA|DÉBITO|CRÉDITO|VALOR|107|COMPLEMENTO||||
+ASCII puro (o arquivo deles não tem acento), CRLF, sem linha em branco, valor
+com vírgula e 2 casas, contas pelo CÓDIGO REDUZIDO, histórico 107. Complemento
+do que vem do 477 no padrão do parametrizações.txt:
+    <histórico da despesa> - <fornecedor> - DOC. <nota> - L. <lançamento> - <parcela>
 
-⚠ Provisório, para validar no primeiro teste com a contabilidade:
-  - texto do complemento (é convenção dela; o modelo só mostra o do pagamento);
-  - data da despesa: a data contábil do 477 quando cai no mês da competência,
-    senão o último dia do mês (89% cai no mês — medido em 14/10/2026);
-  - codificação UTF-8 (é a do modelo que ela mandou).
+⚠ Provisório, para validar no primeiro teste com a contabilidade: a data da
+despesa por competência — a data contábil do 477 quando cai no mês, senão o
+último dia do mês (89% cai no mês — medido em 14/10/2026).
 """
 
 import calendar
@@ -73,8 +81,9 @@ import re
 import unicodedata
 from datetime import date, datetime
 
-HISTORICO = 2
-VERSAO = '1.2 (15/10/2026 — classificação na tela e pares anulados)'
+HISTORICO = 107          # "UTILIZAR O CÓDIGO 107" (parametrizações.txt, 16/10/2026)
+CNPJ_RIZZA = '02572512000158'
+VERSAO = '1.3 (16/10/2026 — leiaute do Domínio e regras do arquivo de julho do escritório)'
 
 # Motivos de pendência: o que é, e de quem depende resolver.
 MOTIVOS = {
@@ -99,9 +108,9 @@ FORA = {
 
 # Nome de cada tipo de lançamento, para a tela e as conferências.
 TIPOS_NOME = {
-    'recebimento': 'Recebimentos (FAT, fatura manual, estorno de fatura, RET BCO sem fatura)',
+    'recebimento': 'Recebimentos (FAT, fatura manual, estorno de fatura, RET BCO sem fatura, RET BCO digitado)',
     'adiantamento': 'Adiantamento de cliente e crédito não identificado (844)',
-    'desconto_duplicata': 'Desconto de duplicata (RET BCO crédito, FDBI, baixa de boleto, liberação TD)',
+    'desconto_duplicata': 'Desconto de duplicata (RET BCO do banco, FDBI, fatura a débito, baixa de boleto, liberação TD)',
     'acerto_ctrb': 'Acertos manuais de pagamento de CTRB (506)',
     'acerto_fornecedor': 'Pagamento indevido/duplicado/a maior a fornecedor e devoluções (506)',
     'financeiro': 'Conta garantida, aplicação, rendimento, juros de TD, tarifa, cota Sicoob',
@@ -233,6 +242,15 @@ CONTRAPARTIDA = {
     'ADTO CLIENTE':    ('adiantamento', 'ADTO_CLIENTE', 'ADTO CLIENTE'),
     'RET BCO CREDITO': ('desconto_duplicata', 'DESCONTO_DUPLICATA', 'DESC DUPLICATA'),
     'DESC DUPLICATA':  ('desconto_duplicata', 'DESCONTO_DUPLICATA', 'DESC DUPLICATA'),
+    # Duplicata descontada paga pelo cliente (arquivo de julho do escritório,
+    # 16/10/2026): o banco fica com o dinheiro, e o SSW registra uma entrada que
+    # vai à 504 e uma saída que vai à 591 — o par é D 591 / C 504, a baixa do
+    # cliente contra o desconto. Antes as duas pontas iam à mesma conta e se
+    # anulavam: a 591 nunca baixava. Medido em julho: a FATURA A DÉBITO (FAT
+    # negativo) foi à 591 em 104 de 104 casos casados no arquivo deles, e o
+    # "CREDITO VIA RET BCO" digitado (não estorno) à 504 em 7 de 7.
+    'FAT DESCONTADA':  ('desconto_duplicata', 'DESCONTO_DUPLICATA', 'BAIXA DUPLICATA DESCONTADA'),
+    'RET BCO MANUAL':  ('recebimento', 'CLIENTE_PADRAO', 'PGTO'),
     # "o lançamento deve ser o exato contrário do documento estornado": o estorno
     # de um recebimento vai contra a mesma 504, com o sinal do extrato
     'ESTORNO FATURA':  ('recebimento', 'CLIENTE_PADRAO', 'ESTORNO RECEBIMENTO'),
@@ -291,6 +309,11 @@ ALVOS_TELA = [
 
 # Juros e tarifa pagos pela Pecúnia vão na 374 (contabilidade, 14/10/2026), não na
 # conta do evento (372/781 dos demais bancos). Chave por banco em contas fixas.
+# Onde a troca acontece depende do evento: no que provisiona (5317 TARIFA,
+# DESPESA = SIM) é na despesa por competência — o pagamento só baixa a 506; no
+# que não provisiona (5312 JUROS) é no próprio pagamento. Antes de 16/10/2026 a
+# troca era sempre no pagamento, e a tarifa da Pecúnia entrava duas vezes (781 na
+# competência e 374 no pagamento) com a 506 sem baixar: 20 documentos de ago–out.
 EVENTOS_JUROS_TARIFA = ('5312', '5317')
 
 _RE_TRANSF = re.compile(r'TRANSF CTA\s+(\d+)\s+(\d+)\s+(\d+)\s+P CTA\s+(\d+)\s+(\d+)\s+(\d+)')
@@ -345,9 +368,31 @@ def valor_br(v):
     return f'{abs(v):.2f}'.replace('.', ',')
 
 
+_RE_LOGIN_COMP = re.compile(r'\s*-\s*LOGIN:.*$', re.IGNORECASE)
+
+
 def _complemento(txt, limite=200):
-    t = re.sub(r'[;\r\n\t]+', ' ', str(txt or ''))
+    """Complemento no leiaute do Domínio: ASCII puro (o arquivo do escritório não
+    tem acento — e ASCII lê igual em UTF-8 e em ANSI), sem '|' (separa campo), sem
+    o " - Login: fulano" que o SSW põe no fim do lançamento digitado e com os
+    espaços juntados. O '*' sai como no arquivo deles ("TL  **TB" -> "TL TB")."""
+    t = unicodedata.normalize('NFKD', str(txt or '')).encode('ascii', 'ignore').decode('ascii')
+    t = _RE_LOGIN_COMP.sub('', t)
+    t = re.sub(r'[|;*\x00-\x1f\x7f]+', ' ', t)
     return re.sub(r'\s+', ' ', t).strip()[:limite]
+
+
+def complemento_477(d):
+    """Texto de um documento do 477 no padrão do escritório (parametrizações.txt,
+    16/10/2026), conferido campo a campo contra o 477:
+        <histórico da despesa> - <fornecedor> - DOC. <nota> - L. <lançamento> - <parcela>
+        001 - 2 - PECA X - FORNECEDOR Y - DOC. 123 - L. 45678 - 4
+    Sem histórico da despesa, vai a descrição do evento."""
+    hist = str(d.get('historico_despesa') or '').strip() or str(d.get('descr_evento') or '').strip()
+    nf = str(d.get('nfiscal') or '').strip()
+    partes = [hist, str(d.get('nome_fornecedor') or '').strip(), f'DOC. {nf}' if nf else '',
+              f"L. {norm_num(d.get('numlancto'))}", norm_num(d.get('parcela'))]
+    return ' - '.join(p for p in partes if p)
 
 
 def _r2(v):
@@ -410,15 +455,15 @@ class Gerador:
         ct = self.contratos.get((ev, norm_num(d.get('numlancto'))))
         if ct:
             return ct, None
-        if ev in EVENTOS_JUROS_TARIFA and self.fixas.get(f'JUROS_TARIFAS:{cb}'):
-            return self.fixas[f'JUROS_TARIFAS:{cb}'], None
         if ev in self.eventos_de_contrato:
             return None, 'contrato_sem_conta'
         cfg = self.eventos.get(ev)
         if not cfg or not cfg.get('contabiliza_provisao'):
             return None, 'evento_sem_config'
         if cfg['contabiliza_provisao'] == 'SIM':
-            return self.fornecedor, None
+            return self.fornecedor, None     # a despesa já entrou na competência
+        if ev in EVENTOS_JUROS_TARIFA and self.fixas.get(f'JUROS_TARIFAS:{cb}'):
+            return self.fixas[f'JUROS_TARIFAS:{cb}'], None
         return (cfg.get('conta_debito'), None) if cfg.get('conta_debito') else (None, 'evento_sem_conta')
 
     # -- 1. despesa por competência ----------------------------------------
@@ -439,11 +484,13 @@ class Gerador:
             if not cfg.get('conta_debito'):
                 self._pendencia('despesa', 'evento_sem_conta', valor, data_, ident)
                 continue
+            conta = cfg['conta_debito']
+            if ev in EVENTOS_JUROS_TARIFA and d.get('liq_ban'):
+                # tarifa paga pela Pecúnia: a despesa é a 374 (ver EVENTOS_JUROS_TARIFA)
+                cb = chave_banco(d.get('liq_ban'), d.get('liq_agen'), d.get('liq_ctacorrent'))
+                conta = self.fixas.get(f'JUROS_TARIFAS:{cb}') or conta
             self._lanca('despesa', data_, [(
-                'principal', cfg['conta_debito'], self.fornecedor, valor,
-                f"NF {d.get('nfiscal') or '-'} DE {d.get('nome_fornecedor') or ''} - "
-                f"{d.get('descr_evento') or ''} - {norm_num(d.get('numlancto'))}/"
-                f"{norm_num(d.get('parcela'))}")],
+                'principal', conta, self.fornecedor, valor, complemento_477(d))],
                 {'fonte': '477', 'chave': ident, 'ref': d.get('REF')}, ident, valor)
 
     # -- 2. pagamento (456 CPG) e 3. lote RET BCO ---------------------------
@@ -461,8 +508,7 @@ class Gerador:
         if (juros and not cj) or (desc and not cd):
             self._pendencia(tipo, 'conta_fixa_ausente', pago, data_, ident, 'JUROS_PAGOS/DESCONTOS_OBTIDOS')
             return False
-        base = (f"{norm_num(d.get('numlancto'))}/{norm_num(d.get('parcela'))} DE "
-                f"{d.get('nome_fornecedor') or ''} - {d.get('descr_evento') or ''}")
+        base = complemento_477(d)
         return self._lanca(tipo, data_, [
             ('principal', conta, cod_banco, pago, base),
             ('juros', cj, conta, juros, 'JUROS ' + base),
@@ -671,12 +717,16 @@ class Gerador:
 
     # -- saída ----------------------------------------------------------------
     def texto(self):
-        partes = []
+        """O arquivo no leiaute do Domínio (ver o topo): o |0000| com o CNPJ uma
+        vez e, para cada lançamento, o |6000|X|||| que o abre e o |6100| com a
+        partida. Os três campos vazios do fim do |6100| e os do |6000| são como no
+        modelo do escritório. Só ASCII — o complemento já sai limpo de _lanca."""
+        partes = [f'|0000|{CNPJ_RIZZA}|']
         for l in sorted(self.lancamentos, key=lambda x: (x['data'], x['tipo'])):
-            partes.append('X')
-            partes.append(f"Z;{l['data'].strftime('%d/%m/%Y')};{l['debito']};{l['credito']};"
-                          f"{valor_br(l['valor'])};{HISTORICO};{l['complemento']}")
-        return '\r\n'.join(partes) + ('\r\n' if partes else '')
+            partes.append('|6000|X||||')
+            partes.append(f"|6100|{l['data'].strftime('%d/%m/%Y')}|{l['debito']}|{l['credito']}|"
+                          f"{valor_br(l['valor'])}|{HISTORICO}|{l['complemento']}||||")
+        return '\r\n'.join(partes) + '\r\n'
 
 
 def resumir(g, fora, conferencias):

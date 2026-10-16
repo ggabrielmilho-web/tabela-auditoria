@@ -5478,15 +5478,25 @@ def _select_extrato(filtro):
 #      SALDO CTRB", "CANC PAGAMENTO DO VALEPEDAGIO CTRB", os estornos…) -> acerto
 #      de pagamento de CTRB. O CTRB é despesa dos eventos 5101/5102, PROVISÃO =
 #      SIM -> fornecedores (506); o pago por CPG já entra pelo 477 (3.840 linhas).
+#
+# 16/10/2026 — duplicata descontada paga pelo cliente (arquivo de julho do
+# escritório): a FATURA A DÉBITO (FAT negativo) vai à 591 e o "CREDITO VIA RET
+# BCO" DIGITADO (MAN, não estorno) à 504. Com as pontas de volta (o estorno do
+# digitado e a entrada da fatura), o par fica D 591 / C 504 — antes as duas
+# pontas iam à mesma conta e se anulavam. O RET BCO do banco (BCO) e os estornos
+# continuam na 591 (contabil_gerador.CONTRAPARTIDA).
 _SWITCH_REGRA_456 = f"""SWITCH(TRUE(),
     {_T456}[transferencia_interna] = TRUE(), "TRANSFERENCIA",
     {_T456}[orig] = "CPG" && NOT ISBLANK({_T456}[ref_477_numlancto]), "477 (evento)",
+    {_T456}[orig] = "FAT" && {_T456}[valor] < 0, "FAT DESCONTADA",
     {_T456}[orig] = "FAT", "CLIENTE",
     {_T456}[orig] = "ACN", "ADTO CLIENTE",
     {_T456}[orig] = "MAN" && SEARCH("CTRB", {_T456}[historico], 1, 0) > 0, "ACERTO CTRB",
     LEFT({_T456}[historico], 6) = "DEBITO"
         && SEARCH("VIA RET BCO", {_T456}[historico], 1, 0) > 0, "RET BCO DEBITO",
     SEARCH("VIA RET BCO-NAO LOCALIZOU", {_T456}[historico], 1, 0) > 0, "RET BCO SEM FATURA",
+    {_T456}[orig] = "MAN" && LEFT({_T456}[historico], 7) <> "ESTORNO"
+        && SEARCH("VIA RET BCO", {_T456}[historico], 1, 0) > 0, "RET BCO MANUAL",
     SEARCH("VIA RET BCO", {_T456}[historico], 1, 0) > 0, "RET BCO CREDITO",
     LEFT({_T456}[historico], 4) = "FDBI", "DESC DUPLICATA",
     LEFT({_T456}[historico], 7) = "ESTORNO"
@@ -6320,7 +6330,8 @@ import contabil_gerador as _cg
 
 _T477 = "'public consulta_despesas_477'"
 _COLS_477 = ['uni', 'numlancto', 'parcela', 'evento', 'descr_evento', 'nome_fornecedor',
-             'nfiscal', 'vlr_parcela', 'juros', 'descontos', 'vlr_final', 'contabil', 'REF']
+             'nfiscal', 'vlr_parcela', 'juros', 'descontos', 'vlr_final', 'contabil', 'REF',
+             'historico_despesa']   # o complemento no padrão do escritório (16/10/2026)
 _COLS_477_LIQ = _COLS_477 + ['liq_ban', 'liq_agen', 'liq_ctacorrent', 'liq_valor',
                              'liq_data_extrato', 'liq_formaliquid']
 _COLS_456_ARQ = ['conta_apelido', 'banco', 'agencia', 'conta', 'data', 'orig', 'nlanca',
@@ -6379,8 +6390,9 @@ def gerar_arquivo_contabil(mes):
     plano, eventos, contratos, fixas = _config_para_gerador()
     g = _cg.Gerador(mes, plano, eventos, contratos, fixas)
 
-    # 1. despesa por competência (REF é texto: igualdade exata, com a trava de tamanho)
-    desp = _dax_477(f'{_T477}[REF] = "{ref}" && LEN({_T477}[REF]) = 7', _COLS_477)
+    # 1. despesa por competência (REF é texto: igualdade exata, com a trava de tamanho).
+    #    Com a liquidação: a tarifa paga pela Pecúnia vai na 374 já na competência.
+    desp = _dax_477(f'{_T477}[REF] = "{ref}" && LEN({_T477}[REF]) = 7', _COLS_477_LIQ)
     g.despesas(desp)
 
     # 2. o 456 do mês, já com a regra — com conferência de integridade
@@ -6601,7 +6613,9 @@ def api_contabil_arquivo_download():
         if not resumo['ok']:
             return jsonify({'ok': False, 'error': 'Conferência falhou — o arquivo não foi gerado. '
                                                   'Veja a prévia.'}), 409
-        return Response(g.texto().encode('utf-8'), mimetype='text/plain; charset=utf-8',
+        # ASCII: o complemento já sai sem acento (contabil_gerador._complemento) —
+        # se algo escapar, o erro aparece aqui e não no Domínio.
+        return Response(g.texto().encode('ascii'), mimetype='text/plain; charset=us-ascii',
                         headers={'Content-Disposition':
                                  f'attachment; filename="importacao_contabil_{mes}.txt"'})
     except Exception as e:

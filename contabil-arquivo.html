@@ -129,14 +129,16 @@
   </div>
 
   <div class="faixa aviso">
-    <strong>Para validar no 1º teste com a contabilidade.</strong> Entram a despesa por competência, o pagamento
-    a fornecedor (com juros e desconto; os lotes "DEBITO VIA RET BCO" detalhados pelo 477), as transferências
-    entre contas próprias, o recebimento (504), o adiantamento de cliente (844), o desconto de duplicata (591) e os
-    juros/descontos das faturas (441) — contas confirmadas pela contabilidade em 14/10. O lançamento manual que
-    nenhuma regra reconhece fica em "Fora do arquivo": clique para ver cada um e classificar — só ele, ou sempre que
-    o histórico tiver um trecho (vale para os meses seguintes). Lançamento desfeito no mesmo mês (o original e o
-    estorno dele) se anula e não entra. Ainda provisórios: o texto do complemento, a data da despesa (data contábil
-    do 477 quando cai no mês, senão o último dia) e a codificação UTF-8.
+    <strong>Leiaute de importação do Domínio</strong> (modelo do escritório, 16/10): <span class="mono">|0000|</span>
+    com o CNPJ, <span class="mono">|6000|X</span> e <span class="mono">|6100|</span> por lançamento, histórico 107,
+    texto sem acento. Entram a despesa por competência, o pagamento a fornecedor (com juros e desconto; os lotes
+    "DEBITO VIA RET BCO" detalhados pelo 477), as transferências entre contas próprias, o recebimento (504), o
+    adiantamento de cliente (844), o desconto de duplicata (591) — com a duplicata descontada paga pelo cliente
+    baixando a 504 contra a 591 — e os juros/descontos das faturas (441). O lançamento manual que nenhuma regra
+    reconhece fica em "Fora do arquivo": clique para ver cada um e classificar — só ele, ou sempre que o histórico
+    tiver um trecho (vale para os meses seguintes). Lançamento desfeito no mesmo mês (o original e o estorno dele)
+    se anula e não entra. Ainda provisória: a data da despesa por competência (data contábil do 477 quando cai no
+    mês, senão o último dia).
   </div>
 
   <div id="saida"><div class="status-box">Escolha o mês e clique em <strong>Gerar prévia</strong>.
