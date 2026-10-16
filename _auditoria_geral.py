@@ -64,6 +64,7 @@ cn = psycopg2.connect(host=os.getenv('DB_HOST'), port=os.getenv('DB_PORT'), dbna
                       user=os.getenv('DB_USER'), password=os.getenv('DB_PASSWORD'))
 cur = cn.cursor()
 import embarques_continuacao as _ec
+import embarques_ancora as _anc
 
 cur.execute("""SELECT c.id,c.numero,c.status,c.encerrada_motivo,COALESCE(c.entregue_auto,FALSE),
                       COALESCE(c.saida_auto,FALSE),c.data_carregamento,c.data_saida_real,
@@ -537,6 +538,20 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
                 else:
                     saiu_dst = next((d for d, k in depois if k > RAIO_ORIGEM), None)
                 esperados = [x for x in (saiu_dst, cheg + timedelta(hours=DWELL_H)) if x]
+                # CONCLUSÃO PELO CLIENTE (EMBARQUES_ANCORA_FECHA, 16/10/26) — a régua do motor: com o cliente provado, a
+                # saída do cliente (sem voltar em 6 h) ou 24 h nele também é instante com lastro. Os campos do cliente são
+                # os que o motor gravou; a série é a mesma que este aferidor usa (`principal`).
+                if _anc.fecha_ligado():
+                    cur.execute("SELECT cliente_chegada_em, cliente_saida_em, ancora_lat, ancora_lng FROM embarques_cargas "
+                                "WHERE id = %s", (cid,))
+                    _r = cur.fetchone()
+                    if _r and _r[0] and _r[2] is not None:
+                        _pl_sens = c1 if papel == 'carreta1' else (c2 if papel == 'carreta2' else cav)
+                        _cc, _ = _anc.conclusao_pelo_cliente({'cliente_chegada_em': _r[0], 'cliente_saida_em': _r[1]},
+                                                             {'lat': float(_r[2]), 'lng': float(_r[3])}, principal,
+                                                             fim_janela=_fim_de(_pl_sens), agora=HOJE)
+                        if _cc:
+                            esperados.append(_cc)
                 erro = min(abs((conc - e).total_seconds()/3600) for e in esperados)
                 if erro > TOL_H:
                     ref = 'saida do destino' if saiu_dst and abs((conc-saiu_dst).total_seconds()/3600) == erro \

@@ -68,6 +68,13 @@ PARADAS_GR = fontes_gps.paradas_gr_ligado()
 # dos de hoje ("No cliente desde", "Saiu do cliente", "Na região do cliente"). Nunca toca saída, chegada, conclusão
 # ou status. Desligada, nada aqui roda e a leitura é a de sempre (E0).
 import embarques_ancora as _anc
+
+
+def _editada_a_mao(cur, carga_id):
+    """Alguém de verdade mexeu na carga (log com usuário: edição na tela, "confirmar entrega"). Não é a lista de
+    autores da reconciliação: as correções por script ("Correção placa SSW", 506 cargas) não são pessoa."""
+    cur.execute("SELECT 1 FROM embarques_cargas_log WHERE carga_id = %s AND usuario_id IS NOT NULL LIMIT 1", (carga_id,))
+    return cur.fetchone() is not None
 ANCORA = _anc.ligado()
 import re as _re
 
@@ -505,6 +512,21 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
             n_cheg, como_cheg = _c_gr, 'parada_gr'
             resumo['chegada pela parada da GR (coleta comecou no destino)'] += 1
 
+    # ── ÂNCORA ANTES DA CONCLUSÃO (EMBARQUES_ANCORA_FECHA, 16/10/26): quando o cliente fecha a carga, a âncora tem de
+    # existir antes da régua da conclusão. A MESMA conta do bloco do fim (que a reaproveita), com a saída que vai ficar
+    # gravada. Destino em EMBARQUES_ANCORA_CIDADES_FORA (Uberlândia) não tem âncora.
+    _anc_pre = None
+    if ANCORA and _anc.fecha_ligado() and not vazia and dla is not None and cid in _ANC:
+        _x = _ANC[cid]
+        _sp = n_saida if (n_saida and (not dsaida or _saida_corrigida or _saida_perna)) else dsaida
+        _c = {'id': cid, 'dcnpj': _x['dcnpj'], 'tomador': _x['tomador'], 'dcid': dcid, 'duf': duf,
+              'dlat': float(dla), 'dlng': float(dln), 'carreg': dcarg, 'ocid': ocid, 'ouf': ouf, 'saida': _sp}
+        if _anc.cidade_fora(dcid, duf):
+            _anc_pre = (None, _anc.eventos(_c, pts, None))
+        else:
+            _a = _anc.ancora_da_carga(cur, _c)
+            _anc_pre = (_a, _anc.eventos(_c, pts, _a))
+
     # ── ENTREGA: saiu do destino, ou ficou DWELL_H nele
     n_conc, n_motivo = None, None
     if n_cheg:
@@ -542,6 +564,32 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
             n_conc, n_motivo = saiu_dst, 'gps_saiu_do_destino'
         elif (ultima - n_cheg).total_seconds()/3600 >= DWELL_H:
             n_conc, n_motivo = n_cheg + timedelta(hours=DWELL_H), 'gps_dwell_destino'
+
+    # ── CONCLUSÃO PELO CLIENTE (EMBARQUES_ANCORA_FECHA, 16/10/26). Com o cliente PROVADO a régua da cidade não decide:
+    # a conclusão é a saída do cliente (sem voltar em 6 h) ou 24 h nele — e enquanto nenhuma das duas pode ser
+    # afirmada, nada (a cidade fechava antes de chegar no cliente: posto à espera do agendamento a 15 km, cidade
+    # vizinha — C-1577, C-1022, C-899; ou com o caminhão ainda descarregando). A conclusão pelo cliente que passaria do
+    # começo da carga seguinte do veículo não vale (a carreta largada no cliente — C-821, C-851): fica a de sempre.
+    _pelo_cliente = False
+    if _anc_pre and _anc_pre[1].get('cliente_chegada_em'):
+        _ca = _anc_pre[1]['cliente_chegada_em']
+        _cc, _mc = _anc.conclusao_pelo_cliente(_anc_pre[1], _anc_pre[0], pts,
+                                               fim_janela=_fim_de(sensor.split(':', 1)[1]), agora=HOJE)
+        _lim_cli = regua.limite_conclusao(_por_veic, [pl.mercosul(p) for p in (c1, c2) if p]
+                                          or ([pl.mercosul(cav)] if cav else []), dcarg, cid)
+        if _cc is not None and _lim_cli and _cc > _lim_cli + timedelta(minutes=15):
+            resumo['conclusao pelo cliente passaria da carga seguinte (ignorada)'] += 1
+        elif _cc is not None:
+            n_conc, n_motivo = _cc, _mc
+            _pelo_cliente = True
+            resumo['conclusao pelo cliente'] += 1
+        else:
+            # ainda não dá para afirmar pelo cliente: a régua da cidade vale como PROVISÓRIA, desde que não feche antes
+            # de ele chegar no cliente (o posto à espera do agendamento). Sem isto a espera apagava a correção de hoje
+            # (C-2026-000570 ficava na conclusão do worker; desligada, a "travada" a levava para a saída do destino).
+            if n_conc is not None and n_conc < _ca:
+                n_conc, n_motivo = None, None
+            resumo['cliente provado: conclusao aguarda (saida em observacao ou < 24 h)'] += 1
 
     # ── SM DA INSIGNIA ENCERRADA E A PLACA MUDOU (06/10/26) — atrás de EMBARQUES_SM_ENCERRAMENTO.
     # As duas regras acima precisam VER um ponto depois da chegada. Carga rastreada pela
@@ -732,7 +780,15 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
         _dwell_velho = (PARADAS_GR and como_cheg == 'parada_gr' and nolocal is not None
                         and motivo == 'gps_dwell_destino' and n_conc != dconc
                         and abs(dconc - (nolocal + timedelta(hours=DWELL_H))) <= timedelta(minutes=1))
-        if _travada:
+        # CONCLUSÃO PELO CLIENTE (EMBARQUES_ANCORA_FECHA): é a entrega provada no lugar dela — reescreve a gravada pela
+        # régua da cidade (fechou antes de chegar no cliente, ou com ele ainda descarregando, ou horas depois de ele já
+        # ter saído). Carga editada à mão (por pessoa) não se toca.
+        _cli = (_pelo_cliente and abs((dconc - n_conc).total_seconds()) > 15 * 60
+                and not _editada_a_mao(cur, cid))
+        if _cli:
+            campos['data_conclusao'] = n_conc
+            resumo['conclusao pelo cliente: reescrita'] += 1
+        elif _travada:
             campos['data_conclusao'] = n_conc
             resumo['conclusao travada na chegada: reescrita'] += 1
         elif _fora_veic:
@@ -894,8 +950,14 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
         _c = {'id': cid, 'dcnpj': _x['dcnpj'], 'tomador': _x['tomador'], 'dcid': dcid, 'duf': duf,
               'dlat': float(dla), 'dlng': float(dln), 'carreg': dcarg, 'ocid': ocid, 'ouf': ouf,
               'saida': campos.get('data_saida_real', dsaida)}
-        _a = _anc.ancora_da_carga(cur, _c)
-        _novo = dict(_anc.eventos(_c, pts, _a),
+        # já calculada antes da conclusão (EMBARQUES_ANCORA_FECHA) — a mesma, para o campo e a conclusão não divergirem;
+        # destino em EMBARQUES_ANCORA_CIDADES_FORA (Uberlândia, 16/10/26) fica sem âncora e sem os campos do cliente
+        if _anc_pre is not None:
+            _a, _ev_a = _anc_pre
+        else:
+            _a = None if _anc.cidade_fora(dcid, duf) else _anc.ancora_da_carga(cur, _c)
+            _ev_a = _anc.eventos(_c, pts, _a)
+        _novo = dict(_ev_a,
                      ancora_tipo=_a['tipo'] if _a else None,
                      ancora_lat=round(_a['lat'], 6) if _a else None,
                      ancora_lng=round(_a['lng'], 6) if _a else None)

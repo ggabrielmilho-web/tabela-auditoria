@@ -9394,6 +9394,7 @@ def api_rastreamento_trajeto(carga_id):
         # (onde ele parou ~1h no destino; senão, maior aproximação dentro do raio) — NÃO pelo
         # horário no_local_desde, que o 3S pode ter cravado a 100+ km por mentir o nome da
         # cidade. Assim o trajeto NUNCA "volta" ao finalizar. Chegada correta fica igual.
+        _no_cliente_corte = [False]      # o desenho terminou no cliente provado (EMBARQUES_ANCORA_FECHA)
         if carga.get('status') == 'Entregue' and destinos:
             _dfin = destinos[-1]
             _dla, _dln = _dfin.get('latitude'), _dfin.get('longitude')
@@ -9417,8 +9418,33 @@ def api_rastreamento_trajeto(carga_id):
                     if (_olat is not None and _dla is not None) else None)
             _raio_dest = (min(RAIO_CHEGADA_DESTINO_KM, _dod / RAIO_CHEGADA_FATOR)
                           if _dod is not None and _dod > 0 else RAIO_CHEGADA_DESTINO_KM)
+            # CLIENTE PROVADO (EMBARQUES_ANCORA_FECHA, 16/10/26): o desenho termina na chegada ao CLIENTE — o primeiro
+            # ponto a <= 2 km do ponto dele a partir de "no cliente desde" —, não na 1a parada dentro do raio da cidade.
+            # A C-2026-001611 terminava em Hidrolândia, 17 km antes do cliente, com "faltam 17 km" numa carga entregue:
+            # o cavalo (Autotrac) manda 0 km/h em todo ponto, e o 1o ponto no raio já "parava" 1 h.
+            import embarques_ancora as _anc_mod
+            _cli_corte = None
+            if _anc_mod.fecha_ligado():
+                try:
+                    cur.execute("SELECT cliente_chegada_em, ancora_lat, ancora_lng FROM embarques_cargas WHERE id=%s",
+                                (carga_id,))
+                    _rcc = cur.fetchone()
+                    if _rcc and _rcc[0] and _rcc[1] is not None:
+                        _cli_corte = (_rcc[0], float(_rcc[1]), float(_rcc[2]))
+                except Exception:
+                    _cli_corte = None
             if _dla is not None and _dln is not None:
                 def _corta_chegada(traj):
+                    if _cli_corte:
+                        for _i, _p in enumerate(traj):
+                            try:
+                                _tp = _dt.fromisoformat(str(_p['data']).replace('Z', ''))
+                            except Exception:
+                                continue
+                            if _tp >= _cli_corte[0] and (_ggd.km_entre(_p['lat'], _p['lng'], _cli_corte[1], _cli_corte[2])
+                                                         or 9e9) <= _anc_mod.R_CHEGADA_KM:
+                                _no_cliente_corte[0] = True
+                                return traj[:_i + 1]
                     idx = _indice_chegada_destino(traj, _dla, _dln, raio_km=_raio_dest)
                     return traj[:idx + 1] if idx is not None else traj
                 traj_cavalo = _corta_chegada(traj_cavalo)
@@ -9652,6 +9678,10 @@ def api_rastreamento_trajeto(carga_id):
         km_total = float(carga['distancia_planejada_km']) if carga.get('distancia_planejada_km') is not None else None
         dur_total = carga.get('duracao_estimada_min')
         km_restante = _km_restante(carga.get('rota_planejada_polyline'), pos_la, pos_ln)
+        # Entregue com o desenho terminando no CLIENTE provado: não falta nada. Projetar o ponto do cliente na rota (que
+        # acaba no centro da cidade) dava "faltam 31 km" a um cliente da periferia (C-2026-001018, lab de 16/10).
+        if _no_cliente_corte[0]:
+            km_restante = 0.0
         if km_restante is None:
             # Sem polyline não dá para projetar a posição na rota. Mas se a carga JÁ
             # CHEGOU, o que falta é zero — cair para a distância total faz a tela dizer

@@ -311,6 +311,34 @@ def _n_ciclos_fora_raio(cur, placa, centroide, raio_km, n):
     return True
 
 
+SAIDA_DESTINO_RAIO = os.getenv('EMBARQUES_WORKER_SAIDA_RAIO', 'false').strip().lower() == 'true'
+
+
+def _saiu_do_destino_raio(cur, placa, centroide, desde, pos_lat, pos_lng):
+    """"Saiu do destino" pela régua do MOTOR (`embarques_regua.saida_do_destino`, EMBARQUES_WORKER_SAIDA_RAIO, 16/10/26):
+    o raio é relativo a onde ele parou — max(30, km do ponto mais perto do destino desde a chegada + 10) — e o nome da
+    cidade não conta. A régua do nome ("cidade diferente e > 5 km", fa5e98a de 11/06) fechava a carga no mesmo minuto em
+    que ela chegava numa cidade VIZINHA dentro dos 20 km (desde 7eaae4a, 08/07, a chegada é por distância): no lab de
+    16/10, 35 de 341 cargas fechadas antes de chegar no cliente e 24 com ele descarregando; por esta régua, 0 e 0.
+    Só sai quem ESTEVE: sem ponto desta placa desde a chegada, não fecha — a C-2026-001611 fechou pela última posição
+    da carreta, 42 km ANTES do destino, de antes de ela chegar (a carreta calou; o cavalo é que chegou)."""
+    if centroide[0] is None or desde is None:
+        return False
+    cur.execute(f"""SELECT latitude, longitude FROM {fontes_gps.historico(cur)} h
+                     WHERE placa = ANY(%s) AND data_posicao >= %s""", (placas.grafias(placa), desde))
+    ks = [geocoding.km_entre(float(la), float(ln), centroide[0], centroide[1]) for la, ln in cur.fetchall()
+          if la is not None and ln is not None]
+    ks = [k for k in ks if k is not None]
+    if not ks:
+        return False
+    import embarques_regua as _regua          # import local, como o `_lado_destino`
+    raio = max(_regua.RAIO_SAIDA_DESTINO, min(ks) + 10.0)
+    d = geocoding.km_entre(pos_lat, pos_lng, centroide[0], centroide[1])
+    if d is None or d <= raio:
+        return False
+    return _n_ciclos_fora_raio(cur, placa, centroide, raio, CICLOS_CONFIRMACAO)
+
+
 def _lado_destino(d_dest, lat, lng, centroide_origem):
     """Distancia ao destino com o LADO DA PERNA aplicado — a MESMA regua do motor
     (embarques_regua.lado, atras de EMBARQUES_RAIO_PERNA). Numa perna curta o patio da
@@ -721,7 +749,11 @@ def _processar_cargas(cur):
         # GUARDA: só finaliza com a placa rastreada (carreta) FRESCA. Carreta muda → não fecha
         # (cai no alerta/finalização manual), pra não fechar errado por posição velha ou desengate.
         if status in ('Em rota', 'No destino', 'Desengatada') and no_local_desde is not None and placa_fresca:
-            if _saiu_da_cidade(cur, placa, pos_cidade, dest_cidade, dest_uf, centroide_dest, RAIO_SAIDA_DESTINO_KM):
+            # EMBARQUES_WORKER_SAIDA_RAIO (16/10/26): a régua do motor, sem o nome da cidade — ver `_saiu_do_destino_raio`
+            _saiu_dst = (_saiu_do_destino_raio(cur, placa, centroide_dest, no_local_desde, pos_lat, pos_lng)
+                         if SAIDA_DESTINO_RAIO else
+                         _saiu_da_cidade(cur, placa, pos_cidade, dest_cidade, dest_uf, centroide_dest, RAIO_SAIDA_DESTINO_KM))
+            if _saiu_dst:
                 # GUARDA: só é "saída do destino" se a carreta REALMENTE esteve no destino.
                 # Senão (carreta reaparece longe sem nunca ter chegado — ex.: chegada veio do
                 # cavalo, ou ping de reconexão), não fecha; fica pro alerta/finalização manual.

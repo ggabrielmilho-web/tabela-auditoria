@@ -66,6 +66,29 @@ def geocodar_ligado():
             and bool(os.getenv('GOOGLE_MAPS_API_KEY')))
 
 
+def fecha_ligado():
+    """`EMBARQUES_ANCORA_FECHA=true` (16/10/26): com o cliente PROVADO, a conclusão é a saída do cliente ou 24 h nele
+    (o que vier primeiro) — nunca antes de chegar nele. Exige a âncora ligada. Medido no lab de 16/10 (estudo
+    `_estudo_2026-10-16/LISTA.md`): sem Uberlândia, 99 melhoram, 4 regridem (2 a trava da carga seguinte já pega)."""
+    return ligado() and os.getenv('EMBARQUES_ANCORA_FECHA', 'false').strip().lower() == 'true'
+
+
+def cidades_fora():
+    """`EMBARQUES_ANCORA_CIDADES_FORA` = "UBERLANDIA/MG,..." — destinos onde a âncora não vale: nem os campos do
+    cliente nem o fechamento por ele. Uberlândia é a cidade da Rizza: oficina, manobra, pátio, "pode ser de tudo"
+    (Gabriel, 16/10/26) — parada perto do cliente lá não prova entrega. Vazia = nenhuma (o de antes)."""
+    out = set()
+    for x in os.getenv('EMBARQUES_ANCORA_CIDADES_FORA', '').split(','):
+        if '/' in x:
+            c, u = x.rsplit('/', 1)
+            out.add((_sem_acento(c), u.strip().upper()))
+    return out
+
+
+def cidade_fora(cidade, uf):
+    return (_sem_acento(cidade), (uf or '').strip().upper()) in cidades_fora()
+
+
 DDL = """
 CREATE TABLE IF NOT EXISTS embarques_ancora_provas (
     carga_id     INTEGER NOT NULL,
@@ -586,6 +609,77 @@ def eventos(c, pts, anc):
                 ev['cliente_saida_em'] = T[k - 1][0]
                 break
     return ev
+
+
+FECHA_OBSERVA_H = 6.0     # a saída do cliente só fecha a carga se o caminhão não voltar a ele em 6 h
+FECHA_DWELL_H = 24.0      # "fica 24 h no destino" (a régua de sempre), contada da chegada no CLIENTE
+
+
+def _voltou(T, alvo, t0, horas):
+    """depois de t0 + 30 min e até t0 + horas: bloco >= 30 min a <= R_CHEGADA_KM do cliente"""
+    blk = []
+    for p in T:
+        if p[0] <= t0 + timedelta(minutes=OBSERVA_MIN):
+            continue
+        if p[0] > t0 + timedelta(hours=horas):
+            break
+        if km(p[1], p[2], alvo[0], alvo[1]) <= R_CHEGADA_KM:
+            blk.append(p[0])
+            if blk[-1] - blk[0] >= timedelta(minutes=30):
+                return True
+        else:
+            blk = []
+    return False
+
+
+def conclusao_pelo_cliente(ev, anc, pts, fim_janela=None, agora=None):
+    """(instante, motivo) da conclusão pelo cliente provado, ou (None, None) se ainda não dá para afirmar.
+
+    A régua de sempre ("sai do destino OU fica 24 h nele, o que vier primeiro", §4.3) com o destino trocado pelo
+    CLIENTE: a saída do cliente (`ev['cliente_saida_em']`), se nas FECHA_OBSERVA_H seguintes ele não voltou ao cliente
+    (lab de 16/10: o caminhão que se afasta 3 km para estacionar ou fazer fila e volta para descarregar fechava na
+    hora errada — C-835, C-818); ou a chegada no cliente + 24 h, quando as 24 h foram observadas (a carreta que fica
+    dias largada no cliente fechava dias depois — C-1452). Sem as horas de observação, nada: a próxima rodada decide.
+    Motivos com o prefixo 'gps_' — é entrega provada pelo GPS (`entregue_auto`)."""
+    ca = ev.get('cliente_chegada_em')
+    if not (ca and anc and pts):
+        return None, None
+    alvo = (anc['lat'], anc['lng'])
+    T = limpa_d2b(pts)
+    if not T:
+        return None, None
+    ult = T[-1][0]
+    fim24 = ca + timedelta(hours=FECHA_DWELL_H)
+    # a 1a saída (> R_SAIDA_KM) que NÃO volta ao cliente em FECHA_OBSERVA_H — pulando as idas e vindas (sai às 4 h para
+    # estacionar, volta às 6 h, descarrega e sai de vez às 10 h: a saída é a das 10 h). O campo "Saiu do cliente" segue
+    # a 1a saída (`eventos`); a conclusão pede mais prova.
+    cands, esteve = [], False
+    for k, p in enumerate(T):
+        if p[0] < ca:
+            continue
+        d = km(p[1], p[2], alvo[0], alvo[1])
+        if d <= R_CHEGADA_KM:
+            esteve = True
+            continue
+        if d <= R_SAIDA_KM or not esteve or k == 0:
+            continue
+        cs = T[k - 1][0]
+        if cs >= fim24:
+            break
+        # janela CORTADA pela carga seguinte do veículo (`fim_janela` < agora): não haverá mais prova — e a carreta ter
+        # começado outra carga já diz que ela foi embora. Vale o que se viu até o corte (C-2026-000570: saiu do
+        # cliente às 20:11, a carga seguinte abre à meia-noite, as 6 h nunca vinham e a conclusão ficava presa na
+        # do worker, 1 min depois da chegada na cidade vizinha).
+        cortada = fim_janela is not None and agora is not None and fim_janela < agora
+        if ult < p[0] + timedelta(hours=FECHA_OBSERVA_H) and not cortada:
+            return None, None              # a saída ainda está em observação: não fecha nas 24 h por cima dela
+        if not _voltou(T, alvo, cs, FECHA_OBSERVA_H):
+            cands.append((cs, 'gps_saiu_do_cliente'))
+            break
+        esteve = False                     # voltou: a próxima saída só conta depois de estar de novo no cliente
+    if ult >= fim24:
+        cands.append((fim24, 'gps_24h_no_cliente'))
+    return min(cands) if cands else (None, None)
 
 
 # ── 4. O PREPARO DE CADA RODADA DO MOTOR ────────────────────────────────────────────────────────────────────────
