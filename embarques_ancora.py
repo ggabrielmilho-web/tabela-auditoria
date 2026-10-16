@@ -149,8 +149,12 @@ def garantir_colunas(cur):
 
 
 def colunas_existem(cur):
-    cur.execute("SELECT count(*) FROM information_schema.columns WHERE table_name = 'embarques_cargas' "
-                "AND column_name = ANY(%s)", (list(CAMPOS),))
+    """As 6 colunas do cliente existem na `embarques_cargas` DESTE schema. O schema importa: o snapshot
+    (`_snapshot_embarques.py criar`) copia a tabela para `snap_AAAAMMDD_HHMM` e, sem o filtro, a contagem dava 12 —
+    o motor lia os campos como vazios e regravava os 316 com o mesmo valor a cada rodada (o ciclo pós-refresh nunca
+    chegava ao zero) e as telas escondiam a coluna "No cliente" (produção, 16/10/26, depois do snapshot das 18 h)."""
+    cur.execute("SELECT count(*) FROM information_schema.columns WHERE table_schema = current_schema() "
+                "AND table_name = 'embarques_cargas' AND column_name = ANY(%s)", (list(CAMPOS),))
     return cur.fetchone()[0] == len(CAMPOS)
 
 
