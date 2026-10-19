@@ -67,6 +67,7 @@ KM_DIA_IMPLAUSIVEL = float(os.getenv('RASTREAMENTO_KM_DIA_MAX', '2500'))
 _running = False
 _thread = None
 _ultima_retencao = None
+_ultima_marca_odometro = None   # odometro travado na 3S (1x por hora)
 _logger = logging.getLogger('rastreamento_worker')
 
 
@@ -999,6 +1000,12 @@ def _deve_rodar_retencao():
     return (datetime.utcnow() - _ultima_retencao).total_seconds() > 86400  # 1×/dia
 
 
+def _deve_marcar_odometro():
+    if _ultima_marca_odometro is None:
+        return True
+    return (datetime.utcnow() - _ultima_marca_odometro).total_seconds() > 3600  # 1×/hora
+
+
 # ── Backfill do histórico (/HistoricoPosicao) ────────────────────────
 #
 # Por que existe: /ListaUltimaPosicaoVeiculos devolve só o ÚLTIMO ponto. Se o
@@ -1293,7 +1300,7 @@ def _loop_backfill():
 # ── Loop principal ───────────────────────────────────────────────────
 
 def _ciclo():
-    global _ultima_retencao
+    global _ultima_retencao, _ultima_marca_odometro
     _logger.info(f'Worker iniciado (modo_simulado={tres_s_client.is_modo_simulado()}, intervalo={INTERVALO_SEG}s)')
 
     while _running:
@@ -1360,6 +1367,22 @@ def _ciclo():
                     # Marcada MESMO se falhou: o retry certo e amanha, nao daqui a 60s. Foi o
                     # retry a cada ciclo que espalhou o estrago para o dia inteiro.
                     _ultima_retencao = datetime.utcnow()
+
+                # Odometro travado na 3S (EMBARQUES_ODOMETRO_TRAVADO_3S, 19/10/26): marca/desmarca 1x por hora,
+                # na propria transacao — falha aqui nao toca posicao, carga nem consolidacao.
+                if fontes_gps.odometro_travado_3s_ligado() and _deve_marcar_odometro():
+                    cur = conn.cursor()
+                    try:
+                        m, d = fontes_gps.marcar_odometro_3s(cur)
+                        conn.commit()
+                        if m or d:
+                            _logger.warning(f'Odometro travado na 3S: marcadas {m} · desmarcadas {d}')
+                    except Exception:
+                        conn.rollback()
+                        _logger.exception('Falha ao marcar odometro travado — o ciclo segue')
+                    finally:
+                        cur.close()
+                    _ultima_marca_odometro = datetime.utcnow()   # mesmo na falha (a licao da retencao)
             finally:
                 conn.close()
 

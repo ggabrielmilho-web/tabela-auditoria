@@ -95,6 +95,166 @@ def _sql_odometro(cur):
             f"WHEN {tec} = 'ONIXSAT' THEN i.odometro END)::integer")
 
 
+# ── ODÔMETRO TRAVADO NA 3S (19/10/26, C-2026-001652) — atrás de EMBARQUES_ODOMETRO_TRAVADO_3S.
+#
+# O HGA9547 voltou a falar em 15/09 com o odômetro parado em 1.239.150 — 3.483 posições com o mesmo valor — e
+# manda um ponto por hora mesmo andando. Cada trecho tem 40–80 km, todo trecho > 30 km com Δodo = 0 é "negado
+# pelo odômetro" (`embarques_regua.perna_impossivel`), e o mapa virou uma fileira de bolinhas: 15 quebras, 30 km
+# somados de 678 rodados. A Insignia já tinha a marca (`insignia_placas.odometro_travado`, `_sql_odometro`); a 3S
+# não. Movimento pela velocidade OU pela posição (como a da Insignia desde 14/10). Duas diferenças, as duas
+# medidas no próprio HGA9547:
+#   * conta os pontos andando DESDE A ÚLTIMA MUDANÇA do odômetro (o trecho travado), não "nas últimas 24 h": a
+#     régua da Insignia (20 pontos andando em 24 h) nunca marcaria um aparelho que fala de hora em hora — rodando
+#     9 h no dia, ele junta ~10 pontos andando. Aparelho de 2–5 min é marcado em ~2 h de estrada; o de 1 h, em ~2 dias;
+#   * "andando" é DESLOCAMENTO (> 1 km do ponto anterior), não a velocidade informada: a QXE8460 congelada repetia
+#     "88 km/h" parada em Uberlândia enquanto ia a Serra — aparelho congelado inteiro é caso do tapa, não daqui;
+#   * cada EPISÓDIO fica guardado (desde → até): só se anula o odômetro de dentro dele, e quando o contador volta
+#     a andar a marca ganha o `ate` em vez de sumir (sumindo, o trecho travado voltaria a ser testemunha nas
+#     viagens antigas). A viagem de antes do travamento, que media, continua medindo.
+# Desligada, nada aqui roda.
+TRAVADO_JANELA_H = 168      # até onde a marcação olha para trás (7 dias)
+TRAVADO_MIN_MOV = 20        # pontos andando com o odômetro no MESMO valor para marcar
+TRAVADO_TOL = 1             # leitura a <= 1 km do valor conta como o mesmo (o contador oscila 1 km parado, §10)
+TRAVADO_DESLOC_KM = 1.0     # "andando" = o ponto está a mais disto do anterior
+DDL_TRAVADO_3S = """CREATE TABLE IF NOT EXISTS embarques_odometro_travado (
+    placa         VARCHAR(10) NOT NULL,      -- grafia da 3S (a mesma de embarques_posicoes_historico)
+    desde         TIMESTAMP NOT NULL,        -- 1ª leitura com o valor travado (UTC, como data_posicao)
+    ate           TIMESTAMP,                 -- 1ª leitura com o contador andando de novo; NULL = travado agora
+    valor         BIGINT,                    -- o valor em que parou
+    marcado_em    TIMESTAMP NOT NULL DEFAULT now(),
+    desmarcado_em TIMESTAMP,
+    PRIMARY KEY (placa, desde))"""
+
+
+def odometro_travado_3s_ligado():
+    return os.getenv('EMBARQUES_ODOMETRO_TRAVADO_3S', 'false').strip().lower() == 'true'
+
+
+def _tem_travado_3s(cur):
+    if not _TABELAS.get('trav3s'):
+        cur.execute("SELECT to_regclass('embarques_odometro_travado') IS NOT NULL")
+        _TABELAS['trav3s'] = bool(cur.fetchone()[0])
+    return _TABELAS['trav3s']
+
+
+def _trav3s_ativo(cur):
+    return odometro_travado_3s_ligado() and _tem_travado_3s(cur)
+
+
+def _sql_3s(cur):
+    """O ramo da 3S da série. Com a marca: odômetro NULL a partir do instante em que travou."""
+    if not _trav3s_ativo(cur):
+        return """SELECT id, placa, id_veiculo_3s, data_posicao, latitude, longitude, velocidade, ignicao,
+                       uf, cidade, endereco, odometer, '3s'::varchar(12) AS fonte
+                  FROM embarques_posicoes_historico"""
+    return """SELECT h.id, h.placa, h.id_veiculo_3s, h.data_posicao, h.latitude, h.longitude, h.velocidade, h.ignicao,
+                       h.uf, h.cidade, h.endereco,
+                       CASE WHEN EXISTS (SELECT 1 FROM embarques_odometro_travado t
+                                          WHERE t.placa = h.placa AND h.data_posicao >= t.desde
+                                            AND (t.ate IS NULL OR h.data_posicao < t.ate))
+                            THEN NULL ELSE h.odometer END,
+                       '3s'::varchar(12) AS fonte
+                  FROM embarques_posicoes_historico h"""
+
+
+def marcar_odometro_3s(cur, agora=None):
+    """Marca/desmarca as placas da 3S com o odômetro travado, olhando as últimas TRAVADO_JANELA_H horas. Por placa:
+    o último valor do odômetro e o TRECHO em que ele está nesse valor (desde a última leitura diferente). Abre um
+    episódio com >= TRAVADO_MIN_MOV pontos andando nesse trecho; fecha (`ate`) quando o valor muda. Parada não marca
+    (parada o odômetro não anda mesmo). Devolve (marcadas, desmarcadas) — as placas."""
+    from datetime import datetime as _dt
+    cur.execute(DDL_TRAVADO_3S)
+    _TABELAS['trav3s'] = True
+    agora = agora or _dt.utcnow()
+    # "andando" = deslocou > TRAVADO_DESLOC_KM do ponto anterior a uma velocidade POSSÍVEL (<= teto da régua): o
+    # TYX9F52 parado teleportava Formosa <-> Jaborandi (§23.3) e cada salto falso contava como movimento — o replay
+    # de 01/09 a 19/10 abria 3 episódios falsos nele (15 dos 32 "movimentos" de 05–07/10 eram > 150 km/h).
+    import embarques_regua as _rg
+    cur.execute("""
+        WITH p AS (
+            SELECT placa, data_posicao, odometer, latitude::float la, longitude::float lo,
+                   lag(latitude::float) OVER w lap, lag(longitude::float) OVER w lop,
+                   extract(epoch FROM data_posicao - lag(data_posicao) OVER w) / 3600.0 AS dh
+              FROM embarques_posicoes_historico
+             WHERE data_posicao > %(ini)s AND data_posicao <= %(fim)s AND odometer IS NOT NULL
+            WINDOW w AS (PARTITION BY placa ORDER BY data_posicao)),
+        k AS (SELECT p.*, CASE WHEN lap IS NULL THEN 0 ELSE 111.045 * degrees(acos(least(1, cos(radians(la))
+                     * cos(radians(lap)) * cos(radians(lo - lop)) + sin(radians(la)) * sin(radians(lap))))) END AS km
+                FROM p),
+        u AS (SELECT DISTINCT ON (placa) placa, odometer AS ultimo FROM k ORDER BY placa, data_posicao DESC),
+        q AS (SELECT k.*, u.ultimo FROM k JOIN u USING (placa)),
+        b AS (SELECT placa, max(data_posicao) FILTER (WHERE abs(odometer - ultimo) > %(tol)s) AS ult_dif
+                FROM q GROUP BY placa)
+        SELECT q.placa, q.ultimo, min(q.data_posicao), bool_or(b.ult_dif IS NULL),
+               count(*) FILTER (WHERE q.km > %(desl)s AND q.dh > 0 AND q.km / q.dh <= %(teto)s)
+          FROM q JOIN b USING (placa)
+         WHERE b.ult_dif IS NULL OR q.data_posicao > b.ult_dif
+         GROUP BY q.placa, q.ultimo""",
+                {'ini': agora - timedelta(hours=TRAVADO_JANELA_H), 'fim': agora, 'tol': TRAVADO_TOL,
+                 'desl': TRAVADO_DESLOC_KM, 'teto': _rg.TETO_KMH})
+    linhas = cur.fetchall()
+    cur.execute("SELECT placa, valor, desde FROM embarques_odometro_travado WHERE ate IS NULL")
+    ja = {p: (v, d) for p, v, d in cur.fetchall()}
+    marcadas, desmarcadas = [], []
+    for placa, ultimo, desde, cobre_janela, mov in linhas:
+        if placa in ja:
+            valor, d0 = ja[placa]
+            if valor is None or abs(int(ultimo) - int(valor)) > TRAVADO_TOL:
+                # o contador andou: o episódio termina na 1ª leitura fora do valor travado
+                cur.execute("""UPDATE embarques_odometro_travado SET desmarcado_em = %s,
+                                      ate = (SELECT min(data_posicao) FROM embarques_posicoes_historico
+                                              WHERE placa = %s AND data_posicao > %s AND abs(odometer - %s) > %s)
+                                WHERE placa = %s AND desde = %s""",
+                            (agora, placa, d0, valor, TRAVADO_TOL, placa, d0))
+                desmarcadas.append(placa)
+            continue
+        if mov < TRAVADO_MIN_MOV:
+            continue
+        if cobre_janela:
+            # travado desde antes da janela: o instante certo é a 1ª leitura depois da última diferente, no histórico
+            cur.execute("""SELECT min(data_posicao) FROM embarques_posicoes_historico
+                            WHERE placa = %s AND abs(odometer - %s) <= %s AND data_posicao > COALESCE(
+                                  (SELECT max(data_posicao) FROM embarques_posicoes_historico
+                                    WHERE placa = %s AND abs(odometer - %s) > %s AND data_posicao <= %s),
+                                  '-infinity'::timestamp)""",
+                        (placa, ultimo, TRAVADO_TOL, placa, ultimo, TRAVADO_TOL, agora))
+            desde = cur.fetchone()[0] or desde
+        cur.execute("""INSERT INTO embarques_odometro_travado (placa, valor, desde, marcado_em)
+                       VALUES (%s, %s, %s, %s) ON CONFLICT (placa, desde) DO NOTHING""", (placa, ultimo, desde, agora))
+        marcadas.append(placa)
+    return marcadas, desmarcadas
+
+
+def mapa_odometro_travado(cur):
+    """{chave Mercosul: [(desde, ate)]} — os episódios de odômetro travado da 3S, para o ALERTA da tela ("hodômetro
+    travado", pedido do Gabriel em 19/10/26). Vazio com a chave desligada. Uma consulta por tela, não por carga."""
+    if not _trav3s_ativo(cur):
+        return {}
+    cur.execute("SELECT placa, desde, ate FROM embarques_odometro_travado")
+    out = {}
+    for p, d, a in cur.fetchall():
+        out.setdefault(pl.mercosul(p), []).append((d, a))
+    return out
+
+
+def odometro_travado_da_carga(mapa, placas_, ini=None, fim=None):
+    """As placas da carga que estavam com o odômetro travado DURANTE ela: algum episódio cruza a janela da viagem
+    [ini, fim] (fim = agora se aberta). Viagem toda fora do travamento não leva o alerta."""
+    if not mapa:
+        return []
+    from datetime import datetime as _dt
+    fim = fim or _dt.utcnow()
+    out = []
+    for p in placas_:
+        if not p or p in out:
+            continue
+        for d, a in mapa.get(pl.mercosul(p), ()):
+            if fim >= d and (a is None or ini is None or ini < a):
+                out.append(p)
+                break
+    return out
+
+
 def _filtro_insignia(alias='i'):
     """Placa da Insignia que entra: a 3S não a rastreia, e está no escopo."""
     f = (f"NOT EXISTS (SELECT 1 FROM embarques_veiculos_rastreio v "
@@ -145,10 +305,10 @@ def _buraco_hist():
 def historico(cur):
     """O que vai no FROM no lugar de `embarques_posicoes_historico`. Use SEMPRE com alias."""
     if not _ativo(cur):
+        if _trav3s_ativo(cur):
+            return f"({_sql_3s(cur)})"
         return 'embarques_posicoes_historico'
-    return f"""(SELECT id, placa, id_veiculo_3s, data_posicao, latitude, longitude, velocidade, ignicao,
-                       uf, cidade, endereco, odometer, '3s'::varchar(12) AS fonte
-                  FROM embarques_posicoes_historico
+    return f"""({_sql_3s(cur)}
                 UNION ALL
                 SELECT NULL::bigint, replace(i.placa, '-', '')::varchar(10), NULL::bigint, i.em,
                        i.lat::numeric(10,7), i.lng::numeric(10,7), round(i.velocidade)::integer, i.ignicao = 1,
@@ -675,6 +835,13 @@ def tapar_com_cavalo(cur, carreta, cavalo, pts_carreta, pts_cavalo, dia_carga=No
     return novos, {'prova': prova if not b_tir else prova + '+sm', 'tirados': len(tirar) + b_tir,
                    'postos': len(do_cavalo), 'buracos': [(a, b, t) for a, b, t in faixas], 'cauda': cauda,
                    'cauda_aberta': cauda_aberta, 'instantes_do_cavalo': do_cavalo}
+
+
+def cavalo_tapa_vazia_ligado():
+    """`EMBARQUES_CAVALO_TAPA_VAZIA` (19/10/26): o desenho/KPI da PERNA VAZIA também passa pelo tapa. O motor já
+    tapa a perna (não há exclusão em `_robo_atemporal`); só a tela a deixava de fora, e as duas réguas divergiam —
+    V-2026-000416: o motor tirou a chegada das 12:16 do cavalo, a tela desenhava 0,0 km da carreta congelada."""
+    return cavalo_tapa_ligado() and os.getenv('EMBARQUES_CAVALO_TAPA_VAZIA', 'false').strip().lower() == 'true'
 
 
 def terceiro_gps_ligado():

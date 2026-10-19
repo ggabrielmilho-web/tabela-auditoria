@@ -460,14 +460,19 @@ def _ponto_aprendido(provas):
 def _candidatas(cur, c, ate=None):
     """As âncoras possíveis da carga `c` (dict de `cargas()`), NA ORDEM: aprendido pelo CNPJ -> local da GR ->
     endereço conferido -> aprendido por tomador + cidade. A própria carga NUNCA ensina a si mesma. `ate`
-    (laboratório): só aprende com carga concluída antes disso — é como o lab mediu, sem olhar o futuro."""
+    (laboratório): só aprende com carga concluída antes disso — é como o lab mediu, sem olhar o futuro.
+
+    As provas vêm ORDENADAS pela chave (19/10/26): `_ponto_aprendido` desempata pelo primeiro candidato, e o
+    `aprender` regrava as provas das cargas recentes a cada refresh, o que mudava a ordem física das linhas — o
+    ponto aprendido andava uns metros por rodada (66 cargas, 198 trocas de `ancora_lat` em 3 dias, 47 voltando a
+    um valor anterior; o maior salto, ~44 m)."""
     def provas(where, params):
         sql = f"SELECT carga_id, latitude, longitude, minutos FROM embarques_ancora_provas WHERE {where} AND carga_id <> %s"
         p = list(params) + [c['id']]
         if ate is not None:
             sql += " AND concluida_em < %s"
             p.append(ate)
-        cur.execute(sql, p)
+        cur.execute(sql + " ORDER BY carga_id, inicio", p)
         return cur.fetchall()
 
     if c['dcnpj']:

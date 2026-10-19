@@ -60,6 +60,7 @@ SENSOR_CAVALO_FATOR = float(os.getenv('EMBARQUES_SENSOR_CAVALO_FATOR', '3'))
 SAIDA_CARREGAMENTO = os.getenv('EMBARQUES_SAIDA_CARREGAMENTO', 'false').lower() in ('1', 'true', 'sim')
 SAIDA_JANELA_H = float(os.getenv('EMBARQUES_SAIDA_JANELA_H', '48'))
 SAIDA_PARADA_MIN = float(os.getenv('EMBARQUES_SAIDA_PARADA_MIN', '60'))
+SAIDA_GRAVADA_BLOCO = os.getenv('EMBARQUES_SAIDA_GRAVADA_BLOCO', 'false').lower() in ('1', 'true', 'sim')
 VEL_MAX_CRIVEL = 100.0    # km/h medios: acima disso o par saida/chegada nao e a mesma viagem
 AUTOR = 'Robo atemporal'
 ROTULO_ESTAVEL = os.getenv('EMBARQUES_ROTULO_ESTAVEL', 'false').lower() in ('1', 'true', 'sim')
@@ -76,6 +77,13 @@ def _editada_a_mao(cur, carga_id):
     cur.execute("SELECT 1 FROM embarques_cargas_log WHERE carga_id = %s AND usuario_id IS NOT NULL LIMIT 1", (carga_id,))
     return cur.fetchone() is not None
 ANCORA = _anc.ligado()
+# ÂNCORA ESTÁVEL (19/10/26) — atrás de EMBARQUES_ANCORA_ESTAVEL. O ponto aprendido anda CENTÍMETROS a cada refresh
+# (o `aprender` reaprende as cargas das últimas 72 h quando o GPS atrasado chega e a mediana das provas mexe na 6ª casa:
+# C-2026-001119 -20.201502 -> 504 -> 502 -> 501 -> 500 -> 499 -> 500 -> 496 em 2 dias), e o motor regravava toda
+# diferença: 198 linhas de ancora_lat em 3 dias, ~20 cargas por refresh. Com a chave, o mesmo tipo de âncora a até
+# ANCORA_TOL_M do ponto gravado não é regravado (o raio do cliente é 2 km).
+ANCORA_ESTAVEL = os.getenv('EMBARQUES_ANCORA_ESTAVEL', 'false').lower() in ('1', 'true', 'sim')
+ANCORA_TOL_M = float(os.getenv('EMBARQUES_ANCORA_TOL_M', '50'))
 import re as _re
 
 
@@ -372,6 +380,37 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
         if _blc is not None:
             _fim_blc = _ins[_blc[1]]
             _dh = (_fim_blc - n_saida).total_seconds() / 3600.0
+            # SAIDA GRAVADA DENTRO DO CARREGAMENTO (19/10/26) — atras de EMBARQUES_SAIDA_GRAVADA_BLOCO.
+            # O worker carimba a saida pela regua do NOME (`_saiu_da_cidade`: nome mudou e > 5 km): ponto de carga
+            # em municipio vizinho "sai" no 1o ciclo depois de a carga nascer, com o caminhao ainda carregando
+            # (C-2026-001652: Doce Mineiro na BR-153, que a 3S chama de Centralina, 9,5 km de Canapolis — saida
+            # 16/10 19:59, carregou ate 17/10 07:59). A correcao acima compara o bloco com a saida DO MOTOR, que ja
+            # esta no fim do bloco, e a do worker ficava de pe. Aqui ela tambem olha a GRAVADA — automatica, fora
+            # de perna vazia, dentro do bloco — e so quando a do motor nao passa do fim do bloco. Medido em 28 d:
+            # 8 cargas com a placa parada num municipio vizinho de nome diferente (2 a 19 h adiantadas).
+            # A PROVA de que ela foi carimbada carregando: depois dela o veiculo ainda fica PARADO >= SAIDA_PARADA_MIN no
+            # bloco. Sem isto (1a versao, lab de 19/10) a regra pegava 31 cargas em vez das ~8: o bloco inclui o trecho
+            # RODANDO dentro dos 30 km, e a saida do worker no meio desse trecho (o caminhao ja tinha saido da cidade) era
+            # empurrada 30–90 min adiante, para a saida do raio — piorava a precisao em ~20 cargas.
+            def _parado_depois(t0):
+                maior, desde_ = 0.0, None
+                for _i in range(_blc[0], _blc[1] + 1):
+                    _t, _v = _ins[_i], _vls[_i]
+                    if _t is None or _t < t0:
+                        continue
+                    if _v is None or float(_v) <= PARADO_KMH:
+                        desde_ = desde_ or _t
+                        maior = max(maior, (_t - desde_).total_seconds() / 60.0)
+                    else:
+                        desde_ = None
+                return maior
+            if (SAIDA_GRAVADA_BLOCO and dsaida and saida_auto and not vazia and _ins[_blc[0]] <= dsaida
+                    and n_saida <= _fim_blc + timedelta(minutes=30)
+                    and 0.5 <= (_fim_blc - dsaida).total_seconds() / 3600.0 <= SAIDA_JANELA_H
+                    and _parado_depois(dsaida) >= SAIDA_PARADA_MIN):
+                _dh = (_fim_blc - min(n_saida, dsaida)).total_seconds() / 3600.0
+                if _dh >= 0.5:
+                    resumo['saida gravada dentro do carregamento (worker pelo nome)'] += 1
             if 0.5 <= _dh <= SAIDA_JANELA_H:
                 # A saida NUNCA pode ser posterior a chegada ja gravada: corrigir para
                 # depois dela faz o motor limpar a chegada por coerencia, e o efeito
@@ -961,7 +1000,13 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
                      ancora_tipo=_a['tipo'] if _a else None,
                      ancora_lat=round(_a['lat'], 6) if _a else None,
                      ancora_lng=round(_a['lng'], 6) if _a else None)
+        _estavel = (ANCORA_ESTAVEL and _a is not None and _x.get('ancora_tipo') == _a['tipo']
+                    and _x.get('ancora_lat') is not None and _x.get('ancora_lng') is not None
+                    and _anc.km(float(_x['ancora_lat']), float(_x['ancora_lng']), _a['lat'], _a['lng']) * 1000
+                    <= ANCORA_TOL_M)
         for _k, _v in _novo.items():
+            if _estavel and _k in ('ancora_lat', 'ancora_lng'):
+                continue
             _atual = _x.get(_k)
             if _k in ('ancora_lat', 'ancora_lng') and _atual is not None:
                 _atual = round(float(_atual), 6)

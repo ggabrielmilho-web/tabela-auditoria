@@ -489,6 +489,10 @@
       const quem = c.rastreio_sem_carreta ? 'Truck' : 'Carreta';   // sem carreta, quem mede é o cavalo
       html += ` <span style="color:var(--yellow,#facc15);font-size:0.82em;cursor:help;" title="${quem} sem posição GPS${quanto} — a carga não fecha sozinha; confira/finalize manual (ou foi desengate)">⚠️ rastreio</span>`;
     }
+    // Odômetro travado na 3S (EMBARQUES_ODOMETRO_TRAVADO_3S, 19/10/26) — o campo só vem com a chave
+    if (c.odometro_travado && c.odometro_travado.length) {
+      html += ` <span style="color:var(--orange,#fb923c);font-size:0.82em;cursor:help;" title="Rastreador com o odômetro parado no mesmo valor com o veículo andando — pedir manutenção à 3S. O KM do rastreador desta carga não é publicado.">⚠ hodômetro travado: ${c.odometro_travado.join(', ')}</span>`;
+    }
     return html;
   }
 

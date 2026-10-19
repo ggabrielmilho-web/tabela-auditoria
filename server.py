@@ -7774,8 +7774,13 @@ def api_embarques_cargas_list():
         cols = [d[0] for d in cur.description]
         rows = cur.fetchall()
         data = []
+        _odo_trav = fontes_gps.mapa_odometro_travado(cur)   # vazio com EMBARQUES_ODOMETRO_TRAVADO_3S desligada
         for r in rows:
             obj = dict(zip(cols, r))
+            if _odo_trav:   # alerta "hodômetro travado" com a placa (19/10/26) — o campo só existe com a chave
+                obj['odometro_travado'] = fontes_gps.odometro_travado_da_carga(
+                    _odo_trav, (obj.get('cavalo_placa'), obj.get('carreta1_placa'), obj.get('carreta2_placa')),
+                    obj.get('data_saida_real') or obj.get('inicio_viagem'), obj.get('data_conclusao'))
             for k in ('data_carregamento', 'previsao_entrega'):
                 if obj.get(k): obj[k] = obj[k].isoformat()
             for k in ('data_conclusao', 'criado_em', 'atualizado_em'):
@@ -9185,8 +9190,11 @@ def api_rastreamento_trajeto(carga_id):
         # depois de 12 h SEM ponto — repetição não é silêncio. Antes do recorte de origem, para a decisão ver a
         # janela inteira, como o motor. Perna vazia fica de fora (o cavalo pode estar em outra viagem; a regra do
         # arquivo para ela é não desenhar o que a placa não fez). Desligada, nada aqui roda.
+        # Com EMBARQUES_CAVALO_TAPA_VAZIA (19/10/26) a perna vazia entra: o motor já a tapava, e a prova do tapa
+        # (SM ou as duas séries juntas, bordas onde calou e onde voltou) é o que responde a "outra viagem".
         _tapa, _tapa_papel, _tapa_odo = None, None, []
-        if fontes_gps.cavalo_tapa_ligado() and traj_cavalo and not carga.get('viagem_vazia'):
+        if fontes_gps.cavalo_tapa_ligado() and traj_cavalo and (
+                not carga.get('viagem_vazia') or fontes_gps.cavalo_tapa_vazia_ligado()):
             for _papel_t, _placa_t, _traj_t in (('carreta1', carga.get('carreta1_placa'), traj_c1),
                                                 ('carreta2', carga.get('carreta2_placa'), traj_c2)):
                 if _placa_t and _traj_t:
@@ -9202,6 +9210,10 @@ def api_rastreamento_trajeto(carga_id):
                             traj_c1 = _merg
                         else:
                             traj_c2 = _merg
+                        # a perna vazia redesenha a janela a partir do BRUTO (abaixo): sem isto o tapa era descartado
+                        if carga.get('viagem_vazia'):
+                            for _g in placas.grafias(str(_placa_t).strip().upper()):
+                                _bruto[_g] = _merg
                     break
 
         # Recorta o trecho PRÉ-origem (caminhão já rodando antes do lançamento) — a linha e o
@@ -9508,7 +9520,11 @@ def api_rastreamento_trajeto(carga_id):
         # no fallback para o cavalo; e o km do rastreador emenda os dois contadores (`_odo_tapado`).
         _tapa_vale = bool(_tapa and rastreado_via and rastreado_via.get('tipo') == _tapa_papel and not fallback_cavalo)
         _odo_kpi = _traj_odo()
-        if _tapa_vale and _odo_kpi is None:
+        if _tapa_vale and (_odo_kpi is None or (carga.get('viagem_vazia')
+                                                and any(p.get('fonte') == 'cavalo' for p in traj_principal))):
+            # perna vazia tapada (EMBARQUES_CAVALO_TAPA_VAZIA): a mesma emenda dos dois contadores, sobre a janela da
+            # perna — só quando o tapa pôs ponto DENTRO dela (V-2026-000266: tapou fora da janela, e trocar o caminho do
+            # km apagava o motivo do "—" no tooltip)
             _odo_kpi = _odo_tapado(traj_principal, _tapa_odo)
         # `rk[0] is not None`: o ramo `len(rows) < 2` do `_consolidar_kpi` grava a linha com
         # consolidado_final=TRUE e TODAS as metricas nulas. Sem esta condicao o endpoint
@@ -9538,6 +9554,12 @@ def api_rastreamento_trajeto(carga_id):
         if _n_tapa:
             rastreado_via = dict(rastreado_via, tapa_cavalo={
                 'placa': carga['cavalo_placa'], 'prova': _tapa['prova'], 'pontos': _n_tapa})
+        # Odômetro travado na 3S (EMBARQUES_ODOMETRO_TRAVADO_3S, 19/10/26): o alerta com a placa. O KM RASTREADOR
+        # dessa placa já vem "—" (o odômetro sai NULL desde o travamento); o alerta diz por quê.
+        _odo_trav_carga = fontes_gps.odometro_travado_da_carga(
+            fontes_gps.mapa_odometro_travado(cur),
+            (carga['cavalo_placa'], carga.get('carreta1_placa'), carga.get('carreta2_placa')),
+            carga.get('data_saida_real') or carga.get('inicio_viagem'), carga.get('data_conclusao'))
 
         # Card "Posição atual": em carga ainda ABERTA a janela do trajeto passou a fechar na
         # chegada (senão o km cresce com as viagens seguintes da placa), mas o card promete o
@@ -9768,6 +9790,7 @@ def api_rastreamento_trajeto(carga_id):
             'posicao_apos_fechamento': bool(pos_agora and carga.get('data_conclusao')),
             'trajeto_pos_fechamento': traj_pos_fechamento,
             'rastreado_via': rastreado_via,
+            **({'odometro_travado': _odo_trav_carga} if _odo_trav_carga else {}),
             'kpi': _kpi_sem_chegada(
                 _kpi_plausibilidade(
                     _kpi_sanidade(kpi, origem, destinos,
