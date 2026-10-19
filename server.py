@@ -8549,7 +8549,35 @@ def _tapar_trajeto(cur, carreta, cavalo, traj_car, traj_cav, dia_carga, dest):
         elif not _dentro(tp):
             out.append(p)              # ponto falso fora de trecho tapado: segue como hoje (o mapa quebra a linha)
     do_cav = info['instantes_do_cavalo']
-    out += [dict(p, odometer=None, fonte='cavalo') for p in traj_cav if _t(p) in do_cav]
+    # VELOCIDADE DO CAVALO PELA POSIÇÃO (19/10/26). Os Autotrac de velocidade 0 sempre (NJZ9B97, JQZ3I38… — §18.9 da
+    # INSIGNIA) mandam "0 km/h" andando. No ponto que o tapa põe na linha isso fazia o corte de chegada parar no 1º ponto
+    # dentro do raio (V-2026-000416: a 19 km de Nerópolis, posição "Goiânia", "faltam 21,8 km") e o KPI marcar 0 km/h e
+    # 0 min em movimento com 27 km rodados. Onde o aparelho diz parado (<= PARADO_KMH ou sem valor), vale a velocidade
+    # da POSIÇÃO: a MENOR entre a chegada do ponto anterior e a ida ao seguinte (até 30 min) — quem acabou de chegar ou
+    # ainda não saiu fica parado. Velocidade medida pelo aparelho continua valendo. Só a tela; o motor não lê isto.
+    import geocoding as _gv
+    _ts_cav = sorted(((_t(p), p) for p in traj_cav), key=lambda x: x[0])
+    _vel_pos = {}
+    for _i, (_tp, _p) in enumerate(_ts_cav):
+        if _tp not in do_cav:
+            continue
+        try:
+            _v = float(_p.get('velocidade')) if _p.get('velocidade') is not None else None
+        except (TypeError, ValueError):
+            _v = None
+        if _v is not None and _v > _rg.PARADO_KMH:
+            continue
+        _cand = []
+        for _j in (_i - 1, _i + 1):
+            if 0 <= _j < len(_ts_cav):
+                _dh = abs((_ts_cav[_j][0] - _tp).total_seconds()) / 3600.0
+                _km = _gv.km_entre(_p['lat'], _p['lng'], _ts_cav[_j][1]['lat'], _ts_cav[_j][1]['lng'])
+                if 0 < _dh <= 0.5 and _km is not None:
+                    _cand.append(_km / _dh)
+        if _cand:
+            _vel_pos[_tp] = int(min(round(min(_cand)), _rg.TETO_KMH))
+    out += [dict(p, odometer=None, fonte='cavalo', **({'velocidade': _vel_pos[_t(p)]} if _t(p) in _vel_pos else {}))
+            for p in traj_cav if _t(p) in do_cav]
     out.sort(key=_t)
     cav_odo = []
     for p in traj_cav:
