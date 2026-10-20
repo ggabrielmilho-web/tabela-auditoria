@@ -144,6 +144,10 @@ CARTEIRAS = {
         'aba': 'AMBEV', 'col_etapa': 'STATUS', 'col_cte': 'CT-e',
         # A planilha calcula o vencimento como emissão + 110 dias; pagamento sempre no dia 4.
         'prazo_dias': 110,
+        # Sem FATURADO automático: a fatura da Ambev sai junto com o CT-e (os 10 em aberto em
+        # 20/10/2026 já estavam em fatura) e as etapas dela — programação, AG. PAGAMENTO, PGTO
+        # AGENDADO — vêm depois; virar tudo FATURADO apagaria o que a aba acompanha.
+        'auto_faturado': False,
         'etapas': [
             _E('PENDENTE', 'Aguardando programação de pagamento', 'amarelo'),
             _E('AMBEV', 'Aguardando liberação', 'laranja'),
@@ -537,6 +541,8 @@ CREATE TABLE IF NOT EXISTS crm_doc_log (
     em     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS crm_doc_log_chave ON crm_doc_log (chave, em);
+-- Mudança feita pela tela a partir do SSW (FATURADO automático), não por uma pessoa.
+ALTER TABLE crm_doc_log ADD COLUMN IF NOT EXISTS auto BOOLEAN NOT NULL DEFAULT false;
 """
 
 
@@ -548,19 +554,25 @@ def marcacoes(cur, carteira):
     cur.execute("""SELECT chave, ctrc, cte, etapa, campos, planilha, origem,
                           to_char(atualizado_em AT TIME ZONE 'America/Sao_Paulo', 'DD/MM/YYYY HH24:MI'),
                           atualizado_por,
-                          EXISTS (SELECT 1 FROM crm_doc_log l WHERE l.chave = m.chave AND l.campo <> '*importacao*')
+                          EXISTS (SELECT 1 FROM crm_doc_log l WHERE l.chave = m.chave
+                                     AND l.campo <> '*importacao*' AND NOT l.auto),
+                          COALESCE((SELECT max(em) FROM crm_doc_log l WHERE l.chave = m.chave
+                                       AND l.campo = 'etapa' AND NOT l.auto)
+                                 > (SELECT max(em) FROM crm_doc_log l WHERE l.chave = m.chave
+                                       AND l.campo = 'etapa' AND l.auto), false)
                      FROM crm_doc_marcacao m WHERE carteira = %s""", (carteira,))
     out = {}
-    for (chave, ctrc, cte, etapa, campos, planilha, origem, quando, por, editado) in cur.fetchall():
+    for (chave, ctrc, cte, etapa, campos, planilha, origem, quando, por, editado, mao) in cur.fetchall():
         out[chave] = {'chave': chave, 'ctrc': ctrc, 'cte': cte, 'etapa': etapa, 'campos': campos or {},
                       'planilha': planilha, 'origem': origem, 'atualizado': quando, 'por': por,
-                      'editado': editado}
+                      'editado': editado, 'mao_depois_do_auto': mao}
     return out
 
 
-def gravar(cur, carteira, chaves, campo, valor, por, ssw_por_chave=None):
+def gravar(cur, carteira, chaves, campo, valor, por, ssw_por_chave=None, auto=False):
     """Grava `campo` = `valor` (já normalizado) nas `chaves`, com log de cada mudança.
-    Chave sem marcação ainda (CT-e "novo") ganha a linha. Devolve quantas mudaram."""
+    Chave sem marcação ainda (CT-e "novo") ganha a linha. Devolve quantas mudaram.
+    `auto`: mudança da tela a partir do SSW, não de uma pessoa (fica marcada no log)."""
     ssw_por_chave = ssw_por_chave or {}
     mudou = 0
     for chave in chaves:
@@ -590,10 +602,57 @@ def gravar(cur, carteira, chaves, campo, valor, por, ssw_por_chave=None):
                 campos[campo] = valor
             cur.execute("""UPDATE crm_doc_marcacao SET campos = %s::jsonb, atualizado_em = now(), atualizado_por = %s
                            WHERE chave = %s""", (json.dumps(campos, ensure_ascii=False), por, chave))
-        cur.execute('INSERT INTO crm_doc_log (chave, campo, antes, depois, por) VALUES (%s, %s, %s, %s, %s)',
-                    (chave, campo, antes, valor, por))
+        cur.execute('INSERT INTO crm_doc_log (chave, campo, antes, depois, por, auto) VALUES (%s, %s, %s, %s, %s, %s)',
+                    (chave, campo, antes, valor, por, auto))
         mudou += 1
     return mudou
+
+
+# ── FATURADO pelo SSW ────────────────────────────────────────────────────────
+
+AUTO_POR = 'Automático (SSW)'
+
+
+def _br(iso):
+    return f'{iso[8:10]}/{iso[5:7]}/{iso[:4]}' if iso else '?'
+
+
+def faturados_pelo_ssw(carteira, linhas, marc):
+    """Linhas que o SSW prova faturadas e ainda não estão em FATURADO → [(linha, motivo)].
+
+    Prova de fatura: o CT-e está numa fatura em aberto ou paga do 441, ou o 455 leu a baixa
+    FATURADO (que só existe com a fatura emitida). LIQUIDADO do 455 sozinho não prova fatura.
+    Fica de fora: SUBST (substituído em fatura é divergência para alguém olhar), linha que
+    alguém tirou do FATURADO à mão depois da mudança automática (a mão vale; a mudança não
+    volta) e carteira com `auto_faturado` False."""
+    if not CARTEIRAS[carteira].get('auto_faturado', True):
+        return []
+    out = []
+    for l in linhas:
+        if l['etapa'] in ('FATURADO', 'SUBST') or (marc.get(l['chave']) or {}).get('mao_depois_do_auto'):
+            continue
+        fa = l.get('fatura_aberta') or {}
+        if l['ssw'] == 'fatura' and l.get('fonte') == '441 abertas':
+            motivo = f"fatura {fa.get('fatura')} em aberto no 441"
+        elif l['ssw'] == 'fatura' and l.get('fonte') == '455':
+            motivo = f"baixa FATURADO no 455 (lida em {_br(l.get('lido_455'))})"
+        elif l['ssw'] == 'pago' and l.get('fonte') == '441':
+            motivo = f"fatura {', '.join(l.get('faturas') or [])} paga em {_br(l.get('pago_em'))} (441)"
+        elif l['ssw'] == 'pago' and l.get('fonte') == '441 parcial':
+            motivo = f"pagamento parcial da fatura {fa.get('fatura')} (441)"
+        else:
+            continue
+        out.append((l, motivo))
+    return out
+
+
+def gravar_faturados(cur, carteira, itens):
+    """Grava FATURADO nas linhas de `faturados_pelo_ssw`, com a prova no log. Devolve quantas mudaram."""
+    n = 0
+    for l, motivo in itens:
+        n += gravar(cur, carteira, [l['chave']], 'etapa', 'FATURADO', f'{AUTO_POR}: {motivo}',
+                    {l['chave']: {'ctrc': l['ctrc'], 'cte': l['cte']}}, auto=True)
+    return n
 
 
 def historico(cur, chave):
@@ -859,10 +918,13 @@ def preparar_importacao(planilha, ce_rows):
 
 def gravar_importacao(cur, regs, por='Importação da planilha'):
     """Grava as marcações da planilha. Linha já editada na tela não é tocada (o que ela mudou
-    na tela vale mais que a planilha antiga). Devolve (novas, atualizadas, preservadas)."""
+    na tela vale mais que a planilha antiga); o FATURADO automático não conta como edição —
+    a planilha entra e a tela volta a pôr FATURADO na próxima leitura, se o SSW provar.
+    Devolve (novas, atualizadas, preservadas)."""
     novas = atual = preserv = 0
     for g in regs:
-        cur.execute("""SELECT EXISTS (SELECT 1 FROM crm_doc_log WHERE chave = %s AND campo <> '*importacao*'),
+        cur.execute("""SELECT EXISTS (SELECT 1 FROM crm_doc_log WHERE chave = %s AND campo <> '*importacao*'
+                                         AND NOT auto),
                               EXISTS (SELECT 1 FROM crm_doc_marcacao WHERE chave = %s)""", (g['chave'], g['chave']))
         editada, existe = cur.fetchone()
         if editada:

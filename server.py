@@ -1047,12 +1047,44 @@ def _crm_marcacoes(carteira):
     return marc
 
 
+def _crm_montar(carteira, dados, marc):
+    import crm_documentos as crm
+    return crm.montar_linhas(carteira, dados['ce'], dados['pag'], marc,
+                             abertas=dados.get('abertas'), abertas_corte=dados.get('abertas_corte'),
+                             inicio_441=dados.get('inicio_441'))
+
+
+# Trava do FATURADO automático no Postgres (pg_try_advisory_xact_lock): um processo grava por vez.
+_CRM_TRAVA_AUTO = 7302614
+
+
+def _crm_faturar_pelo_ssw(carteira, dados):
+    """Passa para FATURADO, com a prova no log, o que o SSW mostra faturado (crm.faturados_pelo_ssw).
+    Quem não pega a trava segue sem gravar; a próxima leitura completa. Devolve quantas mudaram."""
+    import crm_documentos as crm
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('SELECT pg_try_advisory_xact_lock(%s)', (_CRM_TRAVA_AUTO,))
+            if not cur.fetchone()[0]:
+                return 0
+            marc = crm.marcacoes(cur, carteira)
+            itens = crm.faturados_pelo_ssw(carteira, _crm_montar(carteira, dados, marc), marc)
+            n = crm.gravar_faturados(cur, carteira, itens)
+        conn.commit()
+    finally:
+        conn.close()
+    return n
+
+
 def _crm_linhas(carteira, forcar=False):
     import crm_documentos as crm
     dados = crm.dados_ssw(_crm_dax_op, contabil_dax, forcar=forcar)
-    return crm.montar_linhas(carteira, dados['ce'], dados['pag'], _crm_marcacoes(carteira),
-                             abertas=dados.get('abertas'), abertas_corte=dados.get('abertas_corte'),
-                             inicio_441=dados.get('inicio_441')), dados
+    marc = _crm_marcacoes(carteira)
+    linhas = _crm_montar(carteira, dados, marc)
+    if crm.faturados_pelo_ssw(carteira, linhas, marc) and _crm_faturar_pelo_ssw(carteira, dados):
+        linhas = _crm_montar(carteira, dados, _crm_marcacoes(carteira))
+    return linhas, dados
 
 
 @app.route('/crm-documentos')
@@ -1077,10 +1109,7 @@ def api_crm_documentos():
         # As abas mostram quanto está em aberto em cada carteira.
         resumo = {}
         for cid in crm.ORDEM:
-            ls = linhas if cid == carteira else crm.montar_linhas(cid, dados['ce'], dados['pag'], _crm_marcacoes(cid),
-                                                                   abertas=dados.get('abertas'),
-                                                                   abertas_corte=dados.get('abertas_corte'),
-                                                                   inicio_441=dados.get('inicio_441'))
+            ls = linhas if cid == carteira else _crm_montar(cid, dados, _crm_marcacoes(cid))
             ab = [x for x in ls if x['aberto']]
             resumo[cid] = {'abertos': len(ab), 'valor': round(sum(x['frete'] or 0 for x in ab), 2)}
     except Exception as e:
