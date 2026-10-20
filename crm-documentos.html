@@ -326,10 +326,8 @@
         S.cfg = j.carteiras.find(function (c) { return c.id === j.carteira; });
         setLinhas(j.linhas);
         S.abertasOk = !!j.lido_abertas; S.lidoAbertas = j.lido_abertas; S.abertasCorte = j.abertas_corte; S.inicio441 = j.inicio_441;
-        $('meta').textContent = '455 lido em ' + dm(j.lido_455) + ' · 441 (pagas) lido em ' + dm(j.lido_441)
-          + (S.abertasOk ? ' · 441 (em aberto) lido em ' + dm(j.lido_abertas) + (j.abertas_corte ? ', CTRCs desde ' + dm(j.abertas_corte) : '')
-                         : ' · carteira em aberto do 441 ainda fora do BI')
-          + ' · dados de ' + j.lido_em;
+        // Só a hora do refresh do BI contábil (pedido de 20/10/2026).
+        $('meta').textContent = 'Atualizado BI: ' + (j.bi_atualizado || '—');
         if (mudouCarteira) {
           S.card = null; S.lista = null; S.sel = new Set(); S.cols = colunas();
           rf.setColumns(S.cols); montarLote();

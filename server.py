@@ -1077,6 +1077,20 @@ def _crm_faturar_pelo_ssw(carteira, dados):
     return n
 
 
+def _crm_bi_atualizado(dados):
+    """Fim do último refresh concluído do dataset contábil (441), em Brasília: o "Atualizado BI"
+    da tela (a consulta ao BI só copia o que o refresh trouxe). Fica guardado com os dados do
+    cache; sem acesso ao histórico de refresh, None."""
+    if 'bi_atualizado' not in dados:
+        import ciot_conferencia
+        import crm_documentos as crm
+        from datetime import timezone
+        fim = ciot_conferencia.ultimo_refresh(get_token(), CONFIG['group_id'], CONFIG['contabil_dataset_id'])
+        dados['bi_atualizado'] = (fim.replace(tzinfo=timezone.utc).astimezone(crm.BRT).strftime('%d/%m/%Y %H:%M')
+                                  if fim else None)
+    return dados['bi_atualizado']
+
+
 def _crm_linhas(carteira, forcar=False):
     import crm_documentos as crm
     dados = crm.dados_ssw(_crm_dax_op, contabil_dax, forcar=forcar)
@@ -1117,7 +1131,8 @@ def api_crm_documentos():
                     'linhas': linhas, 'lido_455': dados['lido_455'], 'lido_441': dados['lido_441'],
                     'lido_abertas': dados.get('lido_abertas'), 'abertas_aviso': dados.get('abertas_aviso'),
                     'abertas_corte': dados.get('abertas_corte'), 'inicio_441': dados.get('inicio_441'),
-                    'lido_em': dados['lido_em'], 'hoje': crm.hoje_brt().isoformat()})
+                    'lido_em': dados['lido_em'], 'bi_atualizado': _crm_bi_atualizado(dados),
+                    'hoje': crm.hoje_brt().isoformat()})
 
 
 @app.route('/api/crm-documentos/marcar', methods=['POST'])
