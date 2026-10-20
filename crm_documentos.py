@@ -36,7 +36,15 @@ import re
 import threading
 import time
 import unicodedata
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
+
+# O servidor de produção roda em UTC; a tela é de Brasília (sem horário de verão desde 2019).
+BRT = timezone(timedelta(hours=-3))
+
+
+def hoje_brt():
+    return datetime.now(BRT).date()
+
 
 # ── Carteiras ────────────────────────────────────────────────────────────────
 # Uma por aba da planilha; `desde` é o primeiro CT-e de cada aba (decisão de 20/10/2026: cada
@@ -306,7 +314,7 @@ def ler_data_texto(s, hoje=None):
     s = (s or '').strip()
     if not s:
         return None
-    hoje = hoje or date.today()
+    hoje = hoje or hoje_brt()
     m = re.fullmatch(r'(\d{4})-(\d{2})-(\d{2})', s)
     if m:
         try:
@@ -470,7 +478,7 @@ def buscar_ssw(dax_op, dax_cont, hoje=None):
     O 455 vem um ano por vez: as consultas do executeQueries são cortadas em 15 MiB e quem as
     chama (`dax_op`) tem de levantar erro quando isso acontece — resposta cortada parece
     resposta."""
-    hoje = hoje or date.today()
+    hoje = hoje or hoje_brt()
     raizes = sorted({r for c in CARTEIRAS.values() for r in c['raizes']})
     ini = min(date.fromisoformat(c['desde']) for c in CARTEIRAS.values())
     ce = []
@@ -496,7 +504,7 @@ def buscar_ssw(dax_op, dax_cont, hoje=None):
     return {'ce': ce, 'pag': pag, 'lido_455': lido_455, 'lido_441': lido_441, 'inicio_441': inicio_441,
             'abertas': abertas, 'lido_abertas': lido_ab if abertas is not None else None, 'abertas_corte': corte,
             'abertas_aviso': None if abertas is not None else lido_ab,
-            'lido_em': datetime.now().strftime('%d/%m/%Y %H:%M')}
+            'lido_em': datetime.now(BRT).strftime('%d/%m/%Y %H:%M')}
 
 
 _CACHE = {'v': None, 'ts': 0.0}
@@ -689,7 +697,7 @@ def situacao_ssw(ce, pagamentos, abertas=None, hoje=None, ctrc=None, cobre=False
         return {'ssw': 'pago', 'pago_em': ult['pagamento'], 'fonte': '441',
                 'faturas': sorted({p['fatura'] for p in pagamentos})}
     if abertas:
-        hoje = hoje or date.today()
+        hoje = hoje or hoje_brt()
         parcial = [f for f in abertas if ctrc in f['pagos_parcial']]
         if parcial:
             f = parcial[0]
@@ -734,7 +742,7 @@ def montar_linhas(carteira, ce_rows, pagamentos, marc, hoje=None, abertas=None, 
     `abertas` = {ctrc: [faturas em aberto]} do 441 --abertas, ou None se não estiver no BI;
     `abertas_corte` = emissão do CTRC mais antigo que o 441 lista (antes dele a carteira não prova
     falta de fatura)."""
-    hoje = hoje or date.today()
+    hoje = hoje or hoje_brt()
     abertas_ok = abertas is not None
     cfg = CARTEIRAS[carteira]
     desde = cfg['desde']

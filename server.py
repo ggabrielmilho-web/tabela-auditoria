@@ -1100,7 +1100,6 @@ def crm_documentos_page():
 @page_required('crm_documentos')
 def api_crm_documentos():
     import crm_documentos as crm
-    from datetime import date
     carteira = request.args.get('carteira') or crm.ORDEM[0]
     if carteira not in crm.CARTEIRAS:
         return jsonify({'ok': False, 'error': 'Carteira desconhecida.'}), 400
@@ -1118,7 +1117,7 @@ def api_crm_documentos():
                     'linhas': linhas, 'lido_455': dados['lido_455'], 'lido_441': dados['lido_441'],
                     'lido_abertas': dados.get('lido_abertas'), 'abertas_aviso': dados.get('abertas_aviso'),
                     'abertas_corte': dados.get('abertas_corte'), 'inicio_441': dados.get('inicio_441'),
-                    'lido_em': dados['lido_em'], 'hoje': date.today().isoformat()})
+                    'lido_em': dados['lido_em'], 'hoje': crm.hoje_brt().isoformat()})
 
 
 @app.route('/api/crm-documentos/marcar', methods=['POST'])
@@ -1193,7 +1192,6 @@ def api_crm_documentos_linha():
 def api_crm_documentos_xlsx():
     """A carteira no layout da aba da planilha delas, com o que o SSW diz no fim."""
     import crm_documentos as crm
-    from datetime import date
     carteira = request.args.get('carteira')
     if carteira not in crm.CARTEIRAS:
         return jsonify({'ok': False, 'error': 'Carteira desconhecida.'}), 400
@@ -1202,7 +1200,7 @@ def api_crm_documentos_xlsx():
         conteudo = crm.exportar_xlsx(carteira, linhas)
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
-    nome = f"CRM Documentos - {crm.CARTEIRAS[carteira]['nome']} - {date.today():%d-%m-%Y}.xlsx"
+    nome = f"CRM Documentos - {crm.CARTEIRAS[carteira]['nome']} - {crm.hoje_brt():%d-%m-%Y}.xlsx"
     return send_file(io.BytesIO(conteudo), as_attachment=True, download_name=nome,
                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
