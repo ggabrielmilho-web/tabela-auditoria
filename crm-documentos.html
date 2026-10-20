@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CRM - Documentos — Rizza Log</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%2338bdf8'/%3E%3Ctext x='50' y='72' font-family='Arial,sans-serif' font-size='68' font-weight='900' text-anchor='middle' fill='%230a0e17'%3ER%3C/text%3E%3C/svg%3E">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0e17; --surface: #111827; --surface2: #1a2235; --border: #1e293b;
+    --text: #e2e8f0; --text-dim: #94a3b8; --accent: #38bdf8; --accent2: #818cf8;
+    --green: #34d399; --red: #f87171; --orange: #fb923c; --yellow: #fbbf24;
+    --c-vermelho: #f87171; --c-laranja: #fb923c; --c-amarelo: #fbbf24; --c-verde: #34d399;
+    --c-azul: #38bdf8; --c-rosa: #f472b6; --c-roxo: #a78bfa; --c-ciano: #22d3ee; --c-cinza: #94a3b8;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  /* `display: flex` da gaveta, do modal e da barra de lote venceria o `hidden` */
+  [hidden] { display: none !important; }
+  body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .mono { font-family: 'JetBrains Mono', monospace; }
+
+  .dashboard { padding: 22px; max-width: 1700px; margin: 0 auto; }
+  .top-bar { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 14px; flex-wrap: wrap; gap: 12px; }
+  .top-bar h1 { font-size: 1.4rem; font-weight: 700; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .meta { font-size: 0.74rem; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; margin-top: 4px; line-height: 1.5; }
+  .btn-sm { padding: 7px 14px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); font-weight: 500; font-size: 0.8rem; border-radius: 8px; cursor: pointer; transition: all 0.15s; font-family: 'DM Sans', sans-serif; white-space: nowrap; }
+  .btn-sm:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-sm.primary { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 700; }
+  .btn-sm.primary:hover { color: var(--bg); filter: brightness(1.1); }
+  .btn-sm:disabled { opacity: .5; cursor: wait; }
+  .acoes-topo { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+  .erro { padding: 12px 14px; border-radius: 10px; font-size: 0.82rem; margin-bottom: 14px; background: rgba(248,113,113,0.08); border: 1px solid rgba(248,113,113,0.28); color: #fecaca; }
+  .carregando { display: flex; gap: 12px; align-items: center; padding: 40px; justify-content: center; color: var(--text-dim); }
+  .spinner { width: 26px; height: 26px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; }
+
+  /* carteiras */
+  .abas { display: flex; gap: 6px; margin-bottom: 14px; border-bottom: 1px solid var(--border); overflow-x: auto; }
+  .aba { flex: 0 0 auto; }
+  .aba { background: none; border: none; border-bottom: 2px solid transparent; color: var(--text-dim); padding: 9px 14px 10px; cursor: pointer; font-family: 'DM Sans', sans-serif; font-size: 0.9rem; font-weight: 600; text-align: left; }
+  .aba small { display: block; font-size: 0.68rem; font-weight: 500; font-family: 'JetBrains Mono', monospace; opacity: .85; margin-top: 2px; }
+  .aba:hover { color: var(--text); }
+  .aba.ativa { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* indicadores */
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin-bottom: 12px; }
+  .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; }
+  .kpi .l { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); font-weight: 700; }
+  .kpi .v { font-size: 1.2rem; font-weight: 700; font-family: 'JetBrains Mono', monospace; margin-top: 3px; }
+  .kpi .s { font-size: 0.68rem; color: var(--text-dim); margin-top: 2px; }
+
+  /* cartões de etapa */
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(138px, 1fr)); gap: 8px; margin-bottom: 14px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-top: 3px solid var(--cor, var(--c-cinza)); border-radius: 9px; padding: 9px 11px; cursor: pointer; transition: all .12s; text-align: left; color: var(--text); font-family: 'DM Sans', sans-serif; }
+  .card:hover { background: var(--surface2); }
+  .card.ativo { background: var(--surface2); box-shadow: 0 0 0 1px var(--cor, var(--accent)) inset; }
+  .card.zero { opacity: .45; }
+  .card .t { font-size: 0.72rem; font-weight: 700; color: var(--cor, var(--text)); letter-spacing: .02em; }
+  .card .n { font-size: 1.15rem; font-weight: 700; font-family: 'JetBrains Mono', monospace; margin-top: 2px; }
+  .card .r { font-size: 0.66rem; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* barra de ferramentas */
+  .barra { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+  .busca { padding: 7px 10px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 0.8rem; min-width: 240px; flex: 0 1 320px; }
+  label.chk { font-size: 0.78rem; color: var(--text-dim); display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+  .info { font-size: 0.76rem; color: var(--text-dim); margin-left: auto; font-family: 'JetBrains Mono', monospace; }
+  .chip-filtro { display: inline-flex; gap: 6px; align-items: center; font-size: 0.74rem; padding: 4px 9px; border-radius: 999px; background: rgba(56,189,248,.12); border: 1px solid rgba(56,189,248,.35); color: var(--accent); }
+  .chip-filtro button { background: none; border: none; color: inherit; cursor: pointer; font-size: .85rem; }
+
+  .lote { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 9px 12px; margin-bottom: 8px; border-radius: 9px; background: rgba(56,189,248,.08); border: 1px solid rgba(56,189,248,.3); font-size: 0.8rem; }
+  .lote select, .lote input, .editor { padding: 5px 8px; background: var(--bg); border: 1px solid var(--accent); border-radius: 6px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 0.78rem; color-scheme: dark; }
+
+  /* tabela */
+  .tabela-box { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: auto; max-height: calc(100vh - 140px); }
+  table.dados { width: 100%; border-collapse: collapse; font-size: 0.77rem; }
+  table.dados thead th { position: sticky; top: 0; z-index: 2; background: #0f1625; text-align: left; padding: 8px 9px; font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); font-weight: 700; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  table.dados tbody td { padding: 6px 9px; border-bottom: 1px solid rgba(30,41,59,0.6); vertical-align: middle; white-space: nowrap; }
+  table.dados tbody tr:hover td { background: rgba(26,34,53,.55); }
+  table.dados tbody tr.sel td { background: rgba(56,189,248,.07); }
+  table.dados tbody tr.div td:first-child { box-shadow: inset 3px 0 0 var(--red); }
+  td.num { text-align: right; font-family: 'JetBrains Mono', monospace; }
+  td.ctrc { font-family: 'JetBrains Mono', monospace; }
+  td.ctrc input { vertical-align: middle; margin-right: 6px; cursor: pointer; }
+  td.ctrc a { color: var(--accent); text-decoration: none; }
+  td.ctrc a:hover { text-decoration: underline; }
+  td.ed { cursor: text; }
+  td.ed:hover { box-shadow: inset 0 -1px 0 rgba(56,189,248,.6); }
+  td.ed .vazio { color: #334155; }
+  td.obs { max-width: 260px; overflow: hidden; text-overflow: ellipsis; color: var(--text-dim); }
+  td.txt { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+  td.dim { color: var(--text-dim); }
+  .velho { color: var(--orange); font-weight: 600; }
+  .vencido { color: var(--red); font-weight: 600; }
+
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 5px; font-size: 0.68rem; font-weight: 700; white-space: nowrap; color: var(--cor); background: color-mix(in srgb, var(--cor) 15%, transparent); }
+  .ssw { display: inline-block; padding: 2px 7px; border-radius: 5px; font-size: 0.68rem; font-weight: 600; white-space: nowrap; }
+  .ssw.pago { color: var(--green); background: rgba(52,211,153,.12); }
+  .ssw.fatura { color: var(--accent); background: rgba(56,189,248,.12); }
+  .ssw.aberto { color: var(--text-dim); background: rgba(148,163,184,.1); }
+  .ssw.sem_ssw { color: var(--orange); background: rgba(251,146,60,.12); }
+  .ssw.vencida { color: var(--red); background: rgba(248,113,113,.14); }
+  .ssw.indefinido { color: var(--text-dim); background: transparent; border: 1px dashed #334155; font-weight: 500; }
+  .marca { font-size: 0.62rem; color: var(--orange); margin-left: 4px; }
+  .mais { padding: 12px; text-align: center; color: var(--text-dim); font-size: 0.78rem; }
+
+  /* gaveta */
+  .gaveta { position: fixed; top: 0; right: 0; bottom: 0; width: min(560px, 100vw); background: #0d1320; border-left: 1px solid var(--border); z-index: 950; display: flex; flex-direction: column; box-shadow: -12px 0 30px rgba(0,0,0,.4); }
+  .gaveta-cab { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; padding: 16px 18px 12px; border-bottom: 1px solid var(--border); }
+  .gaveta-cab h2 { font-size: 1.05rem; font-family: 'JetBrains Mono', monospace; }
+  .gaveta-cab .sub { font-size: 0.76rem; color: var(--text-dim); margin-top: 3px; }
+  .gaveta-corpo { overflow: auto; padding: 14px 18px 30px; }
+  .bloco { margin-bottom: 16px; }
+  .bloco h3 { font-size: 0.66rem; text-transform: uppercase; letter-spacing: .07em; color: var(--text-dim); margin-bottom: 7px; }
+  .kv { display: grid; grid-template-columns: 140px 1fr; gap: 4px 12px; font-size: 0.78rem; }
+  .kv dt { color: var(--text-dim); }
+  .kv dd { word-break: break-word; }
+  .hist { list-style: none; font-size: 0.76rem; }
+  .hist li { padding: 6px 0 6px 10px; border-left: 2px solid var(--border); margin-bottom: 4px; line-height: 1.45; }
+  .hist .q { color: var(--text-dim); font-size: 0.7rem; font-family: 'JetBrains Mono', monospace; }
+  .aviso-div { font-size: 0.78rem; line-height: 1.5; padding: 8px 10px; border-radius: 7px; margin-bottom: 6px; background: rgba(248,113,113,.07); border-left: 3px solid var(--red); }
+  .nota { font-size: 0.74rem; color: var(--text-dim); line-height: 1.5; }
+  table.pg { font-size: 0.74rem; border-collapse: collapse; width: 100%; }
+  table.pg td, table.pg th { padding: 4px 6px; border-bottom: 1px solid var(--border); text-align: left; }
+  table.pg th { color: var(--text-dim); font-size: 0.64rem; text-transform: uppercase; }
+
+  /* modal */
+  .modal { position: fixed; inset: 0; background: rgba(2,6,15,.65); z-index: 960; display: flex; align-items: flex-start; justify-content: center; padding: 8vh 16px 16px; }
+  .modal .caixa { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px; width: min(560px, 100%); }
+  .modal h3 { font-size: 1rem; margin-bottom: 6px; }
+  .modal textarea { width: 100%; height: 160px; margin: 10px 0; padding: 9px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; }
+  .modal .acoes { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+  #resLista { font-size: 0.78rem; line-height: 1.55; color: var(--text-dim); }
+  #resLista b { color: var(--text); }
+
+  .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: #0f1a2e; border: 1px solid var(--accent); color: var(--text); padding: 9px 16px; border-radius: 9px; font-size: 0.8rem; z-index: 999; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+  .toast.erro { border-color: var(--red); }
+
+  @media (max-width: 700px) {
+    .dashboard { padding: 14px 16px; }
+    .busca { min-width: 0; flex: 1 1 100%; }
+    .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .kpi .v { font-size: 1.02rem; }
+    .info { margin-left: 0; }
+    .kv { grid-template-columns: 110px 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="dashboard">
+
+  <div class="top-bar">
+    <div>
+      <h1>CRM - Documentos</h1>
+      <div class="meta" id="meta">—</div>
+    </div>
+    <div class="acoes-topo">
+      <button class="btn-sm" id="btnAtualizar" title="Lê de novo o 455 e o 441 no Power BI (~1 min)">⟳ Atualizar do SSW</button>
+      <button class="btn-sm primary" id="btnExcel">⬇ Baixar Excel</button>
+      <span data-nav-menu data-nav-style="btn-anchor" data-nav-active="crm_documentos"></span>
+    </div>
+  </div>
+
+  <div id="erro" class="erro" hidden></div>
+  <div class="abas" id="abas"></div>
+  <div class="kpis" id="kpis"></div>
+  <div class="cards" id="cards"></div>
+
+  <div class="barra">
+    <input class="busca" id="busca" placeholder="Buscar CTRC, CT-e, NF, carga B10…, anotação…">
+    <button class="btn-sm" id="btnColar">📋 Colar lista</button>
+    <button class="btn-sm" id="btnSelVis">Selecionar visíveis</button>
+    <label class="chk"><input type="checkbox" id="chkTodos"> Mostrar pagos e substituídos</label>
+    <span id="chips"></span>
+    <button class="btn-sm" id="btnLimparFiltros" style="display:none">Limpar filtros das colunas</button>
+    <span class="info" id="info"></span>
+  </div>
+
+  <div class="lote" id="lote" hidden>
+    <b id="loteN"></b>
+    <span>mudar</span><select id="loteCampo"></select>
+    <span>para</span><span id="loteValorBox"></span>
+    <button class="btn-sm primary" id="loteAplicar">Aplicar</button>
+    <button class="btn-sm" id="loteLimpar">Limpar seleção</button>
+  </div>
+
+  <div class="tabela-box">
+    <table class="dados" id="tabela"><thead></thead><tbody><tr><td><div class="carregando"><div class="spinner"></div>Lendo o SSW…</div></td></tr></tbody></table>
+    <div class="mais" id="mais" hidden></div>
+  </div>
+</div>
+
+<aside class="gaveta" id="gaveta" hidden>
+  <div class="gaveta-cab">
+    <div><h2 id="gavTitulo"></h2><div class="sub" id="gavSub"></div></div>
+    <button class="btn-sm" id="gavFechar">✕</button>
+  </div>
+  <div class="gaveta-corpo" id="gavCorpo"></div>
+</aside>
+
+<div class="modal" id="modalLista" hidden>
+  <div class="caixa">
+    <h3>Colar lista</h3>
+    <div class="nota">CTRC, CT-e, NF, número da carga (B10…) ou ticket do Pipefy — um por linha ou separados por ponto e vírgula, vírgula ou espaço.</div>
+    <textarea id="txtLista" spellcheck="false"></textarea>
+    <div id="resLista"></div>
+    <div class="acoes" style="margin-top:10px">
+      <button class="btn-sm" id="btnFecharLista">Fechar</button>
+      <button class="btn-sm" id="btnLocalizar">Localizar</button>
+      <button class="btn-sm primary" id="btnUsarLista" disabled>Mostrar e selecionar</button>
+    </div>
+  </div>
+</div>
+
+<datalist id="dl-campo"></datalist>
+<div class="toast" id="toast" hidden></div>
+
+<script src="/nav-perms.js"></script>
+<script src="/report-filter.js"></script>
+<script>
+(function () {
+  'use strict';
+  var MAX = 800;
+  var S = { carteira: null, carteiras: [], cfg: null, resumo: {}, linhas: [], porChave: {}, hoje: '',
+            card: null, busca: '', todos: false, lista: null, sel: new Set(), cols: [], idx: {}, achados: null };
+  var $ = function (id) { return document.getElementById(id); };
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function moeda(v) { return (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+  function moedaK(v) { v = Number(v) || 0; return v >= 1e6 ? (v / 1e6).toLocaleString('pt-BR', { maximumFractionDigits: 2 }) + ' mi'
+    : v >= 1e3 ? Math.round(v / 1e3).toLocaleString('pt-BR') + ' mil' : moeda(v); }
+  function ehIso(s) { return /^\d{4}-\d{2}-\d{2}$/.test(String(s || '')); }
+  function dm(iso) { return iso ? iso.slice(8, 10) + '/' + iso.slice(5, 7) + '/' + iso.slice(2, 4) : ''; }
+  function txtCampo(v) { return ehIso(v) ? dm(v) : (v == null ? '' : String(v)); }
+  function diasEntre(a, b) { return Math.round((new Date(b) - new Date(a)) / 864e5); }
+  function somaDias(iso, n) { var d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); }
+  function toast(msg, erro) {
+    var t = $('toast'); t.textContent = msg; t.className = 'toast' + (erro ? ' erro' : ''); t.hidden = false;
+    clearTimeout(toast._t); toast._t = setTimeout(function () { t.hidden = true; }, erro ? 6000 : 2500);
+  }
+  function corVar(c) { return 'var(--c-' + (c || 'cinza') + ')'; }
+  function etapaDef(cod) { return (S.cfg.etapas || []).find(function (e) { return e.cod === cod; }); }
+  function campoDef(id) { return (S.cfg.campos || []).find(function (c) { return c.id === id; }); }
+  var SSW_ROT = { pago: 'Pago', fatura: 'Fatura emitida', aberto: 'Sem fatura', sem_ssw: 'Sem CT-e no SSW', indefinido: 'Sem informação' };
+  // O que o SSW diz, em uma palavra (é também o valor do filtro da coluna SSW).
+  function sswRot(l) {
+    if (l.ssw === 'pago') return l.fonte === '441 parcial' ? 'Pago (parcial)' : 'Pago';
+    if (l.ssw === 'fatura') return l.fatura_aberta ? (l.vencida ? 'Fatura vencida' : 'Fatura a vencer') : 'Faturado (455)';
+    return SSW_ROT[l.ssw] || l.ssw;
+  }
+  function fatNum(f) { return String(f.fatura || '').split('-')[0].replace(/^0+/, ''); }
+
+  // ── filtro estilo Excel (o mesmo das abas Conhecimentos e Despesas) ──
+  var rf = ReportFilter.init({
+    getData: function () { return { cols: S.cols, data: S.linhas.filter(passa).map(vm) }; },
+    renderTabela: renderTabela,
+    colsMoeda: ['Frete', 'Idade'],
+    colsData: ['Emissão', 'Vencimento'],
+    fmtData: dm,
+    defaultSort: { col: 'Idade', dir: 'desc', type: 'number' },
+    onView: onView,
+    limparBtnId: 'btnLimparFiltros',
+    csvNome: 'crm_documentos'
+  });
+
+  // Falha ao montar a tabela não pode passar calada: a tela ficaria com a tabela anterior e
+  // o filtro marcado, parecendo que o filtro não pegou.
+  var _refresh = rf.refresh;
+  rf.refresh = function () {
+    try { _refresh(); }
+    catch (e) {
+      console.error(e);
+      $('erro').textContent = 'Erro ao montar a tabela: ' + e.message + ' — recarregue a página (Ctrl+F5) e, se repetir, avise o time.';
+      $('erro').hidden = false;
+    }
+  };
+
+  function colunas() {
+    var c = ['CTRC', 'Emissão', 'CT-e', 'NF', 'Frete', 'Idade', 'Etapa', 'SSW'];
+    S.cfg.campos.forEach(function (f) { c.push(f.rotulo); });
+    if (S.cfg.prazo_dias) c.push('Vencimento');
+    c.push('Obs. do CT-e');
+    return c;
+  }
+  function vm(l) {
+    var r = { _k: l.chave, 'CTRC': l.ctrc || '', 'Emissão': l.emissao || '', 'CT-e': l.cte ? String(l.cte) : '',
+              'NF': l.nf ? String(l.nf) : '', 'Frete': l.frete || 0, 'Idade': l.idade, 'Etapa': l.etapa || '',
+              'SSW': sswRot(l), 'Obs. do CT-e': l.obs || '' };
+    S.cfg.campos.forEach(function (f) { r[f.rotulo] = l.campos[f.id] || ''; });
+    if (S.cfg.prazo_dias) r['Vencimento'] = l.vencimento || '';
+    return r;
+  }
+
+  // Cartão de etapa: o que ainda pede ação nela — a receber, ou com divergência (o SUBST que o
+  // SSW ainda mostra a receber). Pago e encerrado ficam para o "Mostrar pagos".
+  function naEtapa(l, cod) { return l.etapa === cod && (l.aberto || l.diverg.length > 0); }
+
+  // ── o que entra na tabela antes dos filtros de coluna ──
+  function passa(l) {
+    if (S.lista && !S.lista.has(l.chave)) return false;
+    var c = S.card;
+    if (c === 'novos') { if (!l.novo) return false; }
+    else if (c === 'diverg') { if (!l.diverg.length) return false; }
+    else if (c === 'vencidas') { if (!(l.vencida && l.aberto)) return false; }
+    else if (c === 'pagos') { if (!(l.ssw === 'pago' && l.pago_em && l.pago_em >= S.desde30)) return false; }
+    else if (c) { if (!naEtapa(l, c)) return false; }
+    else if (!S.todos && !S.lista && !l.aberto) return false;
+    if (S.busca && l._busca.indexOf(S.busca) < 0) return false;
+    return true;
+  }
+
+  // ── carga ──
+  function carregar(carteira, forcar) {
+    $('erro').hidden = true;
+    $('btnAtualizar').disabled = true;
+    if (forcar) $('tabela').querySelector('tbody').innerHTML = '<tr><td><div class="carregando"><div class="spinner"></div>Lendo o 455 e o 441 no Power BI…</div></td></tr>';
+    var url = '/api/crm-documentos?carteira=' + encodeURIComponent(carteira || '') + (forcar ? '&refresh=1' : '');
+    return fetch(url, { credentials: 'same-origin' })
+      .then(function (r) { if (r.status === 401) { location = '/login'; throw new Error('sessão expirada'); } return r.json(); })
+      .then(function (j) {
+        if (!j.ok) throw new Error(j.error || 'erro ao ler');
+        var mudouCarteira = S.carteira !== j.carteira;
+        S.carteira = j.carteira; S.carteiras = j.carteiras; S.resumo = j.resumo; S.hoje = j.hoje;
+        S.desde30 = somaDias(j.hoje, -30); S.desde7 = somaDias(j.hoje, -7);
+        S.cfg = j.carteiras.find(function (c) { return c.id === j.carteira; });
+        setLinhas(j.linhas);
+        S.abertasOk = !!j.lido_abertas; S.lidoAbertas = j.lido_abertas; S.abertasCorte = j.abertas_corte; S.inicio441 = j.inicio_441;
+        $('meta').textContent = '455 lido em ' + dm(j.lido_455) + ' · 441 (pagas) lido em ' + dm(j.lido_441)
+          + (S.abertasOk ? ' · 441 (em aberto) lido em ' + dm(j.lido_abertas) + (j.abertas_corte ? ', CTRCs desde ' + dm(j.abertas_corte) : '')
+                         : ' · carteira em aberto do 441 ainda fora do BI')
+          + ' · dados de ' + j.lido_em;
+        if (mudouCarteira) {
+          S.card = null; S.lista = null; S.sel = new Set(); S.cols = colunas();
+          rf.setColumns(S.cols); montarLote();
+          try { history.replaceState(null, '', '/crm-documentos?carteira=' + S.carteira); } catch (e) {}
+        }
+        tudo();
+      })
+      .catch(function (e) { $('erro').textContent = 'Não foi possível ler: ' + e.message; $('erro').hidden = false; })
+      .then(function () { $('btnAtualizar').disabled = false; });
+  }
+  function setLinhas(ls) {
+    S.linhas = ls; S.porChave = {};
+    ls.forEach(function (l) {
+      S.porChave[l.chave] = l;
+      var partes = [l.ctrc, l.cte, l.nf, l.obs, l.etapa, l.pagador, l.nota_linha];
+      for (var k in l.campos) partes.push(l.campos[k]);
+      l._busca = partes.join(' ').toUpperCase();
+    });
+    indexar();
+  }
+  function trocarLinhas(novas) {
+    novas.forEach(function (n) {
+      var i = S.linhas.findIndex(function (l) { return l.chave === n.chave; });
+      if (i >= 0) S.linhas[i] = n; else S.linhas.push(n);
+    });
+    setLinhas(S.linhas);
+    var ab = S.linhas.filter(function (l) { return l.aberto; });
+    S.resumo[S.carteira] = { abertos: ab.length, valor: ab.reduce(function (s, l) { return s + (l.frete || 0); }, 0) };
+  }
+  function tudo() { renderAbas(); renderKpis(); renderCards(); renderChips(); rf.refresh(); renderLote(); }
+
+  // ── abas, indicadores, cartões ──
+  function renderAbas() {
+    $('abas').innerHTML = S.carteiras.map(function (c) {
+      var r = S.resumo[c.id] || {};
+      return '<button class="aba' + (c.id === S.carteira ? ' ativa' : '') + '" data-cart="' + c.id + '">' + esc(c.nome)
+        + '<small>' + (r.abertos || 0) + ' em aberto · R$ ' + moedaK(r.valor) + '</small></button>';
+    }).join('');
+  }
+  function mediana(a) { if (!a.length) return null; a = a.slice().sort(function (x, y) { return x - y; }); return a[Math.floor(a.length / 2)]; }
+  function renderKpis() {
+    var ab = S.linhas.filter(function (l) { return l.aberto; });
+    var velhos = ab.filter(function (l) { return l.idade > 90; });
+    var pg7 = S.linhas.filter(function (l) { return l.ssw === 'pago' && l.pago_em >= S.desde7; });
+    var desde90 = somaDias(S.hoje, -90);
+    var prazos = S.linhas.filter(function (l) { return l.ssw === 'pago' && l.pago_em >= desde90 && l.emissao; })
+      .map(function (l) { return diasEntre(l.emissao, l.pago_em); }).filter(function (d) { return d >= 0; });
+    var p90 = prazos.length ? prazos.slice().sort(function (a, b) { return a - b; })[Math.floor(prazos.length * .9)] : null;
+    var div = S.linhas.filter(function (l) { return l.diverg.length; });
+    var venc = ab.filter(function (l) { return l.vencida; });
+    var semFat = ab.filter(function (l) { return l.ssw === 'aberto'; });
+    function soma(a) { return a.reduce(function (s, l) { return s + (l.frete || 0); }, 0); }
+    var k = [
+      ['Em aberto', 'R$ ' + moedaK(soma(ab)), ab.length + ' CT-e a receber' + (S.abertasOk ? ' · ' + semFat.length + ' ainda sem fatura' : ' (não pagos e não substituídos)')],
+      S.abertasOk ? ['Fatura vencida', 'R$ ' + moedaK(soma(venc)), venc.length + ' CT-e em fatura com o vencimento passado']
+                  : ['Mais de 90 dias', 'R$ ' + moedaK(soma(velhos)), velhos.length + ' CT-e emitidos há mais de 90 dias'],
+      ['Pago nos últimos 7 dias', 'R$ ' + moedaK(soma(pg7)), pg7.length + ' CT-e, pelo 441'],
+      ['Prazo real de recebimento', prazos.length ? mediana(prazos) + ' dias' : '—', prazos.length ? 'mediana da emissão ao pagamento · p90 ' + p90 + ' d · pagos em 90 dias' : 'sem pagamento nos últimos 90 dias'],
+      ['Divergências', String(div.length), 'marcação diferente do SSW']
+    ];
+    $('kpis').innerHTML = k.map(function (x) {
+      return '<div class="kpi"><div class="l">' + esc(x[0]) + '</div><div class="v">' + esc(x[1]) + '</div><div class="s">' + esc(x[2]) + '</div></div>';
+    }).join('');
+  }
+  function renderCards() {
+    var ls = S.linhas, cards = [];
+    cards.push({ id: 'novos', t: 'Novos', d: 'CT-e do SSW ainda sem etapa', cor: 'cinza', ls: ls.filter(function (l) { return l.novo; }) });
+    S.cfg.etapas.forEach(function (e) {
+      cards.push({ id: e.cod, t: e.cod, d: e.desc + ' — a receber ou com divergência', cor: e.cor,
+                   ls: ls.filter(function (l) { return naEtapa(l, e.cod); }) });
+    });
+    if (S.abertasOk) {
+      cards.push({ id: 'vencidas', t: 'Fatura vencida', d: 'em fatura em aberto no SSW com o vencimento passado', cor: 'vermelho',
+                   ls: ls.filter(function (l) { return l.vencida && l.aberto; }) });
+    }
+    cards.push({ id: 'diverg', t: 'Divergência', d: 'a marcação diz uma coisa e o SSW outra', cor: 'vermelho', ls: ls.filter(function (l) { return l.diverg.length; }) });
+    cards.push({ id: 'pagos', t: 'Pagos 30 dias', d: 'pagamento registrado no SSW nos últimos 30 dias', cor: 'verde', pagos: true,
+                 ls: ls.filter(function (l) { return l.ssw === 'pago' && l.pago_em >= S.desde30; }) });
+    $('cards').innerHTML = cards.map(function (c) {
+      var v = c.ls.reduce(function (s, l) { return s + (l.frete || 0); }, 0);
+      var extra;
+      if (c.pagos) {
+        var ult = c.ls.reduce(function (m, l) { return l.pago_em > m ? l.pago_em : m; }, '');
+        extra = ult ? 'último ' + dm(ult) : '—';
+      } else {
+        var vel = c.ls.reduce(function (m, l) { return Math.max(m, l.idade || 0); }, 0);
+        extra = c.ls.length ? 'o mais velho: ' + vel + ' d' : '—';
+      }
+      return '<button class="card' + (S.card === c.id ? ' ativo' : '') + (c.ls.length ? '' : ' zero') + '" data-card="' + esc(c.id)
+        + '" style="--cor:' + corVar(c.cor) + '" title="' + esc(c.d) + '"><div class="t">' + esc(c.t) + '</div><div class="n">'
+        + c.ls.length + '</div><div class="r">R$ ' + moedaK(v) + '</div><div class="r">' + extra + '</div></button>';
+    }).join('');
+  }
+  function renderChips() {
+    var h = '';
+    if (S.card) {
+      var e = etapaDef(S.card);
+      var nome = { novos: 'Novos', diverg: 'Divergência', pagos: 'Pagos 30 dias', vencidas: 'Fatura vencida' }[S.card] || (e ? e.cod : S.card);
+      h += '<span class="chip-filtro">cartão: ' + esc(nome) + ' <button data-limpa="card" title="Tirar">✕</button></span> ';
+    }
+    if (S.lista) h += '<span class="chip-filtro">lista colada: ' + S.lista.size + ' linhas <button data-limpa="lista" title="Tirar">✕</button></span>';
+    $('chips').innerHTML = h;
+  }
+
+  // ── tabela ──
+  function renderTabela(cols, rows) {
+    var tab = $('tabela');
+    tab.querySelector('thead').innerHTML = '<tr>' + cols.map(function (c) { return '<th>' + esc(c) + '</th>'; }).join('') + '</tr>';
+    var vis = rows.slice(0, MAX);
+    tab.querySelector('tbody').innerHTML = vis.length ? vis.map(function (r) { return linhaHTML(cols, r); }).join('')
+      : '<tr><td colspan="' + cols.length + '" class="mais">Nenhuma linha neste filtro.</td></tr>';
+    var mais = $('mais');
+    mais.hidden = rows.length <= MAX;
+    mais.textContent = 'Mostrando ' + MAX + ' de ' + rows.length + ' linhas — use a busca, os cartões ou os filtros das colunas para ver o resto.';
+  }
+  function linhaHTML(cols, r) {
+    var l = S.porChave[r._k];
+    var tds = cols.map(function (c) {
+      if (c === 'CTRC') {
+        var marca = l.manual ? '<span class="marca" title="' + esc(l.nota_linha || 'sem CT-e no SSW') + '">●</span>' : '';
+        return '<td class="ctrc"><input type="checkbox" data-sel="' + esc(l.chave) + '"' + (S.sel.has(l.chave) ? ' checked' : '')
+          + '><a href="#" data-abre="' + esc(l.chave) + '">' + esc(l.ctrc || '(sem CTRC)') + '</a>' + marca + '</td>';
+      }
+      if (c === 'Emissão') return '<td class="mono">' + dm(l.emissao) + '</td>';
+      if (c === 'CT-e' || c === 'NF') return '<td class="mono dim">' + esc(r[c]) + '</td>';
+      if (c === 'Frete') return '<td class="num">' + moeda(l.frete) + '</td>';
+      if (c === 'Idade') return '<td class="num' + (l.aberto && l.idade > 90 ? ' velho' : '') + '">' + (l.idade == null ? '' : l.idade) + '</td>';
+      if (c === 'Etapa') {
+        var e = etapaDef(l.etapa);
+        var quem = l.atualizado ? 'atualizado ' + l.atualizado + (l.por ? ' por ' + l.por : '') : '';
+        var conteudo = l.etapa ? '<span class="pill" style="--cor:' + corVar(e ? e.cor : 'cinza') + '">' + esc(l.etapa) + '</span>' : '<span class="vazio">—</span>';
+        return '<td class="ed" data-ed="etapa" data-k="' + esc(l.chave) + '" title="' + esc(quem) + '">' + conteudo + '</td>';
+      }
+      if (c === 'SSW') {
+        var fa = l.fatura_aberta, t, tit, cls = l.ssw;
+        if (l.ssw === 'pago' && l.fonte === '441 parcial') {
+          t = 'Pago (parcial)';
+          tit = 'pago em pagamento parcial da fatura ' + fa.fatura + ': R$ ' + moeda(fa.pago) + ' de R$ ' + moeda(fa.valor) + ' — o valor aponta este CTRC';
+        } else if (l.ssw === 'pago') {
+          t = 'Pago ' + dm(l.pago_em);
+          tit = 'pago em ' + dm(l.pago_em) + (l.fonte === '441' ? ' · fatura ' + (l.faturas || []).join(', ') : ' · baixa do 455');
+        } else if (l.ssw === 'fatura' && fa) {
+          t = (l.vencida ? 'Vencida ' : 'Fat. ' + fatNum(fa) + ' · vence ') + dm(fa.vencimento);
+          tit = 'fatura ' + fa.fatura + ' emitida ' + dm(fa.emissao) + ', vence ' + dm(fa.vencimento) + ' · saldo R$ ' + moeda(fa.saldo)
+            + (fa.parcial ? ' · pagamento parcial de R$ ' + moeda(fa.pago) : '');
+          if (l.vencida) cls = 'vencida';
+        } else if (l.ssw === 'fatura') {
+          t = 'Faturado (455)';
+          tit = 'o 455 leu FATURADO em ' + dm(l.lido_455) + ' e desde então não há pagamento no 441 (que cobre desde ' + dm(S.inicio441) + '): fatura emitida e não paga';
+        } else if (l.ssw === 'aberto') {
+          t = 'Sem fatura';
+          tit = 'o 441 não tem este CT-e em fatura nenhuma — nem paga, nem em aberto';
+        } else if (l.ssw === 'indefinido') {
+          t = 'Sem informação'; cls = 'indefinido';
+          tit = (S.abertasOk ? 'o 441 só lista CTRC emitido desde ' + dm(S.abertasCorte) : 'a carteira em aberto do 441 ainda não está no BI')
+            + ', e a baixa PENDENTE do 455 (lida em ' + dm(l.lido_455) + ') não prova nada — vale a etapa marcada';
+        } else {
+          t = SSW_ROT[l.ssw] || l.ssw; tit = l.nota_linha || 'sem CT-e no SSW';
+        }
+        return '<td><span class="ssw ' + cls + '" title="' + esc(tit) + '">' + esc(t) + '</span>'
+          + (l.diverg.length ? ' <span class="marca" title="' + esc(l.diverg.map(function (d) { return d.texto; }).join(' | ')) + '">⚠</span>' : '') + '</td>';
+      }
+      if (c === 'Vencimento') {
+        var venc = l.vencimento, vencido = venc && venc < S.hoje && l.ssw !== 'pago';
+        return '<td class="mono' + (vencido ? ' vencido' : '') + '">' + dm(venc) + '</td>';
+      }
+      if (c === 'Obs. do CT-e') return '<td class="obs" title="' + esc(l.obs) + '">' + esc(l.obs) + '</td>';
+      var f = S.cfg.campos.find(function (x) { return x.rotulo === c; });
+      if (f) {
+        var v = l.campos[f.id];
+        return '<td class="ed txt" data-ed="' + f.id + '" data-k="' + esc(l.chave) + '" title="' + esc(v ? txtCampo(v) : 'clique para preencher') + '">'
+          + (v ? esc(txtCampo(v)) : '<span class="vazio">—</span>') + '</td>';
+      }
+      return '<td>' + esc(r[c]) + '</td>';
+    });
+    return '<tr class="' + (S.sel.has(l.chave) ? 'sel' : '') + (l.diverg.length ? ' div' : '') + '">' + tds.join('') + '</tr>';
+  }
+  function onView(view) {
+    var tot = view.reduce(function (s, r) { return s + (Number(r.Frete) || 0); }, 0);
+    $('info').textContent = view.length + ' linhas · R$ ' + moeda(tot);
+    S.visiveis = view.map(function (r) { return r._k; });
+  }
+
+  // ── edição na célula ──
+  var ED = null;
+  function abrirEditor(td) {
+    // Clicou em outra célula com uma edição aberta: grava a aberta primeiro (o blur chega
+    // depois do clique e não pode descartar o que foi digitado).
+    if (ED) { salvarEditor(); return; }
+    var k = td.getAttribute('data-k'), campo = td.getAttribute('data-ed'), l = S.porChave[k];
+    var atual = campo === 'etapa' ? (l.etapa || '') : (l.campos[campo] || '');
+    var el;
+    if (campo === 'etapa') {
+      el = document.createElement('select');
+      el.innerHTML = '<option value="">— sem etapa —</option>' + S.cfg.etapas.map(function (e) {
+        return '<option value="' + esc(e.cod) + '"' + (e.cod === atual ? ' selected' : '') + '>' + esc(e.cod + ' · ' + e.desc) + '</option>'; }).join('');
+      el.addEventListener('change', function () { salvarEditor(); });
+    } else {
+      var f = campoDef(campo);
+      el = document.createElement('input');
+      el.type = 'text';
+      el.value = f.tipo === 'data_texto' ? txtCampo(atual) : atual;
+      if (f.tipo === 'data_texto') el.placeholder = 'dd/mm ou texto';
+      if (f.tipo === 'lista') {
+        $('dl-campo').innerHTML = (f.opcoes || []).map(function (o) { return '<option value="' + esc(o) + '">'; }).join('');
+        el.setAttribute('list', 'dl-campo');
+      }
+      el.style.minWidth = '150px';
+    }
+    el.className = 'editor';
+    el.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter') { ev.preventDefault(); salvarEditor(); }
+      else if (ev.key === 'Escape') { ev.preventDefault(); fecharEditor(true); }
+    });
+    el.addEventListener('blur', function () { setTimeout(function () { if (ED && ED.el === el) salvarEditor(); }, 120); });
+    td.innerHTML = ''; td.appendChild(el); el.focus();
+    if (el.select && el.tagName === 'INPUT') el.select();
+    ED = { td: td, k: k, campo: campo, el: el, atual: atual };
+  }
+  function fecharEditor(redesenhar) {
+    if (!ED) return;
+    ED = null;
+    if (redesenhar) rf.refresh();
+  }
+  function salvarEditor() {
+    if (!ED) return;
+    var e = ED; ED = null;
+    var valor = e.el.value;
+    var antes = e.campo === 'etapa' ? e.atual : txtCampo(e.atual);
+    if (String(valor).trim() === String(antes).trim()) { rf.refresh(); return; }
+    marcar([e.k], e.campo, valor).then(function (ok) { if (!ok) rf.refresh(); });
+  }
+  function marcar(chaves, campo, valor) {
+    return fetch('/api/crm-documentos/marcar', {
+      method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ carteira: S.carteira, chaves: chaves, campo: campo, valor: valor })
+    }).then(function (r) { return r.json(); }).then(function (j) {
+      if (!j.ok) { toast(j.error || 'Não salvou.', true); return false; }
+      trocarLinhas(j.linhas);
+      tudo();
+      toast(j.mudou ? (j.mudou === 1 ? 'Salvo.' : j.mudou + ' linhas atualizadas.') : 'Nada mudou.');
+      return true;
+    }).catch(function (e) { toast('Não salvou: ' + e.message, true); return false; });
+  }
+
+  // ── seleção e mudança em lote ──
+  function montarLote() {
+    $('loteCampo').innerHTML = '<option value="etapa">Etapa</option>' + S.cfg.campos.map(function (f) {
+      return '<option value="' + f.id + '">' + esc(f.rotulo) + '</option>'; }).join('');
+    montarValorLote();
+  }
+  function montarValorLote() {
+    var campo = $('loteCampo').value, box = $('loteValorBox');
+    if (campo === 'etapa') {
+      box.innerHTML = '<select id="loteValor"><option value="">— sem etapa —</option>' + S.cfg.etapas.map(function (e) {
+        return '<option value="' + esc(e.cod) + '">' + esc(e.cod) + '</option>'; }).join('') + '</select>';
+    } else {
+      var f = campoDef(campo);
+      box.innerHTML = '<input id="loteValor" type="text" ' + (f.tipo === 'lista' ? 'list="dl-lote"' : '')
+        + ' placeholder="' + (f.tipo === 'data_texto' ? 'dd/mm ou texto' : 'vazio apaga') + '"><datalist id="dl-lote">'
+        + (f.opcoes || []).map(function (o) { return '<option value="' + esc(o) + '">'; }).join('') + '</datalist>';
+    }
+  }
+  function renderLote() {
+    var n = S.sel.size;
+    $('lote').hidden = !n;
+    if (!n) return;
+    var v = 0; S.sel.forEach(function (k) { v += (S.porChave[k] || {}).frete || 0; });
+    $('loteN').textContent = n + (n === 1 ? ' linha selecionada' : ' linhas selecionadas') + ' · R$ ' + moeda(v);
+  }
+
+  // ── colar lista ──
+  function norm(t) {
+    t = String(t).toUpperCase().replace(/[\s.]/g, '');
+    if (/^\d+$/.test(t)) t = t.replace(/^0+/, '') || '0';
+    return t;
+  }
+  function indexar() {
+    S.idx = {};
+    function add(tok, k) { if (!tok) return; tok = norm(tok); (S.idx[tok] = S.idx[tok] || new Set()).add(k); }
+    S.linhas.forEach(function (l) {
+      var k = l.chave;
+      if (l.ctrc) { add(l.ctrc, k); add(String(l.ctrc).split('-')[0], k); }
+      if (l.cte) { add(String(l.cte), k); add(String(Number(l.cte) % 1e9), k); }
+      if (l.nf) add(String(l.nf), k);
+      (String(l.obs || '').toUpperCase().match(/B\d{9}/g) || []).forEach(function (b) { add(b, k); });
+      if (l.campos.ticket_pipefy) add(l.campos.ticket_pipefy, k);
+    });
+  }
+  function localizar() {
+    var toks = $('txtLista').value.split(/[\s;,]+/).map(function (t) { return t.trim(); }).filter(Boolean);
+    var achadas = new Set(), nao = [], amb = [];
+    toks.forEach(function (t) {
+      var s = S.idx[norm(t)];
+      if (!s) { nao.push(t); return; }
+      if (s.size > 1) amb.push(t + ' (' + s.size + ')');
+      s.forEach(function (k) { achadas.add(k); });
+    });
+    S.achados = achadas;
+    var h = '<b>' + (toks.length - nao.length) + ' de ' + toks.length + '</b> números encontrados → <b>' + achadas.size + '</b> linhas.';
+    if (nao.length) h += '<br>Não achados (' + nao.length + '): ' + esc(nao.slice(0, 40).join(', ')) + (nao.length > 40 ? '…' : '');
+    if (amb.length) h += '<br>Casaram mais de uma linha: ' + esc(amb.slice(0, 20).join(', '));
+    $('resLista').innerHTML = toks.length ? h : 'Cole os números acima.';
+    $('btnUsarLista').disabled = !achadas.size;
+  }
+
+  // ── gaveta ──
+  function abrirGaveta(k) {
+    var l = S.porChave[k];
+    $('gavTitulo').textContent = l.ctrc || '(sem CTRC)';
+    $('gavSub').textContent = 'CT-e ' + (l.cte || '—') + ' · R$ ' + moeda(l.frete) + ' · emitido ' + dm(l.emissao) + (l.idade != null ? ' · ' + l.idade + ' dias' : '');
+    $('gavCorpo').innerHTML = '<div class="carregando"><div class="spinner"></div></div>';
+    $('gaveta').hidden = false;
+    fetch('/api/crm-documentos/linha?carteira=' + encodeURIComponent(S.carteira) + '&chave=' + encodeURIComponent(k), { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (!j.ok) throw new Error(j.error || 'erro');
+        $('gavCorpo').innerHTML = gavetaHTML(j);
+      })
+      .catch(function (e) { $('gavCorpo').innerHTML = '<div class="erro">' + esc(e.message) + '</div>'; });
+  }
+  function kv(pares) {
+    return '<dl class="kv">' + pares.filter(function (p) { return p[1] != null && p[1] !== ''; }).map(function (p) {
+      return '<dt>' + esc(p[0]) + '</dt><dd>' + (p[2] ? p[1] : esc(p[1])) + '</dd>'; }).join('') + '</dl>';
+  }
+  function gavetaHTML(j) {
+    var l = j.linha, h = '';
+    l.diverg.forEach(function (d) { h += '<div class="aviso-div">' + esc(d.texto) + '</div>'; });
+    var sit = '<span class="ssw ' + (l.vencida ? 'vencida' : l.ssw) + '">' + esc(sswRot(l)) + (l.ssw === 'pago' && l.pago_em ? ' em ' + dm(l.pago_em) : '') + '</span>';
+    var como = l.fonte === '441' ? 'fatura liquidada no 441'
+      : l.fonte === '441 parcial' ? 'pagamento parcial da fatura em aberto: o valor pago só fecha com este CTRC entre os da fatura'
+      : l.fonte === '441 abertas' ? 'fatura em aberto no 441 (carteira lida em ' + dm(S.lidoAbertas) + ')'
+      : l.ssw === 'pago' ? 'baixa LIQUIDADO no 455 (pagamento não volta atrás)'
+      : l.ssw === 'sem_ssw' ? (l.nota_linha || 'o CT-e não está no 455')
+      : l.ssw === 'aberto' ? 'o 441 não tem este CT-e em fatura nenhuma — nem paga, nem em aberto'
+      : l.ssw === 'fatura' ? 'o 455 leu FATURADO em ' + dm(l.lido_455) + '; pagamento antes disso teria virado LIQUIDADO, e depois estaria no 441 (desde ' + dm(S.inicio441) + ') — fatura emitida e não paga'
+      : (S.abertasOk ? 'CT-e anterior a ' + dm(S.abertasCorte) + ', e o 441 não lista CTRC tão antigo' : 'a carteira em aberto do 441 ainda não está no BI')
+        + '; a baixa PENDENTE do 455 (lida em ' + dm(l.lido_455) + ') não prova nada. Vale a etapa marcada.';
+    h += '<div class="bloco"><h3>No SSW</h3>' + kv([
+      ['Situação', sit, true],
+      ['Como se sabe', como],
+      ['Documento', l.doc], ['Pagador', (l.pagador || '') + (l.cnpj ? ' · ' + l.cnpj : '')],
+      ['Remetente', l.remetente], ['Destinatário', l.destinatario], ['Destino', l.destino],
+      ['NF', l.nf], ['UF origem', l.uf_o], ['Vencimento', l.vencimento ? dm(l.vencimento) + ' (emissão + ' + S.cfg.prazo_dias + ' dias)' : ''],
+      ['Observação', l.obs]
+    ]) + '</div>';
+    var fa = l.fatura_aberta;
+    if (fa) {
+      var par = '';
+      if (fa.parcial) {
+        par = '<div class="nota" style="margin-top:6px">Pagamento parcial: R$ ' + moeda(fa.pago) + ' de R$ ' + moeda(fa.valor) + '. '
+          + (fa.pagos_parcial.length ? 'Pelo valor, os CTRCs pagos são ' + esc(fa.pagos_parcial.join(', ')) + '.'
+             : 'O SSW registra só o valor; nenhuma combinação única de CTRCs fecha esse valor, então não dá para saber quais foram pagos.') + '</div>';
+      }
+      h += '<div class="bloco"><h3>Fatura em aberto (441)</h3>' + kv([
+        ['Fatura', fa.fatura], ['Emissão', dm(fa.emissao)],
+        ['Vencimento', '<span class="' + (l.vencida ? 'vencido' : '') + '">' + dm(fa.vencimento) + '</span>' + (fa.situacao ? ' · ' + esc(fa.situacao) : ''), true],
+        ['Valor', 'R$ ' + moeda(fa.valor)], ['Saldo', 'R$ ' + moeda(fa.saldo)],
+        ['CTRCs da fatura', fa.ctrcs.map(function (c) { return c[0] + ' (R$ ' + moeda(c[1]) + ')'; }).join(', ') + (fa.n_ctrcs > fa.ctrcs.length ? '…' : '')]
+      ]) + par + '</div>';
+    }
+    if (j.pagamentos && j.pagamentos.length) {
+      h += '<div class="bloco"><h3>Faturas liquidadas (441)</h3><table class="pg"><tr><th>Fatura</th><th>Emissão</th><th>Vencimento</th><th>Pagamento</th><th>Valor pago</th></tr>'
+        + j.pagamentos.map(function (p) { return '<tr><td class="mono">' + esc(p.fatura) + '</td><td>' + dm(p.emissao) + '</td><td>' + dm(p.vencimento)
+          + '</td><td>' + dm(p.pagamento) + '</td><td class="mono">' + moeda(p.vlr_pago) + '</td></tr>'; }).join('') + '</table>'
+        + '<div class="nota">O valor pago é o da fatura inteira, que pode reunir vários CT-e.</div></div>';
+    }
+    var pares = [['Etapa', l.etapa || '—']];
+    S.cfg.campos.forEach(function (f) { pares.push([f.rotulo, txtCampo(l.campos[f.id])]); });
+    h += '<div class="bloco"><h3>Marcação (edite na tabela)</h3>' + kv(pares)
+      + (l.atualizado ? '<div class="nota" style="margin-top:6px">Última mudança ' + esc(l.atualizado) + (l.por ? ' por ' + esc(l.por) : '') + '</div>' : '') + '</div>';
+    if (j.historico && j.historico.length) {
+      h += '<div class="bloco"><h3>Histórico</h3><ul class="hist">' + j.historico.map(function (x) {
+        var o = x.campo === '*importacao*' ? 'Importada da planilha' :
+          (x.campo === 'etapa' ? 'Etapa' : ((campoDef(x.campo) || {}).rotulo || x.campo)) + ': ' + (x.antes ? txtCampo(x.antes) : '—') + ' → ' + (x.depois ? txtCampo(x.depois) : '—');
+        return '<li>' + esc(o) + '<div class="q">' + esc(x.em) + ' · ' + esc(x.por || '') + '</div></li>'; }).join('') + '</ul></div>';
+    }
+    if (j.planilha) {
+      var ps = Object.keys(j.planilha).filter(function (k) { return k !== '_linha'; }).map(function (k) {
+        var v = j.planilha[k]; return [k, typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v) ? dm(v.slice(0, 10)) : String(v)]; });
+      h += '<div class="bloco"><h3>Como estava na planilha (linha ' + esc(j.planilha._linha || '') + ')</h3>' + kv(ps) + '</div>';
+    }
+    return h;
+  }
+
+  // ── eventos ──
+  $('abas').addEventListener('click', function (ev) {
+    var b = ev.target.closest('[data-cart]'); if (!b || b.getAttribute('data-cart') === S.carteira) return;
+    // Até a carteira nova chegar, não sobra cartão da anterior para clicar.
+    $('cards').innerHTML = ''; $('kpis').innerHTML = ''; $('chips').innerHTML = '';
+    $('tabela').querySelector('tbody').innerHTML = '<tr><td><div class="carregando"><div class="spinner"></div>Carregando…</div></td></tr>';
+    carregar(b.getAttribute('data-cart'));
+  });
+  $('cards').addEventListener('click', function (ev) {
+    var b = ev.target.closest('[data-card]'); if (!b) return;
+    var id = b.getAttribute('data-card'); S.card = S.card === id ? null : id;
+    renderCards(); renderChips(); rf.refresh();
+  });
+  $('chips').addEventListener('click', function (ev) {
+    var b = ev.target.closest('[data-limpa]'); if (!b) return;
+    if (b.getAttribute('data-limpa') === 'card') S.card = null; else S.lista = null;
+    renderCards(); renderChips(); rf.refresh();
+  });
+  var tBusca;
+  $('busca').addEventListener('input', function () {
+    clearTimeout(tBusca);
+    tBusca = setTimeout(function () { S.busca = $('busca').value.trim().toUpperCase(); rf.refresh(); }, 200);
+  });
+  $('chkTodos').addEventListener('change', function () { S.todos = this.checked; rf.refresh(); });
+  $('btnSelVis').addEventListener('click', function () {
+    (S.visiveis || []).slice(0, MAX).forEach(function (k) { S.sel.add(k); });
+    rf.refresh(); renderLote();
+  });
+  $('tabela').addEventListener('click', function (ev) {
+    var cb = ev.target.closest('[data-sel]');
+    if (cb) {
+      var k = cb.getAttribute('data-sel');
+      if (cb.checked) S.sel.add(k); else S.sel.delete(k);
+      cb.closest('tr').classList.toggle('sel', cb.checked);
+      renderLote(); return;
+    }
+    var a = ev.target.closest('[data-abre]');
+    if (a) { ev.preventDefault(); abrirGaveta(a.getAttribute('data-abre')); return; }
+    var td = ev.target.closest('td[data-ed]');
+    if (td && !td.querySelector('.editor')) abrirEditor(td);
+  });
+  $('loteCampo').addEventListener('change', montarValorLote);
+  $('loteAplicar').addEventListener('click', function () {
+    var campo = $('loteCampo').value, valor = $('loteValor').value, n = S.sel.size;
+    var rot = campo === 'etapa' ? 'Etapa' : campoDef(campo).rotulo;
+    if (!confirm('Mudar "' + rot + '" para "' + (valor || '(vazio)') + '" em ' + n + ' linha(s)?')) return;
+    $('loteAplicar').disabled = true;
+    marcar(Array.from(S.sel), campo, valor).then(function (ok) {
+      $('loteAplicar').disabled = false;
+      if (ok) { S.sel = new Set(); rf.refresh(); renderLote(); }
+    });
+  });
+  $('loteLimpar').addEventListener('click', function () { S.sel = new Set(); rf.refresh(); renderLote(); });
+  $('btnColar').addEventListener('click', function () { $('modalLista').hidden = false; $('txtLista').focus(); });
+  $('btnFecharLista').addEventListener('click', function () { $('modalLista').hidden = true; });
+  $('btnLocalizar').addEventListener('click', localizar);
+  $('btnUsarLista').addEventListener('click', function () {
+    if (!S.achados || !S.achados.size) return;
+    S.lista = new Set(S.achados); S.card = null;
+    S.achados.forEach(function (k) { S.sel.add(k); });
+    $('modalLista').hidden = true;
+    renderCards(); renderChips(); rf.refresh(); renderLote();
+  });
+  $('gavFechar').addEventListener('click', function () { $('gaveta').hidden = true; });
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key !== 'Escape' || ED) return;
+    if (!$('modalLista').hidden) $('modalLista').hidden = true; else $('gaveta').hidden = true;
+  });
+  $('btnAtualizar').addEventListener('click', function () { carregar(S.carteira, true); });
+  $('btnExcel').addEventListener('click', function () {
+    if (S.carteira) location = '/api/crm-documentos/xlsx?carteira=' + encodeURIComponent(S.carteira);
+  });
+
+  var inicial = new URLSearchParams(location.search).get('carteira');
+  carregar(inicial);
+})();
+</script>
+</body>
+</html>

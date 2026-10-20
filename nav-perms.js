@@ -62,6 +62,9 @@
     { id: 'faturamento',   page: 'faturamento',   href: '/faturamento',       label: '📊 Faturamento' },
     // Fecha a família financeira. A contadora externa recebe SÓ esta aba.
     { id: 'contabil',      page: 'contabil',      href: '/contabil',          label: '📒 Contábil' },
+    // Os CT-e dos clientes que pagam por portal (Nestlé, Química Amparo, Unilever, Ambev): era
+    // a planilha do CRM, que o faturamento seguia depois. 📄 é Emoji 1.0 (glifo no Windows 10).
+    { id: 'crm_documentos', page: 'crm_documentos', href: '/crm-documentos', label: '📄 CRM - Documentos' },
     // 🚛 (carreta articulada) e não 🚚 (baú, que fica com Embarques): esta aba analisa
     // cavalo + carreta. Nada de 🛞/🛻 — são do Emoji 13/14 e o Windows 10 não tem o
     // glifo, sai quadradinho vazio. Emoji desta lista: só de blocos antigos.
@@ -81,7 +84,7 @@
   var GRUPOS = [
     { nome: 'Operação',   abas: ['torre', 'viagem', 'embarques', 'ordens', 'semordem', 'sm', 'mapa', 'pgr', 'jornada', 'ciot', 'veiculos', 'verda'] },
     { nome: 'Comercial',  abas: ['tarifas', 'faturamento', 'contratos'] },
-    { nome: 'Financeiro', abas: ['auditoria', 'dre', 'projecao', 'despesas', 'conhecimentos', 'contabil'] },
+    { nome: 'Financeiro', abas: ['auditoria', 'dre', 'projecao', 'despesas', 'conhecimentos', 'contabil', 'crm_documentos'] },
     { nome: 'Sistema',    abas: ['reuniao', 'admin', 'uso'] }
   ];
 

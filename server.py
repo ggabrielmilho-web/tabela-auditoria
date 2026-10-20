@@ -124,7 +124,7 @@ def admin_required(f):
 # Abas concedíveis por usuário (a aba Admin NÃO entra — é exclusiva de role=admin).
 PAGINAS_VALIDAS = {'auditoria', 'tarifas', 'embarques', 'reuniao', 'dre',
                    'despesas', 'conhecimentos', 'faturamento', 'contratos', 'veiculos',
-                   'pgr', 'contabil', 'verda', 'jornada', 'ciot', 'projecao'}
+                   'pgr', 'contabil', 'verda', 'jornada', 'ciot', 'projecao', 'crm_documentos'}
 # O de-para aba → rota e a ordem de preferência viviam aqui para escolher em qual
 # aba o usuário caía no login. Não existem mais: quem escolhe é ele, na /inicio.
 # As rotas de cada aba são declaradas uma vez só, no `ABAS` do nav-perms.js.
@@ -1014,6 +1014,167 @@ def api_jornada_xlsx():
     buf.seek(0)
     nome = f"JORNADA DE {ini:%d-%m-%y} A {fim:%d-%m-%y}.xlsx"
     return send_file(buf, as_attachment=True, download_name=nome,
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
+# ── CRM - Documentos — os CT-e dos clientes que pagam por portal ──────
+#
+# O CRM controlava numa planilha em que etapa do portal (PQD, NBS, RZA, AUTORIZADO...) cada
+# CT-e da Nestlé, Química Amparo, Unilever e Ambev estava; o faturamento seguia nela depois.
+# A tela traz o CT-e e o pagamento do SSW sozinha e guarda só a marcação delas. A lógica mora
+# em crm_documentos.py; aqui ficam a sessão, o banco e o Power BI.
+
+def _crm_dax_op(q):
+    """O 455 mora no dataset principal; `contabil_dax` levanta erro quando o BI corta a resposta."""
+    return contabil_dax(q, dataset_id=CONFIG['dataset_id'])
+
+
+_CRM_TABELAS = {'ok': False}
+
+
+def _crm_marcacoes(carteira):
+    import crm_documentos as crm
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            if not _CRM_TABELAS['ok']:
+                crm.garantir_tabelas(cur)
+                _CRM_TABELAS['ok'] = True
+            marc = crm.marcacoes(cur, carteira)
+        conn.commit()
+    finally:
+        conn.close()
+    return marc
+
+
+def _crm_linhas(carteira, forcar=False):
+    import crm_documentos as crm
+    dados = crm.dados_ssw(_crm_dax_op, contabil_dax, forcar=forcar)
+    return crm.montar_linhas(carteira, dados['ce'], dados['pag'], _crm_marcacoes(carteira),
+                             abertas=dados.get('abertas'), abertas_corte=dados.get('abertas_corte'),
+                             inicio_441=dados.get('inicio_441')), dados
+
+
+@app.route('/crm-documentos')
+@page_required('crm_documentos')
+def crm_documentos_page():
+    # Sem cache: tela nova muda rápido, e página velha aberta no navegador parece bug.
+    resp = send_from_directory('.', 'crm-documentos.html')
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+@app.route('/api/crm-documentos')
+@page_required('crm_documentos')
+def api_crm_documentos():
+    import crm_documentos as crm
+    from datetime import date
+    carteira = request.args.get('carteira') or crm.ORDEM[0]
+    if carteira not in crm.CARTEIRAS:
+        return jsonify({'ok': False, 'error': 'Carteira desconhecida.'}), 400
+    try:
+        linhas, dados = _crm_linhas(carteira, forcar=request.args.get('refresh') == '1')
+        # As abas mostram quanto está em aberto em cada carteira.
+        resumo = {}
+        for cid in crm.ORDEM:
+            ls = linhas if cid == carteira else crm.montar_linhas(cid, dados['ce'], dados['pag'], _crm_marcacoes(cid),
+                                                                   abertas=dados.get('abertas'),
+                                                                   abertas_corte=dados.get('abertas_corte'),
+                                                                   inicio_441=dados.get('inicio_441'))
+            ab = [x for x in ls if x['aberto']]
+            resumo[cid] = {'abertos': len(ab), 'valor': round(sum(x['frete'] or 0 for x in ab), 2)}
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+    return jsonify({'ok': True, 'carteira': carteira, 'carteiras': crm.config_publica(), 'resumo': resumo,
+                    'linhas': linhas, 'lido_455': dados['lido_455'], 'lido_441': dados['lido_441'],
+                    'lido_abertas': dados.get('lido_abertas'), 'abertas_aviso': dados.get('abertas_aviso'),
+                    'abertas_corte': dados.get('abertas_corte'), 'inicio_441': dados.get('inicio_441'),
+                    'lido_em': dados['lido_em'], 'hoje': date.today().isoformat()})
+
+
+@app.route('/api/crm-documentos/marcar', methods=['POST'])
+@page_required('crm_documentos')
+def api_crm_documentos_marcar():
+    """Grava um campo em uma ou várias linhas: {carteira, chaves: [...], campo, valor}."""
+    import crm_documentos as crm
+    d = request.get_json(silent=True) or {}
+    carteira, chaves, campo = d.get('carteira'), d.get('chaves') or [], d.get('campo')
+    if carteira not in crm.CARTEIRAS:
+        return jsonify({'ok': False, 'error': 'Carteira desconhecida.'}), 400
+    if not isinstance(chaves, list) or not chaves or len(chaves) > 3000 or not all(isinstance(k, str) for k in chaves):
+        return jsonify({'ok': False, 'error': 'Nenhuma linha escolhida.'}), 400
+    try:
+        valor = crm.normalizar_entrada(carteira, campo, d.get('valor'))
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    try:
+        linhas, _ = _crm_linhas(carteira)
+        da_carteira = {x['chave']: x for x in linhas}
+        fora = [k for k in chaves if k not in da_carteira]
+        if fora:
+            return jsonify({'ok': False, 'error': f'{len(fora)} linha(s) não são de {crm.CARTEIRAS[carteira]["nome"]}: '
+                                                  + ', '.join(fora[:5])}), 400
+        conn = get_db()
+        try:
+            with conn.cursor() as cur:
+                n = crm.gravar(cur, carteira, chaves, campo, valor, session.get('nome') or 'usuário',
+                               {k: {'ctrc': da_carteira[k]['ctrc'], 'cte': da_carteira[k]['cte']} for k in chaves})
+            conn.commit()
+        finally:
+            conn.close()
+        novas, _ = _crm_linhas(carteira)
+        quero = set(chaves)
+        return jsonify({'ok': True, 'mudou': n, 'linhas': [x for x in novas if x['chave'] in quero]})
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/crm-documentos/linha')
+@page_required('crm_documentos')
+def api_crm_documentos_linha():
+    """Uma linha com o que o SSW diz dela, a linha original da planilha e o histórico."""
+    import crm_documentos as crm
+    carteira, chave = request.args.get('carteira'), request.args.get('chave') or ''
+    if carteira not in crm.CARTEIRAS:
+        return jsonify({'ok': False, 'error': 'Carteira desconhecida.'}), 400
+    try:
+        linhas, dados = _crm_linhas(carteira)
+        linha = next((x for x in linhas if x['chave'] == chave), None)
+        if linha is None:
+            return jsonify({'ok': False, 'error': 'Linha não encontrada.'}), 404
+        conn = get_db()
+        try:
+            with conn.cursor() as cur:
+                hist = crm.historico(cur, chave)
+                cur.execute('SELECT planilha FROM crm_doc_marcacao WHERE chave = %s', (chave,))
+                r = cur.fetchone()
+        finally:
+            conn.close()
+        return jsonify({'ok': True, 'linha': linha, 'historico': hist,
+                        'planilha': ((r or [None])[0] or {}).get('original'),
+                        'pagamentos': dados['pag'].get(chave, [])})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/crm-documentos/xlsx')
+@page_required('crm_documentos')
+def api_crm_documentos_xlsx():
+    """A carteira no layout da aba da planilha delas, com o que o SSW diz no fim."""
+    import crm_documentos as crm
+    from datetime import date
+    carteira = request.args.get('carteira')
+    if carteira not in crm.CARTEIRAS:
+        return jsonify({'ok': False, 'error': 'Carteira desconhecida.'}), 400
+    try:
+        linhas, _ = _crm_linhas(carteira)
+        conteudo = crm.exportar_xlsx(carteira, linhas)
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+    nome = f"CRM Documentos - {crm.CARTEIRAS[carteira]['nome']} - {date.today():%d-%m-%Y}.xlsx"
+    return send_file(io.BytesIO(conteudo), as_attachment=True, download_name=nome,
                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 
