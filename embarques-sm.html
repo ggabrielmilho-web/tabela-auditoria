@@ -138,8 +138,8 @@
     <span class="r">valor <b>&gt; <span id="lim">R$ 150 mil</span></b> → SM</span>
     <span class="r"><b>Terceiro</b> até o limite → sinal do cavalo na GR</span>
     <span class="r"><b>Frota/Agregado</b> até o limite → nada (3S)</span>
-    <span class="r"><b>Martins</b> e <b>Evidência</b> → isentas</span>
-    <span class="r" title="a SM é aberta na gerenciadora do embarcador — a nossa unidade da Insignia não enxerga a SM nem o sinal do terceiro"><b>Heinz</b> e <b>Pernod</b> → SM na GR do embarcador</span>
+    <span class="r"><span id="regraIsentos"><b>Martins</b> e <b>Evidência</b></span> → isentas</span>
+    <span class="r" title="a SM é aberta na gerenciadora do embarcador — a nossa unidade da Insignia não enxerga a SM nem o sinal do terceiro"><span id="regraGr"><b>Heinz</b>, <b>Pernod</b>, <b>L'Oréal</b> e <b>Supporte</b></span> → SM na GR do embarcador</span>
     <span class="aviso" title="A API da Insignia só enxerga a unidade 02572512000158. Uma SM aberta em outra unidade não aparece aqui — por isso cada alerta pede a validação do responsável.">⚠ SM de outra unidade não aparece — valide os alertas</span>
   </div>
 
@@ -242,6 +242,10 @@ async function carregar(){
     if (!j.ok) throw new Error(j.error || 'erro');
     ESTADOS = j.estados || {}; LINHAS = j.linhas; SOLICITAR = !!j.solicitar_sm_ligado;
     document.getElementById('lim').textContent = brl(j.limite).replace(',00','');
+    // os nomes da faixa da regra vêm do código (embarques_sm.ISENTOS / GR_EMBARCADOR), não do texto fixo
+    const nomes = a => a.map(n => `<b>${esc(n)}</b>`).join(', ').replace(/, ([^,]*)$/, ' e $1');
+    if (j.isentos && j.isentos.length) document.getElementById('regraIsentos').innerHTML = nomes(j.isentos);
+    if (j.gr_embarcador && j.gr_embarcador.length) document.getElementById('regraGr').innerHTML = nomes(j.gr_embarcador);
     popularEstados(); renderCards(j.cards || {}); renderTabela();
     document.getElementById('meta').textContent = j.atualizado_em
       ? `recalculado a cada atualização do BI · último: ${dt(j.atualizado_em)}`

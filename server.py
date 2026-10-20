@@ -1868,6 +1868,14 @@ def _sm_json(row):
     return out
 
 
+def _sm_pagadores_regra():
+    """Os nomes dos pagadores isentos e com GR própria, para a faixa da regra no topo da aba — saem do
+    código (e de EMBARQUES_SM_ISENTOS / EMBARQUES_SM_GR_EMBARCADOR), não de texto fixo na página."""
+    import embarques_sm
+    return {'isentos': list(dict.fromkeys(embarques_sm.ISENTOS.values())),
+            'gr_embarcador': list(dict.fromkeys(embarques_sm.GR_EMBARCADOR.values()))}
+
+
 @app.route('/api/embarques/sm')
 @page_required('embarques')
 def api_embarques_sm():
@@ -1878,7 +1886,8 @@ def api_embarques_sm():
         cur.execute("SELECT to_regclass('embarques_sm') IS NOT NULL")
         if not cur.fetchone()[0]:
             return jsonify({'ok': True, 'linhas': [], 'cards': {}, 'atualizado_em': None,
-                            'estados': embarques_sm.ESTADOS, 'limite': embarques_sm.LIMITE_VALOR})
+                            'estados': embarques_sm.ESTADOS, 'limite': embarques_sm.LIMITE_VALOR,
+                            **_sm_pagadores_regra()})
         where, args = ['1=1'], []
         if a.get('desde'):
             where.append('data_emissao >= %s'); args.append(a['desde'])
@@ -1931,6 +1940,7 @@ def api_embarques_sm():
         return jsonify({'ok': True, 'linhas': linhas, 'cards': cards,
                         'atualizado_em': atual.isoformat() + 'Z' if atual else None,
                         'estados': embarques_sm.ESTADOS, 'limite': embarques_sm.LIMITE_VALOR,
+                        **_sm_pagadores_regra(),
                         # a coluna "Ação" da tela já existe; abrir SM pela API entra quando isto virar True
                         'solicitar_sm_ligado': False})
     except Exception as e:
