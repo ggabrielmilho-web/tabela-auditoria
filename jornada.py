@@ -29,6 +29,7 @@ Dia sem placa NÃO é inventado: vira "sem prova" e o RH diz o que foi (férias,
 atestado, INSS, folga, admissão).
 """
 
+import difflib
 from collections import defaultdict
 from datetime import date, timedelta
 
@@ -92,6 +93,72 @@ def casar_grafias(alvos, candidatos, parecido, corte):
         melhor = max(alvos, key=lambda a: parecido(a, c), default=None)
         if melhor is not None and parecido(melhor, c) >= corte:
             feito[c] = melhor
+    return feito
+
+
+# ── 2º passo da cascata: nome + sobrenome ──
+#
+# O 1º passo (casar_nomes / casar_grafias) compara o nome completo e exige o primeiro e o
+# último nome parecidos. Nome abreviado não passa: o lote do CAIS de 09/2026 trouxe
+# 'MARCOS ANDRE' (nota 0,44 contra 'Marcos Andre Mesquita'), que virou "outra pessoa" na
+# placa dele e gerou aviso de cartão alheio contra ele mesmo. O que sobrou do 1º passo
+# tenta de novo pelo primeiro nome + outras palavras do nome completo, na ordem.
+# Testado em 21/06–20/10/2026: casou só o Marcos; nenhum caso ambíguo.
+
+def _palavra_bate(s, f, ultima):
+    """Mesma palavra: igual, letra perdida no acento (JOO/JOAO) ou, na última, cortada pelo
+    limite de caracteres do documento (CHAV/CHAVES)."""
+    return (s == f or difflib.SequenceMatcher(None, s, f).ratio() >= 0.8
+            or (ultima and len(s) >= 3 and f.startswith(s)))
+
+
+def cabe_no_nome(curto, longo):
+    """O nome curto (lista de palavras) é o primeiro nome do longo + outras palavras dele, na
+    ordem: 'MARCOS ANDRE' e 'MARCOS MESQUITA' cabem em 'MARCOS ANDRE MESQUITA'. Exige 2
+    palavras — com uma só o casamento errado é provável."""
+    if len(curto) < 2 or len(curto) > len(longo) or not _palavra_bate(curto[0], longo[0], False):
+        return False
+    j = 1
+    for i, s in enumerate(curto[1:], start=1):
+        while j < len(longo) and not _palavra_bate(s, longo[j], i == len(curto) - 1):
+            j += 1
+        if j >= len(longo):
+            return False
+        j += 1
+    return True
+
+
+def casar_nome_sobrenome(alvos, sobras, tokens, outros=()):
+    """{sobra: alvo} para o que o 1º passo não casou: a sobra cabe em UM alvo só e em nenhum
+    nome de fora da lista visto no período (`outros`, nomes completos) — senão fica de fora.
+
+    Um nome de `outros` que também cabe só no mesmo alvo é a mesma pessoa em outra grafia e
+    não conta como conflito."""
+    cand = {c: [a for a in alvos if cabe_no_nome(tokens(c), tokens(a))] for c in sobras}
+    feito = {}
+    for c, cs in cand.items():
+        if len(cs) != 1:
+            continue
+        tc = tokens(c)
+        if any(o != c and len(tokens(o)) > len(tc) and cabe_no_nome(tc, tokens(o)) and cand.get(o) != cs
+               for o in outros):
+            continue
+        feito[c] = cs[0]
+    return feito
+
+
+def agrupar_nomes(nomes, parecido, corte, tokens):
+    """{nome: representante} — junta as grafias da mesma pessoa (o manifesto corta o nome em
+    30 caracteres: '…GUIMARAES CHAV' × '…GUIMARAES CHAVES' do ValeCard). O representante é a
+    grafia mais longa; nome que serve a dois grupos fica sozinho."""
+    reps, feito = [], {}
+    for n in sorted(set(nomes), key=lambda x: (-len(x), x)):
+        grupos = [r for r in reps if parecido(r, n) >= corte or cabe_no_nome(tokens(n), tokens(r))]
+        if len(grupos) == 1:
+            feito[n] = grupos[0]
+        else:
+            reps.append(n)
+            feito[n] = n
     return feito
 
 

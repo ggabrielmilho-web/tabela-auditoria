@@ -641,7 +641,7 @@ def _jornada_folha(token, ini, fim):
 
 
 def _jornada_dados(ini, fim):
-    from collections import defaultdict
+    from collections import Counter, defaultdict
     from datetime import date, timedelta
     import jornada
     chave_cache = f'jornada:{ini}:{fim}:{date.today()}'
@@ -701,11 +701,32 @@ def _jornada_dados(ini, fim):
     cpf_nome = {c: max(n, key=n.get) for c, n in nome_cpf.items()}
     casa_cpf = jornada.casar_nomes(list(folha_por_chave), list(cpf_nome),
                                    lambda a, c: _nome_parecido(a, cpf_nome[c]), _NOME_MATCH_MIN)
+    nomes_vc = sorted({str(r.get('mot') or '').strip() for r in vcs if r.get('mot')})
+    chave_do_vc = jornada.casar_grafias(list(folha_por_chave), nomes_vc, _nome_parecido, _NOME_MATCH_MIN)
+
+    # 2º passo (nome + sobrenome) para o que o nome completo não casou — 'MARCOS ANDRE' do lote
+    # do CAIS. Conferido contra quem está fora da lista e rodou placa da frota no período: o
+    # nome curto que também cabe num deles fica de fora (20/10/2026).
+    cpf_sobra = [c for c in cpf_nome if c not in casa_cpf.values()]
+    cpf_frota = {r.get('cpf') for r in mfs if _placa_mercosul(r.get('cav')) in frota}
+    vc_frota = {str(r.get('mot') or '').strip() for r in vcs if _placa_mercosul(r.get('placa')) in frota}
+    outros = ({cpf_nome[c] for c in cpf_sobra if c in cpf_frota}
+              | {n for n in vc_frota if n and n not in chave_do_vc})
+    cpfs_do_nome = defaultdict(list)
+    for c in cpf_sobra:
+        cpfs_do_nome[cpf_nome[c]].append(c)
+    livres = [a for a in folha_por_chave if a not in casa_cpf]
+    passo2 = jornada.casar_nome_sobrenome(livres, list(cpfs_do_nome), _nome_tokens, outros)
+    alvos2 = Counter(passo2.values())
+    for n, a in passo2.items():
+        if len(cpfs_do_nome[n]) == 1 and alvos2[a] == 1:   # um CPF por motorista
+            casa_cpf[a] = cpfs_do_nome[n][0]
+    chave_do_vc.update(jornada.casar_nome_sobrenome(
+        list(folha_por_chave), [n for n in nomes_vc if n not in chave_do_vc], _nome_tokens, outros))
+
     chave_do_cpf = {c: a for a, c in casa_cpf.items()}
     for a, c in casa_cpf.items():
         folha_por_chave[a]['cpf'] = c
-    nomes_vc = sorted({str(r.get('mot') or '').strip() for r in vcs if r.get('mot')})
-    chave_do_vc = jornada.casar_grafias(list(folha_por_chave), nomes_vc, _nome_parecido, _NOME_MATCH_MIN)
 
     eventos, fora_frota = [], defaultdict(list)
     for r in mfs:
@@ -761,15 +782,17 @@ def _jornada_dados(ini, fim):
             m['alertas'].append({'tipo': 'fora_frota',
                                  'texto': 'Manifesto em placa que não é da frota Rizza: ' + ', '.join(fora_frota[m['chave']])})
 
-    # Quem rodou veículo da frota no período e não está na lista da folha.
+    # Quem rodou veículo da frota no período e não está na lista da folha — uma linha por
+    # pessoa: o manifesto corta o nome em 30 caracteres e o ValeCard não.
+    sem_chave = [e for e in eventos if e['chave'] is None and ini <= e['dia'] <= fim and e['nome_fonte']]
+    grupo = jornada.agrupar_nomes([e['nome_fonte'] for e in sem_chave], _nome_parecido, _NOME_MATCH_MIN, _nome_tokens)
     fora = defaultdict(lambda: {'placas': set(), 'dias': set(), 'fontes': set()})
-    for e in eventos:
-        if e['chave'] is None and ini <= e['dia'] <= fim and e['nome_fonte']:
-            f = fora[' '.join(_nome_tokens(e['nome_fonte']))]
-            f['nome'] = e['nome_fonte']
-            f['placas'].add(e['placa'])
-            f['dias'].add(e['dia'])
-            f['fontes'].add(e['fonte'])
+    for e in sem_chave:
+        f = fora[grupo[e['nome_fonte']]]
+        f['nome'] = grupo[e['nome_fonte']]
+        f['placas'].add(e['placa'])
+        f['dias'].add(e['dia'])
+        f['fontes'].add(e['fonte'])
     fora_lista = sorted(({'nome': v['nome'], 'placas': sorted(v['placas']), 'dias': len(v['dias']),
                           'primeiro': min(v['dias']).isoformat(), 'ultimo': max(v['dias']).isoformat(),
                           'fontes': sorted(v['fontes'])} for v in fora.values()),
