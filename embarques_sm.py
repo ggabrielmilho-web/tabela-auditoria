@@ -18,7 +18,8 @@ A REGRA (operação, 08/10/2026; o Rio revisto em 14/10):
     PAGADORES ISENTOS (raiz do CNPJ do pagador) → sem SM, mesmo no RJ: Martins 18485037 e Evidência
     Logística 07632502 (decisões de 08/10/26); outros por EMBARQUES_SM_ISENTOS
     PAGADORES COM GR PRÓPRIA → a SM é da gerenciadora do EMBARCADOR, que a nossa unidade não enxerga:
-    Heinz 50955707 e Pernod Ricard 33856394 (operação, 14/10/26); outros por EMBARQUES_SM_GR_EMBARCADOR
+    Heinz 50955707 e Pernod Ricard 33856394 (operação, 14/10/26), L'Oréal 30278428 e Supporte 03447983
+    (operação, 20/10/26); outros por EMBARQUES_SM_GR_EMBARCADOR
 Fora da regra o seguro (PGR da gerenciadora) não cobre: é ALERTA MÁXIMO.
 Para abrir SM: o "embarcador da viagem" (sCd_CnpjEmbarcViagem) é o CNPJ do PAGADOR do frete (`pagador_cnpj`).
 
@@ -67,7 +68,12 @@ ISENTOS = _somar_env({MARTINS_RAIZ: 'Martins', '07632502': 'Evidência'}, 'EMBAR
 # Medido 01–14/10: Heinz 8 de 8 manifestos sem SM na unidade; Pernod 1 de 20 com SM nossa (211360, aberta
 # pela Rizza) — as 3 "SM com outro conjunto" eram SMs de outras cargas do cavalo (Totalcare, Doce Mineiro,
 # Química Amparo). Outros sem deploy: EMBARQUES_SM_GR_EMBARCADOR="12345678:NOME" (soma a estes).
-GR_EMBARCADOR = _somar_env({'50955707': 'Heinz', '33856394': 'Pernod'}, 'EMBARQUES_SM_GR_EMBARCADOR')
+# L'Oréal (LOREAL BR COML DE COSM) e Supporte (as duas filiais) entraram em 20/10/26 (operação: "Loreal GR
+# deles, Supporte GR deles"; a Baum segue a regra). No retrato de 19/10, 3 manifestos só deles estavam em
+# "sem SM"/"sem dado" (C-1350, C-1620, C-1622); a C-1664 leva 1 CT-e da Supporte e 10 da Supplog
+# (R$ 1,05 mi) e continua exigindo SM pelo valor da Supplog.
+GR_EMBARCADOR = _somar_env({'50955707': 'Heinz', '33856394': 'Pernod', '30278428': "L'Oréal", '03447983': 'Supporte'},
+                           'EMBARQUES_SM_GR_EMBARCADOR')
 
 
 def isento_de(cte):
