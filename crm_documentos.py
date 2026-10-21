@@ -103,7 +103,7 @@ CARTEIRAS = {
             # MIDAS/B2B/PIPEFY (1.576) ficam no banco como `antecipacao`, sem coluna — a etapa já diz isso
             {'id': 'data_solicitacao', 'rotulo': 'Data solicitação', 'tipo': 'data_texto', 'col': None},
             {'id': 'ticket_pipefy', 'rotulo': 'Ticket Pipefy', 'tipo': 'texto', 'col': None},
-            {'id': 'data_envio', 'rotulo': 'Data PQD', 'tipo': 'data_texto', 'col': 'DATA ENVIO/ data PQD'},
+            {'id': 'data_envio', 'rotulo': 'Data Pipefy', 'tipo': 'data_texto', 'col': 'DATA ENVIO/ data PQD'},
             {'id': 'autorizado_gll', 'rotulo': 'Autorizado GLL', 'tipo': 'data_texto', 'col': 'AUTORIZADOS GLL'},
             {'id': 'motorista', 'rotulo': 'Motorista', 'tipo': 'texto', 'col': 'MOTORISTA'},
             _ANOTACAO,
@@ -219,8 +219,8 @@ DESCARGAS = {
         {'id': 'nao_cobravel', 'rotulo': 'Não cobrável (motivo)', 'tipo': 'texto', 'col': None},
         _ANOTACAO,
     ],
-    # id → rótulo e cor; a ordem é a dos cartões (a do fluxo dela). `aberto`: entra na lista sem o
-    # "mostrar todos"; aberta e não cobrada = "sem cobrança" no resumo da aba.
+    # id → rótulo e cor; a ordem é a dos cartões (a do fluxo dela). `aberto`: entra no cartão "Em
+    # aberto"; aberta e não cobrada = "sem cobrança" no resumo da aba.
     'situacoes': [
         {'id': 'aguardando_comprovante', 'rotulo': 'Aguardando comprovante', 'cor': 'amarelo', 'aberto': True,
          'desc': 'descarga paga, sem complemento no SSW e sem comprovante marcado'},

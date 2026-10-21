@@ -178,7 +178,6 @@
     <button class="btn-sm desfazer" id="btnDesfazer" disabled title="Nada para desfazer"><span class="seta">↶</span> Desfazer</button>
     <button class="btn-sm" id="btnColar">📋 Colar lista</button>
     <button class="btn-sm" id="btnSelVis">Selecionar visíveis</button>
-    <label class="chk"><input type="checkbox" id="chkTodos"><span id="chkTodosTxt"> Mostrar pagos e substituídos</span></label>
     <span id="chips"></span>
     <button class="btn-sm" id="btnLimparFiltros" style="display:none">Limpar filtros das colunas</button>
     <span class="info" id="info"></span>
@@ -230,7 +229,7 @@
   'use strict';
   var MAX = 800;
   var S = { carteira: null, carteiras: [], cfg: null, resumo: {}, linhas: [], porChave: {}, hoje: '',
-            card: null, busca: '', todos: false, lista: null, sel: new Set(), cols: [], idx: {}, achados: null,
+            card: null, busca: '', lista: null, sel: new Set(), cols: [], idx: {}, achados: null,
             desfazer: {}, desfazendo: false };
   var $ = function (id) { return document.getElementById(id); };
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -329,8 +328,8 @@
     return r;
   }
 
-  // Cartão de etapa: o que ainda pede ação nela — a receber, ou com divergência. Pago e encerrado
-  // ficam para o "Mostrar pagos". A etapa que não entra no em aberto (SUBST) mostra todos os CT-e
+  // Cartão de etapa: o que ainda pede ação nela — a receber, ou com divergência; pago e encerrado
+  // ficam só na tabela sem filtro. A etapa que não entra no em aberto (SUBST) mostra todos os CT-e
   // dela: só com os a receber, o cartão ficava sempre em 0 e o Substituído parecia não existir na
   // tela (21/10/2026).
   function naEtapa(l, cod) { return l.etapa === cod && (foraDoAberto(cod) || l.aberto || l.diverg.length > 0); }
@@ -339,13 +338,13 @@
   function passa(l) {
     if (S.lista && !S.lista.has(l.chave)) return false;
     var c = S.card;
-    if (c && ehDescargas()) { if (l.situacao !== c) return false; }
+    if (c === 'abertos') { if (!l.aberto) return false; }
+    else if (c && ehDescargas()) { if (l.situacao !== c) return false; }
     else if (c === 'novos') { if (!l.novo) return false; }
     else if (c === 'diverg') { if (!l.diverg.length) return false; }
     else if (c === 'vencidas') { if (!(l.vencida && l.aberto)) return false; }
     else if (c === 'pagos') { if (!(l.ssw === 'pago' && l.pago_em && l.pago_em >= S.desde30)) return false; }
     else if (c) { if (!naEtapa(l, c)) return false; }
-    else if (!S.todos && !S.lista && !l.aberto) return false;
     if (S.busca && l._busca.indexOf(S.busca) < 0) return false;
     return true;
   }
@@ -371,7 +370,6 @@
         $('meta').textContent = 'Atualizado BI: ' + (j.bi_atualizado || '—');
         if (mudouCarteira) {
           S.card = null; S.lista = null; S.sel = new Set(); S.cols = colunas();
-          $('chkTodosTxt').textContent = ehDescargas() ? ' Mostrar reembolsados e não cobráveis' : ' Mostrar pagos e substituídos';
           rf.setColumns(S.cols); montarLote();
           try { history.replaceState(null, '', '/crm-documentos?carteira=' + S.carteira); } catch (e) {}
         }
@@ -459,14 +457,17 @@
     }).join('');
   }
   function renderCards() {
+    // "Em aberto" primeiro: a tabela traz tudo, e este cartão é a visão do que ainda falta receber
+    var aberto = { id: 'abertos', t: 'Em aberto', cor: 'azul', ls: S.linhas.filter(function (l) { return l.aberto; }),
+                   d: ehDescargas() ? 'tudo que ainda não tem o reembolso pago nem foi encerrado' : 'o que ainda falta receber (não pago e não substituído)' };
     if (ehDescargas()) {
-      $('cards').innerHTML = S.cfg.situacoes.map(function (s) {
-        return cardHTML({ id: s.id, t: s.rotulo, d: s.desc, cor: s.cor,
-                          ls: S.linhas.filter(function (l) { return l.situacao === s.id; }) });
-      }).join('');
+      $('cards').innerHTML = [aberto].concat(S.cfg.situacoes.map(function (s) {
+        return { id: s.id, t: s.rotulo, d: s.desc, cor: s.cor,
+                 ls: S.linhas.filter(function (l) { return l.situacao === s.id; }) };
+      })).map(cardHTML).join('');
       return;
     }
-    var ls = S.linhas, cards = [];
+    var ls = S.linhas, cards = [aberto];
     cards.push({ id: 'novos', t: 'Novos', d: 'CT-e do SSW ainda sem etapa', cor: 'cinza', ls: ls.filter(function (l) { return l.novo; }) });
     S.cfg.etapas.forEach(function (e) {
       cards.push({ id: e.cod, t: e.rotulo, cor: e.cor,
@@ -500,7 +501,7 @@
     var h = '';
     if (S.card) {
       var e = etapaDef(S.card);
-      var nome = { novos: 'Novos', diverg: 'Divergência', pagos: 'Pagos 30 dias', vencidas: 'Fatura vencida' }[S.card] || (ehDescargas() ? (sitDef(S.card) || {}).rotulo || S.card : (e ? e.rotulo : S.card));
+      var nome = { abertos: 'Em aberto', novos: 'Novos', diverg: 'Divergência', pagos: 'Pagos 30 dias', vencidas: 'Fatura vencida' }[S.card] || (ehDescargas() ? (sitDef(S.card) || {}).rotulo || S.card : (e ? e.rotulo : S.card));
       h += '<span class="chip-filtro">cartão: ' + esc(nome) + ' <button data-limpa="card" title="Tirar">✕</button></span> ';
     }
     if (S.lista) h += '<span class="chip-filtro">lista colada: ' + S.lista.size + ' linhas <button data-limpa="lista" title="Tirar">✕</button></span>';
@@ -955,7 +956,6 @@
     clearTimeout(tBusca);
     tBusca = setTimeout(function () { S.busca = $('busca').value.trim().toUpperCase(); rf.refresh(); }, 200);
   });
-  $('chkTodos').addEventListener('change', function () { S.todos = this.checked; rf.refresh(); });
   $('btnSelVis').addEventListener('click', function () {
     (S.visiveis || []).slice(0, MAX).forEach(function (k) { S.sel.add(k); });
     rf.refresh(); renderLote();
