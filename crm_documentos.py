@@ -99,9 +99,11 @@ CARTEIRAS = {
             {'id': 'tipo', 'rotulo': 'Tipo frete', 'tipo': 'lista', 'opcoes': TIPOS_FRETE, 'col': 'TIPO FRETE'},
             {'id': 'conferencia', 'rotulo': 'Ticket B2B/Transp', 'tipo': 'texto', 'col': 'TICKET B2B/TRANSP'},
             {'id': 'canal', 'rotulo': 'Canal', 'tipo': 'lista', 'opcoes': CANAIS, 'col': 'MIDAS/B2B/PIPEFY'},
-            {'id': 'antecipacao', 'rotulo': 'Antecipação', 'tipo': 'lista', 'opcoes': ['AUTORIZADO', 'ANTECIPADO'], 'col': None},
+            # no lugar da Antecipação (pedido de 21/10/2026): os AUTORIZADO/ANTECIPADO que vieram da coluna
+            # MIDAS/B2B/PIPEFY (1.576) ficam no banco como `antecipacao`, sem coluna — a etapa já diz isso
+            {'id': 'data_solicitacao', 'rotulo': 'Data solicitação', 'tipo': 'data_texto', 'col': None},
             {'id': 'ticket_pipefy', 'rotulo': 'Ticket Pipefy', 'tipo': 'texto', 'col': None},
-            {'id': 'data_envio', 'rotulo': 'Envio / PQD', 'tipo': 'data_texto', 'col': 'DATA ENVIO/ data PQD'},
+            {'id': 'data_envio', 'rotulo': 'Data PQD', 'tipo': 'data_texto', 'col': 'DATA ENVIO/ data PQD'},
             {'id': 'autorizado_gll', 'rotulo': 'Autorizado GLL', 'tipo': 'data_texto', 'col': 'AUTORIZADOS GLL'},
             {'id': 'motorista', 'rotulo': 'Motorista', 'tipo': 'texto', 'col': 'MOTORISTA'},
             _ANOTACAO,
@@ -256,7 +258,15 @@ def carteira_da_raiz(raiz):
     return None
 
 
+# O número da nota de serviço (UDS…): o SSW não traz (o CT-e vem vazio e nenhuma coluna do 455 tem a
+# NFS), então ela digita — na própria coluna do CT-e, e só onde o SSW não preencheu. Não é coluna à
+# parte: sem `col`, fora da lista de campos da carteira.
+CAMPO_NFS = {'id': 'nfs', 'rotulo': 'NFS', 'tipo': 'texto', 'col': None}
+
+
 def campo_def(carteira, campo_id):
+    if campo_id == 'nfs' and carteira in CARTEIRAS:
+        return CAMPO_NFS
     return next((c for c in cfg_de(carteira)['campos'] if c['id'] == campo_id), None)
 
 
@@ -876,7 +886,15 @@ def montar_linhas(carteira, ce_rows, pagamentos, marc, hoje=None, abertas=None, 
         # e FATURADO encerra.
         aberto = (s['ssw'] != 'pago' and etapa not in ETAPAS_FORA_DO_ABERTO
                   and not (s['ssw'] in ('sem_ssw', 'indefinido') and etapa == 'FATURADO'))
-        linha = dict(base, chave=k, etapa=etapa, campos=(m or {}).get('campos') or {},
+        # NFS: só onde o SSW não deu o número do CT-e. O que ela digitou na tela vale; senão, o que estava
+        # na coluna do CT-e da planilha (na Nestlé ela se chamava "CT-e/ NFS": 124 das 130 UDS).
+        campos_m = (m or {}).get('campos') or {}
+        nfs_editavel = not base['cte']
+        nfs = None
+        if nfs_editavel:
+            nfs = campos_m.get('nfs') or ((p.get('original') or {}).get(cfg['col_cte']))
+            nfs = str(nfs).strip() if nfs not in (None, '') else None
+        linha = dict(base, chave=k, etapa=etapa, campos=campos_m, nfs=nfs, nfs_editavel=nfs_editavel,
                      manual=ce is None, nota_linha=p.get('nota_linha'),
                      atualizado=(m or {}).get('atualizado'), por=(m or {}).get('por'),
                      editado=bool((m or {}).get('editado')), idade=idade, vencimento=venc,
@@ -1102,7 +1120,7 @@ def exportar_xlsx(carteira, linhas):
     cfg = CARTEIRAS[carteira]
     cols = [('Emissao', lambda l: _dt(l['emissao'])), ('Mês', lambda l: _dt(l['emissao']).month if l['emissao'] else None),
             ('Ano', lambda l: _dt(l['emissao']).year if l['emissao'] else None),
-            ('CTRC', lambda l: l['ctrc']), (cfg['col_cte'], lambda l: l['cte']),
+            ('CTRC', lambda l: l['ctrc']), (cfg['col_cte'], lambda l: l['cte'] or l.get('nfs')),
             ('CNPJ Pagador', lambda l: l['cnpj']), ('Cliente Pagador', lambda l: l['pagador']),
             ('UF O', lambda l: l['uf_o']), ('NF', lambda l: l['nf']), ('Frete', lambda l: l['frete'])]
     for c in cfg['campos']:

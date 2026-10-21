@@ -31,6 +31,7 @@
   .btn-sm.primary { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 700; }
   .btn-sm.primary:hover { color: var(--bg); filter: brightness(1.1); }
   .btn-sm:disabled { opacity: .5; cursor: wait; }
+  .tag-nfs { font-size: 0.6rem; font-weight: 700; color: var(--orange); border: 1px solid currentColor; border-radius: 3px; padding: 0 3px; vertical-align: 1px; }
   /* a seta do Desfazer, como a do Excel: perto da tabela, onde se edita */
   .btn-sm.desfazer { display: inline-flex; align-items: center; gap: 6px; }
   .btn-sm.desfazer .seta { font-size: 1.25rem; line-height: 1; font-weight: 700; }
@@ -260,7 +261,9 @@
     return x.ctrc + ' · R$ ' + moeda(x.frete) + (x.situacao === 'pago' ? ' · pago' + (x.pago_em ? ' ' + dm(x.pago_em) : '')
       : x.situacao === 'vencida' ? ' · vencida' : x.situacao === 'fatura' ? ' · em fatura' : ' · emitido');
   }
-  function campoDef(id) { return (S.cfg.campos || []).find(function (c) { return c.id === id; }); }
+  // A NFS (nota de serviço, UDS…) não é coluna: ela é digitada na coluna do CT-e, onde o SSW não deu o número.
+  var CAMPO_NFS = { id: 'nfs', rotulo: 'NFS', tipo: 'texto' };
+  function campoDef(id) { return id === 'nfs' ? CAMPO_NFS : (S.cfg.campos || []).find(function (c) { return c.id === id; }); }
   var SSW_ROT = { pago: 'Pago', fatura: 'Fatura emitida', aberto: 'Sem fatura', sem_ssw: 'Sem CT-e no SSW', indefinido: 'Sem informação' };
   // O que o SSW diz, em uma palavra (é também o valor do filtro da coluna SSW).
   function sswRot(l) {
@@ -318,7 +321,7 @@
       S.cfg.campos.forEach(function (f) { x[f.rotulo] = l.campos[f.id] || ''; });
       return x;
     }
-    var r = { _k: l.chave, 'CTRC': l.ctrc || '', 'Emissão': l.emissao || '', 'CT-e': l.cte ? String(l.cte) : '',
+    var r = { _k: l.chave, 'CTRC': l.ctrc || '', 'Emissão': l.emissao || '', 'CT-e': l.cte ? String(l.cte) : (l.nfs || ''),
               'NF': l.nf ? String(l.nf) : '', 'Frete': l.frete || 0, 'Idade': l.idade, 'Etapa': rotEtapa(l.etapa),
               'SSW': sswRot(l), 'Obs. do CT-e': l.obs || '' };
     S.cfg.campos.forEach(function (f) { r[f.rotulo] = l.campos[f.id] || ''; });
@@ -381,7 +384,7 @@
     S.linhas = ls; S.porChave = {};
     ls.forEach(function (l) {
       S.porChave[l.chave] = l;
-      var partes = [l.ctrc, l.cte, l.nf, l.obs, l.etapa, rotEtapa(l.etapa), l.pagador, l.nota_linha, l.fornecedor, l.lancto,
+      var partes = [l.ctrc, l.cte, l.nfs, l.nf, l.obs, l.etapa, rotEtapa(l.etapa), l.pagador, l.nota_linha, l.fornecedor, l.lancto,
                     (l.reembolsos || []).map(function (y) { return y.ctrc; }).join(' ')];
       for (var k in l.campos) partes.push(l.campos[k]);
       l._busca = partes.join(' ').toUpperCase();
@@ -543,6 +546,11 @@
           + '><a href="#" data-abre="' + esc(l.chave) + '">' + esc(l.ctrc || '(sem CTRC)') + '</a>' + marca + '</td>';
       }
       if (c === 'Emissão') return '<td class="mono">' + dm(l.emissao) + '</td>';
+      if (c === 'CT-e' && l.nfs_editavel) {
+        // sem nº de CT-e no SSW (nota de serviço): a célula guarda a NFS, que ela digita
+        return '<td class="ed txt mono" data-ed="nfs" data-k="' + esc(l.chave) + '" title="NFS — o SSW não traz o número; clique para preencher">'
+          + (l.nfs ? '<span class="tag-nfs">NFS</span> ' + esc(l.nfs) : '<span class="vazio">NFS?</span>') + '</td>';
+      }
       if (c === 'CT-e' || c === 'NF') return '<td class="mono dim">' + esc(r[c]) + '</td>';
       if (c === 'Frete') return '<td class="num">' + moeda(l.frete) + '</td>';
       if (c === 'Idade') return '<td class="num' + (l.aberto && l.idade > 90 ? ' velho' : '') + '">' + (l.idade == null ? '' : l.idade) + '</td>';
@@ -636,7 +644,7 @@
     // depois do clique e não pode descartar o que foi digitado).
     if (ED) { salvarEditor(); return; }
     var k = td.getAttribute('data-k'), campo = td.getAttribute('data-ed'), l = S.porChave[k];
-    var atual = campo === 'etapa' ? (l.etapa || '') : (l.campos[campo] || '');
+    var atual = campo === 'etapa' ? (l.etapa || '') : campo === 'nfs' ? (l.nfs || '') : (l.campos[campo] || '');
     var el;
     if (campo === 'etapa') {
       el = document.createElement('select');
@@ -776,6 +784,7 @@
       var k = l.chave;
       if (l.ctrc) { add(l.ctrc, k); add(String(l.ctrc).split('-')[0], k); }
       if (l.cte) { add(String(l.cte), k); add(String(Number(l.cte) % 1e9), k); }
+      if (l.nfs) { add(String(l.nfs), k); add(String(l.nfs).replace(/\D/g, ''), k); }
       if (l.nf) String(l.nf).split(/[,\s]+/).forEach(function (n) { add(n, k); });
       if (l.lancto) add(String(l.lancto).split('/')[0], k);
       (String(l.obs || '').toUpperCase().match(/B\d{9}/g) || []).forEach(function (b) { add(b, k); });
@@ -807,7 +816,7 @@
       $('gavSub').textContent = (l.fornecedor || '') + ' · R$ ' + moeda(l.frete) + ' · emissão ' + dm(l.emissao) + (l.idade != null ? ' · ' + l.idade + ' dias' : '');
     } else {
       $('gavTitulo').textContent = l.ctrc || '(sem CTRC)';
-      $('gavSub').textContent = 'CT-e ' + (l.cte || '—') + ' · R$ ' + moeda(l.frete) + ' · emitido ' + dm(l.emissao) + (l.idade != null ? ' · ' + l.idade + ' dias' : '');
+      $('gavSub').textContent = (l.cte ? 'CT-e ' + l.cte : l.nfs ? 'NFS ' + l.nfs : 'CT-e —') + ' · R$ ' + moeda(l.frete) + ' · emitido ' + dm(l.emissao) + (l.idade != null ? ' · ' + l.idade + ' dias' : '');
     }
     $('gavCorpo').innerHTML = '<div class="carregando"><div class="spinner"></div></div>';
     $('gaveta').hidden = false;

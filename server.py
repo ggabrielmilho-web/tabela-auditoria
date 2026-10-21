@@ -1183,6 +1183,12 @@ def api_crm_documentos_marcar():
         if fora:
             return jsonify({'ok': False, 'error': f'{len(fora)} linha(s) não são de {crm.cfg_de(carteira)["nome"]}: '
                                                   + ', '.join(fora[:5])}), 400
+        if campo == 'nfs':
+            # o nº que vem do SSW não se edita: a NFS só onde o CT-e vem vazio (nota de serviço, UDS…)
+            com_cte = [k for k in chaves if not da_carteira[k].get('nfs_editavel')]
+            if com_cte:
+                return jsonify({'ok': False, 'error': f'{len(com_cte)} linha(s) já têm o nº do CT-e pelo SSW — a NFS '
+                                                      'só se digita onde ele vem vazio: ' + ', '.join(com_cte[:5])}), 400
         conn = get_db()
         antes = {}
         try:
