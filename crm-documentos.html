@@ -13,6 +13,7 @@
     --green: #34d399; --red: #f87171; --orange: #fb923c; --yellow: #fbbf24;
     --c-vermelho: #f87171; --c-laranja: #fb923c; --c-amarelo: #fbbf24; --c-verde: #34d399;
     --c-azul: #38bdf8; --c-rosa: #f472b6; --c-roxo: #a78bfa; --c-ciano: #22d3ee; --c-cinza: #94a3b8;
+    --c-indigo: #818cf8; --c-magenta: #e879f9;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   /* `display: flex` da gaveta, do modal e da barra de lote venceria o `hidden` */
@@ -30,6 +31,10 @@
   .btn-sm.primary { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 700; }
   .btn-sm.primary:hover { color: var(--bg); filter: brightness(1.1); }
   .btn-sm:disabled { opacity: .5; cursor: wait; }
+  /* a seta do Desfazer, como a do Excel: perto da tabela, onde se edita */
+  .btn-sm.desfazer { display: inline-flex; align-items: center; gap: 6px; }
+  .btn-sm.desfazer .seta { font-size: 1.25rem; line-height: 1; font-weight: 700; }
+  .btn-sm.desfazer:disabled { cursor: default; }
   .acoes-topo { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
   .erro { padding: 12px 14px; border-radius: 10px; font-size: 0.82rem; margin-bottom: 14px; background: rgba(248,113,113,0.08); border: 1px solid rgba(248,113,113,0.28); color: #fecaca; }
@@ -169,6 +174,7 @@
 
   <div class="barra">
     <input class="busca" id="busca" placeholder="Buscar CTRC, CT-e, NF, carga B10…, anotação…">
+    <button class="btn-sm desfazer" id="btnDesfazer" disabled title="Nada para desfazer"><span class="seta">↶</span> Desfazer</button>
     <button class="btn-sm" id="btnColar">📋 Colar lista</button>
     <button class="btn-sm" id="btnSelVis">Selecionar visíveis</button>
     <label class="chk"><input type="checkbox" id="chkTodos"> Mostrar pagos e substituídos</label>
@@ -223,7 +229,8 @@
   'use strict';
   var MAX = 800;
   var S = { carteira: null, carteiras: [], cfg: null, resumo: {}, linhas: [], porChave: {}, hoje: '',
-            card: null, busca: '', todos: false, lista: null, sel: new Set(), cols: [], idx: {}, achados: null };
+            card: null, busca: '', todos: false, lista: null, sel: new Set(), cols: [], idx: {}, achados: null,
+            desfazer: {}, desfazendo: false };
   var $ = function (id) { return document.getElementById(id); };
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -241,6 +248,9 @@
   }
   function corVar(c) { return 'var(--c-' + (c || 'cinza') + ')'; }
   function etapaDef(cod) { return (S.cfg.etapas || []).find(function (e) { return e.cod === cod; }); }
+  // A planilha usa códigos (PQD, NBS, SUBST…); a tela mostra o nome por extenso (`rotulo`).
+  function rotEtapa(cod) { var e = cod && etapaDef(cod); return e ? e.rotulo : (cod || ''); }
+  function foraDoAberto(cod) { return (S.cfg.fora_do_aberto || []).indexOf(cod) >= 0; }
   function campoDef(id) { return (S.cfg.campos || []).find(function (c) { return c.id === id; }); }
   var SSW_ROT = { pago: 'Pago', fatura: 'Fatura emitida', aberto: 'Sem fatura', sem_ssw: 'Sem CT-e no SSW', indefinido: 'Sem informação' };
   // O que o SSW diz, em uma palavra (é também o valor do filtro da coluna SSW).
@@ -285,16 +295,18 @@
   }
   function vm(l) {
     var r = { _k: l.chave, 'CTRC': l.ctrc || '', 'Emissão': l.emissao || '', 'CT-e': l.cte ? String(l.cte) : '',
-              'NF': l.nf ? String(l.nf) : '', 'Frete': l.frete || 0, 'Idade': l.idade, 'Etapa': l.etapa || '',
+              'NF': l.nf ? String(l.nf) : '', 'Frete': l.frete || 0, 'Idade': l.idade, 'Etapa': rotEtapa(l.etapa),
               'SSW': sswRot(l), 'Obs. do CT-e': l.obs || '' };
     S.cfg.campos.forEach(function (f) { r[f.rotulo] = l.campos[f.id] || ''; });
     if (S.cfg.prazo_dias) r['Vencimento'] = l.vencimento || '';
     return r;
   }
 
-  // Cartão de etapa: o que ainda pede ação nela — a receber, ou com divergência (o SUBST que o
-  // SSW ainda mostra a receber). Pago e encerrado ficam para o "Mostrar pagos".
-  function naEtapa(l, cod) { return l.etapa === cod && (l.aberto || l.diverg.length > 0); }
+  // Cartão de etapa: o que ainda pede ação nela — a receber, ou com divergência. Pago e encerrado
+  // ficam para o "Mostrar pagos". A etapa que não entra no em aberto (SUBST) mostra todos os CT-e
+  // dela: só com os a receber, o cartão ficava sempre em 0 e o Substituído parecia não existir na
+  // tela (21/10/2026).
+  function naEtapa(l, cod) { return l.etapa === cod && (foraDoAberto(cod) || l.aberto || l.diverg.length > 0); }
 
   // ── o que entra na tabela antes dos filtros de coluna ──
   function passa(l) {
@@ -342,7 +354,7 @@
     S.linhas = ls; S.porChave = {};
     ls.forEach(function (l) {
       S.porChave[l.chave] = l;
-      var partes = [l.ctrc, l.cte, l.nf, l.obs, l.etapa, l.pagador, l.nota_linha];
+      var partes = [l.ctrc, l.cte, l.nf, l.obs, l.etapa, rotEtapa(l.etapa), l.pagador, l.nota_linha];
       for (var k in l.campos) partes.push(l.campos[k]);
       l._busca = partes.join(' ').toUpperCase();
     });
@@ -357,7 +369,7 @@
     var ab = S.linhas.filter(function (l) { return l.aberto; });
     S.resumo[S.carteira] = { abertos: ab.length, valor: ab.reduce(function (s, l) { return s + (l.frete || 0); }, 0) };
   }
-  function tudo() { renderAbas(); renderKpis(); renderCards(); renderChips(); rf.refresh(); renderLote(); }
+  function tudo() { renderAbas(); renderKpis(); renderCards(); renderChips(); rf.refresh(); renderLote(); renderDesfazer(); }
 
   // ── abas, indicadores, cartões ──
   function renderAbas() {
@@ -396,7 +408,8 @@
     var ls = S.linhas, cards = [];
     cards.push({ id: 'novos', t: 'Novos', d: 'CT-e do SSW ainda sem etapa', cor: 'cinza', ls: ls.filter(function (l) { return l.novo; }) });
     S.cfg.etapas.forEach(function (e) {
-      cards.push({ id: e.cod, t: e.cod, d: e.desc + ' — a receber ou com divergência', cor: e.cor,
+      cards.push({ id: e.cod, t: e.rotulo, cor: e.cor,
+                   d: e.desc + (foraDoAberto(e.cod) ? ' — todos os CT-e nesta etapa (não entram no em aberto)' : ' — a receber ou com divergência'),
                    ls: ls.filter(function (l) { return naEtapa(l, e.cod); }) });
     });
     if (S.abertasOk) {
@@ -425,7 +438,7 @@
     var h = '';
     if (S.card) {
       var e = etapaDef(S.card);
-      var nome = { novos: 'Novos', diverg: 'Divergência', pagos: 'Pagos 30 dias', vencidas: 'Fatura vencida' }[S.card] || (e ? e.cod : S.card);
+      var nome = { novos: 'Novos', diverg: 'Divergência', pagos: 'Pagos 30 dias', vencidas: 'Fatura vencida' }[S.card] || (e ? e.rotulo : S.card);
       h += '<span class="chip-filtro">cartão: ' + esc(nome) + ' <button data-limpa="card" title="Tirar">✕</button></span> ';
     }
     if (S.lista) h += '<span class="chip-filtro">lista colada: ' + S.lista.size + ' linhas <button data-limpa="lista" title="Tirar">✕</button></span>';
@@ -458,7 +471,7 @@
       if (c === 'Etapa') {
         var e = etapaDef(l.etapa);
         var quem = l.atualizado ? 'atualizado ' + l.atualizado + (l.por ? ' por ' + l.por : '') : '';
-        var conteudo = l.etapa ? '<span class="pill" style="--cor:' + corVar(e ? e.cor : 'cinza') + '">' + esc(l.etapa) + '</span>' : '<span class="vazio">—</span>';
+        var conteudo = l.etapa ? '<span class="pill" style="--cor:' + corVar(e ? e.cor : 'cinza') + '">' + esc(rotEtapa(l.etapa)) + '</span>' : '<span class="vazio">—</span>';
         return '<td class="ed" data-ed="etapa" data-k="' + esc(l.chave) + '" title="' + esc(quem) + '">' + conteudo + '</td>';
       }
       if (c === 'SSW') {
@@ -523,7 +536,7 @@
     if (campo === 'etapa') {
       el = document.createElement('select');
       el.innerHTML = '<option value="">— sem etapa —</option>' + S.cfg.etapas.map(function (e) {
-        return '<option value="' + esc(e.cod) + '"' + (e.cod === atual ? ' selected' : '') + '>' + esc(e.cod + ' · ' + e.desc) + '</option>'; }).join('');
+        return '<option value="' + esc(e.cod) + '"' + (e.cod === atual ? ' selected' : '') + '>' + esc(e.rotulo + (e.desc !== e.rotulo ? ' · ' + e.desc : '')) + '</option>'; }).join('');
       el.addEventListener('change', function () { salvarEditor(); });
     } else {
       var f = campoDef(campo);
@@ -560,17 +573,56 @@
     if (String(valor).trim() === String(antes).trim()) { rf.refresh(); return; }
     marcar([e.k], e.campo, valor).then(function (ok) { if (!ok) rf.refresh(); });
   }
-  function marcar(chaves, campo, valor) {
+  function enviar(chaves, campo, valor) {
     return fetch('/api/crm-documentos/marcar', {
       method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ carteira: S.carteira, chaves: chaves, campo: campo, valor: valor })
     }).then(function (r) { return r.json(); }).then(function (j) {
-      if (!j.ok) { toast(j.error || 'Não salvou.', true); return false; }
+      if (!j.ok) throw new Error(j.error || 'Não salvou.');
       trocarLinhas(j.linhas);
+      return j;
+    });
+  }
+  function marcar(chaves, campo, valor) {
+    return enviar(chaves, campo, valor).then(function (j) {
+      if (j.mudou && j.antes) {
+        // entra na pilha do Desfazer (Ctrl+Z, como no Excel): por carteira, até 50 passos. O valor
+        // anterior vem do servidor — o da memória da tela pode estar velho se a gravação anterior
+        // ainda não tinha voltado.
+        var antes = {};
+        Object.keys(j.antes).forEach(function (k) { antes[k] = j.antes[k] == null ? '' : j.antes[k]; });
+        var p = S.desfazer[S.carteira] = S.desfazer[S.carteira] || [];
+        p.push({ campo: campo, antes: antes, n: j.mudou });
+        if (p.length > 50) p.shift();
+      }
       tudo();
       toast(j.mudou ? (j.mudou === 1 ? 'Salvo.' : j.mudou + ' linhas atualizadas.') : 'Nada mudou.');
       return true;
-    }).catch(function (e) { toast('Não salvou: ' + e.message, true); return false; });
+    }).catch(function (e) { toast(e.message || 'Não salvou.', true); return false; });
+  }
+  function nomeCampo(campo) { return campo === 'etapa' ? 'Etapa' : ((campoDef(campo) || {}).rotulo || campo); }
+  function renderDesfazer() {
+    var p = S.desfazer[S.carteira] || [], u = p[p.length - 1], b = $('btnDesfazer');
+    b.disabled = !u || S.desfazendo;
+    b.title = u ? 'Desfazer (Ctrl+Z): ' + nomeCampo(u.campo) + ' em ' + u.n + (u.n === 1 ? ' linha' : ' linhas')
+                : 'Nada para desfazer';
+  }
+  // Volta cada linha da última mudança ao valor que ela tinha antes. Grava como mudança nova:
+  // fica no histórico, com o nome de quem desfez. A pilha vive enquanto a página está aberta.
+  function desfazer() {
+    var p = S.desfazer[S.carteira] || [];
+    if (!p.length || S.desfazendo) return;
+    if (ED) fecharEditor(true);
+    var u = p[p.length - 1], grupos = {};
+    Object.keys(u.antes).forEach(function (k) { (grupos[u.antes[k]] = grupos[u.antes[k]] || []).push(k); });
+    S.desfazendo = true; renderDesfazer();
+    var cadeia = Promise.resolve();
+    Object.keys(grupos).forEach(function (v) { cadeia = cadeia.then(function () { return enviar(grupos[v], u.campo, v); }); });
+    cadeia.then(function () {
+      p.pop();
+      toast('Desfeito: ' + nomeCampo(u.campo) + ' em ' + u.n + (u.n === 1 ? ' linha.' : ' linhas.'));
+    }).catch(function (e) { toast('Não desfez: ' + e.message, true); })
+      .then(function () { S.desfazendo = false; tudo(); });
   }
 
   // ── seleção e mudança em lote ──
@@ -583,7 +635,7 @@
     var campo = $('loteCampo').value, box = $('loteValorBox');
     if (campo === 'etapa') {
       box.innerHTML = '<select id="loteValor"><option value="">— sem etapa —</option>' + S.cfg.etapas.map(function (e) {
-        return '<option value="' + esc(e.cod) + '">' + esc(e.cod) + '</option>'; }).join('') + '</select>';
+        return '<option value="' + esc(e.cod) + '">' + esc(e.rotulo) + '</option>'; }).join('') + '</select>';
     } else {
       var f = campoDef(campo);
       box.innerHTML = '<input id="loteValor" type="text" ' + (f.tipo === 'lista' ? 'list="dl-lote"' : '')
@@ -695,14 +747,15 @@
           + '</td><td>' + dm(p.pagamento) + '</td><td class="mono">' + moeda(p.vlr_pago) + '</td></tr>'; }).join('') + '</table>'
         + '<div class="nota">O valor pago é o da fatura inteira, que pode reunir vários CT-e.</div></div>';
     }
-    var pares = [['Etapa', l.etapa || '—']];
+    var pares = [['Etapa', rotEtapa(l.etapa) || '—']];
     S.cfg.campos.forEach(function (f) { pares.push([f.rotulo, txtCampo(l.campos[f.id])]); });
     h += '<div class="bloco"><h3>Marcação (edite na tabela)</h3>' + kv(pares)
       + (l.atualizado ? '<div class="nota" style="margin-top:6px">Última mudança ' + esc(l.atualizado) + (l.por ? ' por ' + esc(l.por) : '') + '</div>' : '') + '</div>';
     if (j.historico && j.historico.length) {
       h += '<div class="bloco"><h3>Histórico</h3><ul class="hist">' + j.historico.map(function (x) {
+        var fmt = x.campo === 'etapa' ? rotEtapa : txtCampo;
         var o = x.campo === '*importacao*' ? 'Importada da planilha' :
-          (x.campo === 'etapa' ? 'Etapa' : ((campoDef(x.campo) || {}).rotulo || x.campo)) + ': ' + (x.antes ? txtCampo(x.antes) : '—') + ' → ' + (x.depois ? txtCampo(x.depois) : '—');
+          (x.campo === 'etapa' ? 'Etapa' : ((campoDef(x.campo) || {}).rotulo || x.campo)) + ': ' + (x.antes ? fmt(x.antes) : '—') + ' → ' + (x.depois ? fmt(x.depois) : '—');
         return '<li>' + esc(o) + '<div class="q">' + esc(x.em) + ' · ' + esc(x.por || '') + '</div></li>'; }).join('') + '</ul></div>';
     }
     if (j.planilha) {
@@ -758,7 +811,8 @@
   $('loteAplicar').addEventListener('click', function () {
     var campo = $('loteCampo').value, valor = $('loteValor').value, n = S.sel.size;
     var rot = campo === 'etapa' ? 'Etapa' : campoDef(campo).rotulo;
-    if (!confirm('Mudar "' + rot + '" para "' + (valor || '(vazio)') + '" em ' + n + ' linha(s)?')) return;
+    var nomeValor = campo === 'etapa' ? (rotEtapa(valor) || '(sem etapa)') : (valor || '(vazio)');
+    if (!confirm('Mudar "' + rot + '" para "' + nomeValor + '" em ' + n + ' linha(s)?')) return;
     $('loteAplicar').disabled = true;
     marcar(Array.from(S.sel), campo, valor).then(function (ok) {
       $('loteAplicar').disabled = false;
@@ -782,6 +836,15 @@
     if (!$('modalLista').hidden) $('modalLista').hidden = true; else $('gaveta').hidden = true;
   });
   $('btnAtualizar').addEventListener('click', function () { carregar(S.carteira, true); });
+  $('btnDesfazer').addEventListener('click', desfazer);
+  document.addEventListener('keydown', function (ev) {
+    // Ctrl+Z fora de campo de texto; dentro de um, fica o Ctrl+Z do próprio navegador
+    if (!(ev.ctrlKey || ev.metaKey) || ev.shiftKey || ev.altKey || String(ev.key).toLowerCase() !== 'z') return;
+    var alvo = ev.target, tag = alvo && alvo.tagName;
+    if (ED || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (alvo && alvo.isContentEditable)) return;
+    ev.preventDefault();
+    desfazer();
+  });
   $('btnExcel').addEventListener('click', function () {
     if (S.carteira) location = '/api/crm-documentos/xlsx?carteira=' + encodeURIComponent(S.carteira);
   });

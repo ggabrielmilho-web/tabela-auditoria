@@ -60,6 +60,18 @@ def main():
         campos = Counter(k for g in regs if g['carteira'] == cid for k in g['campos'])
         print('   campos preenchidos:', dict(campos))
 
+    # linhas de uma importação anterior que não existem mais na planilha (ver crm.orfas_da_planilha)
+    conn = server.get_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT to_regclass('crm_doc_marcacao') IS NOT NULL")
+            orfas = crm.orfas_da_planilha(cur, regs, set(ce)) if cur.fetchone()[0] else []
+    finally:
+        conn.close()
+    if orfas:
+        print(f'\nDa importação anterior e fora da planilha agora (linha manual, nunca editada na tela): {len(orfas)} — '
+              f'{"serão removidas" if not aplicar else "removidas"}:', orfas[:12])
+
     if not aplicar:
         print('\nNada gravado. Rode com --aplicar para gravar.')
         return
@@ -67,11 +79,12 @@ def main():
     try:
         with conn.cursor() as cur:
             crm.garantir_tabelas(cur)
-            novas, atual, preserv = crm.gravar_importacao(cur, regs)
+            novas, atual, preserv, removidas = crm.gravar_importacao(cur, regs, ssw_chaves=set(ce))
         conn.commit()
     finally:
         conn.close()
-    print(f'\nGravado: {novas} novas · {atual} atualizadas · {preserv} preservadas (já editadas na tela)')
+    print(f'\nGravado: {novas} novas · {atual} atualizadas · {preserv} preservadas (já editadas na tela)'
+          f' · {len(removidas)} órfãs removidas')
 
 
 if __name__ == '__main__':

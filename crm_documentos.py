@@ -55,19 +55,22 @@ def hoje_brt():
 #
 # Etapas: os códigos, a ordem e as cores são os da legenda e das listas de validação de cada
 # aba da planilha. Cores: as da formatação condicional dela (RZA vermelho, NBS laranja, PQD
-# amarelo, AUTORIZADO verde, FATURADO azul, DIGITADO rosa, SUBST roxo).
+# amarelo, AUTORIZADO verde, FATURADO azul, DIGITADO rosa, SUBST roxo). O código é o da planilha
+# (é o que se grava, importa e exporta); a tela mostra o `rotulo`, por extenso — pedido de
+# 21/10/2026: "o que tiver muito abreviado, escrever mais completo" (SUBST era o "Substituído"
+# que ela não achava). SUBMETIDO e REJEITADO entraram na Nestlé na mesma data (legenda dela).
 #
 # Campos: as colunas que elas preenchem, na ordem da planilha. `col` é o cabeçalho da
 # planilha (importação e Excel). Tipos: `lista` (sugestões, aceita outro valor), `data_texto`
 # (data quando dá para ler, senão o texto como foi escrito — a planilha tem "PQD 13/7" no meio
 # das datas) e `texto`.
 
-_E = lambda cod, desc, cor: {'cod': cod, 'desc': desc, 'cor': cor}
+_E = lambda cod, desc, cor, rotulo: {'cod': cod, 'desc': desc, 'cor': cor, 'rotulo': rotulo}
 
 TIPOS_FRETE = ['PRODUTO', 'PALLETS', 'DESCARGA', 'CARGA DESCARGA/PALLET', 'INDENIZADO',
                'INDENIZADO/PRODUTO BOM', 'ESTADIA DESTINO', 'ESTADIA', 'TROCA DE NOTA', 'PEDAGIO',
                'CHOCOLATES GAROTO', 'MAT PRIMA', 'RECALL', 'DEVOLUÇÃO', 'DEVOLUÇÃO PARCIAL',
-               'DEVOLUÇÃO TOTAL', 'COMPLEMENTO', 'CARTA BÔNUS', 'NOTA DE DEBITO', 'ANULAÇÃO',
+               'DEVOLUÇÃO TOTAL', 'COMPLEMENTO', 'CARTA BÔNUS', 'NOTA DE DEBITO', 'ANULAÇÃO', 'CUSTO EXTRA',
                'DESLOCAMENTO VAZIO PARA REMONTAR PALLET', 'DIARIA', 'REENTREGA', 'ARMAZENAGEM',
                'REPALETIZAÇÃO', 'BEBIDAS', 'SUBSTITUTO']
 
@@ -80,15 +83,17 @@ CARTEIRAS = {
         'nome': 'Nestlé', 'raizes': ('60409075', '08334818'), 'desde': '2025-01-02',
         'aba': 'NESTLE 2025', 'col_etapa': 'STATUS', 'col_cte': 'CT-e/ NFS',
         'etapas': [
-            _E('AG. COMPROVANTE', 'Aguardando retorno do comprovante de entrega', 'ciano'),
-            _E('AG. AUTORIZAR', 'Aguardando autorizar', 'cinza'),
-            _E('PIPEFY', 'Pendência a ser tratada pela Nestlé (Pipefy)', 'rosa'),
-            _E('NBS', 'Aguardando liberação Nestlé', 'laranja'),
-            _E('PQD', 'Parqueado: aguardando a Nestlé criar o pedido', 'amarelo'),
-            _E('RZA', 'Pendência aguardando ação Rizza', 'vermelho'),
-            _E('AUTORIZADO', 'Aguardando antecipar', 'verde'),
-            _E('FATURADO', 'Fatura emitida', 'azul'),
-            _E('SUBST', 'Substituído', 'roxo'),
+            _E('AG. COMPROVANTE', 'Aguardando retorno do comprovante de entrega', 'ciano', 'Aguardando comprovante'),
+            _E('AG. AUTORIZAR', 'Aguardando autorizar', 'cinza', 'Aguardando autorizar'),
+            _E('SUBMETIDO', 'Submetido no portal, aguardando aprovação da Nestlé', 'indigo', 'Submetido'),
+            _E('REJEITADO', 'Rejeitado pela Nestlé no portal', 'magenta', 'Rejeitado'),
+            _E('PIPEFY', 'Pendência a ser tratada pela Nestlé (Pipefy)', 'rosa', 'Pendência no Pipefy'),
+            _E('NBS', 'Aguardando liberação Nestlé', 'laranja', 'Liberação Nestlé (NBS)'),
+            _E('PQD', 'Parqueado: aguardando a Nestlé criar o pedido', 'amarelo', 'Parqueado (PQD)'),
+            _E('RZA', 'Pendência aguardando ação Rizza', 'vermelho', 'Pendência Rizza (RZA)'),
+            _E('AUTORIZADO', 'Aguardando antecipar', 'verde', 'Autorizado'),
+            _E('FATURADO', 'Fatura emitida', 'azul', 'Faturado'),
+            _E('SUBST', 'CT-e substituído por outro', 'roxo', 'Substituído'),
         ],
         'campos': [
             {'id': 'tipo', 'rotulo': 'Tipo frete', 'tipo': 'lista', 'opcoes': TIPOS_FRETE, 'col': 'TIPO FRETE'},
@@ -106,18 +111,23 @@ CARTEIRAS = {
         'nome': 'Química Amparo', 'raizes': ('43461789',), 'desde': '2025-12-06',
         'aba': 'QUIMICA AMPARO', 'col_etapa': 'STATUS', 'col_cte': 'CT-e',
         'etapas': [
-            _E('AG. COMPROVANTE', 'Aguardando retorno do comprovante de entrega', 'ciano'),
-            _E('DIGITADO', 'Digitado', 'rosa'),
-            _E('NBS', 'Aguardando liberação', 'laranja'),
-            _E('PQD', 'Parqueado: aguardando a criação do pedido', 'amarelo'),
-            _E('RZA', 'Pendência aguardando ação Rizza', 'vermelho'),
-            _E('AUTORIZADO', 'Aguardando antecipar', 'verde'),
-            _E('FATURADO', 'Fatura emitida', 'azul'),
-            _E('SUBST', 'Substituído', 'roxo'),
+            _E('AG. COMPROVANTE', 'Aguardando retorno do comprovante de entrega', 'ciano', 'Aguardando comprovante'),
+            _E('DIGITADO', 'Digitado', 'rosa', 'Digitado'),
+            _E('NBS', 'Aguardando liberação', 'laranja', 'Liberação (NBS)'),
+            # na lista da aba desde a planilha de 20/10/2026 (2 linhas); a legenda dela diz "parqueado
+            # aguardando criação de pedido", no lugar do PQD — o PQD segue na lista de validação
+            _E('AG. LANCAMENTO', 'Parqueado: aguardando o lançamento do pedido', 'indigo', 'Aguardando lançamento'),
+            _E('PQD', 'Parqueado: aguardando a criação do pedido', 'amarelo', 'Parqueado (PQD)'),
+            _E('RZA', 'Pendência aguardando ação Rizza', 'vermelho', 'Pendência Rizza (RZA)'),
+            _E('AUTORIZADO', 'Aguardando antecipar', 'verde', 'Autorizado'),
+            _E('FATURADO', 'Fatura emitida', 'azul', 'Faturado'),
+            _E('SUBST', 'CT-e substituído por outro', 'roxo', 'Substituído'),
         ],
         'campos': [
             {'id': 'tipo', 'rotulo': 'Tipo frete', 'tipo': 'lista', 'opcoes': TIPOS_FRETE, 'col': 'TIPO FRETE'},
             {'id': 'situacao', 'rotulo': 'Situação', 'tipo': 'texto', 'col': 'SITUAÇÃO'},
+            # digitado por ela (1.429 de 1.692 em 21/10/2026: data, ou "PROGRAMADO")
+            {'id': 'vencimento', 'rotulo': 'Vencimento previsto', 'tipo': 'data_texto', 'col': 'VENCIMENTO'},
             {'id': 'programado', 'rotulo': 'Programado', 'tipo': 'data_texto', 'col': 'PROGRAMADO'},
             {'id': 'pagamento', 'rotulo': 'Pagamento', 'tipo': 'data_texto', 'col': 'PAGAMENTO'},
             {'id': 'arquivado', 'rotulo': 'Arquivado', 'tipo': 'texto', 'col': 'ARQUIVADO'},
@@ -127,15 +137,18 @@ CARTEIRAS = {
     'unilever': {
         'nome': 'Unilever', 'raizes': ('61068276',), 'desde': '2025-08-31',
         'aba': 'UNILEVER 2025', 'col_etapa': 'Farol', 'col_cte': 'CT-e',
+        # a emissão está na 1ª coluna, que a tabela do Excel chama de "Colunas2"; a coluna S, sem nome
+        # (14 números de 10 dígitos em 21/10/2026), vai para a anotação para não se perder
+        'col_emissao': 'Colunas2', 'extras_anotacao': {'Colunas1': 'col. S da planilha'},
         'etapas': [
-            _E('AG. COMPROVANTE', 'Aguardando retorno do comprovante de entrega', 'ciano'),
-            _E('DIGITADO', 'Aguardando liberação Unilever', 'rosa'),
-            _E('UNI', 'Aguardando liberação', 'laranja'),
-            _E('PIPEFY', 'Pendência a ser tratada pelo cliente', 'cinza'),
-            _E('RZA', 'Pendência aguardando ação Rizza', 'vermelho'),
-            _E('AUTORIZADO', 'Aguardando antecipar', 'verde'),
-            _E('FATURADO', 'Fatura emitida', 'azul'),
-            _E('SUBST', 'Substituído', 'roxo'),
+            _E('AG. COMPROVANTE', 'Aguardando retorno do comprovante de entrega', 'ciano', 'Aguardando comprovante'),
+            _E('DIGITADO', 'Aguardando liberação Unilever', 'rosa', 'Digitado'),
+            _E('UNI', 'Aguardando liberação', 'laranja', 'Liberação Unilever (UNI)'),
+            _E('PIPEFY', 'Pendência a ser tratada pelo cliente', 'cinza', 'Pendência no Pipefy'),
+            _E('RZA', 'Pendência aguardando ação Rizza', 'vermelho', 'Pendência Rizza (RZA)'),
+            _E('AUTORIZADO', 'Aguardando antecipar', 'verde', 'Autorizado'),
+            _E('FATURADO', 'Fatura emitida', 'azul', 'Faturado'),
+            _E('SUBST', 'CT-e substituído por outro', 'roxo', 'Substituído'),
         ],
         'campos': [
             {'id': 'tipo', 'rotulo': 'Tipo frete', 'tipo': 'lista', 'opcoes': TIPOS_FRETE, 'col': 'TIPO FRETE'},
@@ -156,20 +169,24 @@ CARTEIRAS = {
         # 20/10/2026 já estavam em fatura) e as etapas dela — programação, AG. PAGAMENTO, PGTO
         # AGENDADO — vêm depois; virar tudo FATURADO apagaria o que a aba acompanha.
         'auto_faturado': False,
+        'extras_anotacao': {'Colunas1': 'col. R da planilha'},
         'etapas': [
-            _E('PENDENTE', 'Aguardando programação de pagamento', 'amarelo'),
-            _E('AMBEV', 'Aguardando liberação', 'laranja'),
-            _E('RZA', 'Pendência aguardando ação Rizza', 'vermelho'),
-            _E('AG. PAGAMENTO', 'Aguardando pagamento', 'verde'),
-            _E('PGTO AGENDADO', 'Pagamento agendado (sempre dia 4)', 'verde'),
-            _E('FATURADO', 'Fatura emitida', 'azul'),
-            _E('SUBST', 'Substituído', 'roxo'),
+            _E('PENDENTE', 'Aguardando programação de pagamento', 'amarelo', 'Pendente'),
+            _E('AMBEV', 'Aguardando liberação', 'laranja', 'Liberação Ambev'),
+            _E('RZA', 'Pendência aguardando ação Rizza', 'vermelho', 'Pendência Rizza (RZA)'),
+            _E('AG. PAGAMENTO', 'Aguardando pagamento', 'verde', 'Aguardando pagamento'),
+            _E('PGTO AGENDADO', 'Pagamento agendado (sempre dia 4)', 'verde', 'Pagamento agendado'),
+            _E('FATURADO', 'Fatura emitida', 'azul', 'Faturado'),
+            _E('SUBST', 'CT-e substituído por outro', 'roxo', 'Substituído'),
         ],
         'campos': [
             {'id': 'tipo', 'rotulo': 'Tipo frete', 'tipo': 'lista', 'opcoes': TIPOS_FRETE, 'col': 'TIPO FRETE'},
             {'id': 'situacao', 'rotulo': 'Situação', 'tipo': 'texto', 'col': 'SITUAÇÃO'},
             {'id': 'programado', 'rotulo': 'Programado', 'tipo': 'data_texto', 'col': 'PROGRAMADO'},
             {'id': 'xml', 'rotulo': 'XML', 'tipo': 'texto', 'col': 'XML'},
+            # a planilha calcula emissão + 110; onde ela digitou outra data (4 em 21/10/2026, o dia 4 do
+            # pagamento), a data dela vale no lugar da conta — só esses vêm da importação
+            {'id': 'vencimento', 'rotulo': 'Vencimento ajustado', 'tipo': 'data_texto', 'col': 'VENCIMENTO'},
             _ANOTACAO,
         ],
     },
@@ -194,7 +211,8 @@ def campo_def(carteira, campo_id):
 def config_publica():
     """O que a tela precisa saber das carteiras (sem as raízes de CNPJ)."""
     return [{'id': cid, 'nome': CARTEIRAS[cid]['nome'], 'etapas': CARTEIRAS[cid]['etapas'],
-             'campos': CARTEIRAS[cid]['campos'], 'prazo_dias': CARTEIRAS[cid].get('prazo_dias')}
+             'campos': CARTEIRAS[cid]['campos'], 'prazo_dias': CARTEIRAS[cid].get('prazo_dias'),
+             'fora_do_aberto': sorted(ETAPAS_FORA_DO_ABERTO)}
             for cid in ORDEM]
 
 
@@ -212,7 +230,7 @@ def chave_ctrc(v):
 
 def normalizar_etapa(v, carteira):
     """O texto da coluna de status → código da etapa da carteira (ou None)."""
-    s = re.sub(r'\s+', ' ', str(v or '').strip().upper())
+    s = _sem_acento(re.sub(r'\s+', ' ', str(v or '').strip().upper()))
     if not s:
         return None
     if s.startswith('SUBSTITU'):
@@ -227,7 +245,7 @@ _TIPO_DE_PARA = {
     'PRODUTO BOM': 'INDENIZADO/PRODUTO BOM', 'INDENIZADO PRODUTO': 'INDENIZADO/PRODUTO BOM',
     'DEV PARCIAL': 'DEVOLUÇÃO PARCIAL', 'DEVOL PARCIAL': 'DEVOLUÇÃO PARCIAL', 'DEVL PARCIAL': 'DEVOLUÇÃO PARCIAL',
     'DEV TOTAL': 'DEVOLUÇÃO TOTAL', 'DEVL TOTAL': 'DEVOLUÇÃO TOTAL', 'DEV TOTAL DO FRETE': 'DEVOLUÇÃO TOTAL',
-    'DEVOL': 'DEVOLUÇÃO', 'FRETE DEVOLUÇÃO': 'DEVOLUÇÃO',
+    'DEVOL': 'DEVOLUÇÃO', 'FRETE DEVOLUÇÃO': 'DEVOLUÇÃO', 'DEVOLUÇÃ': 'DEVOLUÇÃO',
     'COMPL': 'COMPLEMENTO', 'COMPLEMENTAR': 'COMPLEMENTO', 'COMPL DEVOL': 'COMPLEMENTO',
     'COMPL DEV': 'COMPLEMENTO', 'COMPL TROCA DE NOTA': 'COMPLEMENTO',
     'RECALL1': 'RECALL',
@@ -549,8 +567,15 @@ CREATE TABLE IF NOT EXISTS crm_doc_log (
     em     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS crm_doc_log_chave ON crm_doc_log (chave, em);
--- Mudança feita pela tela a partir do SSW (FATURADO automático), não por uma pessoa.
-ALTER TABLE crm_doc_log ADD COLUMN IF NOT EXISTS auto BOOLEAN NOT NULL DEFAULT false;
+-- Mudança feita pela tela a partir do SSW (FATURADO automático), não por uma pessoa. Só altera se
+-- falta a coluna: o ALTER, mesmo com IF NOT EXISTS, pede trava exclusiva e espera qualquer
+-- transação aberta na tabela (travou o teste local em 21/10/2026).
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema()
+                     AND table_name = 'crm_doc_log' AND column_name = 'auto') THEN
+        ALTER TABLE crm_doc_log ADD COLUMN auto BOOLEAN NOT NULL DEFAULT false;
+    END IF;
+END $$;
 """
 
 
@@ -577,10 +602,12 @@ def marcacoes(cur, carteira):
     return out
 
 
-def gravar(cur, carteira, chaves, campo, valor, por, ssw_por_chave=None, auto=False):
+def gravar(cur, carteira, chaves, campo, valor, por, ssw_por_chave=None, auto=False, antes_out=None):
     """Grava `campo` = `valor` (já normalizado) nas `chaves`, com log de cada mudança.
     Chave sem marcação ainda (CT-e "novo") ganha a linha. Devolve quantas mudaram.
-    `auto`: mudança da tela a partir do SSW, não de uma pessoa (fica marcada no log)."""
+    `auto`: mudança da tela a partir do SSW, não de uma pessoa (fica marcada no log).
+    `antes_out`, se dado, recebe {chave: valor anterior} das que mudaram — é o que o Desfazer da
+    tela devolve (o valor do banco, não o que a tela tinha na memória)."""
     ssw_por_chave = ssw_por_chave or {}
     mudou = 0
     for chave in chaves:
@@ -612,6 +639,8 @@ def gravar(cur, carteira, chaves, campo, valor, por, ssw_por_chave=None, auto=Fa
                            WHERE chave = %s""", (json.dumps(campos, ensure_ascii=False), por, chave))
         cur.execute('INSERT INTO crm_doc_log (chave, campo, antes, depois, por, auto) VALUES (%s, %s, %s, %s, %s, %s)',
                     (chave, campo, antes, valor, por, auto))
+        if antes_out is not None:
+            antes_out[chave] = antes
         mudou += 1
     return mudou
 
@@ -781,6 +810,9 @@ def montar_linhas(carteira, ce_rows, pagamentos, marc, hoje=None, abertas=None, 
         venc = None
         if cfg.get('prazo_dias') and em:
             venc = (date.fromisoformat(em) + timedelta(days=cfg['prazo_dias'])).isoformat()
+            ajuste = ((m or {}).get('campos') or {}).get('vencimento')
+            if ajuste and re.fullmatch(r'\d{4}-\d{2}-\d{2}', str(ajuste)):
+                venc = ajuste                       # data digitada por ela vale no lugar da conta
         # A receber: o SSW não mostra pagamento e ela não o deu por encerrado. Onde o SSW não tem
         # resposta confiável (CT-e que ele não conhece, ou situação indefinida), vale a etapa dela,
         # e FATURADO encerra.
@@ -822,9 +854,18 @@ def ler_planilha(caminho):
         c1, r1, c2, r2 = range_boundaries(tabs[0].ref)
         cab = [_cab(ws.cell(r1, c).value) for c in range(c1, c2 + 1)]
         linhas = []
-        for r in range(r1 + 1, r2 + 1):
+        # Lê também o que foi digitado ABAIXO da tabela do Excel (ela nem sempre cresce sozinha: na
+        # Unilever, em 21/10/2026, 24 CT-e de set–out estavam fora dela) — só linha com CTRC ou CT-e,
+        # para não trazer total ou rascunho.
+        for r in range(r1 + 1, ws.max_row + 1):
             vals = {cab[i]: ws.cell(r, c1 + i).value for i in range(len(cab))}
             if all(v in (None, '') for v in vals.values()):
+                continue
+            # Sem CTRC e sem CT-e não é documento: abaixo da tabela, nunca; dentro dela, só se tiver a
+            # emissão. A linha de total da Ambev (frete R$ 93 mil, vencimento e mês por fórmula) entrava
+            # como CT-e manual a receber (21/10/2026).
+            tem_doc = vals.get('CTRC') not in (None, '') or vals.get(cfg['col_cte']) not in (None, '')
+            if not tem_doc and (r > r2 or vals.get(cfg.get('col_emissao', 'Emissao')) in (None, '')):
                 continue
             vals['_linha'] = r
             linhas.append(vals)
@@ -864,7 +905,7 @@ def preparar_importacao(planilha, ce_rows):
             cte = int(cte_v) if isinstance(cte_v, (int, float)) and not isinstance(cte_v, bool) else None
             if ctrc is None and isinstance(ctrc_txt, (int, float)) and not isinstance(ctrc_txt, bool):
                 cte = cte or int(ctrc_txt)          # CT-e digitado na coluna do CTRC
-            emissao = v.get('Emissao')
+            emissao = v.get(cfg.get('col_emissao', 'Emissao'))
             base = {'linha': v['_linha'], 'aba': cfg['aba'],
                     'emissao': emissao.date().isoformat() if isinstance(emissao, datetime) else None,
                     'ctrc': ctrc or (str(ctrc_txt).strip() if ctrc_txt else None), 'cte': cte,
@@ -913,8 +954,15 @@ def preparar_importacao(planilha, ce_rows):
                             campos[k2] = v2
                 else:
                     x = valor_campo(bruto, c['tipo'])
+                    if (c['id'] == 'vencimento' and cfg.get('prazo_dias') and base['emissao'] and x ==
+                            (date.fromisoformat(base['emissao']) + timedelta(days=cfg['prazo_dias'])).isoformat()):
+                        x = None                    # é a conta da própria planilha, não um ajuste
                     if x is not None:
                         campos[c['id']] = x
+            for col, rot in cfg.get('extras_anotacao', {}).items():
+                x = valor_campo(v.get(col), 'data_texto')
+                if x is not None:
+                    notas.append(f'[{rot}] {_dt(x).strftime("%d/%m/%Y") if isinstance(_dt(x), date) else x}')
             if notas:
                 campos['anotacao'] = ' · '.join(notas)
             original = {k2: (v2.isoformat() if isinstance(v2, (datetime, date)) else v2)
@@ -924,11 +972,27 @@ def preparar_importacao(planilha, ce_rows):
     return regs, rel
 
 
-def gravar_importacao(cur, regs, por='Importação da planilha'):
+def orfas_da_planilha(cur, regs, ssw_chaves):
+    """Linhas que vieram de uma importação anterior e não existem mais na planilha: a chave da linha
+    manual leva o nº da linha da planilha, e ela muda quando se insere linha ou se preenche o CTRC
+    (21/10/2026: 9 duplicadas — a Nestlé 3744 virou RIO004579-9 e a antiga, sem CTRC, ficou). Só
+    linha manual (MAN-… ou CTRC que o 455 não conhece) e nunca editada na tela; CT-e do SSW fica.
+    """
+    carts = sorted({g['carteira'] for g in regs})
+    cur.execute("""SELECT m.chave FROM crm_doc_marcacao m
+                    WHERE m.origem = 'planilha' AND m.carteira = ANY(%s) AND NOT (m.chave = ANY(%s))
+                      AND NOT EXISTS (SELECT 1 FROM crm_doc_log l WHERE l.chave = m.chave
+                                         AND l.campo <> '*importacao*' AND NOT l.auto)""",
+                (carts, [g['chave'] for g in regs]))
+    return sorted(k for (k,) in cur.fetchall() if k.startswith('MAN-') or k not in ssw_chaves)
+
+
+def gravar_importacao(cur, regs, por='Importação da planilha', ssw_chaves=None):
     """Grava as marcações da planilha. Linha já editada na tela não é tocada (o que ela mudou
     na tela vale mais que a planilha antiga); o FATURADO automático não conta como edição —
-    a planilha entra e a tela volta a pôr FATURADO na próxima leitura, se o SSW provar.
-    Devolve (novas, atualizadas, preservadas)."""
+    a planilha entra e a tela volta a pôr FATURADO na próxima leitura, se o SSW provar. Com
+    `ssw_chaves` (os CTRCs do 455), apaga as órfãs da importação anterior (`orfas_da_planilha`).
+    Devolve (novas, atualizadas, preservadas, removidas)."""
     novas = atual = preserv = 0
     for g in regs:
         cur.execute("""SELECT EXISTS (SELECT 1 FROM crm_doc_log WHERE chave = %s AND campo <> '*importacao*'
@@ -954,7 +1018,11 @@ def gravar_importacao(cur, regs, por='Importação da planilha'):
             atual += 1
         else:
             novas += 1
-    return novas, atual, preserv
+    removidas = orfas_da_planilha(cur, regs, ssw_chaves) if ssw_chaves is not None else []
+    if removidas:
+        cur.execute('DELETE FROM crm_doc_log WHERE chave = ANY(%s)', (removidas,))
+        cur.execute('DELETE FROM crm_doc_marcacao WHERE chave = ANY(%s)', (removidas,))
+    return novas, atual, preserv, removidas
 
 
 # ── Excel no layout da planilha ──────────────────────────────────────────────
@@ -985,7 +1053,7 @@ def exportar_xlsx(carteira, linhas):
     cols.append(('Observacao', lambda l: l['obs']))
     cols.append((cfg['col_etapa'], lambda l: l['etapa']))
     for c in cfg['campos']:
-        if c['id'] == 'tipo':
+        if c['id'] == 'tipo' or (c['id'] == 'vencimento' and cfg.get('prazo_dias')):
             continue
         cols.append((c['col'] or c['rotulo'],
                      (lambda cid, tp: (lambda l: _dt(l['campos'].get(cid)) if tp == 'data_texto' else l['campos'].get(cid)))(c['id'], c['tipo'])))

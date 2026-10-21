@@ -1158,16 +1158,19 @@ def api_crm_documentos_marcar():
             return jsonify({'ok': False, 'error': f'{len(fora)} linha(s) não são de {crm.CARTEIRAS[carteira]["nome"]}: '
                                                   + ', '.join(fora[:5])}), 400
         conn = get_db()
+        antes = {}
         try:
             with conn.cursor() as cur:
                 n = crm.gravar(cur, carteira, chaves, campo, valor, session.get('nome') or 'usuário',
-                               {k: {'ctrc': da_carteira[k]['ctrc'], 'cte': da_carteira[k]['cte']} for k in chaves})
+                               {k: {'ctrc': da_carteira[k]['ctrc'], 'cte': da_carteira[k]['cte']} for k in chaves},
+                               antes_out=antes)
             conn.commit()
         finally:
             conn.close()
         novas, _ = _crm_linhas(carteira)
         quero = set(chaves)
-        return jsonify({'ok': True, 'mudou': n, 'linhas': [x for x in novas if x['chave'] in quero]})
+        # `antes`: o valor de cada linha que mudou — o Desfazer (Ctrl+Z) da tela devolve estes
+        return jsonify({'ok': True, 'mudou': n, 'antes': antes, 'linhas': [x for x in novas if x['chave'] in quero]})
     except ValueError as e:
         return jsonify({'ok': False, 'error': str(e)}), 400
     except Exception as e:
