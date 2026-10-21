@@ -61,6 +61,10 @@ SAIDA_CARREGAMENTO = os.getenv('EMBARQUES_SAIDA_CARREGAMENTO', 'false').lower() 
 SAIDA_JANELA_H = float(os.getenv('EMBARQUES_SAIDA_JANELA_H', '48'))
 SAIDA_PARADA_MIN = float(os.getenv('EMBARQUES_SAIDA_PARADA_MIN', '60'))
 SAIDA_GRAVADA_BLOCO = os.getenv('EMBARQUES_SAIDA_GRAVADA_BLOCO', 'false').lower() in ('1', 'true', 'sim')
+SAIDA_BLOCO_FECHADO = os.getenv('EMBARQUES_SAIDA_BLOCO_FECHADO', 'false').lower() in ('1', 'true', 'sim')
+GUARDA_SALTO = os.getenv('EMBARQUES_GUARDA_SALTO', 'false').lower() in ('1', 'true', 'sim')
+GUARDA_PONTO = os.getenv('EMBARQUES_GUARDA_PONTO', 'false').lower() in ('1', 'true', 'sim')
+FATOR_ESTRADA = float(os.getenv('EMBARQUES_FATOR_ESTRADA', '1.25'))   # rota / linha reta: mediana 1,27 (1.343 cargas, 20/10)
 VEL_MAX_CRIVEL = 100.0    # km/h medios: acima disso o par saida/chegada nao e a mesma viagem
 AUTOR = 'Robo atemporal'
 ROTULO_ESTAVEL = os.getenv('EMBARQUES_ROTULO_ESTAVEL', 'false').lower() in ('1', 'true', 'sim')
@@ -377,6 +381,16 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
         _ins = [d_ for d_, _la, _ln, _v in pts]
         _blc = geocoding._bloco_de_carregamento(_cds, float(ola), float(oln), RAIO_ORIGEM,
                                                 _vls, _ins, None, PARADO_KMH, SAIDA_PARADA_MIN)
+        # BLOCO ABERTO NÃO DÁ SAÍDA (20/10/26) — atrás de EMBARQUES_SAIDA_BLOCO_FECHADO. O bloco que contém o ÚLTIMO ponto
+        # da série ainda não acabou: o veículo segue no raio da origem, e o "fim do bloco" é só o ponto mais novo. A correção
+        # gravava esse ponto, o bloco crescia a cada refresh e a saída andava junto (C-2026-001695: 15:06 → 15:11 → … → 17:21,
+        # parado em Itatiaia à espera do manifesto; C-1620 nasceu assim, sem saída). Aberto, não corrige; sem saída gravada,
+        # não afirma nenhuma — a passagem que o `_saida_de` achou antes do bloco não é a partida de quem ainda está lá.
+        if SAIDA_BLOCO_FECHADO and _blc is not None and _blc[1] == len(_ins) - 1:
+            resumo['bloco de carregamento aberto: saida aguarda o fim do bloco'] += 1
+            if not dsaida:
+                n_saida = None
+            _blc = None
         if _blc is not None:
             _fim_blc = _ins[_blc[1]]
             _dh = (_fim_blc - n_saida).total_seconds() / 3600.0
@@ -519,9 +533,47 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
     # 09/09/26 isso passou a morder muito mais. A C-2026-000684 e o caso: atravessou
     # Brasilia rodando, estacionou a 24,8 km, ganhou chegada de metropole — e a guarda a
     # matava sem que a velocidade tivesse nada de impossivel.
+    # A DISTÂNCIA DO PAR (EMBARQUES_GUARDA_PONTO, 21/10/26). A conta usava a ROTA INTEIRA contra o intervalo saída →
+    # chegada, mas a saída é a borda do raio de 30 km: em perna curta boa parte do caminho já foi feita e a velocidade
+    # "implícita" inflava — 26 pernas vazias de 21–120 km empurradas (V-326 +12 h, V-263 +4 h) em 22/09–21/10. Com a
+    # chave, a distância é a do PONTO da saída ao ponto da chegada × FATOR_ESTRADA, nunca maior que a rota.
+    # O PAR QUE ATRAVESSA UM SALTO (EMBARQUES_GUARDA_SALTO, 21/10/26). Saída que é o último ponto de um trecho CONGELADO
+    # (posição velha repetida, e depois um salto que o odômetro nega) não mede a partida: o veículo saiu durante o
+    # congelamento. A guarda punia a chegada certa — C-2026-001704: Viana 07:49 congelada, chegada 15:40 (parado a
+    # 1,5 km do cliente) empurrada para 18:10; 13 casos na janela, e nas 7 descartadas o aferidor acha a chegada (C3).
+    # Com a chave, par com salto impossível entre os dois instantes não é julgado: a chegada fica, e o par impossível
+    # aparece no aferidor (T5) — que é onde a saída errada tem de aparecer.
+    _xy = None
+    if GUARDA_PONTO and n_cheg and n_saida and dist_plan:
+        _xy = {d: (la, ln) for d, la, ln, _v in pts}
+        for d, la, ln, _v in (_pcav or []):
+            _xy.setdefault(d, (la, ln))
+
+    def _dist_par(t):
+        if _xy is None:
+            return float(dist_plan)
+        a, b = _xy.get(n_saida), _xy.get(t)
+        k = geocoding.km_entre(a[0], a[1], b[0], b[1]) if (a and b) else None
+        return float(dist_plan) if k is None else min(float(dist_plan), k * FATOR_ESTRADA)
+
+    def _atravessa_salto(t):
+        _sp = sensor.split(':', 1)[1] if sensor else None
+        if _pcav and n_saida not in {d for d, *_r in pts} and n_saida in {d for d, *_r in _pcav}:
+            _sp = cav                                    # a saída veio do cavalo: o aparelho a examinar é ele
+        if not _sp:
+            return False
+        cur.execute(f"""SELECT data_posicao, latitude, longitude, odometer FROM {fontes_gps.historico(cur)} h
+                         WHERE placa = ANY(%s) AND data_posicao >= %s AND data_posicao <= %s ORDER BY data_posicao""",
+                    (pl.grafias(str(_sp).strip().upper()), n_saida - timedelta(minutes=10), t))
+        _raw = [{'data': d, 'lat': float(la), 'lng': float(lo), 'odometer': o}
+                for d, la, lo, o in cur.fetchall() if la is not None and lo is not None]
+        return any(regua.perna_impossivel(_raw[i - 1], _raw[i]) for i in range(1, len(_raw)))
+
     if n_cheg and n_saida and dist_plan:
         _h = (n_cheg - n_saida).total_seconds() / 3600.0
-        if not (_h > 0 and float(dist_plan) / _h <= VEL_MAX_CRIVEL):
+        if not (_h > 0 and _dist_par(n_cheg) / _h <= VEL_MAX_CRIVEL) and GUARDA_SALTO and _atravessa_salto(n_cheg):
+            resumo['guarda de velocidade: par atravessa salto impossivel (chegada mantida)'] += 1
+        elif not (_h > 0 and _dist_par(n_cheg) / _h <= VEL_MAX_CRIVEL):
             # Implausivel de verdade. So a chegada ESTRITA tem uma lista natural de
             # candidatas seguintes; nas outras, nao ha o que tentar — nao afirma nada.
             _ok = None
@@ -529,7 +581,7 @@ for (cid, num, status, motivo, auto, saida_auto, dcarg, dsaida, inicio, nolocal,
                 for _c in [d for d, k, v in d_dst_validos
                            if k <= RAIO_CHEGADA and parado(v)]:
                     _hh = (_c - n_saida).total_seconds() / 3600.0
-                    if _hh > 0 and float(dist_plan) / _hh <= VEL_MAX_CRIVEL:
+                    if _hh > 0 and _dist_par(_c) / _hh <= VEL_MAX_CRIVEL:
                         _ok = _c
                         break
             if _ok:
