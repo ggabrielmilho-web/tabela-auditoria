@@ -177,7 +177,7 @@
     <button class="btn-sm desfazer" id="btnDesfazer" disabled title="Nada para desfazer"><span class="seta">↶</span> Desfazer</button>
     <button class="btn-sm" id="btnColar">📋 Colar lista</button>
     <button class="btn-sm" id="btnSelVis">Selecionar visíveis</button>
-    <label class="chk"><input type="checkbox" id="chkTodos"> Mostrar pagos e substituídos</label>
+    <label class="chk"><input type="checkbox" id="chkTodos"><span id="chkTodosTxt"> Mostrar pagos e substituídos</span></label>
     <span id="chips"></span>
     <button class="btn-sm" id="btnLimparFiltros" style="display:none">Limpar filtros das colunas</button>
     <span class="info" id="info"></span>
@@ -185,7 +185,7 @@
 
   <div class="lote" id="lote" hidden>
     <b id="loteN"></b>
-    <span>mudar</span><select id="loteCampo"></select>
+    <span>— mudar</span><select id="loteCampo"></select>
     <span>para</span><span id="loteValorBox"></span>
     <button class="btn-sm primary" id="loteAplicar">Aplicar</button>
     <button class="btn-sm" id="loteLimpar">Limpar seleção</button>
@@ -251,6 +251,15 @@
   // A planilha usa códigos (PQD, NBS, SUBST…); a tela mostra o nome por extenso (`rotulo`).
   function rotEtapa(cod) { var e = cod && etapaDef(cod); return e ? e.rotulo : (cod || ''); }
   function foraDoAberto(cod) { return (S.cfg.fora_do_aberto || []).indexOf(cod) >= 0; }
+  // A 5ª aba, Descargas (5100), não tem etapa: a situação vem pronta do servidor (crm_descargas.py).
+  function ehDescargas() { return !!(S.cfg && S.cfg.modo === 'descargas'); }
+  function sitDef(id) { return ((S.cfg && S.cfg.situacoes) || []).find(function (s) { return s.id === id; }); }
+  // "sem cobrança": aberta e ainda sem complemento no SSW (do aguardando comprovante ao ticket aprovado)
+  function semCobranca(sit) { var s = sitDef(sit); return !!(s && s.aberto && sit !== 'cobrado'); }
+  function reembTxt(x) {
+    return x.ctrc + ' · R$ ' + moeda(x.frete) + (x.situacao === 'pago' ? ' · pago' + (x.pago_em ? ' ' + dm(x.pago_em) : '')
+      : x.situacao === 'vencida' ? ' · vencida' : x.situacao === 'fatura' ? ' · em fatura' : ' · emitido');
+  }
   function campoDef(id) { return (S.cfg.campos || []).find(function (c) { return c.id === id; }); }
   var SSW_ROT = { pago: 'Pago', fatura: 'Fatura emitida', aberto: 'Sem fatura', sem_ssw: 'Sem CT-e no SSW', indefinido: 'Sem informação' };
   // O que o SSW diz, em uma palavra (é também o valor do filtro da coluna SSW).
@@ -265,7 +274,7 @@
   var rf = ReportFilter.init({
     getData: function () { return { cols: S.cols, data: S.linhas.filter(passa).map(vm) }; },
     renderTabela: renderTabela,
-    colsMoeda: ['Frete', 'Idade'],
+    colsMoeda: ['Frete', 'Valor', 'Idade'],
     colsData: ['Emissão', 'Vencimento'],
     fmtData: dm,
     defaultSort: { col: 'Idade', dir: 'desc', type: 'number' },
@@ -287,6 +296,12 @@
   };
 
   function colunas() {
+    if (ehDescargas()) {
+      var d = ['Lançamento', 'Emissão', 'Fornecedor', 'Valor', 'Histórico', 'NF', 'Transporte', 'CT-e', 'Destinatário', 'Situação', 'Complemento'];
+      S.cfg.campos.forEach(function (f) { d.push(f.rotulo); });
+      d.push('Idade');
+      return d;
+    }
     var c = ['CTRC', 'Emissão', 'CT-e', 'NF', 'Frete', 'Idade', 'Etapa', 'SSW'];
     S.cfg.campos.forEach(function (f) { c.push(f.rotulo); });
     if (S.cfg.prazo_dias) c.push('Vencimento');
@@ -294,6 +309,15 @@
     return c;
   }
   function vm(l) {
+    if (ehDescargas()) {
+      var x = { _k: l.chave, 'Lançamento': l.lancto, 'Emissão': l.emissao || '', 'Fornecedor': l.fornecedor || '',
+                'Valor': l.frete || 0, 'Histórico': l.obs || '', 'NF': l.nf || '', 'Transporte': l.transporte || '',
+                'CT-e': l.ctrc || '', 'Destinatário': (l.destinatario || '') + (l.destino ? ' — ' + l.destino : ''),
+                'Situação': (sitDef(l.situacao) || {}).rotulo || l.situacao,
+                'Complemento': l.reembolsos.map(function (y) { return y.ctrc; }).join(', '), 'Idade': l.idade };
+      S.cfg.campos.forEach(function (f) { x[f.rotulo] = l.campos[f.id] || ''; });
+      return x;
+    }
     var r = { _k: l.chave, 'CTRC': l.ctrc || '', 'Emissão': l.emissao || '', 'CT-e': l.cte ? String(l.cte) : '',
               'NF': l.nf ? String(l.nf) : '', 'Frete': l.frete || 0, 'Idade': l.idade, 'Etapa': rotEtapa(l.etapa),
               'SSW': sswRot(l), 'Obs. do CT-e': l.obs || '' };
@@ -312,7 +336,8 @@
   function passa(l) {
     if (S.lista && !S.lista.has(l.chave)) return false;
     var c = S.card;
-    if (c === 'novos') { if (!l.novo) return false; }
+    if (c && ehDescargas()) { if (l.situacao !== c) return false; }
+    else if (c === 'novos') { if (!l.novo) return false; }
     else if (c === 'diverg') { if (!l.diverg.length) return false; }
     else if (c === 'vencidas') { if (!(l.vencida && l.aberto)) return false; }
     else if (c === 'pagos') { if (!(l.ssw === 'pago' && l.pago_em && l.pago_em >= S.desde30)) return false; }
@@ -326,7 +351,8 @@
   function carregar(carteira, forcar) {
     $('erro').hidden = true;
     $('btnAtualizar').disabled = true;
-    if (forcar) $('tabela').querySelector('tbody').innerHTML = '<tr><td><div class="carregando"><div class="spinner"></div>Lendo o 455 e o 441 no Power BI…</div></td></tr>';
+    if (forcar) $('tabela').querySelector('tbody').innerHTML = '<tr><td><div class="carregando"><div class="spinner"></div>'
+      + (ehDescargas() ? 'Lendo o 477 e o 455 no Power BI…' : 'Lendo o 455 e o 441 no Power BI…') + '</div></td></tr>';
     var url = '/api/crm-documentos?carteira=' + encodeURIComponent(carteira || '') + (forcar ? '&refresh=1' : '');
     return fetch(url, { credentials: 'same-origin' })
       .then(function (r) { if (r.status === 401) { location = '/login'; throw new Error('sessão expirada'); } return r.json(); })
@@ -334,7 +360,7 @@
         if (!j.ok) throw new Error(j.error || 'erro ao ler');
         var mudouCarteira = S.carteira !== j.carteira;
         S.carteira = j.carteira; S.carteiras = j.carteiras; S.resumo = j.resumo; S.hoje = j.hoje;
-        S.desde30 = somaDias(j.hoje, -30); S.desde7 = somaDias(j.hoje, -7);
+        S.desde30 = somaDias(j.hoje, -30); S.desde7 = somaDias(j.hoje, -7); S.desdeDescargas = j.desde_descargas;
         S.cfg = j.carteiras.find(function (c) { return c.id === j.carteira; });
         setLinhas(j.linhas);
         S.abertasOk = !!j.lido_abertas; S.lidoAbertas = j.lido_abertas; S.abertasCorte = j.abertas_corte; S.inicio441 = j.inicio_441;
@@ -342,6 +368,7 @@
         $('meta').textContent = 'Atualizado BI: ' + (j.bi_atualizado || '—');
         if (mudouCarteira) {
           S.card = null; S.lista = null; S.sel = new Set(); S.cols = colunas();
+          $('chkTodosTxt').textContent = ehDescargas() ? ' Mostrar reembolsados e não cobráveis' : ' Mostrar pagos e substituídos';
           rf.setColumns(S.cols); montarLote();
           try { history.replaceState(null, '', '/crm-documentos?carteira=' + S.carteira); } catch (e) {}
         }
@@ -354,7 +381,8 @@
     S.linhas = ls; S.porChave = {};
     ls.forEach(function (l) {
       S.porChave[l.chave] = l;
-      var partes = [l.ctrc, l.cte, l.nf, l.obs, l.etapa, rotEtapa(l.etapa), l.pagador, l.nota_linha];
+      var partes = [l.ctrc, l.cte, l.nf, l.obs, l.etapa, rotEtapa(l.etapa), l.pagador, l.nota_linha, l.fornecedor, l.lancto,
+                    (l.reembolsos || []).map(function (y) { return y.ctrc; }).join(' ')];
       for (var k in l.campos) partes.push(l.campos[k]);
       l._busca = partes.join(' ').toUpperCase();
     });
@@ -366,21 +394,44 @@
       if (i >= 0) S.linhas[i] = n; else S.linhas.push(n);
     });
     setLinhas(S.linhas);
-    var ab = S.linhas.filter(function (l) { return l.aberto; });
-    S.resumo[S.carteira] = { abertos: ab.length, valor: ab.reduce(function (s, l) { return s + (l.frete || 0); }, 0) };
+    var ab = S.linhas.filter(function (l) { return ehDescargas() ? semCobranca(l.situacao) : l.aberto; });
+    S.resumo[S.carteira] = { abertos: ab.length, valor: ab.reduce(function (s, l) { return s + (l.frete || 0); }, 0),
+                             rotulo: ehDescargas() ? 'sem cobrança' : null };
   }
   function tudo() { renderAbas(); renderKpis(); renderCards(); renderChips(); rf.refresh(); renderLote(); renderDesfazer(); }
 
   // ── abas, indicadores, cartões ──
   function renderAbas() {
     $('abas').innerHTML = S.carteiras.map(function (c) {
-      var r = S.resumo[c.id] || {};
+      var r = S.resumo[c.id];
+      // a de descargas só tem resumo depois de aberta uma vez (o 477 não é lido para as outras abas)
+      var sub = !r ? (c.modo === 'descargas' ? 'clique para calcular' : '0 em aberto · R$ 0,00')
+        : (r.abertos || 0) + ' ' + (r.rotulo || 'em aberto') + ' · R$ ' + moedaK(r.valor);
       return '<button class="aba' + (c.id === S.carteira ? ' ativa' : '') + '" data-cart="' + c.id + '">' + esc(c.nome)
-        + '<small>' + (r.abertos || 0) + ' em aberto · R$ ' + moedaK(r.valor) + '</small></button>';
+        + '<small>' + sub + '</small></button>';
     }).join('');
   }
   function mediana(a) { if (!a.length) return null; a = a.slice().sort(function (x, y) { return x - y; }); return a[Math.floor(a.length / 2)]; }
+  function renderKpisDescargas() {
+    function soma(a, campo) { return a.reduce(function (s, l) { return s + (l[campo || 'frete'] || 0); }, 0); }
+    function de(sit) { return S.linhas.filter(function (l) { return l.situacao === sit; }); }
+    var sem = S.linhas.filter(function (l) { return semCobranca(l.situacao); });
+    var velhos = sem.filter(function (l) { return l.idade > 90; });
+    var tickets = S.linhas.filter(function (l) { return l.situacao === 'ticket_aberto' || l.situacao === 'ticket_aprovado'; });
+    var cobrado = de('cobrado'), pagos = de('reembolso_pago');
+    var k = [
+      ['Descarga paga (Nestlé)', 'R$ ' + moedaK(soma(S.linhas)), S.linhas.length + ' lançamentos do 5100' + (S.desdeDescargas ? ' desde ' + dm(S.desdeDescargas) : '')],
+      ['Sem cobrança', 'R$ ' + moedaK(soma(sem)), sem.length + ' ainda sem complemento no SSW · ' + velhos.length + ' com mais de 90 dias'],
+      ['Tickets na Nestlé', 'R$ ' + moedaK(soma(tickets)), tickets.length + ' com ticket FSC aberto ou aprovado, sem complemento'],
+      ['Cobrado, aguardando', 'R$ ' + moedaK(soma(cobrado, 'valor_reembolso')), cobrado.length + ' descargas · valor dos documentos de reembolso'],
+      ['Reembolsado', 'R$ ' + moedaK(soma(pagos, 'valor_reembolso')), pagos.length + ' descargas com o reembolso pago']
+    ];
+    $('kpis').innerHTML = k.map(function (x) {
+      return '<div class="kpi"><div class="l">' + esc(x[0]) + '</div><div class="v">' + esc(x[1]) + '</div><div class="s">' + esc(x[2]) + '</div></div>';
+    }).join('');
+  }
   function renderKpis() {
+    if (ehDescargas()) return renderKpisDescargas();
     var ab = S.linhas.filter(function (l) { return l.aberto; });
     var velhos = ab.filter(function (l) { return l.idade > 90; });
     var pg7 = S.linhas.filter(function (l) { return l.ssw === 'pago' && l.pago_em >= S.desde7; });
@@ -405,6 +456,13 @@
     }).join('');
   }
   function renderCards() {
+    if (ehDescargas()) {
+      $('cards').innerHTML = S.cfg.situacoes.map(function (s) {
+        return cardHTML({ id: s.id, t: s.rotulo, d: s.desc, cor: s.cor,
+                          ls: S.linhas.filter(function (l) { return l.situacao === s.id; }) });
+      }).join('');
+      return;
+    }
     var ls = S.linhas, cards = [];
     cards.push({ id: 'novos', t: 'Novos', d: 'CT-e do SSW ainda sem etapa', cor: 'cinza', ls: ls.filter(function (l) { return l.novo; }) });
     S.cfg.etapas.forEach(function (e) {
@@ -419,7 +477,9 @@
     cards.push({ id: 'diverg', t: 'Divergência', d: 'a marcação diz uma coisa e o SSW outra', cor: 'vermelho', ls: ls.filter(function (l) { return l.diverg.length; }) });
     cards.push({ id: 'pagos', t: 'Pagos 30 dias', d: 'pagamento registrado no SSW nos últimos 30 dias', cor: 'verde', pagos: true,
                  ls: ls.filter(function (l) { return l.ssw === 'pago' && l.pago_em >= S.desde30; }) });
-    $('cards').innerHTML = cards.map(function (c) {
+    $('cards').innerHTML = cards.map(cardHTML).join('');
+  }
+  function cardHTML(c) {
       var v = c.ls.reduce(function (s, l) { return s + (l.frete || 0); }, 0);
       var extra;
       if (c.pagos) {
@@ -432,13 +492,12 @@
       return '<button class="card' + (S.card === c.id ? ' ativo' : '') + (c.ls.length ? '' : ' zero') + '" data-card="' + esc(c.id)
         + '" style="--cor:' + corVar(c.cor) + '" title="' + esc(c.d) + '"><div class="t">' + esc(c.t) + '</div><div class="n">'
         + c.ls.length + '</div><div class="r">R$ ' + moedaK(v) + '</div><div class="r">' + extra + '</div></button>';
-    }).join('');
   }
   function renderChips() {
     var h = '';
     if (S.card) {
       var e = etapaDef(S.card);
-      var nome = { novos: 'Novos', diverg: 'Divergência', pagos: 'Pagos 30 dias', vencidas: 'Fatura vencida' }[S.card] || (e ? e.rotulo : S.card);
+      var nome = { novos: 'Novos', diverg: 'Divergência', pagos: 'Pagos 30 dias', vencidas: 'Fatura vencida' }[S.card] || (ehDescargas() ? (sitDef(S.card) || {}).rotulo || S.card : (e ? e.rotulo : S.card));
       h += '<span class="chip-filtro">cartão: ' + esc(nome) + ' <button data-limpa="card" title="Tirar">✕</button></span> ';
     }
     if (S.lista) h += '<span class="chip-filtro">lista colada: ' + S.lista.size + ' linhas <button data-limpa="lista" title="Tirar">✕</button></span>';
@@ -456,9 +515,28 @@
     mais.hidden = rows.length <= MAX;
     mais.textContent = 'Mostrando ' + MAX + ' de ' + rows.length + ' linhas — use a busca, os cartões ou os filtros das colunas para ver o resto.';
   }
+  function celulaDescarga(c, l, r) {
+    if (c === 'Lançamento') return '<td class="ctrc"><input type="checkbox" data-sel="' + esc(l.chave) + '"' + (S.sel.has(l.chave) ? ' checked' : '')
+      + '><a href="#" data-abre="' + esc(l.chave) + '">' + esc(l.lancto) + '</a></td>';
+    if (c === 'Fornecedor' || c === 'Destinatário' || c === 'Histórico') return '<td class="obs" title="' + esc(r[c]) + '">' + esc(r[c]) + '</td>';
+    if (c === 'Transporte') return '<td class="mono dim">' + esc(r[c]) + '</td>';
+    if (c === 'Valor') return '<td class="num">' + moeda(l.frete) + '</td>';
+    if (c === 'CT-e') return '<td class="mono" title="' + esc((l.cte_criterio || '') + (l.cte ? ' · nº ' + l.cte : '')) + '">'
+      + (l.ctrc ? esc(l.ctrc) + (l.cte_manual ? ' <span class="marca" title="digitado à mão">✎</span>' : '') : '<span class="vazio">—</span>') + '</td>';
+    if (c === 'Situação') {
+      var s = sitDef(l.situacao) || {};
+      return '<td><span class="pill" style="--cor:' + corVar(s.cor) + '" title="' + esc(s.desc || '') + '">' + esc(s.rotulo || l.situacao) + '</span></td>';
+    }
+    if (c === 'Complemento') return '<td>' + (l.reembolsos.length ? l.reembolsos.map(function (x) {
+        var cls = x.situacao === 'pago' ? 'pago' : x.situacao === 'vencida' ? 'vencida' : 'fatura';
+        return '<span class="ssw ' + cls + '" title="' + esc((x.doc || '') + ' · ' + (x.obs || '')) + '">' + esc(reembTxt(x)) + '</span>';
+      }).join(' ') : '<span class="vazio">—</span>') + '</td>';
+    return null;
+  }
   function linhaHTML(cols, r) {
-    var l = S.porChave[r._k];
+    var l = S.porChave[r._k], desc = ehDescargas();
     var tds = cols.map(function (c) {
+      if (desc) { var h = celulaDescarga(c, l, r); if (h !== null) return h; }
       if (c === 'CTRC') {
         var marca = l.manual ? '<span class="marca" title="' + esc(l.nota_linha || 'sem CT-e no SSW') + '">●</span>' : '';
         return '<td class="ctrc"><input type="checkbox" data-sel="' + esc(l.chave) + '"' + (S.sel.has(l.chave) ? ' checked' : '')
@@ -519,9 +597,36 @@
     return '<tr class="' + (S.sel.has(l.chave) ? 'sel' : '') + (l.diverg.length ? ' div' : '') + '">' + tds.join('') + '</tr>';
   }
   function onView(view) {
-    var tot = view.reduce(function (s, r) { return s + (Number(r.Frete) || 0); }, 0);
+    var tot = view.reduce(function (s, r) { return s + (Number(r.Frete != null ? r.Frete : r.Valor) || 0); }, 0);
     $('info').textContent = view.length + ' linhas · R$ ' + moeda(tot);
     S.visiveis = view.map(function (r) { return r._k; });
+    // Selecionado é só o que está na tela: trocar de cartão, buscar ou filtrar tira da seleção o que
+    // saiu da vista. Antes a seleção ficava escondida e o lote mudava linha que ela não via (288
+    // marcadas com 2 na tela, 21/10/2026).
+    var naTela = new Set(S.visiveis.slice(0, MAX)), tirou = false;
+    S.sel.forEach(function (k) { if (!naTela.has(k)) { S.sel.delete(k); tirou = true; } });
+    if (tirou) renderLote();
+    // a caixinha do cabeçalho entra depois que o filtro redesenhou os cabeçalhos
+    var th = $('tabela').querySelector('thead th');
+    if (th && !th.querySelector('.marca-todas')) {
+      var cb = document.createElement('input');
+      cb.type = 'checkbox'; cb.className = 'marca-todas'; cb.title = 'Marcar ou desmarcar todas as linhas da tela';
+      cb.style.cssText = 'margin-right:6px;vertical-align:middle;cursor:pointer';
+      cb.addEventListener('click', function (e) { e.stopPropagation(); marcarTodasDaTela(cb.checked); });
+      th.insertBefore(cb, th.firstChild);
+    }
+    atualizarMarcaTodas();
+  }
+  function marcarTodasDaTela(marcar) {
+    (S.visiveis || []).slice(0, MAX).forEach(function (k) { if (marcar) S.sel.add(k); else S.sel.delete(k); });
+    rf.refresh(); renderLote();
+  }
+  function atualizarMarcaTodas() {
+    var cb = $('tabela').querySelector('thead .marca-todas');
+    if (!cb) return;
+    var tela = (S.visiveis || []).slice(0, MAX), n = tela.filter(function (k) { return S.sel.has(k); }).length;
+    cb.checked = tela.length > 0 && n === tela.length;
+    cb.indeterminate = n > 0 && n < tela.length;
   }
 
   // ── edição na célula ──
@@ -627,16 +732,23 @@
 
   // ── seleção e mudança em lote ──
   function montarLote() {
-    $('loteCampo').innerHTML = '<option value="etapa">Etapa</option>' + S.cfg.campos.map(function (f) {
-      return '<option value="' + f.id + '">' + esc(f.rotulo) + '</option>'; }).join('');
+    var campos = S.cfg.campos.map(function (f) { return '<option value="' + f.id + '">' + esc(f.rotulo) + '</option>'; }).join('');
+    // a etapa é o uso de todo dia; os outros campos ficam no mesmo menu, agrupados
+    $('loteCampo').innerHTML = ehDescargas() ? campos
+      : '<option value="etapa">a etapa</option><optgroup label="ou outro campo">' + campos + '</optgroup>';
     montarValorLote();
   }
   function montarValorLote() {
     var campo = $('loteCampo').value, box = $('loteValorBox');
     if (campo === 'etapa') {
-      box.innerHTML = '<select id="loteValor"><option value="">— sem etapa —</option>' + S.cfg.etapas.map(function (e) {
-        return '<option value="' + esc(e.cod) + '">' + esc(e.rotulo) + '</option>'; }).join('') + '</select>';
+      // Começa em "escolha…" e o Aplicar só liga depois: vir em "sem etapa" apagava a etapa de quem
+      // clicasse em Aplicar sem escolher. Apagar continua possível, de propósito, no fim da lista.
+      box.innerHTML = '<select id="loteValor"><option value="" disabled selected hidden>escolha…</option>' + S.cfg.etapas.map(function (e) {
+        return '<option value="' + esc(e.cod) + '">' + esc(e.rotulo) + '</option>'; }).join('')
+        + '<option value="__sem__">— sem etapa (apagar) —</option></select>';
+      $('loteAplicar').disabled = true;
     } else {
+      $('loteAplicar').disabled = false;
       var f = campoDef(campo);
       box.innerHTML = '<input id="loteValor" type="text" ' + (f.tipo === 'lista' ? 'list="dl-lote"' : '')
         + ' placeholder="' + (f.tipo === 'data_texto' ? 'dd/mm ou texto' : 'vazio apaga') + '"><datalist id="dl-lote">'
@@ -664,7 +776,8 @@
       var k = l.chave;
       if (l.ctrc) { add(l.ctrc, k); add(String(l.ctrc).split('-')[0], k); }
       if (l.cte) { add(String(l.cte), k); add(String(Number(l.cte) % 1e9), k); }
-      if (l.nf) add(String(l.nf), k);
+      if (l.nf) String(l.nf).split(/[,\s]+/).forEach(function (n) { add(n, k); });
+      if (l.lancto) add(String(l.lancto).split('/')[0], k);
       (String(l.obs || '').toUpperCase().match(/B\d{9}/g) || []).forEach(function (b) { add(b, k); });
       if (l.campos.ticket_pipefy) add(l.campos.ticket_pipefy, k);
     });
@@ -689,21 +802,69 @@
   // ── gaveta ──
   function abrirGaveta(k) {
     var l = S.porChave[k];
-    $('gavTitulo').textContent = l.ctrc || '(sem CTRC)';
-    $('gavSub').textContent = 'CT-e ' + (l.cte || '—') + ' · R$ ' + moeda(l.frete) + ' · emitido ' + dm(l.emissao) + (l.idade != null ? ' · ' + l.idade + ' dias' : '');
+    if (ehDescargas()) {
+      $('gavTitulo').textContent = 'Lançamento ' + l.lancto;
+      $('gavSub').textContent = (l.fornecedor || '') + ' · R$ ' + moeda(l.frete) + ' · emissão ' + dm(l.emissao) + (l.idade != null ? ' · ' + l.idade + ' dias' : '');
+    } else {
+      $('gavTitulo').textContent = l.ctrc || '(sem CTRC)';
+      $('gavSub').textContent = 'CT-e ' + (l.cte || '—') + ' · R$ ' + moeda(l.frete) + ' · emitido ' + dm(l.emissao) + (l.idade != null ? ' · ' + l.idade + ' dias' : '');
+    }
     $('gavCorpo').innerHTML = '<div class="carregando"><div class="spinner"></div></div>';
     $('gaveta').hidden = false;
     fetch('/api/crm-documentos/linha?carteira=' + encodeURIComponent(S.carteira) + '&chave=' + encodeURIComponent(k), { credentials: 'same-origin' })
       .then(function (r) { return r.json(); })
       .then(function (j) {
         if (!j.ok) throw new Error(j.error || 'erro');
-        $('gavCorpo').innerHTML = gavetaHTML(j);
+        $('gavCorpo').innerHTML = ehDescargas() ? gavetaDescargaHTML(j) : gavetaHTML(j);
       })
       .catch(function (e) { $('gavCorpo').innerHTML = '<div class="erro">' + esc(e.message) + '</div>'; });
   }
   function kv(pares) {
     return '<dl class="kv">' + pares.filter(function (p) { return p[1] != null && p[1] !== ''; }).map(function (p) {
       return '<dt>' + esc(p[0]) + '</dt><dd>' + (p[2] ? p[1] : esc(p[1])) + '</dd>'; }).join('') + '</dl>';
+  }
+  function historicoHTML(j) {
+    if (!j.historico || !j.historico.length) return '';
+    return '<div class="bloco"><h3>Histórico</h3><ul class="hist">' + j.historico.map(function (x) {
+      var fmt = x.campo === 'etapa' ? rotEtapa : txtCampo;
+      var o = x.campo === '*importacao*' ? 'Importada da planilha' :
+        (x.campo === 'etapa' ? 'Etapa' : ((campoDef(x.campo) || {}).rotulo || x.campo)) + ': ' + (x.antes ? fmt(x.antes) : '—') + ' → ' + (x.depois ? fmt(x.depois) : '—');
+      return '<li>' + esc(o) + '<div class="q">' + esc(x.em) + ' · ' + esc(x.por || '') + '</div></li>'; }).join('') + '</ul></div>';
+  }
+  function gavetaDescargaHTML(j) {
+    var l = j.linha, s = sitDef(l.situacao) || {}, h = '';
+    h += '<div class="bloco"><h3>Situação</h3>' + kv([
+      ['Situação', '<span class="pill" style="--cor:' + corVar(s.cor) + '">' + esc(s.rotulo || l.situacao) + '</span>', true],
+      ['Por quê', s.desc]]) + '</div>';
+    h += '<div class="bloco"><h3>Lançamento no 477 (evento 5100)</h3>' + kv([
+      ['Fornecedor', l.fornecedor], ['Favorecido', l.favorecido !== l.fornecedor ? l.favorecido : ''],
+      ['Valor pago', 'R$ ' + moeda(l.frete)], ['Emissão', dm(l.emissao)], ['Vencimento', dm(l.vencimento_despesa)],
+      ['Pago ao terceiro em', dm(l.pago_terceiro)], ['Unidade · lançamento', (l.uni || '') + ' · ' + l.lancto],
+      ['NF da despesa', l.nf_despesa], ['Histórico', l.obs]]) + '</div>';
+    h += '<div class="bloco"><h3>CT-e da carga</h3>' + (l.ctrc ? kv([
+      ['CTRC', l.ctrc + (l.cte_manual ? ' (digitado à mão)' : '')], ['Nº do CT-e', l.cte], ['Tomador', l.pagador],
+      ['Destinatário', (l.destinatario || '') + (l.destino ? ' — ' + l.destino : '')], ['Transporte (carga Nestlé)', l.transporte],
+      ['Remetente', l.remetente], ['Emissão', dm(l.cte_emissao)], ['NF no histórico', l.nf],
+      ['Como achou', l.cte_criterio], ['Outros CT-e com a NF', l.cte_outros]])
+      : '<div class="nota">' + esc(l.cte_criterio || 'O histórico não traz NF que leve a um CT-e') + '. Preencha "CT-e (à mão)" na tabela.</div>') + '</div>';
+    h += '<div class="bloco"><h3>Complemento no SSW (o reembolso)</h3>' + (l.reembolsos.length
+      ? '<table class="pg"><tr><th>Documento</th><th>Tipo</th><th>Emissão</th><th>Valor</th><th>Situação</th></tr>'
+        + l.reembolsos.map(function (x) {
+            var doc = x.carteira ? '<a href="/crm-documentos?carteira=' + encodeURIComponent(x.carteira) + '&busca=' + encodeURIComponent(x.ctrc)
+              + '" target="_blank" title="abrir na aba do cliente">' + esc(x.ctrc) + ' ↗</a>' : esc(x.ctrc);
+            var st = x.situacao === 'pago' ? 'pago' + (x.pago_em ? ' em ' + dm(x.pago_em) : '')
+              : x.situacao === 'vencida' ? 'fatura ' + esc(x.fatura) + ' vencida em ' + dm(x.vencimento)
+              : x.situacao === 'fatura' ? 'fatura ' + esc(x.fatura) + ', vence ' + dm(x.vencimento) : 'emitido, ainda sem fatura';
+            return '<tr><td class="mono">' + doc + '</td><td>' + esc(x.doc || '') + '</td><td>' + dm(x.emissao) + '</td><td class="mono">'
+              + moeda(x.frete) + '</td><td>' + st + '</td></tr>'; }).join('') + '</table>'
+        + '<div class="nota">Achado pela observação do documento: complemento que cita o CTRC da carga, ou nota de descarga que cita a NF dela. Cada cliente reembolsa num valor (pelo custo, com imposto, ou várias descargas juntas).</div>'
+      : '<div class="nota">Nenhum complemento nem nota de descarga no SSW cita esta carga.</div>') + '</div>';
+    var marcados = S.cfg.campos.filter(function (f) { return l.campos[f.id]; });
+    h += '<div class="bloco"><h3>Marcação (edite na tabela)</h3>'
+      + (marcados.length ? kv(marcados.map(function (f) { return [f.rotulo, txtCampo(l.campos[f.id])]; }))
+                         : '<div class="nota">Nada marcado ainda: comprovante, CT-e à mão e "não cobrável" se preenchem na tabela.</div>')
+      + (l.atualizado ? '<div class="nota" style="margin-top:6px">Última mudança ' + esc(l.atualizado) + (l.por ? ' por ' + esc(l.por) : '') + '</div>' : '') + '</div>';
+    return h + historicoHTML(j);
   }
   function gavetaHTML(j) {
     var l = j.linha, h = '';
@@ -751,13 +912,7 @@
     S.cfg.campos.forEach(function (f) { pares.push([f.rotulo, txtCampo(l.campos[f.id])]); });
     h += '<div class="bloco"><h3>Marcação (edite na tabela)</h3>' + kv(pares)
       + (l.atualizado ? '<div class="nota" style="margin-top:6px">Última mudança ' + esc(l.atualizado) + (l.por ? ' por ' + esc(l.por) : '') + '</div>' : '') + '</div>';
-    if (j.historico && j.historico.length) {
-      h += '<div class="bloco"><h3>Histórico</h3><ul class="hist">' + j.historico.map(function (x) {
-        var fmt = x.campo === 'etapa' ? rotEtapa : txtCampo;
-        var o = x.campo === '*importacao*' ? 'Importada da planilha' :
-          (x.campo === 'etapa' ? 'Etapa' : ((campoDef(x.campo) || {}).rotulo || x.campo)) + ': ' + (x.antes ? fmt(x.antes) : '—') + ' → ' + (x.depois ? fmt(x.depois) : '—');
-        return '<li>' + esc(o) + '<div class="q">' + esc(x.em) + ' · ' + esc(x.por || '') + '</div></li>'; }).join('') + '</ul></div>';
-    }
+    h += historicoHTML(j);
     if (j.planilha) {
       var ps = Object.keys(j.planilha).filter(function (k) { return k !== '_linha'; }).map(function (k) {
         var v = j.planilha[k]; return [k, typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v) ? dm(v.slice(0, 10)) : String(v)]; });
@@ -771,7 +926,9 @@
     var b = ev.target.closest('[data-cart]'); if (!b || b.getAttribute('data-cart') === S.carteira) return;
     // Até a carteira nova chegar, não sobra cartão da anterior para clicar.
     $('cards').innerHTML = ''; $('kpis').innerHTML = ''; $('chips').innerHTML = '';
-    $('tabela').querySelector('tbody').innerHTML = '<tr><td><div class="carregando"><div class="spinner"></div>Carregando…</div></td></tr>';
+    $('tabela').querySelector('tbody').innerHTML = '<tr><td><div class="carregando"><div class="spinner"></div>'
+      + (b.getAttribute('data-cart') === 'descargas' ? 'Lendo o 477 e o 455 no Power BI — a primeira vez leva perto de 1 min…' : 'Carregando…')
+      + '</div></td></tr>';
     carregar(b.getAttribute('data-cart'));
   });
   $('cards').addEventListener('click', function (ev) {
@@ -800,7 +957,7 @@
       var k = cb.getAttribute('data-sel');
       if (cb.checked) S.sel.add(k); else S.sel.delete(k);
       cb.closest('tr').classList.toggle('sel', cb.checked);
-      renderLote(); return;
+      renderLote(); atualizarMarcaTodas(); return;
     }
     var a = ev.target.closest('[data-abre]');
     if (a) { ev.preventDefault(); abrirGaveta(a.getAttribute('data-abre')); return; }
@@ -808,15 +965,22 @@
     if (td && !td.querySelector('.editor')) abrirEditor(td);
   });
   $('loteCampo').addEventListener('change', montarValorLote);
+  $('loteValorBox').addEventListener('change', function () {
+    if ($('loteCampo').value === 'etapa') $('loteAplicar').disabled = !$('loteValor').value;
+  });
   $('loteAplicar').addEventListener('click', function () {
     var campo = $('loteCampo').value, valor = $('loteValor').value, n = S.sel.size;
+    if (campo === 'etapa') {
+      if (!valor) return;
+      if (valor === '__sem__') valor = '';
+    }
     var rot = campo === 'etapa' ? 'Etapa' : campoDef(campo).rotulo;
     var nomeValor = campo === 'etapa' ? (rotEtapa(valor) || '(sem etapa)') : (valor || '(vazio)');
     if (!confirm('Mudar "' + rot + '" para "' + nomeValor + '" em ' + n + ' linha(s)?')) return;
     $('loteAplicar').disabled = true;
     marcar(Array.from(S.sel), campo, valor).then(function (ok) {
       $('loteAplicar').disabled = false;
-      if (ok) { S.sel = new Set(); rf.refresh(); renderLote(); }
+      if (ok) { S.sel = new Set(); rf.refresh(); renderLote(); montarValorLote(); }
     });
   });
   $('loteLimpar').addEventListener('click', function () { S.sel = new Set(); rf.refresh(); renderLote(); });
@@ -849,8 +1013,12 @@
     if (S.carteira) location = '/api/crm-documentos/xlsx?carteira=' + encodeURIComponent(S.carteira);
   });
 
-  var inicial = new URLSearchParams(location.search).get('carteira');
-  carregar(inicial);
+  // ?busca= vem do link da aba de descargas para o documento de reembolso na aba do cliente
+  var qs = new URLSearchParams(location.search), inicial = qs.get('carteira'), buscaInicial = qs.get('busca');
+  carregar(inicial).then(function () {
+    if (!buscaInicial) return;
+    $('busca').value = buscaInicial; S.busca = buscaInicial.trim().toUpperCase(); rf.refresh();
+  });
 })();
 </script>
 </body>

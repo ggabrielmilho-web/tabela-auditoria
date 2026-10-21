@@ -196,6 +196,58 @@ ORDEM = ['nestle', 'quimica_amparo', 'unilever', 'ambev']
 # Etapas que não estão "em aberto": o substituído nunca vai ser pago.
 ETAPAS_FORA_DO_ABERTO = {'SUBST'}
 
+# A 5ª aba: a descarga da NESTLÉ paga a terceiro (477, evento 5100) até o reembolso — a lógica mora
+# em crm_descargas.py. Só Nestlé/Garoto (pedido de 21/10/2026: o relatório de segunda ia com todos os
+# clientes, ela só cobra a Nestlé). Não tem etapa: a situação sai do SSW (complemento emitido / pago) e
+# do que ela marca — os campos são as colunas do controle "Custo Extra" que ela mandou de exemplo
+# (status do ticket, ticket FSC, OC, pedido de compras, doc. transporte, tickets rejeitados). As
+# marcações ficam na mesma crm_doc_marcacao, carteira 'descargas', chave L477-<uni>-<lançamento>-<parcela>.
+DESCARGAS = {
+    'id': 'descargas', 'nome': 'Descargas Nestlé (5100)', 'modo': 'descargas', 'etapas': [],
+    'campos': [
+        {'id': 'comprovante', 'rotulo': 'Comprovante recebido', 'tipo': 'data_texto', 'col': None},
+        {'id': 'ticket', 'rotulo': 'Ticket FSC', 'tipo': 'texto', 'col': None},
+        {'id': 'status_ticket', 'rotulo': 'Status do ticket', 'tipo': 'lista',
+         'opcoes': ['EM ANDAMENTO', 'CONCLUÍDO', 'NEGADO'], 'col': None},
+        {'id': 'oc', 'rotulo': 'OC', 'tipo': 'texto', 'col': None},
+        {'id': 'pedido_compras', 'rotulo': 'Pedido de compras', 'tipo': 'texto', 'col': None},
+        {'id': 'doc_transporte', 'rotulo': 'Doc. transporte', 'tipo': 'texto', 'col': None},
+        {'id': 'tickets_rejeitados', 'rotulo': 'Tickets rejeitados', 'tipo': 'texto', 'col': None},
+        {'id': 'cte_manual', 'rotulo': 'CT-e (à mão)', 'tipo': 'texto', 'col': None},
+        {'id': 'nao_cobravel', 'rotulo': 'Não cobrável (motivo)', 'tipo': 'texto', 'col': None},
+        _ANOTACAO,
+    ],
+    # id → rótulo e cor; a ordem é a dos cartões (a do fluxo dela). `aberto`: entra na lista sem o
+    # "mostrar todos"; aberta e não cobrada = "sem cobrança" no resumo da aba.
+    'situacoes': [
+        {'id': 'aguardando_comprovante', 'rotulo': 'Aguardando comprovante', 'cor': 'amarelo', 'aberto': True,
+         'desc': 'descarga paga, sem complemento no SSW e sem comprovante marcado'},
+        {'id': 'cobrar', 'rotulo': 'Comprovante ok — abrir ticket', 'cor': 'laranja', 'aberto': True,
+         'desc': 'comprovante recebido, ainda sem ticket FSC'},
+        {'id': 'ticket_aberto', 'rotulo': 'Ticket aberto', 'cor': 'ciano', 'aberto': True,
+         'desc': 'ticket FSC aberto na Nestlé, aguardando a análise'},
+        {'id': 'ticket_aprovado', 'rotulo': 'Ticket aprovado — emitir complemento', 'cor': 'indigo', 'aberto': True,
+         'desc': 'a Nestlé concluiu o ticket e o SSW ainda não tem o complemento'},
+        {'id': 'sem_cte', 'rotulo': 'Sem CT-e identificado', 'cor': 'cinza', 'aberto': True,
+         'desc': 'o histórico cita a Nestlé mas não traz NF nem B10 que leve ao CT-e — preencha o CT-e à mão'},
+        {'id': 'cobrado', 'rotulo': 'Cobrado, aguardando pagamento', 'cor': 'azul', 'aberto': True,
+         'desc': 'complemento ou nota de descarga emitido no SSW, ainda não pago'},
+        {'id': 'reembolso_pago', 'rotulo': 'Reembolso pago', 'cor': 'verde', 'aberto': False,
+         'desc': 'o complemento está pago (441 ou baixa do 455)'},
+        {'id': 'ticket_negado', 'rotulo': 'Ticket negado', 'cor': 'vermelho', 'aberto': False,
+         'desc': 'a Nestlé negou a cobrança'},
+        {'id': 'nao_cobravel', 'rotulo': 'Não cobrável', 'cor': 'roxo', 'aberto': False,
+         'desc': 'marcada por ela como não cobrável, com o motivo'},
+    ],
+    'prazo_dias': None, 'fora_do_aberto': [],
+}
+TODAS = list(ORDEM) + [DESCARGAS['id']]
+
+
+def cfg_de(carteira):
+    """Configuração de uma das abas (as 4 carteiras ou a de descargas); KeyError se não existir."""
+    return CARTEIRAS[carteira] if carteira in CARTEIRAS else {DESCARGAS['id']: DESCARGAS}[carteira]
+
 
 def carteira_da_raiz(raiz):
     for cid in ORDEM:
@@ -205,15 +257,15 @@ def carteira_da_raiz(raiz):
 
 
 def campo_def(carteira, campo_id):
-    return next((c for c in CARTEIRAS[carteira]['campos'] if c['id'] == campo_id), None)
+    return next((c for c in cfg_de(carteira)['campos'] if c['id'] == campo_id), None)
 
 
 def config_publica():
-    """O que a tela precisa saber das carteiras (sem as raízes de CNPJ)."""
+    """O que a tela precisa saber das abas (sem as raízes de CNPJ): as 4 carteiras e a de descargas."""
     return [{'id': cid, 'nome': CARTEIRAS[cid]['nome'], 'etapas': CARTEIRAS[cid]['etapas'],
              'campos': CARTEIRAS[cid]['campos'], 'prazo_dias': CARTEIRAS[cid].get('prazo_dias'),
              'fora_do_aberto': sorted(ETAPAS_FORA_DO_ABERTO)}
-            for cid in ORDEM]
+            for cid in ORDEM] + [DESCARGAS]
 
 
 # ── Normalização ─────────────────────────────────────────────────────────────
@@ -358,19 +410,25 @@ def ler_data_texto(s, hoje=None):
 def normalizar_entrada(carteira, campo, valor, hoje=None):
     """Valida e normaliza uma edição da tela. Levanta ValueError com a mensagem para a pessoa."""
     v = (valor or '').strip() if isinstance(valor, str) else ('' if valor is None else str(valor))
+    cfg = cfg_de(carteira)
     if campo == 'etapa':
         if not v:
             return None
-        cods = [e['cod'] for e in CARTEIRAS[carteira]['etapas']]
+        cods = [e['cod'] for e in cfg['etapas']]
         u = normalizar_etapa(v, carteira)
         if u not in cods:
-            raise ValueError(f'Etapa "{v}" não existe em {CARTEIRAS[carteira]["nome"]}: use {", ".join(cods)}.')
+            raise ValueError(f'Etapa "{v}" não existe em {cfg["nome"]}: use {", ".join(cods) or "nenhuma"}.')
         return u
     c = campo_def(carteira, campo)
     if not c:
-        raise ValueError(f'Campo "{campo}" não existe em {CARTEIRAS[carteira]["nome"]}.')
+        raise ValueError(f'Campo "{campo}" não existe em {cfg["nome"]}.')
     if not v:
         return None
+    if campo == 'cte_manual':                       # o CT-e da carga, quando o histórico não leva a ele
+        k = chave_ctrc(v)
+        if not k:
+            raise ValueError(f'"{v}" não é um CTRC do SSW — use o formato UDI123456-7.')
+        return k
     if len(v) > 500:
         raise ValueError('Texto maior que 500 caracteres.')
     if c['tipo'] == 'data_texto':

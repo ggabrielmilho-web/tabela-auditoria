@@ -1077,23 +1077,39 @@ def _crm_faturar_pelo_ssw(carteira, dados):
     return n
 
 
-def _crm_bi_atualizado(dados):
-    """Fim do último refresh concluído do dataset contábil (441), em Brasília: o "Atualizado BI"
-    da tela (a consulta ao BI só copia o que o refresh trouxe). Fica guardado com os dados do
-    cache; sem acesso ao histórico de refresh, None."""
+def _crm_bi_atualizado(dados, dataset_id=None):
+    """Fim do último refresh concluído do dataset contábil (441) — ou do `dataset_id`, o do DRE na
+    aba de descargas (o 477 mora lá) —, em Brasília: o "Atualizado BI" da tela (a consulta ao BI só
+    copia o que o refresh trouxe). Fica guardado com os dados do cache; sem acesso ao histórico de
+    refresh, None."""
     if 'bi_atualizado' not in dados:
         import ciot_conferencia
         import crm_documentos as crm
         from datetime import timezone
-        fim = ciot_conferencia.ultimo_refresh(get_token(), CONFIG['group_id'], CONFIG['contabil_dataset_id'])
+        fim = ciot_conferencia.ultimo_refresh(get_token(), CONFIG['group_id'],
+                                              dataset_id or CONFIG['contabil_dataset_id'])
         dados['bi_atualizado'] = (fim.replace(tzinfo=timezone.utc).astimezone(crm.BRT).strftime('%d/%m/%Y %H:%M')
                                   if fim else None)
     return dados['bi_atualizado']
 
 
+def _crm_dax_dre(q):
+    """O 477 mora no dataset do DRE."""
+    return contabil_dax(q, dataset_id=CONFIG['dre_dataset_id'])
+
+
+def _crm_descargas_montar(dados, dd):
+    import crm_descargas as cd
+    return cd.montar(dd, _crm_marcacoes('descargas'), dados['pag'], dados.get('abertas'))
+
+
 def _crm_linhas(carteira, forcar=False):
     import crm_documentos as crm
     dados = crm.dados_ssw(_crm_dax_op, contabil_dax, forcar=forcar)
+    if carteira == crm.DESCARGAS['id']:
+        # o pagamento do reembolso vem do 441 (pagas e em aberto) das carteiras — os mesmos dados
+        import crm_descargas as cd
+        return _crm_descargas_montar(dados, cd.dados(_crm_dax_dre, _crm_dax_op, forcar=forcar)), dados
     marc = _crm_marcacoes(carteira)
     linhas = _crm_montar(carteira, dados, marc)
     if crm.faturados_pelo_ssw(carteira, linhas, marc) and _crm_faturar_pelo_ssw(carteira, dados):
@@ -1114,9 +1130,11 @@ def crm_documentos_page():
 @page_required('crm_documentos')
 def api_crm_documentos():
     import crm_documentos as crm
+    import crm_descargas as cd
     carteira = request.args.get('carteira') or crm.ORDEM[0]
-    if carteira not in crm.CARTEIRAS:
+    if carteira not in crm.TODAS:
         return jsonify({'ok': False, 'error': 'Carteira desconhecida.'}), 400
+    descargas = carteira == crm.DESCARGAS['id']
     try:
         linhas, dados = _crm_linhas(carteira, forcar=request.args.get('refresh') == '1')
         # As abas mostram quanto está em aberto em cada carteira.
@@ -1125,13 +1143,21 @@ def api_crm_documentos():
             ls = linhas if cid == carteira else _crm_montar(cid, dados, _crm_marcacoes(cid))
             ab = [x for x in ls if x['aberto']]
             resumo[cid] = {'abertos': len(ab), 'valor': round(sum(x['frete'] or 0 for x in ab), 2)}
+        # a de descargas só se os dados dela já estão no cache: abrir outra aba não espera o 477
+        dd = cd.cache_quente()
+        if descargas:
+            resumo['descargas'] = cd.resumo(linhas)
+        elif dd is not None:
+            resumo['descargas'] = cd.resumo(_crm_descargas_montar(dados, dd))
+        bi = (_crm_bi_atualizado(dd, CONFIG['dre_dataset_id']) if descargas and dd is not None
+              else _crm_bi_atualizado(dados))
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
     return jsonify({'ok': True, 'carteira': carteira, 'carteiras': crm.config_publica(), 'resumo': resumo,
                     'linhas': linhas, 'lido_455': dados['lido_455'], 'lido_441': dados['lido_441'],
                     'lido_abertas': dados.get('lido_abertas'), 'abertas_aviso': dados.get('abertas_aviso'),
                     'abertas_corte': dados.get('abertas_corte'), 'inicio_441': dados.get('inicio_441'),
-                    'lido_em': dados['lido_em'], 'bi_atualizado': _crm_bi_atualizado(dados),
+                    'lido_em': dados['lido_em'], 'bi_atualizado': bi, 'desde_descargas': cd.DESDE.isoformat(),
                     'hoje': crm.hoje_brt().isoformat()})
 
 
@@ -1142,7 +1168,7 @@ def api_crm_documentos_marcar():
     import crm_documentos as crm
     d = request.get_json(silent=True) or {}
     carteira, chaves, campo = d.get('carteira'), d.get('chaves') or [], d.get('campo')
-    if carteira not in crm.CARTEIRAS:
+    if carteira not in crm.TODAS:
         return jsonify({'ok': False, 'error': 'Carteira desconhecida.'}), 400
     if not isinstance(chaves, list) or not chaves or len(chaves) > 3000 or not all(isinstance(k, str) for k in chaves):
         return jsonify({'ok': False, 'error': 'Nenhuma linha escolhida.'}), 400
@@ -1155,7 +1181,7 @@ def api_crm_documentos_marcar():
         da_carteira = {x['chave']: x for x in linhas}
         fora = [k for k in chaves if k not in da_carteira]
         if fora:
-            return jsonify({'ok': False, 'error': f'{len(fora)} linha(s) não são de {crm.CARTEIRAS[carteira]["nome"]}: '
+            return jsonify({'ok': False, 'error': f'{len(fora)} linha(s) não são de {crm.cfg_de(carteira)["nome"]}: '
                                                   + ', '.join(fora[:5])}), 400
         conn = get_db()
         antes = {}
@@ -1183,7 +1209,7 @@ def api_crm_documentos_linha():
     """Uma linha com o que o SSW diz dela, a linha original da planilha e o histórico."""
     import crm_documentos as crm
     carteira, chave = request.args.get('carteira'), request.args.get('chave') or ''
-    if carteira not in crm.CARTEIRAS:
+    if carteira not in crm.TODAS:
         return jsonify({'ok': False, 'error': 'Carteira desconhecida.'}), 400
     try:
         linhas, dados = _crm_linhas(carteira)
@@ -1211,14 +1237,18 @@ def api_crm_documentos_xlsx():
     """A carteira no layout da aba da planilha delas, com o que o SSW diz no fim."""
     import crm_documentos as crm
     carteira = request.args.get('carteira')
-    if carteira not in crm.CARTEIRAS:
+    if carteira not in crm.TODAS:
         return jsonify({'ok': False, 'error': 'Carteira desconhecida.'}), 400
     try:
         linhas, _ = _crm_linhas(carteira)
-        conteudo = crm.exportar_xlsx(carteira, linhas)
+        if carteira == crm.DESCARGAS['id']:
+            import crm_descargas as cd
+            conteudo = cd.exportar_xlsx(linhas)
+        else:
+            conteudo = crm.exportar_xlsx(carteira, linhas)
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
-    nome = f"CRM Documentos - {crm.CARTEIRAS[carteira]['nome']} - {crm.hoje_brt():%d-%m-%Y}.xlsx"
+    nome = f"CRM Documentos - {crm.cfg_de(carteira)['nome']} - {crm.hoje_brt():%d-%m-%Y}.xlsx"
     return send_file(io.BytesIO(conteudo), as_attachment=True, download_name=nome,
                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 

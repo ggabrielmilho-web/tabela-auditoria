@@ -173,7 +173,7 @@ def escolher_cte(historico, emissao_despesa, idx):
     p = extrair_nf(historico)
     vazio = {'cte': '', 'cte_numero': '', 'cte_outros': '',
              'nf_historico': ', '.join(p['nfs']),
-             'cliente_historico': p['cliente'] or '', 'cte_remetente': '',
+             'cliente_historico': p['cliente'] or '', 'cte_remetente': '', 'cte_tomador': '',
              'cte_emissao': '', 'cte_criterio': ''}
     if not p['nfs']:
         return dict(vazio, cte_criterio='sem NF no histórico')
@@ -193,6 +193,7 @@ def escolher_cte(historico, emissao_despesa, idx):
             'nf_historico': ', '.join(p['nfs']),
             'cliente_historico': p['cliente'] or '',
             'cte_remetente': esc.get('cli_rem') or '',
+            'cte_tomador': esc.get('pagador') or '',
             'cte_emissao': str(esc['emissao'])[:10],
             'cte_criterio': criterio}
 
@@ -239,7 +240,7 @@ def coletar(token, ini, fim, dax=None):
         # CRM usa para conferir.
         f'"ctrc",{C}[serie_numero_ctrc], "cte_num",{C}[serie_numero_cte], '
         f'"nf",{C}[numero_nota_fiscal], '
-        f'"cli_rem",{C}[cliente_remetente], "emissao",{C}[data_emissao])')
+        f'"cli_rem",{C}[cliente_remetente], "pagador",{C}[cliente_pagador], "emissao",{C}[data_emissao])')
     return despesas, ctes
 
 
@@ -250,7 +251,7 @@ def coletar(token, ini, fim, dax=None):
 CABECALHO = ['emissao', 'uni', 'numlancto', 'parcela', 'nome_fornecedor',
              'vlr_final', 'historico_despesa', 'nfiscal', 'cte', 'cte_numero',
              'cte_outros',
-             'nf_historico', 'cliente_historico', 'cte_remetente', 'cte_emissao',
+             'nf_historico', 'cliente_historico', 'cte_tomador', 'cte_emissao',
              'cte_criterio']
 
 ROTULOS = {'emissao': 'Emissao', 'uni': 'Uni', 'numlancto': 'Lancto',
@@ -259,11 +260,11 @@ ROTULOS = {'emissao': 'Emissao', 'uni': 'Uni', 'numlancto': 'Lancto',
            'nfiscal': 'NF despesa', 'cte': 'CTe', 'cte_numero': 'N CTe',
            'cte_outros': 'Outros CTes c/ a NF',
            'nf_historico': 'NF no historico', 'cliente_historico': 'Cliente (historico)',
-           'cte_remetente': 'Remetente do CTe', 'cte_emissao': 'Emissao do CTe',
+           'cte_remetente': 'Remetente do CTe', 'cte_tomador': 'Tomador do CTe', 'cte_emissao': 'Emissao do CTe',
            'cte_criterio': 'Criterio'}
 
 DERIVADAS = ['cte', 'cte_numero', 'cte_outros', 'nf_historico', 'cliente_historico',
-             'cte_remetente', 'cte_emissao', 'cte_criterio']
+             'cte_remetente', 'cte_tomador', 'cte_emissao', 'cte_criterio']
 
 
 def montar(despesas, ctes):
@@ -334,7 +335,7 @@ def gerar_xlsx(cols, linhas, ini, fim):
                     cel.value = str(cel.value)[:10]
         ws.column_dimensions[get_column_letter(i)].width = {
             'historico_despesa': 58, 'nome_fornecedor': 30, 'descr_evento': 28,
-            'cte': 15, 'cte_numero': 15, 'cte_outros': 18, 'cte_remetente': 32,
+            'cte': 15, 'cte_numero': 15, 'cte_outros': 18, 'cte_remetente': 32, 'cte_tomador': 32,
             'cte_criterio': 40,
             'cliente_historico': 22, 'nf_historico': 16}.get(c, 14)
 
