@@ -1049,7 +1049,7 @@ def _crm_marcacoes(carteira):
 
 def _crm_montar(carteira, dados, marc):
     import crm_documentos as crm
-    # CT-e da planilha anterior a 02/01/2025: o 455 do dataset principal começa ali; o do DRE vai até 2021
+    # CT-e marcado fora do 455 lido (o do dataset principal começa em 02/01/2025): o do DRE vai até 2021
     crm.completar_historico(dados, marc, _crm_dax_dre)
     return crm.montar_linhas(carteira, dados['ce'], dados['pag'], marc,
                              abertas=dados.get('abertas'), abertas_corte=dados.get('abertas_corte'),

@@ -962,11 +962,13 @@
     h += '<div class="bloco"><h3>No SSW</h3>' + kv([
       ['Situação', sit, true],
       ['Como se sabe', como],
+      ['Emissão no SSW', l.emissao_455 && l.emissao_455 !== l.emissao
+        ? dm(l.emissao_455) + ' — a tela usa a data de autorização do CT-e (' + dm(l.emissao) + ')' : ''],
       ['Documento', l.doc], ['Pagador', (l.pagador || '') + (l.cnpj ? ' · ' + l.cnpj : '')],
       ['Remetente', l.remetente], ['Destinatário', l.destinatario], ['Destino', l.destino],
       ['NF', l.nf], ['UF origem', l.uf_o], ['Vencimento', l.vencimento ? dm(l.vencimento) + ' (emissão + ' + S.cfg.prazo_dias + ' dias)' : ''],
       ['Observação', l.obs],
-      ['Leitura', l.do_historico ? 'CT-e anterior a 2025: vem do 455 histórico (dataset do DRE), não do que a tela lê todo dia' : '']
+      ['Leitura', l.do_historico ? 'vem do 455 histórico (dataset do DRE, desde 2021): o 455 que a tela lê todo dia começa em 02/01/2025 e não tem este CT-e' : '']
     ]) + '</div>';
     var fa = l.fatura_aberta;
     if (fa) {

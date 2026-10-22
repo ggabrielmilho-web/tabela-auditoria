@@ -463,7 +463,12 @@ def chave_manual(carteira, base):
 # ── Fontes (SSW pelo Power BI) ───────────────────────────────────────────────
 
 _T455 = "'public conhecimentos_emitidos'"
-_COLS_455 = (f'"ctrc", {_T455}[serie_numero_ctrc], "cte", {_T455}[serie_numero_cte], "emissao", {_T455}[data_emissao], '
+# A data do CT-e na tela é a da AUTORIZAÇÃO. A `data_emissao` do 455 difere dela em 760 de 8.859 CT-e
+# das carteiras (22/10/2026), quase sempre DEPOIS (742; complemento e carga fechada; até ~50 dias); a
+# planilha do CRM seguia a autorização (Ambev 100%). Sem autorização, vale a emissão.
+_DATA_455 = f'COALESCE({_T455}[data_autorizacao], {_T455}[data_emissao])'
+_COLS_455 = (f'"ctrc", {_T455}[serie_numero_ctrc], "cte", {_T455}[serie_numero_cte], "emissao", {_DATA_455}, '
+             f'"emi_ssw", {_T455}[data_emissao], '
              f'"pag", {_T455}[cnpj_pagador], "pagador", {_T455}[cliente_pagador], "doc", {_T455}[tipo_documento], '
              f'"frete", {_T455}[valor_frete], "nf", {_T455}[numero_nota_fiscal], "uf_o", {_T455}[uf_origem_prestacao], '
              f'"rem", {_T455}[cliente_remetente], "dest", {_T455}[cliente_destinatario], '
@@ -476,8 +481,8 @@ def dax_455(raizes, ini, fim):
     lista = '{' + ','.join(f'"{r}"' for r in raizes) + '}'
     T = _T455
     return (f'EVALUATE SELECTCOLUMNS(FILTER({T}, LEFT({T}[cnpj_pagador], 8) IN {lista} && '
-            f'{T}[data_emissao] >= DATE({ini.year},{ini.month},{ini.day}) && '
-            f'{T}[data_emissao] < DATE({fim.year},{fim.month},{fim.day})), {_COLS_455})')
+            f'{_DATA_455} >= DATE({ini.year},{ini.month},{ini.day}) && '
+            f'{_DATA_455} < DATE({fim.year},{fim.month},{fim.day})), {_COLS_455})')
 
 
 def dax_455_ctrcs(ctrcs):
@@ -609,16 +614,11 @@ def inicio_455():
 
 
 def ctrcs_do_historico(marc, ce_chaves):
-    """CTRCs marcados (vindos da planilha) com emissão antes de `inicio_455` e fora do 455 lido — os
-    CT-e de 2023–2024 que ficaram na aba da Nestlé. O 455 do dataset principal não os tem; o do DRE
-    vai até 2021 (conferido 22/10/2026: os 3 que existem estão lá)."""
-    ini = inicio_455()
-    out = []
-    for k, m in marc.items():
-        em = ((m or {}).get('planilha') or {}).get('emissao')
-        if chave_ctrc(k) == k and k not in ce_chaves and em and em < ini:
-            out.append(k)
-    return sorted(out)
+    """CTRCs marcados (vindos da planilha) fora do 455 lido — os CT-e de 2023–2024 que ficaram na aba
+    da Nestlé. O 455 do dataset principal começa em `inicio_455`; o do DRE vai até 2021. Não se filtra
+    pela emissão da planilha: ela pode estar errada (uma nota de serviço de 26/12/2024 estava como
+    16/01/2025). O que for de 2025 em diante e não estiver no 455 lido (nota cancelada) volta None."""
+    return sorted(k for k in marc if chave_ctrc(k) == k and k not in ce_chaves)
 
 
 def completar_historico(dados, marc, dax_hist):
@@ -931,14 +931,14 @@ def montar_linhas(carteira, ce_rows, pagamentos, marc, hoje=None, abertas=None, 
         p = (m or {}).get('planilha') or {}
         if ce is not None:
             base = {'ctrc': k, 'cte': ce.get('cte'), 'emissao': _iso(ce.get('emissao')),
-                    'uf_o': ce.get('uf_o'), 'nf': ce.get('nf'), 'frete': ce.get('frete'),
+                    'emissao_455': _iso(ce.get('emi_ssw')), 'uf_o': ce.get('uf_o'), 'nf': ce.get('nf'), 'frete': ce.get('frete'),
                     'doc': ce.get('doc'), 'pagador': ce.get('pagador'), 'cnpj': ce.get('pag'),
                     'remetente': ce.get('rem'), 'destinatario': ce.get('dest'),
                     'destino': '/'.join(x for x in (ce.get('cid_d'), ce.get('uf_d')) if x),
                     'obs': ce.get('obs'), 'lido_455': _iso(ce.get('imp'))}
         else:
             base = {'ctrc': (m or {}).get('ctrc') or p.get('ctrc'), 'cte': (m or {}).get('cte') or p.get('cte'),
-                    'emissao': p.get('emissao'), 'uf_o': p.get('uf_o'), 'nf': p.get('nf'),
+                    'emissao': p.get('emissao'), 'emissao_455': None, 'uf_o': p.get('uf_o'), 'nf': p.get('nf'),
                     'frete': p.get('frete'), 'doc': None, 'pagador': p.get('cliente'), 'cnpj': p.get('cnpj'),
                     'remetente': None, 'destinatario': None, 'destino': None, 'obs': p.get('obs'),
                     'lido_455': None}
