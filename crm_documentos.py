@@ -682,16 +682,19 @@ def gravar(cur, carteira, chaves, campo, valor, por, ssw_por_chave=None, auto=Fa
         cur.execute('SELECT etapa, campos, carteira FROM crm_doc_marcacao WHERE chave = %s FOR UPDATE', (chave,))
         r = cur.fetchone()
         if r is None:
+            # Linha sem marcação ainda. Duas pessoas nela no mesmo instante: o ON CONFLICT faz a segunda
+            # esperar a primeira e seguir com a linha que ela criou (antes, a segunda dava erro de chave).
             s = ssw_por_chave.get(chave) or {}
+            cte = s.get('cte')
             cur.execute("""INSERT INTO crm_doc_marcacao (chave, carteira, ctrc, cte, atualizado_por)
-                           VALUES (%s, %s, %s, %s, %s)""",
-                        (chave, carteira, s.get('ctrc'), s.get('cte'), por))
-            etapa, campos = None, {}
-        else:
-            etapa, campos, cart = r
-            campos = campos or {}
-            if cart != carteira:
-                raise ValueError(f'{chave} é de outra carteira.')
+                           VALUES (%s, %s, %s, %s, %s) ON CONFLICT (chave) DO NOTHING""",
+                        (chave, carteira, s.get('ctrc'), int(cte) if str(cte or '').isdigit() else None, por))
+            cur.execute('SELECT etapa, campos, carteira FROM crm_doc_marcacao WHERE chave = %s FOR UPDATE', (chave,))
+            r = cur.fetchone()
+        etapa, campos, cart = r
+        campos = campos or {}
+        if cart != carteira:
+            raise ValueError(f'{chave} é de outra carteira.')
         antes = etapa if campo == 'etapa' else campos.get(campo)
         if (antes or None) == (valor or None):
             continue
@@ -758,6 +761,17 @@ def gravar_faturados(cur, carteira, itens):
         n += gravar(cur, carteira, [l['chave']], 'etapa', 'FATURADO', f'{AUTO_POR}: {motivo}',
                     {l['chave']: {'ctrc': l['ctrc'], 'cte': l['cte']}}, auto=True)
     return n
+
+
+def ultima_mudanca(cur, chaves, campo):
+    """{chave: {'por', 'em'}} da última mudança deste campo nestas linhas — para o aviso de conflito."""
+    if not chaves:
+        return {}
+    cur.execute("""SELECT DISTINCT ON (chave) chave, por,
+                          to_char(em AT TIME ZONE 'America/Sao_Paulo', 'DD/MM HH24:MI')
+                     FROM crm_doc_log WHERE chave = ANY(%s) AND campo = %s
+                    ORDER BY chave, em DESC, id DESC""", (list(chaves), campo))
+    return {k: {'por': por, 'em': em} for k, por, em in cur.fetchall()}
 
 
 def historico(cur, chave):

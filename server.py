@@ -1136,6 +1136,15 @@ def api_crm_documentos():
         return jsonify({'ok': False, 'error': 'Carteira desconhecida.'}), 400
     descargas = carteira == crm.DESCARGAS['id']
     try:
+        # a partir de quando a tela pergunta "o que mudou" (relógio do banco, antes de ler as marcações:
+        # o que mudar durante a leitura volta de novo, e repetir não faz mal)
+        conn = get_db()
+        try:
+            with conn.cursor() as cur:
+                cur.execute('SELECT now()')
+                desde_mudancas = cur.fetchone()[0].isoformat()
+        finally:
+            conn.close()
         linhas, dados = _crm_linhas(carteira, forcar=request.args.get('refresh') == '1')
         # As abas mostram quanto está em aberto em cada carteira.
         resumo = {}
@@ -1157,14 +1166,26 @@ def api_crm_documentos():
                     'linhas': linhas, 'lido_455': dados['lido_455'], 'lido_441': dados['lido_441'],
                     'lido_abertas': dados.get('lido_abertas'), 'abertas_aviso': dados.get('abertas_aviso'),
                     'abertas_corte': dados.get('abertas_corte'), 'inicio_441': dados.get('inicio_441'),
-                    'lido_em': dados['lido_em'], 'bi_atualizado': bi, 'desde_descargas': cd.DESDE.isoformat(),
+                    'lido_em': dados['lido_em'], 'bi_atualizado': bi, 'desde_descargas': cd.DESDE.isoformat(), 'desde_mudancas': desde_mudancas,
                     'hoje': crm.hoje_brt().isoformat()})
+
+
+def _crm_valor_na_linha(linha, campo):
+    """O valor que a tela mostra para o campo — é com ele que o "esperado" da tela se compara."""
+    v = (linha.get('etapa') if campo == 'etapa' else linha.get('nfs') if campo == 'nfs'
+         else (linha.get('campos') or {}).get(campo))
+    return str(v if v is not None else '').strip()
 
 
 @app.route('/api/crm-documentos/marcar', methods=['POST'])
 @page_required('crm_documentos')
 def api_crm_documentos_marcar():
-    """Grava um campo em uma ou várias linhas: {carteira, chaves: [...], campo, valor}."""
+    """Grava um campo em uma ou várias linhas: {carteira, chaves: [...], campo, valor}.
+
+    Conferência (três pessoas no mesmo painel): com `esperado` = {chave: o valor que a tela mostrava},
+    a linha que mudou depois que a tela abriu (outra pessoa, ou o FATURADO automático) não é gravada
+    por cima sem perguntar — volta 409 com `conflito` (quem, quando, o valor de agora) e as linhas
+    atuais. `forcar` grava mesmo assim (ela escolheu); `checar` só confere, não grava (o Desfazer)."""
     import crm_documentos as crm
     d = request.get_json(silent=True) or {}
     carteira, chaves, campo = d.get('carteira'), d.get('chaves') or [], d.get('campo')
@@ -1189,6 +1210,35 @@ def api_crm_documentos_marcar():
             if com_cte:
                 return jsonify({'ok': False, 'error': f'{len(com_cte)} linha(s) já têm o nº do CT-e pelo SSW — a NFS '
                                                       'só se digita onde ele vem vazio: ' + ', '.join(com_cte[:5])}), 400
+        esperado = d.get('esperado') if isinstance(d.get('esperado'), dict) else None
+        # `alvo`: o valor que se quer em cada linha (o Desfazer manda os de antes); sem ele, o `valor`
+        alvo = d.get('alvo') if isinstance(d.get('alvo'), dict) else None
+        conflito = []
+        if esperado is not None and not d.get('forcar'):
+            for k in chaves:
+                if k not in esperado:
+                    continue
+                atual = _crm_valor_na_linha(da_carteira[k], campo)
+                quer = str((alvo.get(k) if alvo is not None else valor) or '').strip()
+                # mudou depois que a tela abriu — e para outra coisa: se a colega já pôs o mesmo valor que
+                # esta quer pôr, não há o que sobrescrever e não precisa perguntar
+                if atual != str(esperado.get(k) or '').strip() and atual != quer:
+                    conflito.append(k)
+        if conflito or d.get('checar'):
+            quem = {}
+            if conflito:
+                conn = get_db()
+                try:
+                    with conn.cursor() as cur:
+                        quem = crm.ultima_mudanca(cur, conflito, campo)
+                finally:
+                    conn.close()
+            itens = [{'chave': k, 'ctrc': da_carteira[k].get('ctrc') or da_carteira[k].get('lancto'), 'campo': campo,
+                      'atual': _crm_valor_na_linha(da_carteira[k], campo),
+                      'por': (quem.get(k) or {}).get('por') or da_carteira[k].get('por'),
+                      'em': (quem.get(k) or {}).get('em') or da_carteira[k].get('atualizado')} for k in conflito]
+            corpo = {'ok': not conflito, 'conflito': itens, 'linhas': [da_carteira[k] for k in conflito]}
+            return jsonify(corpo), (200 if d.get('checar') or not conflito else 409)
         conn = get_db()
         antes = {}
         try:
@@ -1205,6 +1255,38 @@ def api_crm_documentos_marcar():
         return jsonify({'ok': True, 'mudou': n, 'antes': antes, 'linhas': [x for x in novas if x['chave'] in quero]})
     except ValueError as e:
         return jsonify({'ok': False, 'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/crm-documentos/mudancas')
+@page_required('crm_documentos')
+def api_crm_documentos_mudancas():
+    """O que OUTRAS pessoas (ou o FATURADO automático) mudaram nesta carteira desde `desde` — a tela
+    pergunta a cada minuto e troca só essas linhas. Sem mudança é uma consulta no log; não relê o SSW."""
+    import crm_documentos as crm
+    carteira, desde = request.args.get('carteira'), request.args.get('desde')
+    if carteira not in crm.TODAS or not desde:
+        return jsonify({'ok': False, 'error': 'Carteira ou "desde" faltando.'}), 400
+    eu = session.get('nome') or 'usuário'
+    try:
+        conn = get_db()
+        try:
+            with conn.cursor() as cur:
+                cur.execute('SELECT now()')
+                agora = cur.fetchone()[0].isoformat()
+                cur.execute("""SELECT l.chave, l.por FROM crm_doc_log l JOIN crm_doc_marcacao m USING (chave)
+                                WHERE m.carteira = %s AND l.em > %s::timestamptz AND l.campo <> '*importacao*'
+                                  AND l.por IS DISTINCT FROM %s""", (carteira, desde, eu))
+                mud = cur.fetchall()
+        finally:
+            conn.close()
+        if not mud:
+            return jsonify({'ok': True, 'agora': agora, 'linhas': [], 'quem': []})
+        chaves = {k for k, _ in mud}
+        linhas, _ = _crm_linhas(carteira)
+        quem = sorted({'Automático (SSW)' if str(p or '').startswith('Automático') else (p or 'alguém') for _, p in mud})
+        return jsonify({'ok': True, 'agora': agora, 'linhas': [x for x in linhas if x['chave'] in chaves], 'quem': quem})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
 

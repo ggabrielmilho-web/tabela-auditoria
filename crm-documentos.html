@@ -137,6 +137,8 @@
   .modal h3 { font-size: 1rem; margin-bottom: 6px; }
   .modal textarea { width: 100%; height: 160px; margin: 10px 0; padding: 9px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; }
   .modal .acoes { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+  .modal ul.conflitos { margin: 8px 0 14px 18px; font-size: 0.8rem; max-height: 260px; overflow: auto; }
+  .modal ul.conflitos li { margin: 3px 0; }
   #resLista { font-size: 0.78rem; line-height: 1.55; color: var(--text-dim); }
   #resLista b { color: var(--text); }
 
@@ -363,6 +365,7 @@
         var mudouCarteira = S.carteira !== j.carteira;
         S.carteira = j.carteira; S.carteiras = j.carteiras; S.resumo = j.resumo; S.hoje = j.hoje;
         S.desde30 = somaDias(j.hoje, -30); S.desde7 = somaDias(j.hoje, -7); S.desdeDescargas = j.desde_descargas;
+        S.desdeMudancas = j.desde_mudancas;
         S.cfg = j.carteiras.find(function (c) { return c.id === j.carteira; });
         setLinhas(j.linhas);
         S.abertasOk = !!j.lido_abertas; S.lidoAbertas = j.lido_abertas; S.abertasCorte = j.abertas_corte; S.inicio441 = j.inicio_441;
@@ -687,32 +690,86 @@
     if (String(valor).trim() === String(antes).trim()) { rf.refresh(); return; }
     marcar([e.k], e.campo, valor).then(function (ok) { if (!ok) rf.refresh(); });
   }
-  function enviar(chaves, campo, valor) {
+  // opc: esperado = {chave: o valor que a tela mostrava} (conferência de conflito), forcar = grava
+  // mesmo assim, checar = só confere. Conflito volta para quem chamou perguntar.
+  function enviar(chaves, campo, valor, opc) {
+    opc = opc || {};
     return fetch('/api/crm-documentos/marcar', {
       method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ carteira: S.carteira, chaves: chaves, campo: campo, valor: valor })
+      body: JSON.stringify({ carteira: S.carteira, chaves: chaves, campo: campo, valor: valor,
+                             esperado: opc.esperado || null, alvo: opc.alvo || null, forcar: !!opc.forcar, checar: !!opc.checar })
     }).then(function (r) { return r.json(); }).then(function (j) {
+      if (j.conflito && (j.conflito.length || opc.checar)) return j;
       if (!j.ok) throw new Error(j.error || 'Não salvou.');
       trocarLinhas(j.linhas);
       return j;
     });
   }
-  function marcar(chaves, campo, valor) {
-    return enviar(chaves, campo, valor).then(function (j) {
+  function valorNaTela(k, campo) {
+    var l = S.porChave[k] || { campos: {} };
+    return (campo === 'etapa' ? l.etapa : campo === 'nfs' ? l.nfs : l.campos[campo]) || '';
+  }
+  function marcar(chaves, campo, valor, forcar) {
+    var esperado = {};
+    chaves.forEach(function (k) { esperado[k] = valorNaTela(k, campo); });
+    return enviar(chaves, campo, valor, { esperado: esperado, forcar: forcar }).then(function (j) {
+      if (j.conflito && j.conflito.length) return resolverConflito(j, chaves, campo, valor);
       if (j.mudou && j.antes) {
         // entra na pilha do Desfazer (Ctrl+Z, como no Excel): por carteira, até 50 passos. O valor
         // anterior vem do servidor — o da memória da tela pode estar velho se a gravação anterior
-        // ainda não tinha voltado.
-        var antes = {};
-        Object.keys(j.antes).forEach(function (k) { antes[k] = j.antes[k] == null ? '' : j.antes[k]; });
+        // ainda não tinha voltado; `depois` é o que ficou, para o Desfazer conferir conflito.
+        var antes = {}, depois = {};
+        Object.keys(j.antes).forEach(function (k) {
+          antes[k] = j.antes[k] == null ? '' : j.antes[k];
+          depois[k] = valorNaTela(k, campo);
+        });
         var p = S.desfazer[S.carteira] = S.desfazer[S.carteira] || [];
-        p.push({ campo: campo, antes: antes, n: j.mudou });
+        p.push({ campo: campo, antes: antes, depois: depois, n: j.mudou });
         if (p.length > 50) p.shift();
       }
       tudo();
-      toast(j.mudou ? (j.mudou === 1 ? 'Salvo.' : j.mudou + ' linhas atualizadas.') : 'Nada mudou.');
+      // as que já estavam com o valor (alguém pôs antes) não mudam e não são conflito — só se conta
+      var ja = chaves.length - (j.mudou || 0);
+      toast(j.mudou ? (j.mudou === 1 ? 'Salvo.' : j.mudou + ' linhas atualizadas.') + (ja > 0 ? ' ' + ja + (ja === 1 ? ' já estava assim.' : ' já estavam assim.') : '')
+                    : (chaves.length > 1 ? 'Nada mudou — as ' + chaves.length + ' já estavam assim.' : 'Nada mudou — já estava assim.'));
       return true;
     }).catch(function (e) { toast(e.message || 'Não salvou.', true); return false; });
+  }
+  function rotValor(campo, v) { return !v ? '(vazio)' : campo === 'etapa' ? rotEtapa(v) : txtCampo(v); }
+  // Outra pessoa (ou o FATURADO automático) mudou a linha depois que a tela abriu: pergunta antes de
+  // gravar por cima. -> Promise de 'forcar' | 'parcial' | 'cancelar'.
+  function perguntarConflito(j, total, verbo) {
+    return new Promise(function (resolve) {
+      var c = j.conflito, n = c.length, resto = total - n;
+      var caixa = document.createElement('div');
+      caixa.className = 'modal';
+      caixa.innerHTML = '<div class="caixa"><h3>' + (total === 1 ? 'Alguém mudou esta linha antes de você'
+          : n + ' de ' + total + ' linhas foram mudadas por outra pessoa') + '</h3>'
+        + '<div class="nota">Depois que você abriu a tela:</div><ul class="conflitos">'
+        + c.slice(0, 10).map(function (x) {
+            return '<li><b>' + esc(x.ctrc || x.chave) + '</b> — ' + esc(x.por || 'alguém') + (x.em ? ', ' + esc(x.em) : '')
+              + ': ' + esc(nomeCampo(x.campo)) + ' = <b>' + esc(rotValor(x.campo, x.atual)) + '</b></li>'; }).join('')
+        + (n > 10 ? '<li>… e mais ' + (n - 10) + '</li>' : '') + '</ul><div class="acoes">'
+        + '<button class="btn-sm" data-r="cancelar">Cancelar e ver o que mudou</button>'
+        + (resto > 0 ? '<button class="btn-sm" data-r="parcial">' + verbo + (resto === 1 ? ' só na linha sem conflito' : ' só nas ' + resto + ' sem conflito') + '</button>' : '')
+        + '<button class="btn-sm primary" data-r="forcar">' + verbo + ' mesmo assim</button></div></div>';
+      document.body.appendChild(caixa);
+      caixa.addEventListener('click', function (ev) {
+        var b = ev.target.closest('[data-r]'); if (!b) return;
+        caixa.remove(); resolve(b.getAttribute('data-r'));
+      });
+    });
+  }
+  function resolverConflito(j, chaves, campo, valor) {
+    return perguntarConflito(j, chaves.length, 'Gravar').then(function (r) {
+      if (r === 'forcar') return marcar(chaves, campo, valor, true);
+      var conf = {};
+      j.conflito.forEach(function (x) { conf[x.chave] = 1; });
+      trocarLinhas(j.linhas || []); tudo();                // a tela passa a mostrar o que a colega fez
+      if (r === 'parcial') return marcar(chaves.filter(function (k) { return !conf[k]; }), campo, valor);
+      toast('Nada gravado — a tela agora mostra a mudança de quem chegou antes.');
+      return false;
+    });
   }
   function nomeCampo(campo) { return campo === 'etapa' ? 'Etapa' : ((campoDef(campo) || {}).rotulo || campo); }
   function renderDesfazer() {
@@ -727,14 +784,27 @@
     var p = S.desfazer[S.carteira] || [];
     if (!p.length || S.desfazendo) return;
     if (ED) fecharEditor(true);
-    var u = p[p.length - 1], grupos = {};
-    Object.keys(u.antes).forEach(function (k) { (grupos[u.antes[k]] = grupos[u.antes[k]] || []).push(k); });
+    var u = p[p.length - 1], chaves = Object.keys(u.antes);
     S.desfazendo = true; renderDesfazer();
-    var cadeia = Promise.resolve();
-    Object.keys(grupos).forEach(function (v) { cadeia = cadeia.then(function () { return enviar(grupos[v], u.campo, v); }); });
-    cadeia.then(function () {
-      p.pop();
-      toast('Desfeito: ' + nomeCampo(u.campo) + ' em ' + u.n + (u.n === 1 ? ' linha.' : ' linhas.'));
+    // alguém mexeu nessas linhas depois desta mudança? pergunta antes de desfazer por cima
+    enviar(chaves, u.campo, '', { esperado: u.depois || null, alvo: u.antes, checar: true }).then(function (j) {
+      if (!j.conflito || !j.conflito.length) return { pular: {} };
+      return perguntarConflito(j, chaves.length, 'Desfazer').then(function (r) {
+        if (r === 'cancelar') { trocarLinhas(j.linhas || []); return null; }
+        var pular = {};
+        if (r === 'parcial') j.conflito.forEach(function (x) { pular[x.chave] = 1; });
+        return { pular: pular };
+      });
+    }).then(function (plano) {
+      if (!plano) { toast('Nada desfeito.'); return; }
+      var grupos = {};
+      chaves.forEach(function (k) { if (!plano.pular[k]) (grupos[u.antes[k]] = grupos[u.antes[k]] || []).push(k); });
+      var cadeia = Promise.resolve();
+      Object.keys(grupos).forEach(function (v) { cadeia = cadeia.then(function () { return enviar(grupos[v], u.campo, v, { forcar: true }); }); });
+      return cadeia.then(function () {
+        p.pop();
+        toast('Desfeito: ' + nomeCampo(u.campo) + ' em ' + u.n + (u.n === 1 ? ' linha.' : ' linhas.'));
+      });
     }).catch(function (e) { toast('Não desfez: ' + e.message, true); })
       .then(function () { S.desfazendo = false; tudo(); });
   }
@@ -1021,6 +1091,30 @@
   $('btnExcel').addEventListener('click', function () {
     if (S.carteira) location = '/api/crm-documentos/xlsx?carteira=' + encodeURIComponent(S.carteira);
   });
+
+  // Atualização automática (três pessoas no mesmo painel): a cada minuto, com a aba visível, pergunta o
+  // que OUTRAS pessoas mudaram nesta carteira e troca só essas linhas — não relê o SSW. Não mexe com
+  // edição aberta, aviso aberto ou desfazer em andamento (tenta de novo no minuto seguinte).
+  var MUDANCAS_MS = 60000;
+  function buscarMudancas() {
+    if (!S.carteira || !S.desdeMudancas || document.hidden || ED || S.desfazendo
+        || document.querySelector('.modal:not([hidden])')) return;
+    var carteira = S.carteira;
+    fetch('/api/crm-documentos/mudancas?carteira=' + encodeURIComponent(carteira) + '&desde=' + encodeURIComponent(S.desdeMudancas),
+          { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (!j.ok || carteira !== S.carteira || ED || S.desfazendo) return;      // fica para o próximo minuto
+        S.desdeMudancas = j.agora;
+        if (!j.linhas || !j.linhas.length) return;
+        trocarLinhas(j.linhas); tudo();
+        toast((j.quem && j.quem.length ? j.quem.join(', ') : 'Alguém') + ' atualizou ' + j.linhas.length
+              + (j.linhas.length === 1 ? ' linha' : ' linhas') + ' — a tela já mostra.');
+      })
+      .catch(function () {});
+  }
+  setInterval(buscarMudancas, MUDANCAS_MS);
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) buscarMudancas(); });
 
   // ?busca= vem do link da aba de descargas para o documento de reembolso na aba do cliente
   var qs = new URLSearchParams(location.search), inicial = qs.get('carteira'), buscaInicial = qs.get('busca');
