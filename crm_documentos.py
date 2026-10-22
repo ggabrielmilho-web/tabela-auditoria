@@ -74,7 +74,7 @@ TIPOS_FRETE = ['PRODUTO', 'PALLETS', 'DESCARGA', 'CARGA DESCARGA/PALLET', 'INDEN
                'DESLOCAMENTO VAZIO PARA REMONTAR PALLET', 'DIARIA', 'REENTREGA', 'ARMAZENAGEM',
                'REPALETIZAÇÃO', 'BEBIDAS', 'SUBSTITUTO']
 
-CANAIS = ['MIDAS', 'B2B', 'GLL', 'PIPEFY', 'PORTAL OLIMPO', 'GALILEU']
+CANAIS = ['MIDAS', 'B2B', 'GLL', 'PIPEFY', 'PORTAL OLIMPO', 'GALILEU', 'E-MAIL']
 
 _ANOTACAO = {'id': 'anotacao', 'rotulo': 'Anotação', 'tipo': 'texto', 'col': None}
 
@@ -444,8 +444,10 @@ def normalizar_entrada(carteira, campo, valor, hoje=None):
     if c['tipo'] == 'data_texto':
         return ler_data_texto(v, hoje)
     if c['tipo'] == 'lista':
-        u = _sem_acento(re.sub(r'\s+', ' ', v)).upper()
-        return next((o for o in c.get('opcoes', []) if _sem_acento(o) == u), v)
+        # casa com a opção ignorando acento, caixa, espaço e pontuação: "email" e "e mail" viram E-MAIL,
+        # "carga descarga pallet" vira CARGA DESCARGA/PALLET; o que não casa fica como foi escrito
+        chave = lambda s: re.sub(r'[^A-Z0-9]', '', _sem_acento(s).upper())
+        return next((o for o in c.get('opcoes', []) if chave(o) == chave(v)), v)
     return v
 
 
