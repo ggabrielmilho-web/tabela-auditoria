@@ -1049,9 +1049,11 @@ def _crm_marcacoes(carteira):
 
 def _crm_montar(carteira, dados, marc):
     import crm_documentos as crm
+    # CT-e da planilha anterior a 02/01/2025: o 455 do dataset principal começa ali; o do DRE vai até 2021
+    crm.completar_historico(dados, marc, _crm_dax_dre)
     return crm.montar_linhas(carteira, dados['ce'], dados['pag'], marc,
                              abertas=dados.get('abertas'), abertas_corte=dados.get('abertas_corte'),
-                             inicio_441=dados.get('inicio_441'))
+                             inicio_441=dados.get('inicio_441'), ce_historico=dados.get('ce_historico'))
 
 
 # Trava do FATURADO automático no Postgres (pg_try_advisory_xact_lock): um processo grava por vez.

@@ -463,6 +463,13 @@ def chave_manual(carteira, base):
 # ── Fontes (SSW pelo Power BI) ───────────────────────────────────────────────
 
 _T455 = "'public conhecimentos_emitidos'"
+_COLS_455 = (f'"ctrc", {_T455}[serie_numero_ctrc], "cte", {_T455}[serie_numero_cte], "emissao", {_T455}[data_emissao], '
+             f'"pag", {_T455}[cnpj_pagador], "pagador", {_T455}[cliente_pagador], "doc", {_T455}[tipo_documento], '
+             f'"frete", {_T455}[valor_frete], "nf", {_T455}[numero_nota_fiscal], "uf_o", {_T455}[uf_origem_prestacao], '
+             f'"rem", {_T455}[cliente_remetente], "dest", {_T455}[cliente_destinatario], '
+             f'"cid_d", {_T455}[cidade_destinatario], "uf_d", {_T455}[uf_destinatario], '
+             f'"baixa", {_T455}[tipo_baixa], "liq", {_T455}[data_liquidacao], "imp", {_T455}[data_importacao], '
+             f'"obs", LEFT({_T455}[observacao], 300)')
 
 
 def dax_455(raizes, ini, fim):
@@ -470,14 +477,12 @@ def dax_455(raizes, ini, fim):
     T = _T455
     return (f'EVALUATE SELECTCOLUMNS(FILTER({T}, LEFT({T}[cnpj_pagador], 8) IN {lista} && '
             f'{T}[data_emissao] >= DATE({ini.year},{ini.month},{ini.day}) && '
-            f'{T}[data_emissao] < DATE({fim.year},{fim.month},{fim.day})), '
-            f'"ctrc", {T}[serie_numero_ctrc], "cte", {T}[serie_numero_cte], "emissao", {T}[data_emissao], '
-            f'"pag", {T}[cnpj_pagador], "pagador", {T}[cliente_pagador], "doc", {T}[tipo_documento], '
-            f'"frete", {T}[valor_frete], "nf", {T}[numero_nota_fiscal], "uf_o", {T}[uf_origem_prestacao], '
-            f'"rem", {T}[cliente_remetente], "dest", {T}[cliente_destinatario], '
-            f'"cid_d", {T}[cidade_destinatario], "uf_d", {T}[uf_destinatario], '
-            f'"baixa", {T}[tipo_baixa], "liq", {T}[data_liquidacao], "imp", {T}[data_importacao], '
-            f'"obs", LEFT({T}[observacao], 300))')
+            f'{T}[data_emissao] < DATE({fim.year},{fim.month},{fim.day})), {_COLS_455})')
+
+
+def dax_455_ctrcs(ctrcs):
+    lista = '{' + ','.join(f'"{k}"' for k in ctrcs) + '}'
+    return f'EVALUATE SELECTCOLUMNS(FILTER({_T455}, {_T455}[serie_numero_ctrc] IN {lista}), {_COLS_455})'
 
 
 DAX_441_CTRC = ("EVALUATE SELECTCOLUMNS('public faturas_441_ctrcs', \"fatura\", [fatura], "
@@ -570,7 +575,7 @@ def buscar_ssw(dax_op, dax_cont, hoje=None):
     resposta."""
     hoje = hoje or hoje_brt()
     raizes = sorted({r for c in CARTEIRAS.values() for r in c['raizes']})
-    ini = min(date.fromisoformat(c['desde']) for c in CARTEIRAS.values())
+    ini = date.fromisoformat(inicio_455())
     ce = []
     a = ini
     while a <= hoje:
@@ -595,6 +600,44 @@ def buscar_ssw(dax_op, dax_cont, hoje=None):
             'abertas': abertas, 'lido_abertas': lido_ab if abertas is not None else None, 'abertas_corte': corte,
             'abertas_aviso': None if abertas is not None else lido_ab,
             'lido_em': datetime.now(BRT).strftime('%d/%m/%Y %H:%M')}
+
+
+def inicio_455():
+    """Primeiro dia que a tela lê do 455: o início da carteira mais antiga (02/01/2025, que é também
+    onde o 455 do dataset principal começa)."""
+    return min(c['desde'] for c in CARTEIRAS.values())
+
+
+def ctrcs_do_historico(marc, ce_chaves):
+    """CTRCs marcados (vindos da planilha) com emissão antes de `inicio_455` e fora do 455 lido — os
+    CT-e de 2023–2024 que ficaram na aba da Nestlé. O 455 do dataset principal não os tem; o do DRE
+    vai até 2021 (conferido 22/10/2026: os 3 que existem estão lá)."""
+    ini = inicio_455()
+    out = []
+    for k, m in marc.items():
+        em = ((m or {}).get('planilha') or {}).get('emissao')
+        if chave_ctrc(k) == k and k not in ce_chaves and em and em < ini:
+            out.append(k)
+    return sorted(out)
+
+
+def completar_historico(dados, marc, dax_hist):
+    """Busca no 455 histórico (`dax_hist`: o dataset do DRE) os `ctrcs_do_historico` que esta leitura
+    do cache ainda não buscou, e guarda em dados['ce_historico'] = {ctrc: linha do 455 ou None}. Some
+    junto com o cache (10 min). Erro no BI deixa as linhas como estavam — manuais — até a próxima."""
+    if 'ce_chaves' not in dados:
+        dados['ce_chaves'] = {chave_ctrc(r.get('ctrc')) for r in dados['ce']}
+    hist = dados.setdefault('ce_historico', {})
+    faltam = [k for k in ctrcs_do_historico(marc, dados['ce_chaves']) if k not in hist]
+    for i in range(0, len(faltam), 300):
+        lote = faltam[i:i + 300]
+        try:
+            achou = {chave_ctrc(r.get('ctrc')): r for r in dax_hist(dax_455_ctrcs(lote))}
+        except Exception:
+            achou = {}
+        for k in lote:
+            hist[k] = achou.get(k)
+    return hist
 
 
 _CACHE = {'v': None, 'ts': 0.0}
@@ -852,21 +895,36 @@ def divergencias(etapa, sit):
 
 
 def montar_linhas(carteira, ce_rows, pagamentos, marc, hoje=None, abertas=None, abertas_corte=None,
-                  inicio_441=None):
+                  inicio_441=None, ce_historico=None):
     """CT-e do SSW da carteira (desde o início dela) + as marcações → linhas da tela.
     `abertas` = {ctrc: [faturas em aberto]} do 441 --abertas, ou None se não estiver no BI;
     `abertas_corte` = emissão do CTRC mais antigo que o 441 lista (antes dele a carteira não prova
-    falta de fatura)."""
+    falta de fatura); `ce_historico` = {ctrc: linha} do 455 do DRE (`completar_historico`)."""
     hoje = hoje or hoje_brt()
     abertas_ok = abertas is not None
     cfg = CARTEIRAS[carteira]
     desde = cfg['desde']
-    por_chave = {}
+    por_chave, antes = {}, {}
     for r in ce_rows:
         k = chave_ctrc(r.get('ctrc'))
-        if not k or str(r.get('pag') or '')[:8] not in cfg['raizes'] or (_iso(r.get('emissao')) or '') < desde:
+        if not k or str(r.get('pag') or '')[:8] not in cfg['raizes']:
             continue
-        por_chave[k] = r
+        (antes if (_iso(r.get('emissao')) or '') < desde else por_chave)[k] = r
+    # Linha marcada com emissão antes do início da carteira: o CT-e vem do 455 mesmo assim — do lido
+    # (antes do `desde`) ou do histórico do DRE. O início vale só para o CT-e que ninguém marcou.
+    do_historico = set()
+    for k in marc:
+        if k in por_chave:
+            continue
+        r = antes.get(k)
+        if r is None and (ce_historico or {}).get(k):
+            r = ce_historico[k]
+            if str(r.get('pag') or '')[:8] in cfg['raizes']:
+                do_historico.add(k)
+            else:
+                r = None
+        if r is not None:
+            por_chave[k] = r
     linhas = []
     for k in sorted(set(por_chave) | set(marc)):
         ce, m = por_chave.get(k), marc.get(k)
@@ -913,7 +971,8 @@ def montar_linhas(carteira, ce_rows, pagamentos, marc, hoje=None, abertas=None, 
             nfs = campos_m.get('nfs') or ((p.get('original') or {}).get(cfg['col_cte']))
             nfs = str(nfs).strip() if nfs not in (None, '') else None
         linha = dict(base, chave=k, etapa=etapa, campos=campos_m, nfs=nfs, nfs_editavel=nfs_editavel,
-                     manual=ce is None, nota_linha=p.get('nota_linha'),
+                     manual=ce is None, nota_linha=p.get('nota_linha') if ce is None else None,
+                     do_historico=k in do_historico,
                      atualizado=(m or {}).get('atualizado'), por=(m or {}).get('por'),
                      editado=bool((m or {}).get('editado')), idade=idade, vencimento=venc,
                      aberto=aberto, novo=etapa is None and s['ssw'] != 'pago',
