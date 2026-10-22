@@ -49,9 +49,11 @@ def hoje_brt():
 # ── Carteiras ────────────────────────────────────────────────────────────────
 # Uma por aba da planilha; `desde` é o primeiro CT-e de cada aba (decisão de 20/10/2026: cada
 # cliente começa onde a planilha dela começa; a aba Anterior, Nestlé 2023–24, não entra).
-# A Garoto (08334818) fica DENTRO da Nestlé, como na planilha delas
-# (decisão de 20/10/2026) — sem mexer no GRUPOS_ECONOMICOS do server, que vale para o
-# Faturamento por Tomador e a Análise por Veículo.
+# A Garoto fica DENTRO da Nestlé, como na planilha delas (decisão de 20/10/2026) — sem mexer no
+# GRUPOS_ECONOMICOS do server, que vale para o Faturamento por Tomador e a Análise por Veículo.
+# Raízes: 60409075 Nestlé Brasil, 08334818 Nestlé Nordeste, 28053619 Chocolates Garoto. Até 22/10/2026
+# a 08334818 estava aqui como "Garoto" e a Garoto de verdade ficava fora: os 40 CT-e dela não vinham
+# do SSW e os da planilha apareciam como "sem CT-e no SSW" (UDI417858-1).
 #
 # Etapas: os códigos, a ordem e as cores são os da legenda e das listas de validação de cada
 # aba da planilha. Cores: as da formatação condicional dela (RZA vermelho, NBS laranja, PQD
@@ -80,7 +82,7 @@ _ANOTACAO = {'id': 'anotacao', 'rotulo': 'Anotação', 'tipo': 'texto', 'col': N
 
 CARTEIRAS = {
     'nestle': {
-        'nome': 'Nestlé', 'raizes': ('60409075', '08334818'), 'desde': '2025-01-02',
+        'nome': 'Nestlé', 'raizes': ('60409075', '08334818', '28053619'), 'desde': '2025-01-02',
         'aba': 'NESTLE 2025', 'col_etapa': 'STATUS', 'col_cte': 'CT-e/ NFS',
         'etapas': [
             _E('AG. COMPROVANTE', 'Aguardando retorno do comprovante de entrega', 'ciano', 'Aguardando comprovante'),
