@@ -270,6 +270,7 @@ def loop():
     janela = int(os.getenv('EMBARQUES_FITA_JANELA_DIAS', '7'))
     retencao = int(os.getenv('EMBARQUES_FITA_RETENCAO_DIAS', '21'))
     while True:
+        conn = None
         try:
             conn = get_db()
             tok = get_token()
@@ -284,6 +285,14 @@ def loop():
                       + (f" · {r['purgadas']} linhas purgadas" if r['purgadas'] else ''))
         except Exception as exc:
             print(f'⚠️  Fita: falha na rodada: {exc}')
+        finally:
+            # Fecha a cada volta (22/10/26): sem refresh novo ninguém dava commit nem close, e a conexão ficava
+            # "idle in transaction" os 10 min até a volta seguinte (vista em produção no dia do "too many clients").
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
         _t.sleep(intervalo)
 
 

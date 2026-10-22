@@ -38,6 +38,8 @@ import insignia as I
 
 BRT = timedelta(hours=3)
 
+_DDL_FEITO = False      # o DDL já rodou neste processo (ver `rodada`)
+
 DDL = """
 CREATE TABLE IF NOT EXISTS insignia_sm (
     sm                  BIGINT PRIMARY KEY,
@@ -579,8 +581,22 @@ def rodada(conn, agora=None, paradas_min=None, backfill_dias=None):
     r = {'sms': 0, 'novas': 0, 'encerradas': 0, 'status': 0, 'posicoes': 0, 'rastreadas': 0,
          'paradas': 0, 'rotas': 0, 'locais': None, 'erros': []}
     cur = conn.cursor()
-    cur.execute(DDL)
-    conn.commit()
+    # O DDL roda UMA vez por processo (22/10/26). Ele tem `ALTER TABLE insignia_placas ADD COLUMN IF NOT EXISTS`, e ALTER
+    # pede trava EXCLUSIVA mesmo com a coluna já existindo: a cada 60 s ele entrava na fila atrás de qualquer leitura
+    # longa das tabelas da Insignia, e TODA leitura nova (trajeto, posição atual, mapa) parava atrás dele. Com os
+    # reinícios de 22/10 a fila cresceu até "too many clients" no Postgres e o app inteiro caiu.
+    # E com `lock_timeout`: sem a trava em 3 s, desiste (a rodada segue — as tabelas existem) e tenta na seguinte, em vez
+    # de deixar todo mundo parado atrás dele.
+    global _DDL_FEITO
+    if not _DDL_FEITO:
+        try:
+            cur.execute("SET LOCAL lock_timeout = '3s'")
+            cur.execute(DDL)
+            conn.commit()
+            _DDL_FEITO = True
+        except Exception as exc:
+            conn.rollback()
+            r['erros'].append(f'ddl adiado: {exc}')
 
     # 1. SMs abertas
     placas_abertas = []

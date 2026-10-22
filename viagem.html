@@ -803,13 +803,19 @@ async function carregarMapa() {
     (t.destinos || []).forEach(d => { if (d.lat != null) limites.extend([d.lat, d.lng]); });
   });
   if (limites.isValid()) MAPA.fitBounds(limites, { padding: [26, 26] });
-  await Promise.all(legs.map(async (t, i) => {
+  // No máximo 3 trajetos por vez (22/10/26). Todos juntos, uma viagem longa abria dezenas de consultas pesadas de posição
+  // ao mesmo tempo, cada uma segurando uma conexão — somado a um reinício do app, esgotou o Postgres ("too many clients").
+  const umaPerna = async (t, i) => {
     try { TRAJ[t.id] = await api(`/api/rastreamento/cargas/${t.id}/trajeto`); }
     catch (e) { TRAJ[t.id] = null; }
     desenharPerna(t, TRAJ[t.id], limites);
     const k = kmRastreado(t), alvo = $('kmr-' + i);
     if (alvo) alvo.innerHTML = !k ? '' : (k.ok ? `rastreado <span class="ok">${n0(k.km)} km</span>`
       : (k.parcial != null ? `rodou até agora <span>${n0(k.parcial)} km</span>` : 'rastreado: <span title="' + esc(k.motivo) + '">vale a rota</span>'));
+  };
+  let proxPerna = 0;
+  await Promise.all(Array.from({ length: Math.min(3, legs.length) }, async () => {
+    while (proxPerna < legs.length) { const i = proxPerna++; await umaPerna(legs[i], i); }
   }));
   if (limites.isValid()) MAPA.fitBounds(limites, { padding: [26, 26] });
   if (PERNA_ABERTA != null) { const i = PERNA_ABERTA; PERNA_ABERTA = null; abrirPerna(i); }

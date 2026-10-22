@@ -10048,7 +10048,21 @@ def api_rastreamento_trajeto(carga_id):
                 # a do cavalo posterior ao instante em que a carreta calou, e só com a cauda ABERTA (o cavalo não desviou
                 # nem saiu do destino: depois disso ele pode estar sem ela).
                 _ini_cauda = min((a for a, b, t in (_tapa or {}).get('buracos', []) if t == 'cauda'), default=None)
-                if _tapa_vale and _tapa.get('cauda_aberta') and _ini_cauda is not None:
+                _cauda_ok = bool(_tapa_vale and _tapa.get('cauda_aberta') and _ini_cauda is not None)
+                # CAUDA TAPADA PELA SM (22/10/26). O tapa pela SM da GR (`descongelar`, prova 'sm') troca a repetição da
+                # carreta pelos pontos do cavalo sem criar faixa `cauda`: a linha terminava no cavalo e a posição de agora
+                # ficava na carreta congelada — C-2026-001775: QXE8460 com 90 pontos numa posição só em Colatina, o cavalo
+                # em Luz/MG a 520 km, "faltam 1.066 km". Se o trajeto tapado TERMINA em pontos do cavalo, a cauda é dele
+                # desde o primeiro desses pontos. Quando a SM encerra ou a carreta volta de verdade, a linha termina nela
+                # e nada troca.
+                if (_tapa_vale and not _cauda_ok and traj_principal
+                        and traj_principal[-1].get('fonte') == 'cavalo'):
+                    _k = len(traj_principal) - 1
+                    while _k > 0 and traj_principal[_k - 1].get('fonte') == 'cavalo':
+                        _k -= 1
+                    _ini_cauda = _dt.fromisoformat(str(traj_principal[_k]['data']).replace('Z', ''))
+                    _cauda_ok = True
+                if _cauda_ok:
                     cur.execute(f"""
                         SELECT data_posicao, latitude, longitude, velocidade, ignicao, cidade, uf
                           FROM {fontes_gps.atuais(cur)} pa WHERE placa = ANY(%s)
