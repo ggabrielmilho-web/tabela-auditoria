@@ -341,7 +341,7 @@
       d.push('Idade');
       return d;
     }
-    var c = ['CTRC', 'Emissão', 'CT-e', 'NF', 'Frete', 'Idade', 'Etapa', 'SSW'];
+    var c = ['CTRC', 'Emissão', 'CT-e', 'NF', 'Frete'].concat(S.cfg.transporte ? ['Transporte'] : [], ['Idade', 'Etapa', 'SSW']);
     S.cfg.campos.forEach(function (f) { c.push(f.rotulo); });
     if (S.cfg.prazo_dias) c.push('Vencimento');
     c.push('Obs. do CT-e');
@@ -358,7 +358,7 @@
     }
     var r = { _k: l.chave, 'CTRC': l.ctrc || '', 'Emissão': l.emissao || '', 'CT-e': l.cte ? String(l.cte) : (l.nfs || ''),
               'NF': l.nf ? String(l.nf) : '', 'Frete': l.frete || 0, 'Idade': l.idade, 'Etapa': rotEtapa(l.etapa),
-              'SSW': sswRot(l), 'Obs. do CT-e': l.obs || '' };
+              'SSW': sswRot(l), 'Obs. do CT-e': l.obs || '', 'Transporte': l.transporte || '' };
     S.cfg.campos.forEach(function (f) { r[f.rotulo] = valorDaColuna(l, f); });
     if (S.cfg.prazo_dias) r['Vencimento'] = l.vencimento || '';
     return r;
@@ -615,6 +615,7 @@
       }
       if (c === 'CT-e' || c === 'NF') return '<td class="mono dim">' + esc(r[c]) + '</td>';
       if (c === 'Frete') return '<td class="num">' + moeda(l.frete) + '</td>';
+      if (c === 'Transporte') return '<td class="mono dim">' + esc(l.transporte || '') + '</td>';
       if (c === 'Idade') return '<td class="num' + (l.aberto && l.idade > 90 ? ' velho' : '') + '">' + (l.idade == null ? '' : l.idade) + '</td>';
       if (c === 'Etapa') {
         var e = etapaDef(l.etapa);

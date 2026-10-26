@@ -100,6 +100,7 @@ CAMPO_CUSTOS = {'id': 'custos', 'rotulo': 'Custo extra', 'tipo': 'custos', 'col'
 CARTEIRAS = {
     'nestle': {
         'nome': 'Nestlé', 'raizes': ('60409075', '08334818', '28053619'), 'desde': '2025-01-02',
+        'col_transporte': True,             # a carga B10 da observação, coluna depois do Frete (pedido de 26/10/2026)
         'aba': 'NESTLE 2025', 'col_etapa': 'STATUS', 'col_cte': 'CT-e/ NFS',
         'etapas': [
             _E('AG. COMPROVANTE', 'Aguardando retorno do comprovante de entrega', 'ciano', 'Aguardando comprovante'),
@@ -272,6 +273,7 @@ def config_publica():
     """O que a tela precisa saber das abas (sem as raízes de CNPJ): as 4 carteiras e a de descargas."""
     return [{'id': cid, 'nome': CARTEIRAS[cid]['nome'], 'etapas': CARTEIRAS[cid]['etapas'],
              'campos': CARTEIRAS[cid]['campos'], 'prazo_dias': CARTEIRAS[cid].get('prazo_dias'),
+             'transporte': bool(CARTEIRAS[cid].get('col_transporte')),
              'fora_do_aberto': sorted(ETAPAS_FORA_DO_ABERTO)}
             for cid in ORDEM] + [DESCARGAS]
 
@@ -963,6 +965,19 @@ _RE_TRANSP = re.compile(r'TRANSP\s*-?\s*(\d{6,})', re.I)
 _RE_PO = re.compile(r'\bPO\s*-?\s*(\d{6,})', re.I)
 
 
+# A carga da Nestlé (transporte, shipment): B10 + 7 dígitos na observação do CT-e ("B101234567 - PEDIDO…").
+# Em 2025–26, 91% das linhas da Nestlé (98% das cargas fechadas; devolução e subcontrato não têm). Aceita
+# o B10 digitado com um dígito a menos ou a mais e o número que a vírgula do BI partiu ao meio.
+_RE_TRANSPORTE = re.compile(r'\bB\s?(10\d{6,8})\b', re.I)
+
+
+def transporte_da_obs(obs):
+    """Observação do CT-e → 'B101234567' (ou 'B10…, B10…' com mais de uma carga), ou None."""
+    s = str(obs or '').upper()
+    achou = _RE_TRANSPORTE.findall(s) or _RE_TRANSPORTE.findall(s.replace(',', ''))
+    return ', '.join(dict.fromkeys('B' + n for n in achou)) or None
+
+
 def complementos_ssw(ce_rows):
     """{CTRC da carga: [complementos do SSW que o citam]} — a sugestão do Custo extra."""
     out = {}
@@ -1085,6 +1100,7 @@ def montar_linhas(carteira, ce_rows, pagamentos, marc, hoje=None, abertas=None, 
         linha = dict(base, chave=k, etapa=etapa, campos=campos_m, nfs=nfs, nfs_editavel=nfs_editavel,
                      manual=ce is None, nota_linha=p.get('nota_linha') if ce is None else None,
                      do_historico=k in do_historico, compl_ssw=compl.get(k) or [],
+                     transporte=transporte_da_obs(base['obs']) if cfg.get('col_transporte') else None,
                      atualizado=(m or {}).get('atualizado'), por=(m or {}).get('por'),
                      editado=bool((m or {}).get('editado')), idade=idade, vencimento=venc,
                      aberto=aberto, novo=etapa is None and s['ssw'] != 'pago',
@@ -1312,6 +1328,8 @@ def exportar_xlsx(carteira, linhas):
             ('CTRC', lambda l: l['ctrc']), (cfg['col_cte'], lambda l: l['cte'] or l.get('nfs')),
             ('CNPJ Pagador', lambda l: l['cnpj']), ('Cliente Pagador', lambda l: l['pagador']),
             ('UF O', lambda l: l['uf_o']), ('NF', lambda l: l['nf']), ('Frete', lambda l: l['frete'])]
+    if cfg.get('col_transporte'):
+        cols.append(('TRANSPORTE', lambda l: l.get('transporte')))
     for c in cfg['campos']:
         if c['id'] == 'tipo':
             cols.append(('TIPO FRETE', lambda l: l['campos'].get('tipo')))
