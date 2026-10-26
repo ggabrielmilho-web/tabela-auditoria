@@ -66,6 +66,22 @@
   .card .t { font-size: 0.72rem; font-weight: 700; color: var(--cor, var(--text)); letter-spacing: .02em; }
   .card .n { font-size: 1.15rem; font-weight: 700; font-family: 'JetBrains Mono', monospace; margin-top: 2px; }
   .card .r { font-size: 0.66rem; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cards-sep { grid-column: 1 / -1; font-size: 0.66rem; text-transform: uppercase; letter-spacing: .07em; color: var(--text-dim); font-weight: 700; margin-top: 4px; }
+
+  /* custo extra (lista por CT-e) e farol de validação */
+  td.custos { cursor: pointer; }
+  td.custos:hover { box-shadow: inset 0 -1px 0 rgba(56,189,248,.6); }
+  td.custos .pill { margin-right: 4px; }
+  td.farol { cursor: pointer; font-size: 0.78rem; }
+  td.farol .luz { display: inline-block; width: 11px; height: 11px; border-radius: 50%; vertical-align: -1px; margin-right: 6px; }
+  .modal .caixa.largo { width: min(980px, 100%); max-height: 84vh; overflow: auto; }
+  .custo { border: 1px solid var(--border); border-left: 3px solid var(--cor, var(--c-cinza)); border-radius: 9px; padding: 10px 12px; margin: 10px 0; }
+  .custo .cab { display: flex; justify-content: space-between; align-items: center; font-size: 0.78rem; font-weight: 700; margin-bottom: 8px; }
+  .custo .grade { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px 10px; }
+  .custo label { display: flex; flex-direction: column; gap: 3px; font-size: 0.66rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: .04em; }
+  .custo input, .custo select { padding: 6px 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 0.8rem; color-scheme: dark; text-transform: none; letter-spacing: 0; }
+  .sugestoes { margin-top: 12px; padding: 10px 12px; border-radius: 9px; background: rgba(56,189,248,.06); border: 1px dashed rgba(56,189,248,.35); font-size: 0.78rem; }
+  .sugestoes li { list-style: none; display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid rgba(30,41,59,.6); }
 
   /* barra de ferramentas */
   .barra { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
@@ -241,7 +257,10 @@
     : v >= 1e3 ? Math.round(v / 1e3).toLocaleString('pt-BR') + ' mil' : moeda(v); }
   function ehIso(s) { return /^\d{4}-\d{2}-\d{2}$/.test(String(s || '')); }
   function dm(iso) { return iso ? iso.slice(8, 10) + '/' + iso.slice(5, 7) + '/' + iso.slice(2, 4) : ''; }
-  function txtCampo(v) { return ehIso(v) ? dm(v) : (v == null ? '' : String(v)); }
+  function txtCampo(v) {
+    if (Array.isArray(v) || (typeof v === 'string' && v.charAt(0) === '[')) return resumoCustos(v);   // Custo extra (lista)
+    return ehIso(v) ? dm(v) : (v == null ? '' : String(v));
+  }
   function diasEntre(a, b) { return Math.round((new Date(b) - new Date(a)) / 864e5); }
   function somaDias(iso, n) { var d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); }
   function toast(msg, erro) {
@@ -256,11 +275,25 @@
   // A 5ª aba, Descargas (5100), não tem etapa: a situação vem pronta do servidor (crm_descargas.py).
   function ehDescargas() { return !!(S.cfg && S.cfg.modo === 'descargas'); }
   function sitDef(id) { return ((S.cfg && S.cfg.situacoes) || []).find(function (s) { return s.id === id; }); }
-  // "sem cobrança": aberta e ainda sem complemento no SSW (do aguardando comprovante ao ticket aprovado)
-  function semCobranca(sit) { var s = sitDef(sit); return !!(s && s.aberto && sit !== 'cobrado'); }
-  function reembTxt(x) {
-    return x.ctrc + ' · R$ ' + moeda(x.frete) + (x.situacao === 'pago' ? ' · pago' + (x.pago_em ? ' ' + dm(x.pago_em) : '')
-      : x.situacao === 'vencida' ? ' · vencida' : x.situacao === 'fatura' ? ' · em fatura' : ' · emitido');
+  // Custo extra da Nestlé: uma LISTA por CT-e (descarga, estadia, devolução, pallet, pedágio), cada item
+  // com as colunas da planilha dela. Tudo manual; o SSW só sugere o complemento (l.compl_ssw).
+  function campoCustos() { return ((S.cfg && S.cfg.campos) || []).find(function (c) { return c.tipo === 'custos'; }); }
+  function custosDe(l) { var v = l && l.campos && l.campos.custos; return Array.isArray(v) ? v : []; }
+  var COR_STATUS = { 'EM ANDAMENTO': 'amarelo', 'CONCLUÍDO': 'verde', 'NEGADO': 'vermelho' };
+  function corCusto(x) { return COR_STATUS[x.status] || 'cinza'; }
+  function rotTipo(t) { return t ? t.charAt(0) + t.slice(1).toLowerCase() : ''; }
+  function resumoCustos(v) {
+    if (typeof v === 'string') { try { v = JSON.parse(v); } catch (e) { return v; } }
+    return (v || []).map(function (x) {
+      return rotTipo(x.tipo) + (x.valor != null ? ' R$ ' + moeda(x.valor) : '') + (x.status ? ' (' + x.status.toLowerCase() + ')' : '');
+    }).join(' · ');
+  }
+  // filtro de cartão do custo extra: 'custo:TIPO', 'custost:STATUS' ou 'custo_sem_compl'
+  function custoCasa(x, card) {
+    if (card.indexOf('custo:') === 0) return x.tipo === card.slice(6);
+    if (card.indexOf('custost:') === 0) return x.status === card.slice(8);
+    if (card === 'custo_sem_compl') return x.status === 'CONCLUÍDO' && !x.cte_compl;
+    return false;
   }
   // A NFS (nota de serviço, UDS…) não é coluna: ela é digitada na coluna do CT-e, onde o SSW não deu o número.
   var CAMPO_NFS = { id: 'nfs', rotulo: 'NFS', tipo: 'texto' };
@@ -301,8 +334,10 @@
 
   function colunas() {
     if (ehDescargas()) {
-      var d = ['Lançamento', 'Emissão', 'Fornecedor', 'Valor', 'Histórico', 'NF', 'Transporte', 'CT-e', 'Destinatário', 'Situação', 'Complemento'];
-      S.cfg.campos.forEach(function (f) { d.push(f.rotulo); });
+      // o farol logo depois do lançamento: é o que ela mexe
+      var farol = S.cfg.campos.filter(function (f) { return f.tipo === 'farol'; }).map(function (f) { return f.rotulo; });
+      var d = ['Lançamento'].concat(farol, ['Emissão', 'Fornecedor', 'Valor', 'Histórico', 'NF', 'Transporte', 'CT-e', 'Tomador', 'Destinatário']);
+      S.cfg.campos.forEach(function (f) { if (f.tipo !== 'farol') d.push(f.rotulo); });
       d.push('Idade');
       return d;
     }
@@ -316,18 +351,24 @@
     if (ehDescargas()) {
       var x = { _k: l.chave, 'Lançamento': l.lancto, 'Emissão': l.emissao || '', 'Fornecedor': l.fornecedor || '',
                 'Valor': l.frete || 0, 'Histórico': l.obs || '', 'NF': l.nf || '', 'Transporte': l.transporte || '',
-                'CT-e': l.ctrc || '', 'Destinatário': (l.destinatario || '') + (l.destino ? ' — ' + l.destino : ''),
-                'Situação': (sitDef(l.situacao) || {}).rotulo || l.situacao,
-                'Complemento': l.reembolsos.map(function (y) { return y.ctrc; }).join(', '), 'Idade': l.idade };
-      S.cfg.campos.forEach(function (f) { x[f.rotulo] = l.campos[f.id] || ''; });
+                'CT-e': l.ctrc || '', 'Tomador': l.pagador || '', 'Destinatário': (l.destinatario || '') + (l.destino ? ' — ' + l.destino : ''),
+                'Idade': l.idade };
+      S.cfg.campos.forEach(function (f) { x[f.rotulo] = valorDaColuna(l, f); });
       return x;
     }
     var r = { _k: l.chave, 'CTRC': l.ctrc || '', 'Emissão': l.emissao || '', 'CT-e': l.cte ? String(l.cte) : (l.nfs || ''),
               'NF': l.nf ? String(l.nf) : '', 'Frete': l.frete || 0, 'Idade': l.idade, 'Etapa': rotEtapa(l.etapa),
               'SSW': sswRot(l), 'Obs. do CT-e': l.obs || '' };
-    S.cfg.campos.forEach(function (f) { r[f.rotulo] = l.campos[f.id] || ''; });
+    S.cfg.campos.forEach(function (f) { r[f.rotulo] = valorDaColuna(l, f); });
     if (S.cfg.prazo_dias) r['Vencimento'] = l.vencimento || '';
     return r;
+  }
+
+  // o texto da coluna (é o que o filtro estilo Excel e a ordenação usam)
+  function valorDaColuna(l, f) {
+    if (f.tipo === 'custos') return resumoCustos(custosDe(l));
+    if (f.tipo === 'farol') return l.campos[f.id] ? 'Validado' : 'A validar';
+    return l.campos[f.id] || '';
   }
 
   // Cartão de etapa: o que ainda pede ação nela — a receber, ou com divergência; pago e encerrado
@@ -342,6 +383,7 @@
     var c = S.card;
     if (c === 'abertos') { if (!l.aberto) return false; }
     else if (c && ehDescargas()) { if (l.situacao !== c) return false; }
+    else if (c && c.indexOf('custo') === 0) { if (!custosDe(l).some(function (x) { return custoCasa(x, c); })) return false; }
     else if (c === 'novos') { if (!l.novo) return false; }
     else if (c === 'diverg') { if (!l.diverg.length) return false; }
     else if (c === 'vencidas') { if (!(l.vencida && l.aberto)) return false; }
@@ -385,9 +427,12 @@
     S.linhas = ls; S.porChave = {};
     ls.forEach(function (l) {
       S.porChave[l.chave] = l;
-      var partes = [l.ctrc, l.cte, l.nfs, l.nf, l.obs, l.etapa, rotEtapa(l.etapa), l.pagador, l.nota_linha, l.fornecedor, l.lancto,
-                    (l.reembolsos || []).map(function (y) { return y.ctrc; }).join(' ')];
-      for (var k in l.campos) partes.push(l.campos[k]);
+      var partes = [l.ctrc, l.cte, l.nfs, l.nf, l.obs, l.etapa, rotEtapa(l.etapa), l.pagador, l.nota_linha, l.fornecedor, l.lancto];
+      for (var k in l.campos) {
+        var v = l.campos[k];
+        // custo extra: busca pelo ticket FSC, OC, pedido, CT-e complementar…
+        partes.push(Array.isArray(v) ? v.map(function (x) { return Object.keys(x).map(function (q) { return x[q]; }).join(' '); }).join(' ') : v);
+      }
       l._busca = partes.join(' ').toUpperCase();
     });
     indexar();
@@ -398,9 +443,9 @@
       if (i >= 0) S.linhas[i] = n; else S.linhas.push(n);
     });
     setLinhas(S.linhas);
-    var ab = S.linhas.filter(function (l) { return ehDescargas() ? semCobranca(l.situacao) : l.aberto; });
+    var ab = S.linhas.filter(function (l) { return l.aberto; });
     S.resumo[S.carteira] = { abertos: ab.length, valor: ab.reduce(function (s, l) { return s + (l.frete || 0); }, 0),
-                             rotulo: ehDescargas() ? 'sem cobrança' : null };
+                             rotulo: ehDescargas() ? 'a validar' : null };
   }
   function tudo() { renderAbas(); renderKpis(); renderCards(); renderChips(); rf.refresh(); renderLote(); renderDesfazer(); }
 
@@ -419,16 +464,13 @@
   function renderKpisDescargas() {
     function soma(a, campo) { return a.reduce(function (s, l) { return s + (l[campo || 'frete'] || 0); }, 0); }
     function de(sit) { return S.linhas.filter(function (l) { return l.situacao === sit; }); }
-    var sem = S.linhas.filter(function (l) { return semCobranca(l.situacao); });
-    var velhos = sem.filter(function (l) { return l.idade > 90; });
-    var tickets = S.linhas.filter(function (l) { return l.situacao === 'ticket_aberto' || l.situacao === 'ticket_aprovado'; });
-    var cobrado = de('cobrado'), pagos = de('reembolso_pago');
+    var ab = S.linhas.filter(function (l) { return l.aberto; }), ok = de('validado'), sem = de('sem_cte');
+    var velhos = ab.filter(function (l) { return l.idade > 30; });
     var k = [
       ['Descarga paga (Nestlé)', 'R$ ' + moedaK(soma(S.linhas)), S.linhas.length + ' lançamentos do 5100' + (S.desdeDescargas ? ' desde ' + dm(S.desdeDescargas) : '')],
-      ['Sem cobrança', 'R$ ' + moedaK(soma(sem)), sem.length + ' ainda sem complemento no SSW · ' + velhos.length + ' com mais de 90 dias'],
-      ['Tickets na Nestlé', 'R$ ' + moedaK(soma(tickets)), tickets.length + ' com ticket FSC aberto ou aprovado, sem complemento'],
-      ['Cobrado, aguardando', 'R$ ' + moedaK(soma(cobrado, 'valor_reembolso')), cobrado.length + ' descargas · valor dos documentos de reembolso'],
-      ['Reembolsado', 'R$ ' + moedaK(soma(pagos, 'valor_reembolso')), pagos.length + ' descargas com o reembolso pago']
+      ['A validar', 'R$ ' + moedaK(soma(ab)), ab.length + ' com o farol vermelho · ' + velhos.length + ' com mais de 30 dias'],
+      ['Validado', 'R$ ' + moedaK(soma(ok)), ok.length + ' com o farol verde'],
+      ['Sem CT-e identificado', String(sem.length), 'preencha "CT-e (à mão)" na tabela']
     ];
     $('kpis').innerHTML = k.map(function (x) {
       return '<div class="kpi"><div class="l">' + esc(x[0]) + '</div><div class="v">' + esc(x[1]) + '</div><div class="s">' + esc(x[2]) + '</div></div>';
@@ -462,12 +504,12 @@
   function renderCards() {
     // "Em aberto" primeiro: a tabela traz tudo, e este cartão é a visão do que ainda falta receber
     var aberto = { id: 'abertos', t: 'Em aberto', cor: 'azul', ls: S.linhas.filter(function (l) { return l.aberto; }),
-                   d: ehDescargas() ? 'tudo que ainda não tem o reembolso pago nem foi encerrado' : 'o que ainda falta receber (não pago e não substituído)' };
+                   d: 'o que ainda falta receber (não pago e não substituído)' };
     if (ehDescargas()) {
-      $('cards').innerHTML = [aberto].concat(S.cfg.situacoes.map(function (s) {
+      $('cards').innerHTML = S.cfg.situacoes.map(function (s) {
         return { id: s.id, t: s.rotulo, d: s.desc, cor: s.cor,
                  ls: S.linhas.filter(function (l) { return l.situacao === s.id; }) };
-      })).map(cardHTML).join('');
+      }).map(cardHTML).join('');
       return;
     }
     var ls = S.linhas, cards = [aberto];
@@ -484,7 +526,27 @@
     cards.push({ id: 'diverg', t: 'Divergência', d: 'a marcação diz uma coisa e o SSW outra', cor: 'vermelho', ls: ls.filter(function (l) { return l.diverg.length; }) });
     cards.push({ id: 'pagos', t: 'Pagos 30 dias', d: 'pagamento registrado no SSW nos últimos 30 dias', cor: 'verde', pagos: true,
                  ls: ls.filter(function (l) { return l.ssw === 'pago' && l.pago_em >= S.desde30; }) });
-    $('cards').innerHTML = cards.map(cardHTML).join('');
+    $('cards').innerHTML = cards.map(cardHTML).join('') + cardsCustoHTML();
+  }
+  // Cartões do custo extra: por tipo, por status e o "concluído sem CT-e complementar" (ticket aprovado,
+  // cobrança ainda não emitida). O número é de custos; o valor, a soma do Valor deles.
+  function cardsCustoHTML() {
+    var cc = campoCustos();
+    if (!cc) return '';
+    var defs = cc.tipos.map(function (t) { return { id: 'custo:' + t, t: rotTipo(t), cor: 'laranja', d: 'custos extras do tipo ' + rotTipo(t) }; })
+      .concat(cc.status.map(function (s) { return { id: 'custost:' + s, t: rotTipo(s), cor: COR_STATUS[s] || 'cinza', d: 'custos extras com o status ' + rotTipo(s) }; }))
+      .concat([{ id: 'custo_sem_compl', t: 'Concluído sem CT-e compl.', cor: 'indigo', d: 'ticket concluído e o CT-e complementar ainda não preenchido' }]);
+    return '<div class="cards-sep">Custo extra</div>' + defs.map(function (c) {
+      var n = 0, v = 0, ctes = 0;
+      S.linhas.forEach(function (l) {
+        var xs = custosDe(l).filter(function (x) { return custoCasa(x, c.id); });
+        if (xs.length) ctes++;
+        n += xs.length; xs.forEach(function (x) { v += Number(x.valor) || 0; });
+      });
+      return '<button class="card' + (S.card === c.id ? ' ativo' : '') + (n ? '' : ' zero') + '" data-card="' + esc(c.id)
+        + '" style="--cor:' + corVar(c.cor) + '" title="' + esc(c.d) + '"><div class="t">' + esc(c.t) + '</div><div class="n">'
+        + n + '</div><div class="r">R$ ' + moedaK(v) + '</div><div class="r">' + (n ? 'em ' + ctes + ' CT-e' : '—') + '</div></button>';
+    }).join('');
   }
   function cardHTML(c) {
       var v = c.ls.reduce(function (s, l) { return s + (l.frete || 0); }, 0);
@@ -504,7 +566,11 @@
     var h = '';
     if (S.card) {
       var e = etapaDef(S.card);
-      var nome = { abertos: 'Em aberto', novos: 'Novos', diverg: 'Divergência', pagos: 'Pagos 30 dias', vencidas: 'Fatura vencida' }[S.card] || (ehDescargas() ? (sitDef(S.card) || {}).rotulo || S.card : (e ? e.rotulo : S.card));
+      var nome = { abertos: 'Em aberto', novos: 'Novos', diverg: 'Divergência', pagos: 'Pagos 30 dias', vencidas: 'Fatura vencida',
+                   custo_sem_compl: 'Custo extra concluído sem CT-e complementar' }[S.card]
+        || (S.card.indexOf('custo:') === 0 ? 'Custo extra ' + rotTipo(S.card.slice(6))
+            : S.card.indexOf('custost:') === 0 ? 'Custo extra ' + rotTipo(S.card.slice(8)) : null)
+        || (ehDescargas() ? (sitDef(S.card) || {}).rotulo || S.card : (e ? e.rotulo : S.card));
       h += '<span class="chip-filtro">cartão: ' + esc(nome) + ' <button data-limpa="card" title="Tirar">✕</button></span> ';
     }
     if (S.lista) h += '<span class="chip-filtro">lista colada: ' + S.lista.size + ' linhas <button data-limpa="lista" title="Tirar">✕</button></span>';
@@ -525,19 +591,11 @@
   function celulaDescarga(c, l, r) {
     if (c === 'Lançamento') return '<td class="ctrc"><input type="checkbox" data-sel="' + esc(l.chave) + '"' + (S.sel.has(l.chave) ? ' checked' : '')
       + '><a href="#" data-abre="' + esc(l.chave) + '">' + esc(l.lancto) + '</a></td>';
-    if (c === 'Fornecedor' || c === 'Destinatário' || c === 'Histórico') return '<td class="obs" title="' + esc(r[c]) + '">' + esc(r[c]) + '</td>';
+    if (c === 'Fornecedor' || c === 'Destinatário' || c === 'Histórico' || c === 'Tomador') return '<td class="obs" title="' + esc(r[c]) + '">' + esc(r[c]) + '</td>';
     if (c === 'Transporte') return '<td class="mono dim">' + esc(r[c]) + '</td>';
     if (c === 'Valor') return '<td class="num">' + moeda(l.frete) + '</td>';
     if (c === 'CT-e') return '<td class="mono" title="' + esc((l.cte_criterio || '') + (l.cte ? ' · nº ' + l.cte : '')) + '">'
       + (l.ctrc ? esc(l.ctrc) + (l.cte_manual ? ' <span class="marca" title="digitado à mão">✎</span>' : '') : '<span class="vazio">—</span>') + '</td>';
-    if (c === 'Situação') {
-      var s = sitDef(l.situacao) || {};
-      return '<td><span class="pill" style="--cor:' + corVar(s.cor) + '" title="' + esc(s.desc || '') + '">' + esc(s.rotulo || l.situacao) + '</span></td>';
-    }
-    if (c === 'Complemento') return '<td>' + (l.reembolsos.length ? l.reembolsos.map(function (x) {
-        var cls = x.situacao === 'pago' ? 'pago' : x.situacao === 'vencida' ? 'vencida' : 'fatura';
-        return '<span class="ssw ' + cls + '" title="' + esc((x.doc || '') + ' · ' + (x.obs || '')) + '">' + esc(reembTxt(x)) + '</span>';
-      }).join(' ') : '<span class="vazio">—</span>') + '</td>';
     return null;
   }
   function linhaHTML(cols, r) {
@@ -599,6 +657,21 @@
       }
       if (c === 'Obs. do CT-e') return '<td class="obs" title="' + esc(l.obs) + '">' + esc(l.obs) + '</td>';
       var f = S.cfg.campos.find(function (x) { return x.rotulo === c; });
+      if (f && f.tipo === 'farol') {
+        var ok = !!l.campos[f.id];
+        return '<td class="farol" data-farol="' + esc(l.chave) + '" title="' + esc((ok ? 'validado — clique para voltar a pendente' : 'clique quando validar')
+          + (l.atualizado ? ' · última mudança ' + l.atualizado + (l.por ? ' por ' + l.por : '') : '')) + '"><span class="luz" style="background:'
+          + corVar(ok ? 'verde' : 'vermelho') + '"></span>' + (ok ? 'Validado' : 'A validar') + '</td>';
+      }
+      if (f && f.tipo === 'custos') {
+        var xs = custosDe(l), sug = (l.compl_ssw || []).length;
+        return '<td class="custos" data-custos="' + esc(l.chave) + '" title="' + esc(xs.length ? resumoCustos(xs) : 'clique para lançar um custo extra') + '">'
+          + (xs.length ? xs.map(function (x) {
+              return '<span class="pill" style="--cor:' + corVar(corCusto(x)) + '">' + esc(rotTipo(x.tipo)) + (x.valor != null ? ' ' + moeda(x.valor) : '') + '</span>';
+            }).join('')
+            : '<span class="vazio">—</span>' + (sug ? ' <span class="marca" title="o SSW tem ' + sug + ' complemento(s) que citam este CT-e">SSW ' + sug + '</span>' : ''))
+          + '</td>';
+      }
       if (f) {
         var v = l.campos[f.id];
         return '<td class="ed txt" data-ed="' + f.id + '" data-k="' + esc(l.chave) + '" title="' + esc(v ? txtCampo(v) : 'clique para preencher') + '">'
@@ -797,10 +870,11 @@
       });
     }).then(function (plano) {
       if (!plano) { toast('Nada desfeito.'); return; }
+      // agrupa pelo valor de antes (em JSON: o Custo extra é uma lista)
       var grupos = {};
-      chaves.forEach(function (k) { if (!plano.pular[k]) (grupos[u.antes[k]] = grupos[u.antes[k]] || []).push(k); });
+      chaves.forEach(function (k) { var g = JSON.stringify(u.antes[k]); if (!plano.pular[k]) (grupos[g] = grupos[g] || []).push(k); });
       var cadeia = Promise.resolve();
-      Object.keys(grupos).forEach(function (v) { cadeia = cadeia.then(function () { return enviar(grupos[v], u.campo, v, { forcar: true }); }); });
+      Object.keys(grupos).forEach(function (g) { cadeia = cadeia.then(function () { return enviar(grupos[g], u.campo, JSON.parse(g), { forcar: true }); }); });
       return cadeia.then(function () {
         p.pop();
         toast('Desfeito: ' + nomeCampo(u.campo) + ' em ' + u.n + (u.n === 1 ? ' linha.' : ' linhas.'));
@@ -809,9 +883,87 @@
       .then(function () { S.desfazendo = false; tudo(); });
   }
 
+  // ── Custo extra: a lista de um CT-e, editada numa janela ──
+  // Grava a lista inteira (campo `custos`) com a mesma conferência de conflito e o mesmo Desfazer dos
+  // outros campos. As sugestões do SSW (complementos que citam este CT-e) só preenchem quando ela clica.
+  function abrirCustos(k) {
+    var l = S.porChave[k], cc = campoCustos();
+    if (!l || !cc) return;
+    var itens = custosDe(l).map(function (x) { return Object.assign({}, x); });
+    if (!itens.length) itens.push({});
+    var caixa = document.createElement('div');
+    caixa.className = 'modal'; caixa.id = 'modalCustos';
+    function opcoes(lista, v, vazio) {
+      return '<option value="">' + vazio + '</option>' + lista.map(function (o) {
+        return '<option value="' + esc(o) + '"' + (o === v ? ' selected' : '') + '>' + esc(rotTipo(o)) + '</option>'; }).join('');
+    }
+    function campoHTML(it, i, d) {
+      var v = it[d.id], nome = 'data-i="' + i + '" data-c="' + d.id + '"';
+      if (d.id === 'tipo') return '<label>' + esc(d.rotulo) + '<select ' + nome + '>' + opcoes(cc.tipos, v, 'escolha…') + '</select></label>';
+      if (d.id === 'status') return '<label>' + esc(d.rotulo) + '<select ' + nome + '>' + opcoes(cc.status, v, '—') + '</select></label>';
+      var val = d.tipo === 'moeda' && v != null && v !== '' && !isNaN(Number(v)) ? moeda(v) : (v == null ? '' : v);
+      var ph = d.tipo === 'moeda' ? 'em branco no pallet' : d.tipo === 'ctrc' ? 'UDI123456-7' : '';
+      return '<label>' + esc(d.rotulo) + '<input ' + nome + ' value="' + esc(val) + '" placeholder="' + ph + '"></label>';
+    }
+    function desenhar() {
+      var sug = l.compl_ssw || [];
+      caixa.innerHTML = '<div class="caixa largo"><h3>Custo extra — ' + esc(l.ctrc || '') + '</h3>'
+        + '<div class="nota">Um bloco por custo (descarga, estadia, devolução, pallet, pedágio). Bloco vazio não é gravado.</div>'
+        + itens.map(function (it, i) {
+            return '<div class="custo" style="--cor:' + corVar(corCusto(it)) + '"><div class="cab"><span>Custo ' + (i + 1) + (it.tipo ? ' · ' + esc(rotTipo(it.tipo)) : '')
+              + '</span><button class="btn-sm" data-rem="' + i + '">Remover</button></div><div class="grade">'
+              + cc.itens.map(function (d) { return campoHTML(it, i, d); }).join('') + '</div></div>';
+          }).join('')
+        + '<button class="btn-sm" data-acao="novo">+ Adicionar custo</button>'
+        + (sug.length ? '<div class="sugestoes"><b>Complementos no SSW que citam este CT-e</b> — sugestão; confira antes de usar'
+            + '<ul>' + sug.map(function (s, j) {
+                var usado = itens.some(function (it) { return it.cte_compl === s.ctrc; });
+                return '<li><span class="mono">' + esc(s.ctrc) + ' · ' + dm(s.emissao) + ' · R$ ' + moeda(s.frete)
+                  + (s.motivo ? ' · motivo: ' + esc(s.motivo) : '') + (s.transporte ? ' · TRANSP ' + esc(s.transporte) : '')
+                  + (s.po ? ' · PO ' + esc(s.po) : '') + '</span>'
+                  + (usado ? '<span class="nota">já está num custo</span>' : '<button class="btn-sm" data-usar="' + j + '">Usar</button>') + '</li>';
+              }).join('') + '</ul><div class="nota">"Usar" põe o CT-e complementar' + ' (e o tipo e o transporte, quando o SSW diz) num custo do mesmo tipo ainda sem complemento, ou num novo. '
+            + 'O valor do complemento não é o do ticket: o Valor fica com ela. O PO aparece só para consulta.</div></div>' : '')
+        + '<div class="acoes" style="margin-top:14px"><button class="btn-sm" data-acao="cancelar">Cancelar</button>'
+        + '<button class="btn-sm primary" data-acao="salvar">Salvar</button></div></div>';
+    }
+    function ler() {
+      caixa.querySelectorAll('[data-c]').forEach(function (el) {
+        itens[+el.getAttribute('data-i')][el.getAttribute('data-c')] = el.value.trim();
+      });
+    }
+    function cheio(it) { return Object.keys(it).some(function (q) { return it[q] != null && String(it[q]).trim() !== ''; }); }
+    caixa.addEventListener('click', function (ev) {
+      var b = ev.target.closest('button'); if (!b) return;
+      ler();
+      if (b.hasAttribute('data-rem')) { itens.splice(+b.getAttribute('data-rem'), 1); desenhar(); return; }
+      if (b.hasAttribute('data-usar')) {
+        var s = l.compl_ssw[+b.getAttribute('data-usar')];
+        var alvo = itens.find(function (it) { return !it.cte_compl && (!it.tipo || it.tipo === s.tipo) && (cheio(it) ? it.tipo === s.tipo : true); });
+        if (!alvo) { alvo = {}; itens.push(alvo); }
+        alvo.cte_compl = s.ctrc;
+        if (!alvo.tipo && s.tipo) alvo.tipo = s.tipo;
+        if (!alvo.transporte && s.transporte) alvo.transporte = s.transporte;
+        desenhar(); return;
+      }
+      var acao = b.getAttribute('data-acao');
+      if (acao === 'novo') { itens.push({}); desenhar(); return; }
+      if (acao === 'cancelar') { caixa.remove(); return; }
+      if (acao === 'salvar') {
+        var lista = itens.filter(cheio);
+        b.disabled = true;
+        marcar([k], 'custos', lista).then(function (ok) { if (ok) caixa.remove(); else b.disabled = false; });
+      }
+    });
+    desenhar();
+    document.body.appendChild(caixa);
+  }
+
   // ── seleção e mudança em lote ──
   function montarLote() {
-    var campos = S.cfg.campos.map(function (f) { return '<option value="' + f.id + '">' + esc(f.rotulo) + '</option>'; }).join('');
+    // o Custo extra é por CT-e (uma lista própria de cada um): não entra no lote
+    var campos = S.cfg.campos.filter(function (f) { return f.tipo !== 'custos'; })
+      .map(function (f) { return '<option value="' + f.id + '">' + esc(f.rotulo) + '</option>'; }).join('');
     // a etapa é o uso de todo dia; os outros campos ficam no mesmo menu, agrupados
     $('loteCampo').innerHTML = ehDescargas() ? campos
       : '<option value="etapa">a etapa</option><optgroup label="ou outro campo">' + campos + '</optgroup>';
@@ -826,6 +978,9 @@
         return '<option value="' + esc(e.cod) + '">' + esc(e.rotulo) + '</option>'; }).join('')
         + '<option value="__sem__">— sem etapa (apagar) —</option></select>';
       $('loteAplicar').disabled = true;
+    } else if ((campoDef(campo) || {}).tipo === 'farol') {
+      box.innerHTML = '<select id="loteValor"><option value="VALIDADO">Validado (verde)</option><option value="PENDENTE">A validar (vermelho)</option></select>';
+      $('loteAplicar').disabled = false;
     } else {
       $('loteAplicar').disabled = false;
       var f = campoDef(campo);
@@ -860,6 +1015,10 @@
       if (l.lancto) add(String(l.lancto).split('/')[0], k);
       (String(l.obs || '').toUpperCase().match(/B\d{9}/g) || []).forEach(function (b) { add(b, k); });
       if (l.campos.ticket_pipefy) add(l.campos.ticket_pipefy, k);
+      custosDe(l).forEach(function (x) {                  // ticket FSC (pode vir "FSC1/FSC2") e CT-e complementar
+        String(x.ticket || '').split(/[\/\s,;]+/).forEach(function (t) { add(t, k); });
+        if (x.cte_compl) add(x.cte_compl, k);
+      });
     });
   }
   function localizar() {
@@ -927,22 +1086,14 @@
       ['Remetente', l.remetente], ['Emissão', dm(l.cte_emissao)], ['NF no histórico', l.nf],
       ['Como achou', l.cte_criterio], ['Outros CT-e com a NF', l.cte_outros]])
       : '<div class="nota">' + esc(l.cte_criterio || 'O histórico não traz NF que leve a um CT-e') + '. Preencha "CT-e (à mão)" na tabela.</div>') + '</div>';
-    h += '<div class="bloco"><h3>Complemento no SSW (o reembolso)</h3>' + (l.reembolsos.length
-      ? '<table class="pg"><tr><th>Documento</th><th>Tipo</th><th>Emissão</th><th>Valor</th><th>Situação</th></tr>'
-        + l.reembolsos.map(function (x) {
-            var doc = x.carteira ? '<a href="/crm-documentos?carteira=' + encodeURIComponent(x.carteira) + '&busca=' + encodeURIComponent(x.ctrc)
-              + '" target="_blank" title="abrir na aba do cliente">' + esc(x.ctrc) + ' ↗</a>' : esc(x.ctrc);
-            var st = x.situacao === 'pago' ? 'pago' + (x.pago_em ? ' em ' + dm(x.pago_em) : '')
-              : x.situacao === 'vencida' ? 'fatura ' + esc(x.fatura) + ' vencida em ' + dm(x.vencimento)
-              : x.situacao === 'fatura' ? 'fatura ' + esc(x.fatura) + ', vence ' + dm(x.vencimento) : 'emitido, ainda sem fatura';
-            return '<tr><td class="mono">' + doc + '</td><td>' + esc(x.doc || '') + '</td><td>' + dm(x.emissao) + '</td><td class="mono">'
-              + moeda(x.frete) + '</td><td>' + st + '</td></tr>'; }).join('') + '</table>'
-        + '<div class="nota">Achado pela observação do documento: complemento que cita o CTRC da carga, ou nota de descarga que cita a NF dela. Cada cliente reembolsa num valor (pelo custo, com imposto, ou várias descargas juntas).</div>'
-      : '<div class="nota">Nenhum complemento nem nota de descarga no SSW cita esta carga.</div>') + '</div>';
+    if (l.ctrc) {
+      h += '<div class="bloco"><div class="nota">A cobrança desta descarga (ticket FSC, OC, CT-e complementar) é o Custo extra da aba Nestlé: '
+        + '<a href="/crm-documentos?carteira=nestle&busca=' + encodeURIComponent(l.ctrc) + '" target="_blank">abrir ' + esc(l.ctrc) + ' ↗</a></div></div>';
+    }
     var marcados = S.cfg.campos.filter(function (f) { return l.campos[f.id]; });
     h += '<div class="bloco"><h3>Marcação (edite na tabela)</h3>'
-      + (marcados.length ? kv(marcados.map(function (f) { return [f.rotulo, txtCampo(l.campos[f.id])]; }))
-                         : '<div class="nota">Nada marcado ainda: comprovante, CT-e à mão e "não cobrável" se preenchem na tabela.</div>')
+      + (marcados.length ? kv(marcados.map(function (f) { return [f.rotulo, f.tipo === 'farol' ? 'Validado' : txtCampo(l.campos[f.id])]; }))
+                         : '<div class="nota">Nada marcado ainda: o farol e o CT-e à mão se mudam na tabela.</div>')
       + (l.atualizado ? '<div class="nota" style="margin-top:6px">Última mudança ' + esc(l.atualizado) + (l.por ? ' por ' + esc(l.por) : '') + '</div>' : '') + '</div>';
     return h + historicoHTML(j);
   }
@@ -1043,6 +1194,15 @@
     }
     var a = ev.target.closest('[data-abre]');
     if (a) { ev.preventDefault(); abrirGaveta(a.getAttribute('data-abre')); return; }
+    var cu = ev.target.closest('td[data-custos]');
+    if (cu) { if (ED) salvarEditor(); abrirCustos(cu.getAttribute('data-custos')); return; }
+    var fa = ev.target.closest('td[data-farol]');
+    if (fa) {
+      if (ED) salvarEditor();
+      var kf = fa.getAttribute('data-farol'), lf = S.porChave[kf];
+      marcar([kf], 'validado', lf && lf.campos.validado ? 'PENDENTE' : 'VALIDADO');
+      return;
+    }
     var td = ev.target.closest('td[data-ed]');
     if (td && !td.querySelector('.editor')) abrirEditor(td);
   });
@@ -1057,7 +1217,8 @@
       if (valor === '__sem__') valor = '';
     }
     var rot = campo === 'etapa' ? 'Etapa' : campoDef(campo).rotulo;
-    var nomeValor = campo === 'etapa' ? (rotEtapa(valor) || '(sem etapa)') : (valor || '(vazio)');
+    var nomeValor = campo === 'etapa' ? (rotEtapa(valor) || '(sem etapa)')
+      : (campoDef(campo) || {}).tipo === 'farol' ? (valor === 'VALIDADO' ? 'Validado' : 'A validar') : (valor || '(vazio)');
     if (!confirm('Mudar "' + rot + '" para "' + nomeValor + '" em ' + n + ' linha(s)?')) return;
     $('loteAplicar').disabled = true;
     marcar(Array.from(S.sel), campo, valor).then(function (ok) {
@@ -1079,7 +1240,8 @@
   $('gavFechar').addEventListener('click', function () { $('gaveta').hidden = true; });
   document.addEventListener('keydown', function (ev) {
     if (ev.key !== 'Escape' || ED) return;
-    if (!$('modalLista').hidden) $('modalLista').hidden = true; else $('gaveta').hidden = true;
+    if ($('modalCustos')) $('modalCustos').remove();
+    else if (!$('modalLista').hidden) $('modalLista').hidden = true; else $('gaveta').hidden = true;
   });
   $('btnAtualizar').addEventListener('click', function () { carregar(S.carteira, true); });
   $('btnDesfazer').addEventListener('click', desfazer);
@@ -1119,7 +1281,7 @@
   setInterval(buscarMudancas, MUDANCAS_MS);
   document.addEventListener('visibilitychange', function () { if (!document.hidden) buscarMudancas(); });
 
-  // ?busca= vem do link da aba de descargas para o documento de reembolso na aba do cliente
+  // ?busca= vem do link da aba de descargas para o CT-e da carga na aba Nestlé
   var qs = new URLSearchParams(location.search), inicial = qs.get('carteira'), buscaInicial = qs.get('busca');
   carregar(inicial).then(function () {
     if (!buscaInicial) return;

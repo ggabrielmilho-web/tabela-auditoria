@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-"""Descargas Nestlé (5100) — 5ª aba do CRM - Documentos: a descarga da Nestlé paga a terceiro até o
-reembolso.
+"""Descargas Nestlé (5100) — 5ª aba do CRM - Documentos: a conferência das descargas da Nestlé pagas a
+terceiro.
 
 Cada linha é um lançamento do 477 no evento 5100 (CARGA E DESCARGA C/ TERCEIROS) desde DESDE cujo CT-e
 é da NESTLÉ/Garoto (tomador do CT-e). O CRM usava o relatório da segunda-feira (relatorio_5100), com
@@ -15,17 +15,11 @@ Como se acha o CT-e da carga (e por ele, que é da Nestlé):
   4. o histórico cita Nestlé/Garoto e nada leva ao CT-e: entra "sem CT-e", para ela digitar.
 Medido em 2026 (21/10): 269 lançamentos da Nestlé — 157 pela NF, 85 pelo B10, 27 só pelo nome.
 
-O reembolso sai do próprio SSW, e só por ligação EXPLÍCITA no documento:
-  * CT-e complementar cuja observação cita o CTRC da carga ("CTRC EMITIDO P/ COMPL. DO UDI123456-7");
-  * nota de serviço de descarga do mesmo pagador que cita a NF da carga ("COBRANCA REF A DESCARGA DAS
-    NFS 100001 / 100005 A 100008"), emitida depois da carga.
-O VALOR não prova nada (a Nestlé reembolsa a 1,252 × a despesa, outros pelo custo); o casamento solto
-(mesma NF + mesmo pagador) pegava CARGA FECHADA e SUBSTITUTO de outra perna.
-
-O que só ela sabe vai para a marcação (crm_doc_marcacao, carteira 'descargas'): comprovante recebido,
-ticket FSC e o status dele, OC, pedido de compras, doc. transporte, tickets rejeitados, CT-e à mão e
-"não cobrável" — as colunas do controle "Custo Extra" que ela mandou de exemplo. O fato do SSW vence a
-marcação: com o complemento emitido, a linha é "cobrada".
+É a conferência do relatório (pedido de 26/10/2026): ela valida cada lançamento e o farol vai de
+vermelho para verde (marcação `validado`, com quem e quando no histórico); onde nada leva ao CT-e, ela
+o digita em "CT-e (à mão)". A cobrança — ticket FSC, OC, CT-e complementar — é o Custo extra da aba
+Nestlé, preenchido à mão: a 1ª versão casava o complemento sozinha, mas o que a operação emite nem
+sempre é o do ticket dela.
 """
 import os
 import re
@@ -45,10 +39,6 @@ _T = "'public conhecimentos_emitidos'"
 COLS_477 = ('emissao', 'uni', 'numlancto', 'parcela', 'nome_fornecedor', 'nome_favorecido', 'vlr_final',
             'historico_despesa', 'nfiscal', 'vencimen', 'data_pgto', 'sit_des', 'data_importacao')
 
-# "COMPL. DO UDI123456-7" / "COMPLEMENTO DO CTRC UDI 123456-7"
-RE_COMPL = re.compile(r'COMPL\w*\.?\s+DO\s+(?:CTRC\s+|CT-?E\s+)?([A-Z]{3})\s?(\d{6})-?(\d)', re.I)
-# "NFS 100001 / 100005 A 100008 / 100010" — a lista que vem depois de NF/NFS
-RE_NF_LISTA = re.compile(r'\bNFS?\b[\s.:]*((?:\d{3,9}(?:\s*(?:/|,|\bE\b|\bA\b)\s*)?)+)', re.I)
 # a carga da Nestlé (shipment): B + 9 dígitos, B101234567
 RE_B10 = re.compile(r'\bB\s?(\d{9})\b', re.I)
 RE_NESTLE = re.compile(r'NESTL|GAROTO', re.I)
@@ -84,58 +74,19 @@ def chave_lancamento(d):
     return f"L477-{str(d.get('uni') or '').strip()}-{n}-{p}"
 
 
-def ctrc_complementado(obs):
-    """Observação do CT-e → o CTRC que ele complementa, ou None. Substituto não é complemento."""
-    s = str(obs or '').upper()
-    if 'SUBSTITU' in s:
-        return None
-    m = RE_COMPL.search(s)
-    return f'{m[1]}{m[2]}-{m[3]}' if m else None
-
-
-def nfs_de_descarga(obs):
-    """Observação da nota de serviço → as NFs cuja DESCARGA ela cobra (com as faixas "A"), ou []."""
-    s = str(obs or '').upper()
-    if 'DESCARG' not in s:
-        return []
-    out = []
-    for grupo in RE_NF_LISTA.findall(s):
-        toks = re.findall(r'\d{3,9}|\bA\b', grupo)
-        i = 0
-        while i < len(toks):
-            if toks[i] == 'A' and out and i + 1 < len(toks) and toks[i + 1] != 'A':
-                a, b = int(out[-1]), int(toks[i + 1])
-                if 0 < b - a <= 50:                  # faixa curta; "A" solto não vira mil notas
-                    out += [str(x) for x in range(a + 1, b + 1)]
-                else:
-                    out.append(toks[i + 1])
-                i += 2
-                continue
-            if toks[i] != 'A':
-                out.append(toks[i].lstrip('0'))
-            i += 1
-    return list(dict.fromkeys(out))
-
-
 def indices(ce):
-    """CT-e (todos os clientes) → índices: por CTRC, por NF (régua do relatório; e só os da Nestlé),
-    por carga B10 (só Nestlé), complementos por CTRC complementado e notas de descarga por (NF, raiz)."""
-    por_ctrc, comp, nfs, b10 = {}, {}, {}, {}
+    """CT-e (todos os clientes) → índices: por CTRC, por NF (régua do relatório; e só os da Nestlé) e
+    por carga B10 (só Nestlé)."""
+    por_ctrc, b10 = {}, {}
     for c in ce:
         k = crm.chave_ctrc(c.get('ctrc'))
         if not k:
             continue
         por_ctrc[k] = c
-        alvo = ctrc_complementado(c.get('obs'))
-        if alvo and alvo != k:
-            comp.setdefault(alvo, []).append(c)
-        raiz = str(c.get('pag') or '')[:8]
-        for nf in nfs_de_descarga(c.get('obs')):
-            nfs.setdefault((nf, raiz), []).append(c)
         if eh_nestle(c):
             for b in cargas_b10(c.get('obs')):
                 b10.setdefault(b, []).append(c)
-    return {'por_ctrc': por_ctrc, 'por_nf': r5.indexar_ctes(ce), 'comp': comp, 'nfs': nfs, 'b10': b10,
+    return {'por_ctrc': por_ctrc, 'por_nf': r5.indexar_ctes(ce), 'b10': b10,
             'por_nf_nestle': r5.indexar_ctes([c for c in ce if eh_nestle(c)])}
 
 
@@ -149,7 +100,7 @@ def _escolha_b10(cands, emissao, base, b):
     antes = sorted([c for c in princ if (_iso(c.get('emissao')) or '') <= dd], key=lambda c: _iso(c.get('emissao')) or '')
     esc = antes[-1] if antes else min(princ, key=lambda c: _iso(c.get('emissao')) or '')
     k = crm.chave_ctrc(esc['ctrc'])
-    # o complemento da carga não entra em "outros": ele já aparece como o reembolso
+    # o complemento da carga não entra em "outros": não é outra carga
     outros = [crm.chave_ctrc(c['ctrc']) for c in princ if crm.chave_ctrc(c['ctrc']) != k]
     return dict(base, cte=k, cte_numero=esc.get('cte_num') or '', cte_remetente=esc.get('cli_rem') or '',
                 cte_emissao=_iso(esc.get('emissao')) or '', cte_outros=', '.join(outros),
@@ -174,64 +125,14 @@ def cte_nestle(historico, emissao, idx):
     return auto, False
 
 
-def reembolsos_da_carga(ctrc, idx):
-    """Os documentos que cobram a descarga desta carga (complemento que cita o CTRC, ou nota de
-    descarga do mesmo pagador que cita a NF dela, emitida depois)."""
-    if not ctrc:
-        return []
-    docs = list(idx['comp'].get(ctrc, []))
-    o = idx['por_ctrc'].get(ctrc)
-    if o:
-        nf, raiz, em = str(o.get('nf') or '').lstrip('0'), str(o.get('pag') or '')[:8], _iso(o.get('emissao')) or ''
-        docs += [c for c in idx['nfs'].get((nf, raiz), []) if (_iso(c.get('emissao')) or '') >= em]
-    vistos, out = set(), []
-    for c in docs:
-        k = crm.chave_ctrc(c.get('ctrc'))
-        if k and k != ctrc and k not in vistos:
-            vistos.add(k)
-            out.append(c)
-    return sorted(out, key=lambda c: _iso(c.get('emissao')) or '')
+def situacao_linha(campos, tem_cte):
+    """Farol verde (validado por ela) vence; senão "sem CT-e" ou "a validar". Função pura."""
+    if campos.get('validado'):
+        return 'validado'
+    return 'pendente' if tem_cte else 'sem_cte'
 
 
-def situacao_doc(doc, pagamentos, abertas, hoje):
-    """Documento de reembolso -> pago / em fatura (vencida ou não) / só emitido. Mesmas fontes do CRM:
-    441 das pagas, baixa LIQUIDADO do 455, carteira em aberto do 441 (com o pagamento parcial)."""
-    k = crm.chave_ctrc(doc.get('ctrc'))
-    pg = (pagamentos or {}).get(k)
-    if pg:
-        return {'situacao': 'pago', 'pago_em': max(p['pagamento'] for p in pg),
-                'fatura': ', '.join(sorted({str(p['fatura']) for p in pg}))}
-    if str(doc.get('baixa') or '').upper() == 'LIQUIDADO':
-        return {'situacao': 'pago', 'pago_em': _iso(doc.get('liq')), 'fatura': ''}
-    fas = (abertas or {}).get(k) or []
-    if fas:
-        f = min(fas, key=lambda x: x['vencimento'] or '9999-12-31')
-        if k in (f.get('pagos_parcial') or []):
-            return {'situacao': 'pago', 'pago_em': None, 'fatura': f['fatura']}
-        vencida = bool(f['vencimento'] and f['vencimento'] < hoje.isoformat())
-        return {'situacao': 'vencida' if vencida else 'fatura', 'fatura': f['fatura'], 'vencimento': f['vencimento']}
-    return {'situacao': 'emitido'}
-
-
-def situacao_linha(reembolsos, campos, tem_cte):
-    """O fato do SSW primeiro; depois o que ela marcou, do fim do fluxo para o começo. Função pura."""
-    if reembolsos:
-        return 'reembolso_pago' if all(r['situacao'] == 'pago' for r in reembolsos) else 'cobrado'
-    if campos.get('nao_cobravel'):
-        return 'nao_cobravel'
-    st = crm._sem_acento(str(campos.get('status_ticket') or '')).upper()
-    if st.startswith('NEGAD'):
-        return 'ticket_negado'
-    if st.startswith('CONCLU'):
-        return 'ticket_aprovado'
-    if campos.get('ticket'):
-        return 'ticket_aberto'
-    if not tem_cte:
-        return 'sem_cte'
-    return 'cobrar' if campos.get('comprovante') else 'aguardando_comprovante'
-
-
-def montar(dd, marc, pagamentos, abertas, hoje=None):
+def montar(dd, marc, hoje=None):
     """Lançamentos do 5100 da Nestlé + marcações -> linhas da tela (os nomes que a tela genérica usa:
     chave, ctrc, cte, nf, obs, frete = o valor pago ao terceiro, emissao, idade, aberto, campos…)."""
     hoje = hoje or crm.hoje_brt()
@@ -247,14 +148,7 @@ def montar(dd, marc, pagamentos, abertas, hoje=None):
             continue
         ctrc = manual or crm.chave_ctrc(auto['cte']) or None
         o = idx['por_ctrc'].get(ctrc) or {}
-        reembs = []
-        for c in reembolsos_da_carga(ctrc, idx):
-            k = crm.chave_ctrc(c['ctrc'])
-            reembs.append(dict(situacao_doc(c, pagamentos, abertas, hoje), ctrc=k, cte=c.get('cte_num'),
-                               doc=c.get('doc'), frete=_num(c.get('frete')), emissao=_iso(c.get('emissao')),
-                               carteira=crm.carteira_da_raiz(str(c.get('pag') or '')[:8]),
-                               obs=str(c.get('obs') or '')[:160]))
-        sit = situacao_linha(reembs, campos, bool(ctrc))
+        sit = situacao_linha(campos, bool(ctrc))
         em = _iso(d.get('emissao'))
         cte_num = str((o.get('cte_num') if manual else auto['cte_numero']) or '').strip()
         linhas.append({
@@ -273,7 +167,6 @@ def montar(dd, marc, pagamentos, abertas, hoje=None):
             'destinatario': o.get('dest'), 'destino': '/'.join(x for x in (o.get('cid_d'), o.get('uf_d')) if x) or None,
             'transporte': ', '.join(cargas_b10(d.get('historico_despesa')) or cargas_b10(o.get('obs'))) or None,
             'carteira': crm.carteira_da_raiz(str(o.get('pag') or '')[:8]) if o else None,
-            'reembolsos': reembs, 'valor_reembolso': round(sum(r['frete'] for r in reembs), 2),
             'situacao': sit, 'aberto': SITUACOES[sit]['aberto'],
             'campos': campos, 'atualizado': m.get('atualizado'), 'por': m.get('por'), 'editado': bool(m.get('editado')),
             # o que a tela das carteiras espera em toda linha
@@ -284,9 +177,9 @@ def montar(dd, marc, pagamentos, abertas, hoje=None):
 
 
 def resumo(linhas):
-    """Para a aba: o que está aberto e ainda sem complemento (do aguardando comprovante ao ticket aprovado)."""
-    sem = [l for l in linhas if l['aberto'] and l['situacao'] != 'cobrado']
-    return {'abertos': len(sem), 'valor': round(sum(l['frete'] for l in sem), 2), 'rotulo': 'sem cobrança'}
+    """Para a aba: o que ela ainda não validou (farol vermelho)."""
+    ab = [l for l in linhas if l['aberto']]
+    return {'abertos': len(ab), 'valor': round(sum(l['frete'] for l in ab), 2), 'rotulo': 'a validar'}
 
 
 # ── Fonte (Power BI) ─────────────────────────────────────────────────────────
@@ -355,15 +248,8 @@ def exportar_xlsx(linhas):
             ('NF (histórico)', lambda l: l['nf']), ('Transporte', lambda l: l['transporte']),
             ('CTRC', lambda l: l['ctrc']), ('Nº CT-e', lambda l: l['cte']), ('Tomador', lambda l: l['pagador']),
             ('Destinatário', lambda l: l['destinatario']), ('Destino', lambda l: l['destino']),
-            ('Situação', lambda l: SITUACOES[l['situacao']]['rotulo']),
-            ('Complemento', lambda l: ', '.join(r['ctrc'] for r in l['reembolsos'])),
-            ('Valor do complemento', lambda l: l['valor_reembolso'] or None),
-            ('Pago em', lambda l: dt(max((r.get('pago_em') or '' for r in l['reembolsos']), default='') or None)),
-            ('Comprovante recebido', lambda l: dt(l['campos'].get('comprovante'))),
-            ('Ticket FSC', cp('ticket')), ('Status do ticket', cp('status_ticket')), ('OC', cp('oc')),
-            ('Pedido de compras', cp('pedido_compras')), ('Doc. transporte', cp('doc_transporte')),
-            ('Tickets rejeitados', cp('tickets_rejeitados')), ('CT-e (à mão)', cp('cte_manual')),
-            ('Não cobrável (motivo)', cp('nao_cobravel')), ('Anotação', cp('anotacao')),
+            ('Validação', lambda l: SITUACOES[l['situacao']]['rotulo']),
+            ('CT-e (à mão)', cp('cte_manual')), ('Anotação', cp('anotacao')),
             ('Como achou o CT-e', lambda l: l['cte_criterio'])]
     wb = Workbook()
     ws = wb.active
@@ -379,7 +265,7 @@ def exportar_xlsx(linhas):
             c = ws.cell(row=i, column=j, value=v)
             if isinstance(v, date):
                 c.number_format = 'DD/MM/YYYY'
-            elif cab in ('Valor pago', 'Valor do complemento'):
+            elif cab == 'Valor pago':
                 c.number_format = '#,##0.00'
     for j, (cab, _) in enumerate(cols, start=1):
         ws.column_dimensions[get_column_letter(j)].width = {'Histórico': 55, 'Fornecedor': 30, 'Destinatário': 30}.get(cab, 15)

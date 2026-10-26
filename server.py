@@ -1102,14 +1102,13 @@ def _crm_dax_dre(q):
 
 def _crm_descargas_montar(dados, dd):
     import crm_descargas as cd
-    return cd.montar(dd, _crm_marcacoes('descargas'), dados['pag'], dados.get('abertas'))
+    return cd.montar(dd, _crm_marcacoes('descargas'))
 
 
 def _crm_linhas(carteira, forcar=False):
     import crm_documentos as crm
     dados = crm.dados_ssw(_crm_dax_op, contabil_dax, forcar=forcar)
     if carteira == crm.DESCARGAS['id']:
-        # o pagamento do reembolso vem do 441 (pagas e em aberto) das carteiras — os mesmos dados
         import crm_descargas as cd
         return _crm_descargas_montar(dados, cd.dados(_crm_dax_dre, _crm_dax_op, forcar=forcar)), dados
     marc = _crm_marcacoes(carteira)
@@ -1172,11 +1171,24 @@ def api_crm_documentos():
                     'hoje': crm.hoje_brt().isoformat()})
 
 
+def _crm_canon(v):
+    """Valor de campo → texto comparável. O Custo extra é uma lista: passa pela mesma normalização e
+    vira JSON ordenado (570 e 570.0, ou a ordem das chaves, não podem parecer conflito)."""
+    if isinstance(v, (list, dict)):
+        import crm_documentos as crm
+        try:
+            v = crm.normalizar_custos(v)
+        except ValueError:
+            pass
+        return json.dumps(v, sort_keys=True, ensure_ascii=False) if v else ''
+    return str(v if v is not None else '').strip()
+
+
 def _crm_valor_na_linha(linha, campo):
     """O valor que a tela mostra para o campo — é com ele que o "esperado" da tela se compara."""
     v = (linha.get('etapa') if campo == 'etapa' else linha.get('nfs') if campo == 'nfs'
          else (linha.get('campos') or {}).get(campo))
-    return str(v if v is not None else '').strip()
+    return _crm_canon(v)
 
 
 @app.route('/api/crm-documentos/marcar', methods=['POST'])
@@ -1221,10 +1233,10 @@ def api_crm_documentos_marcar():
                 if k not in esperado:
                     continue
                 atual = _crm_valor_na_linha(da_carteira[k], campo)
-                quer = str((alvo.get(k) if alvo is not None else valor) or '').strip()
+                quer = _crm_canon(alvo.get(k) if alvo is not None else valor)
                 # mudou depois que a tela abriu — e para outra coisa: se a colega já pôs o mesmo valor que
                 # esta quer pôr, não há o que sobrescrever e não precisa perguntar
-                if atual != str(esperado.get(k) or '').strip() and atual != quer:
+                if atual != _crm_canon(esperado.get(k)) and atual != quer:
                     conflito.append(k)
         if conflito or d.get('checar'):
             quem = {}

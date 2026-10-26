@@ -80,6 +80,23 @@ CANAIS = ['MIDAS', 'B2B', 'GLL', 'PIPEFY', 'PORTAL OLIMPO', 'GALILEU', 'E-MAIL']
 
 _ANOTACAO = {'id': 'anotacao', 'rotulo': 'Anotação', 'tipo': 'texto', 'col': None}
 
+# Custo extra da Nestlé (pedido de 26/10/2026): descarga, estadia, devolução, pallet e pedágio que ela
+# cobra por ticket FSC — as colunas da planilha dela. Tudo manual: o complemento que a operação emite
+# nem sempre é o do ticket dela; o SSW só sugere. Um CT-e pode ter mais de um (em 2025–26, 46 cargas
+# com 2 complementos e 4 com 3), então o campo é uma LISTA, um item por custo. No pallet o valor já
+# vem no frete: ela deixa o Valor em branco.
+TIPOS_CUSTO = ['DESCARGA', 'ESTADIA', 'DEVOLUÇÃO TOTAL', 'DEVOLUÇÃO PARCIAL', 'PALLET', 'PEDÁGIO']
+STATUS_CUSTO = ['EM ANDAMENTO', 'CONCLUÍDO', 'NEGADO']
+ITENS_CUSTO = [   # (id, rótulo = cabeçalho da planilha dela, tipo), na ordem da planilha
+    ('status', 'Status', 'lista'), ('transporte', 'Transporte', 'texto'), ('oc', 'OC', 'texto'),
+    ('valor', 'Valor', 'moeda'), ('tipo', 'Tipo', 'lista'), ('ticket', 'Ticket', 'texto'),
+    ('doc_transporte', 'Doc transporte', 'texto'), ('pedido_compras', 'Pedido Compras', 'texto'),
+    ('cte_compl', 'CT-e complementar', 'ctrc'),
+]
+CAMPO_CUSTOS = {'id': 'custos', 'rotulo': 'Custo extra', 'tipo': 'custos', 'col': None,
+                'tipos': TIPOS_CUSTO, 'status': STATUS_CUSTO,
+                'itens': [{'id': i, 'rotulo': r, 'tipo': t} for i, r, t in ITENS_CUSTO]}
+
 CARTEIRAS = {
     'nestle': {
         'nome': 'Nestlé', 'raizes': ('60409075', '08334818', '28053619'), 'desde': '2025-01-02',
@@ -109,6 +126,7 @@ CARTEIRAS = {
             {'id': 'autorizado_gll', 'rotulo': 'Autorizado GLL', 'tipo': 'data_texto', 'col': 'AUTORIZADOS GLL'},
             {'id': 'motorista', 'rotulo': 'Motorista', 'tipo': 'texto', 'col': 'MOTORISTA'},
             _ANOTACAO,
+            CAMPO_CUSTOS,
         ],
     },
     'quimica_amparo': {
@@ -200,48 +218,26 @@ ORDEM = ['nestle', 'quimica_amparo', 'unilever', 'ambev']
 # Etapas que não estão "em aberto": o substituído nunca vai ser pago.
 ETAPAS_FORA_DO_ABERTO = {'SUBST'}
 
-# A 5ª aba: a descarga da NESTLÉ paga a terceiro (477, evento 5100) até o reembolso — a lógica mora
-# em crm_descargas.py. Só Nestlé/Garoto (pedido de 21/10/2026: o relatório de segunda ia com todos os
-# clientes, ela só cobra a Nestlé). Não tem etapa: a situação sai do SSW (complemento emitido / pago) e
-# do que ela marca — os campos são as colunas do controle "Custo Extra" que ela mandou de exemplo
-# (status do ticket, ticket FSC, OC, pedido de compras, doc. transporte, tickets rejeitados). As
-# marcações ficam na mesma crm_doc_marcacao, carteira 'descargas', chave L477-<uni>-<lançamento>-<parcela>.
+# A 5ª aba: a descarga da NESTLÉ paga a terceiro (477, evento 5100) — a lógica mora em crm_descargas.py.
+# Só Nestlé/Garoto, pelo tomador do CT-e (21/10/2026: o relatório de segunda ia com todos os clientes).
+# É a conferência do relatório, nada mais (pedido de 26/10/2026): ela valida cada lançamento e o farol
+# passa de vermelho para verde. A cobrança (ticket FSC, OC, complemento) é o Custo extra da aba Nestlé.
+# As marcações ficam na mesma crm_doc_marcacao, carteira 'descargas', chave L477-<uni>-<lançamento>-<parcela>.
 DESCARGAS = {
     'id': 'descargas', 'nome': 'Descargas Nestlé (5100)', 'modo': 'descargas', 'etapas': [],
     'campos': [
-        {'id': 'comprovante', 'rotulo': 'Comprovante recebido', 'tipo': 'data_texto', 'col': None},
-        {'id': 'ticket', 'rotulo': 'Ticket FSC', 'tipo': 'texto', 'col': None},
-        {'id': 'status_ticket', 'rotulo': 'Status do ticket', 'tipo': 'lista',
-         'opcoes': ['EM ANDAMENTO', 'CONCLUÍDO', 'NEGADO'], 'col': None},
-        {'id': 'oc', 'rotulo': 'OC', 'tipo': 'texto', 'col': None},
-        {'id': 'pedido_compras', 'rotulo': 'Pedido de compras', 'tipo': 'texto', 'col': None},
-        {'id': 'doc_transporte', 'rotulo': 'Doc. transporte', 'tipo': 'texto', 'col': None},
-        {'id': 'tickets_rejeitados', 'rotulo': 'Tickets rejeitados', 'tipo': 'texto', 'col': None},
+        {'id': 'validado', 'rotulo': 'Validação', 'tipo': 'farol', 'col': None},
         {'id': 'cte_manual', 'rotulo': 'CT-e (à mão)', 'tipo': 'texto', 'col': None},
-        {'id': 'nao_cobravel', 'rotulo': 'Não cobrável (motivo)', 'tipo': 'texto', 'col': None},
         _ANOTACAO,
     ],
-    # id → rótulo e cor; a ordem é a dos cartões (a do fluxo dela). `aberto`: entra no cartão "Em
-    # aberto"; aberta e não cobrada = "sem cobrança" no resumo da aba.
+    # id → rótulo e cor; a ordem é a dos cartões. `aberto`: ainda falta ela validar.
     'situacoes': [
-        {'id': 'aguardando_comprovante', 'rotulo': 'Aguardando comprovante', 'cor': 'amarelo', 'aberto': True,
-         'desc': 'descarga paga, sem complemento no SSW e sem comprovante marcado'},
-        {'id': 'cobrar', 'rotulo': 'Comprovante ok — abrir ticket', 'cor': 'laranja', 'aberto': True,
-         'desc': 'comprovante recebido, ainda sem ticket FSC'},
-        {'id': 'ticket_aberto', 'rotulo': 'Ticket aberto', 'cor': 'ciano', 'aberto': True,
-         'desc': 'ticket FSC aberto na Nestlé, aguardando a análise'},
-        {'id': 'ticket_aprovado', 'rotulo': 'Ticket aprovado — emitir complemento', 'cor': 'indigo', 'aberto': True,
-         'desc': 'a Nestlé concluiu o ticket e o SSW ainda não tem o complemento'},
+        {'id': 'pendente', 'rotulo': 'A validar', 'cor': 'vermelho', 'aberto': True,
+         'desc': 'farol vermelho: ela ainda não validou o lançamento'},
         {'id': 'sem_cte', 'rotulo': 'Sem CT-e identificado', 'cor': 'cinza', 'aberto': True,
          'desc': 'o histórico cita a Nestlé mas não traz NF nem B10 que leve ao CT-e — preencha o CT-e à mão'},
-        {'id': 'cobrado', 'rotulo': 'Cobrado, aguardando pagamento', 'cor': 'azul', 'aberto': True,
-         'desc': 'complemento ou nota de descarga emitido no SSW, ainda não pago'},
-        {'id': 'reembolso_pago', 'rotulo': 'Reembolso pago', 'cor': 'verde', 'aberto': False,
-         'desc': 'o complemento está pago (441 ou baixa do 455)'},
-        {'id': 'ticket_negado', 'rotulo': 'Ticket negado', 'cor': 'vermelho', 'aberto': False,
-         'desc': 'a Nestlé negou a cobrança'},
-        {'id': 'nao_cobravel', 'rotulo': 'Não cobrável', 'cor': 'roxo', 'aberto': False,
-         'desc': 'marcada por ela como não cobrável, com o motivo'},
+        {'id': 'validado', 'rotulo': 'Validado', 'cor': 'verde', 'aberto': False,
+         'desc': 'farol verde: validado por ela'},
     ],
     'prazo_dias': None, 'fora_do_aberto': [],
 }
@@ -419,10 +415,84 @@ def ler_data_texto(s, hoje=None):
         return s
 
 
+def _chave_opcao(s):
+    return re.sub(r'[^A-Z0-9]', '', _sem_acento(str(s)).upper())
+
+
+def ler_moeda(v):
+    """'1.234,56', '1234.56', 'R$ 570' ou número → float com 2 casas (None se vazio); ValueError se não
+    for número."""
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        return round(float(v), 2)
+    s = re.sub(r'[R$\s]', '', str(v or ''))
+    if not s:
+        return None
+    if ',' in s:
+        s = s.replace('.', '').replace(',', '.')
+    elif re.fullmatch(r'\d{1,3}(\.\d{3})+', s):      # 1.234 é mil duzentos e trinta e quatro
+        s = s.replace('.', '')
+    try:
+        return round(float(s), 2)
+    except ValueError:
+        raise ValueError(f'Valor "{v}" não é um número — use 1.234,56.')
+
+
+def normalizar_custos(valor):
+    """A lista de custos extras de um CT-e (da tela: lista ou JSON) → lista limpa, ou None se vazia.
+    Item sem nada preenchido sai; item com algo e sem Tipo é erro (os cartões contam pelo tipo)."""
+    if isinstance(valor, str):
+        if not valor.strip():
+            return None
+        try:
+            valor = json.loads(valor)
+        except ValueError:
+            raise ValueError('Custo extra em formato inválido.')
+    if not valor:
+        return None
+    if not isinstance(valor, list) or len(valor) > 10:
+        raise ValueError('Custo extra: até 10 custos por CT-e.')
+    out = []
+    for i, it in enumerate(valor, start=1):
+        if not isinstance(it, dict):
+            raise ValueError('Custo extra em formato inválido.')
+        x = {}
+        for cid, rot, tp in ITENS_CUSTO:
+            v = it.get(cid)
+            if v is None or (isinstance(v, str) and not v.strip()):
+                continue
+            if tp == 'moeda':
+                v = ler_moeda(v)
+                if v is None:
+                    continue
+            elif tp == 'ctrc':
+                k = chave_ctrc(v)
+                if not k:
+                    raise ValueError(f'Custo {i}: "{v}" não é um CTRC do SSW — use o formato UDI123456-7.')
+                v = k
+            else:
+                v = re.sub(r'\s+', ' ', str(v).strip())
+                if len(v) > 200:
+                    raise ValueError(f'Custo {i}: {rot} com mais de 200 caracteres.')
+                if tp == 'lista':
+                    opcoes = TIPOS_CUSTO if cid == 'tipo' else STATUS_CUSTO
+                    o = next((o for o in opcoes if _chave_opcao(o) == _chave_opcao(v)), None)
+                    if o is None:
+                        raise ValueError(f'Custo {i}: {rot} "{v}" não existe — use {", ".join(opcoes)}.')
+                    v = o
+            x[cid] = v
+        if x and 'tipo' not in x:
+            raise ValueError(f'Custo {i}: escolha o Tipo.')
+        if x:
+            out.append(x)
+    return out or None
+
+
 def normalizar_entrada(carteira, campo, valor, hoje=None):
     """Valida e normaliza uma edição da tela. Levanta ValueError com a mensagem para a pessoa."""
-    v = (valor or '').strip() if isinstance(valor, str) else ('' if valor is None else str(valor))
     cfg = cfg_de(carteira)
+    if campo == 'custos' and campo_def(carteira, campo):
+        return normalizar_custos(valor)
+    v = (valor or '').strip() if isinstance(valor, str) else ('' if valor is None else str(valor))
     if campo == 'etapa':
         if not v:
             return None
@@ -448,8 +518,14 @@ def normalizar_entrada(carteira, campo, valor, hoje=None):
     if c['tipo'] == 'lista':
         # casa com a opção ignorando acento, caixa, espaço e pontuação: "email" e "e mail" viram E-MAIL,
         # "carga descarga pallet" vira CARGA DESCARGA/PALLET; o que não casa fica como foi escrito
-        chave = lambda s: re.sub(r'[^A-Z0-9]', '', _sem_acento(s).upper())
-        return next((o for o in c.get('opcoes', []) if chave(o) == chave(v)), v)
+        return next((o for o in c.get('opcoes', []) if _chave_opcao(o) == _chave_opcao(v)), v)
+    if c['tipo'] == 'farol':                        # verde = validado por ela; vermelho = vazio
+        u = _chave_opcao(v)
+        if u in ('VALIDADO', 'VERDE', 'OK', 'SIM', 'APROVADO'):
+            return 'VALIDADO'
+        if u in ('PENDENTE', 'VERMELHO', 'NAO'):
+            return None
+        raise ValueError(f'"{v}": use VALIDADO (verde) ou PENDENTE (vermelho).')
     return v
 
 
@@ -755,8 +831,9 @@ def gravar(cur, carteira, chaves, campo, valor, por, ssw_por_chave=None, auto=Fa
                 campos[campo] = valor
             cur.execute("""UPDATE crm_doc_marcacao SET campos = %s::jsonb, atualizado_em = now(), atualizado_por = %s
                            WHERE chave = %s""", (json.dumps(campos, ensure_ascii=False), por, chave))
+        txt = lambda x: json.dumps(x, ensure_ascii=False) if isinstance(x, (list, dict)) else x   # custos: lista
         cur.execute('INSERT INTO crm_doc_log (chave, campo, antes, depois, por, auto) VALUES (%s, %s, %s, %s, %s, %s)',
-                    (chave, campo, antes, valor, por, auto))
+                    (chave, campo, txt(antes), txt(valor), por, auto))
         if antes_out is not None:
             antes_out[chave] = antes
         mudou += 1
@@ -877,6 +954,40 @@ def situacao_ssw(ce, pagamentos, abertas=None, hoje=None, ctrc=None, cobre=False
     return {'ssw': 'indefinido', 'fonte': '455'}
 
 
+# Complemento da Nestlé: "CTRC EMITIDO P/ COMPL. DO UDI123456-7 … TRANSP-12345678 PO-7200000000 - MOTIVO:
+# estadia". Em 2025–26, 687 de 689 citam o CTRC da carga; o motivo é descarga, estadia ou complementar
+# (pallet, pedágio…); TRANSP e PO vêm em ~45%. É só sugestão para o Custo extra — ela confirma.
+_RE_COMPL_DO = re.compile(r'COMPL\w*\.?\s+DO\s+(?:CTRC\s+|CT-?E\s+)?([A-Z]{3})\s?(\d{6})-?(\d)', re.I)
+_RE_MOTIVO = re.compile(r'MOTIVO\s*:?\s*([A-Za-zÀ-ÿ]+)', re.I)
+_RE_TRANSP = re.compile(r'TRANSP\s*-?\s*(\d{6,})', re.I)
+_RE_PO = re.compile(r'\bPO\s*-?\s*(\d{6,})', re.I)
+
+
+def complementos_ssw(ce_rows):
+    """{CTRC da carga: [complementos do SSW que o citam]} — a sugestão do Custo extra."""
+    out = {}
+    for r in ce_rows:
+        if 'COMPLEMENT' not in str(r.get('doc') or '').upper():
+            continue
+        obs = re.sub(r'\s+', ' ', str(r.get('obs') or '').replace(',', ''))   # o BI quebra a observação com vírgulas
+        m = _RE_COMPL_DO.search(obs)
+        k = chave_ctrc(r.get('ctrc'))
+        if not m or not k:
+            continue
+        mot = _RE_MOTIVO.search(obs)
+        mot = mot[1].lower() if mot else None
+        u = _sem_acento(obs).upper()
+        tipo = ('DESCARGA' if mot == 'descarga' else 'ESTADIA' if mot == 'estadia'
+                else 'PEDÁGIO' if 'PEDAGIO' in u else 'PALLET' if re.search(r'PALL?ET|PALETE', u) else None)
+        t, po = _RE_TRANSP.search(obs), _RE_PO.search(obs)
+        out.setdefault(f'{m[1].upper()}{m[2]}-{m[3]}', []).append({
+            'ctrc': k, 'emissao': _iso(r.get('emissao')), 'frete': r.get('frete'), 'motivo': mot,
+            'tipo': tipo, 'transporte': t[1] if t else None, 'po': po[1] if po else None})
+    for v in out.values():
+        v.sort(key=lambda x: x['emissao'] or '')
+    return out
+
+
 def divergencias(etapa, sit):
     """Marcação × SSW, só com prova do 441. A linha fica onde ela marcou; a divergência só aparece.
 
@@ -904,6 +1015,7 @@ def montar_linhas(carteira, ce_rows, pagamentos, marc, hoje=None, abertas=None, 
     abertas_ok = abertas is not None
     cfg = CARTEIRAS[carteira]
     desde = cfg['desde']
+    compl = complementos_ssw(ce_rows) if any(c['tipo'] == 'custos' for c in cfg['campos']) else {}
     por_chave, antes = {}, {}
     for r in ce_rows:
         k = chave_ctrc(r.get('ctrc'))
@@ -972,7 +1084,7 @@ def montar_linhas(carteira, ce_rows, pagamentos, marc, hoje=None, abertas=None, 
             nfs = str(nfs).strip() if nfs not in (None, '') else None
         linha = dict(base, chave=k, etapa=etapa, campos=campos_m, nfs=nfs, nfs_editavel=nfs_editavel,
                      manual=ce is None, nota_linha=p.get('nota_linha') if ce is None else None,
-                     do_historico=k in do_historico,
+                     do_historico=k in do_historico, compl_ssw=compl.get(k) or [],
                      atualizado=(m or {}).get('atualizado'), por=(m or {}).get('por'),
                      editado=bool((m or {}).get('editado')), idade=idade, vencimento=venc,
                      aberto=aberto, novo=etapa is None and s['ssw'] != 'pago',
@@ -1206,7 +1318,7 @@ def exportar_xlsx(carteira, linhas):
     cols.append(('Observacao', lambda l: l['obs']))
     cols.append((cfg['col_etapa'], lambda l: l['etapa']))
     for c in cfg['campos']:
-        if c['id'] == 'tipo' or (c['id'] == 'vencimento' and cfg.get('prazo_dias')):
+        if c['id'] == 'tipo' or (c['id'] == 'vencimento' and cfg.get('prazo_dias')) or c['tipo'] == 'custos':
             continue
         cols.append((c['col'] or c['rotulo'],
                      (lambda cid, tp: (lambda l: _dt(l['campos'].get(cid)) if tp == 'data_texto' else l['campos'].get(cid)))(c['id'], c['tipo'])))
@@ -1243,6 +1355,29 @@ def exportar_xlsx(carteira, linhas):
         ws.column_dimensions[get_column_letter(j)].width = {'Observacao': 50, 'DIVERGÊNCIA': 45}.get(cab, 15)
     ws.freeze_panes = 'A2'
     ws.auto_filter.ref = f'A1:{get_column_letter(len(cols))}{max(1, len(linhas) + 1)}'
+    if any(c['tipo'] == 'custos' for c in cfg['campos']):
+        # Custo extra: uma linha por custo, nas colunas da planilha dela, com o CT-e da carga na frente
+        wc = wb.create_sheet('Custo extra')
+        cab = ['CTRC', 'CT-e', 'Emissao'] + [r for _, r, _ in ITENS_CUSTO]
+        for j, t in enumerate(cab, start=1):
+            c = wc.cell(row=1, column=j, value=t)
+            c.font = Font(bold=True, color='FFFFFF')
+            c.fill = azul
+        i = 1
+        for l in linhas:
+            for x in (l['campos'].get('custos') or []):
+                i += 1
+                vals = [l['ctrc'], l['cte'] or l.get('nfs'), _dt(l['emissao'])] + [x.get(cid) for cid, _, _ in ITENS_CUSTO]
+                for j, v in enumerate(vals, start=1):
+                    c = wc.cell(row=i, column=j, value=v)
+                    if isinstance(v, date):
+                        c.number_format = 'DD/MM/YYYY'
+                    elif cab[j - 1] == 'Valor':
+                        c.number_format = '#,##0.00'
+        for j in range(1, len(cab) + 1):
+            wc.column_dimensions[get_column_letter(j)].width = 16
+        wc.freeze_panes = 'A2'
+        wc.auto_filter.ref = f'A1:{get_column_letter(len(cab))}{max(1, i)}'
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
