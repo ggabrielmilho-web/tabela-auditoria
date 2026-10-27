@@ -84,13 +84,15 @@ _ANOTACAO = {'id': 'anotacao', 'rotulo': 'Anotação', 'tipo': 'texto', 'col': N
 # cobra por ticket FSC — as colunas da planilha dela. Tudo manual: o complemento que a operação emite
 # nem sempre é o do ticket dela; o SSW só sugere. Um CT-e pode ter mais de um (em 2025–26, 46 cargas
 # com 2 complementos e 4 com 3), então o campo é uma LISTA, um item por custo. No pallet o valor já
-# vem no frete: ela deixa o Valor em branco.
+# vem no frete: ela deixa o Valor em branco. Pedido de 27/10/2026: sai o Transporte (a carga B10 já é
+# coluna da tabela) e entra o Pipefy (nº do ticket). Item que não está aqui cai ao regravar o custo —
+# o Transporte de um custo antigo fica só no histórico (o log guarda a lista inteira).
 TIPOS_CUSTO = ['DESCARGA', 'ESTADIA', 'DEVOLUÇÃO TOTAL', 'DEVOLUÇÃO PARCIAL', 'PALLET', 'PEDÁGIO']
 STATUS_CUSTO = ['EM ANDAMENTO', 'CONCLUÍDO', 'NEGADO']
 ITENS_CUSTO = [   # (id, rótulo = cabeçalho da planilha dela, tipo), na ordem da planilha
-    ('status', 'Status', 'lista'), ('transporte', 'Transporte', 'texto'), ('oc', 'OC', 'texto'),
+    ('status', 'Status', 'lista'), ('oc', 'OC', 'texto'),
     ('valor', 'Valor', 'moeda'), ('tipo', 'Tipo', 'lista'), ('ticket', 'Ticket', 'texto'),
-    ('doc_transporte', 'Doc transporte', 'texto'), ('pedido_compras', 'Pedido Compras', 'texto'),
+    ('pipefy', 'Pipefy', 'texto'), ('doc_transporte', 'Doc transporte', 'texto'), ('pedido_compras', 'Pedido Compras', 'texto'),
     ('cte_compl', 'CT-e complementar', 'ctrc'),
 ]
 CAMPO_CUSTOS = {'id': 'custos', 'rotulo': 'Custo extra', 'tipo': 'custos', 'col': None,

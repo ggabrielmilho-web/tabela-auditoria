@@ -923,8 +923,8 @@
                   + (s.motivo ? ' · motivo: ' + esc(s.motivo) : '') + (s.transporte ? ' · TRANSP ' + esc(s.transporte) : '')
                   + (s.po ? ' · PO ' + esc(s.po) : '') + '</span>'
                   + (usado ? '<span class="nota">já está num custo</span>' : '<button class="btn-sm" data-usar="' + j + '">Usar</button>') + '</li>';
-              }).join('') + '</ul><div class="nota">"Usar" põe o CT-e complementar' + ' (e o tipo e o transporte, quando o SSW diz) num custo do mesmo tipo ainda sem complemento, ou num novo. '
-            + 'O valor do complemento não é o do ticket: o Valor fica com ela. O PO aparece só para consulta.</div></div>' : '')
+              }).join('') + '</ul><div class="nota">"Usar" põe o CT-e complementar' + ' (e o tipo, quando o SSW diz) num custo do mesmo tipo ainda sem complemento, ou num novo. '
+            + 'O valor do complemento não é o do ticket: o Valor fica com ela. O TRANSP e o PO aparecem só para consulta.</div></div>' : '')
         + '<div class="acoes" style="margin-top:14px"><button class="btn-sm" data-acao="cancelar">Cancelar</button>'
         + '<button class="btn-sm primary" data-acao="salvar">Salvar</button></div></div>';
     }
@@ -944,7 +944,6 @@
         if (!alvo) { alvo = {}; itens.push(alvo); }
         alvo.cte_compl = s.ctrc;
         if (!alvo.tipo && s.tipo) alvo.tipo = s.tipo;
-        if (!alvo.transporte && s.transporte) alvo.transporte = s.transporte;
         desenhar(); return;
       }
       var acao = b.getAttribute('data-acao');
@@ -1016,8 +1015,9 @@
       if (l.lancto) add(String(l.lancto).split('/')[0], k);
       (String(l.obs || '').toUpperCase().match(/B\d{9}/g) || []).forEach(function (b) { add(b, k); });
       if (l.campos.ticket_pipefy) add(l.campos.ticket_pipefy, k);
-      custosDe(l).forEach(function (x) {                  // ticket FSC (pode vir "FSC1/FSC2") e CT-e complementar
+      custosDe(l).forEach(function (x) {                  // ticket FSC (pode vir "FSC1/FSC2"), Pipefy e CT-e complementar
         String(x.ticket || '').split(/[\/\s,;]+/).forEach(function (t) { add(t, k); });
+        String(x.pipefy || '').split(/[\/\s,;]+/).forEach(function (t) { add(t, k); });
         if (x.cte_compl) add(x.cte_compl, k);
       });
     });
