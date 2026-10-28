@@ -891,6 +891,66 @@ def gravar_faturados(cur, carteira, itens):
     return n
 
 
+# ── Fatura excluída: o FATURADO automático volta atrás ──────────────────────
+# Pedido de 28/10/2026: para antecipar, ela emite a fatura no SSW e depois a EXCLUI. O automático
+# via a fatura em aberto, gravava FATURADO e ficava assim (26/10: 18 CT-e da Nestlé, faturas
+# 0039887–0039897, que somem do 441 inteiro — a exclusão não deixa rastro). Buracos na numeração de
+# 2026: 576 faturas em 140 blocos, 9 a 19 de uma vez a cada 2–3 semanas.
+
+def candidatos_desfaturar(linhas):
+    """Linhas em FATURADO que o SSW mostra sem fatura nenhuma — só estas podem voltar."""
+    return [l for l in linhas if l['etapa'] == 'FATURADO' and l['ssw'] == 'aberto']
+
+
+def ultimas_etapas(cur, chaves):
+    """{chave: última mudança de etapa} — a importação da planilha conta, porque também grava etapa."""
+    if not chaves:
+        return {}
+    cur.execute("""SELECT DISTINCT ON (chave) chave, campo, por, antes, depois, auto,
+                          (em AT TIME ZONE 'America/Sao_Paulo')::date
+                     FROM crm_doc_log WHERE chave = ANY(%s) AND campo IN ('etapa', '*importacao*')
+                    ORDER BY chave, em DESC, id DESC""", (list(chaves),))
+    return {k: {'campo': c, 'por': p, 'antes': a, 'depois': d, 'auto': au, 'dia': dia.isoformat()}
+            for k, c, p, a, d, au, dia in cur.fetchall()}
+
+
+_RE_FATURA_AUTO = re.compile(r'fatura (\S+) em aberto')
+
+
+def desfaturados_pelo_ssw(carteira, linhas, ultimas, lido_abertas):
+    """FATURADO posto pelo automático cuja fatura sumiu do SSW → [(linha, etapa de antes, motivo)].
+
+    Volta para a etapa que a linha tinha antes do automático (`antes` do log), só quando:
+    - a última mudança de etapa foi o FATURADO automático — se uma pessoa ou a importação mexeu
+      depois, a etapa é dela;
+    - o SSW mostra o CT-e fora de qualquer fatura (`aberto`: a carteira em aberto do 441 cobre o
+      CT-e e ele não está em fatura aberta nem paga);
+    - a foto da carteira em aberto (`lido_abertas`) é de um dia DEPOIS do automático: a leitura que
+      diz "sumiu" é mais nova que a que provou a fatura. Sem foto, nada volta.
+    A volta é automática (não conta como mão): se a fatura de verdade sair depois, o FATURADO volta."""
+    if not CARTEIRAS[carteira].get('auto_faturado', True) or not lido_abertas:
+        return []
+    out = []
+    for l in candidatos_desfaturar(linhas):
+        u = ultimas.get(l['chave'])
+        if not u or u['campo'] != 'etapa' or not u['auto'] or u['depois'] != 'FATURADO' or u['dia'] >= lido_abertas:
+            continue
+        m = _RE_FATURA_AUTO.search(u['por'] or '')
+        de = f"fatura {m[1]}" if m else 'a fatura'
+        antes = u['antes'] or None
+        out.append((l, antes, f"{de} excluída no SSW (o 441 não tem mais o CT-e em fatura nenhuma) — "
+                              f"{'volta para ' + antes if antes else 'volta sem etapa'}"))
+    return out
+
+
+def gravar_desfaturados(cur, carteira, itens):
+    """Volta as linhas de `desfaturados_pelo_ssw` para a etapa de antes, com o motivo no log."""
+    n = 0
+    for l, antes, motivo in itens:
+        n += gravar(cur, carteira, [l['chave']], 'etapa', antes, f'{AUTO_POR}: {motivo}', auto=True)
+    return n
+
+
 def ultima_mudanca(cur, chaves, campo):
     """{chave: {'por', 'em'}} da última mudança deste campo nestas linhas — para o aviso de conflito."""
     if not chaves:
@@ -934,17 +994,17 @@ def situacao_ssw(ce, pagamentos, abertas=None, hoje=None, ctrc=None, cobre=False
     if pagamentos:
         ult = max(pagamentos, key=lambda p: p['pagamento'])
         return {'ssw': 'pago', 'pago_em': ult['pagamento'], 'fonte': '441',
-                'faturas': sorted({p['fatura'] for p in pagamentos})}
+                'faturas': sorted({p['fatura'] for p in pagamentos}), 'venc_fatura': ult.get('vencimento')}
     if abertas:
         hoje = hoje or hoje_brt()
         parcial = [f for f in abertas if ctrc in f['pagos_parcial']]
         if parcial:
             f = parcial[0]
             return {'ssw': 'pago', 'pago_em': None, 'fonte': '441 parcial', 'faturas': [f['fatura']],
-                    'fatura_aberta': _resumo_fatura(f)}
+                    'fatura_aberta': _resumo_fatura(f), 'venc_fatura': f['vencimento']}
         f = min(abertas, key=lambda x: x['vencimento'] or '9999-12-31')
         return {'ssw': 'fatura', 'fonte': '441 abertas', 'fatura_aberta': _resumo_fatura(f),
-                'vencida': bool(f['vencimento'] and f['vencimento'] < hoje.isoformat())}
+                'vencida': bool(f['vencimento'] and f['vencimento'] < hoje.isoformat()), 'venc_fatura': f['vencimento']}
     if ce is None:
         return {'ssw': 'sem_ssw'}
     b = str(ce.get('baixa') or '').upper()
@@ -1352,7 +1412,7 @@ def exportar_xlsx(carteira, linhas):
                                 rotulo_ssw.get(l['ssw'], l['ssw']))),
              ('PAGO EM', lambda l: _dt(l.get('pago_em'))),
              ('FATURA', lambda l: fa(l, 'fatura') or ', '.join(l.get('faturas') or [])),
-             ('VENC. FATURA', lambda l: _dt(fa(l, 'vencimento'))),
+             ('VENC. FATURA', lambda l: _dt(l.get('venc_fatura') or fa(l, 'vencimento'))),
              ('SALDO FATURA', lambda l: fa(l, 'saldo')),
              ('DIVERGÊNCIA', lambda l: ' | '.join(d['texto'] for d in l['diverg']))]
     wb = Workbook()

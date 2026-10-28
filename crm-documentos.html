@@ -341,9 +341,9 @@
       d.push('Idade');
       return d;
     }
-    var c = ['CTRC', 'Emissão', 'CT-e', 'NF', 'Frete'].concat(S.cfg.transporte ? ['Transporte'] : [], ['Idade', 'Etapa', 'SSW']);
+    // Vencimento entre a Etapa e o SSW (pedido de 28/10/2026)
+    var c = ['CTRC', 'Emissão', 'CT-e', 'NF', 'Frete'].concat(S.cfg.transporte ? ['Transporte'] : [], ['Idade', 'Etapa', 'Vencimento', 'SSW']);
     S.cfg.campos.forEach(function (f) { c.push(f.rotulo); });
-    if (S.cfg.prazo_dias) c.push('Vencimento');
     c.push('Obs. do CT-e');
     return c;
   }
@@ -360,9 +360,12 @@
               'NF': l.nf ? String(l.nf) : '', 'Frete': l.frete || 0, 'Idade': l.idade, 'Etapa': rotEtapa(l.etapa),
               'SSW': sswRot(l), 'Obs. do CT-e': l.obs || '', 'Transporte': l.transporte || '' };
     S.cfg.campos.forEach(function (f) { r[f.rotulo] = valorDaColuna(l, f); });
-    if (S.cfg.prazo_dias) r['Vencimento'] = l.vencimento || '';
+    r['Vencimento'] = vencDe(l) || '';
     return r;
   }
+  // Vencimento: na carteira com prazo (Ambev) é a conta dela (emissão + prazo, ou o ajustado);
+  // nas outras, o da fatura do SSW em que o CT-e está (em aberto ou paga) — sem fatura, vazio.
+  function vencDe(l) { return S.cfg.prazo_dias ? l.vencimento : l.venc_fatura; }
 
   // o texto da coluna (é o que o filtro estilo Excel e a ordenação usam)
   function valorDaColuna(l, f) {
@@ -653,8 +656,10 @@
           + (l.diverg.length ? ' <span class="marca" title="' + esc(l.diverg.map(function (d) { return d.texto; }).join(' | ')) + '">⚠</span>' : '') + '</td>';
       }
       if (c === 'Vencimento') {
-        var venc = l.vencimento, vencido = venc && venc < S.hoje && l.ssw !== 'pago';
-        return '<td class="mono' + (vencido ? ' vencido' : '') + '">' + dm(venc) + '</td>';
+        var venc = vencDe(l), vencido = venc && venc < S.hoje && l.ssw !== 'pago';
+        var tv = !venc ? '' : S.cfg.prazo_dias ? 'emissão + ' + S.cfg.prazo_dias + ' dias, ou o vencimento ajustado'
+          : 'vencimento da fatura ' + (l.fatura_aberta ? l.fatura_aberta.fatura : (l.faturas || []).join(', ')) + ' no SSW (441)';
+        return '<td class="mono' + (vencido ? ' vencido' : '') + '" title="' + esc(tv) + '">' + dm(venc) + '</td>';
       }
       if (c === 'Obs. do CT-e') return '<td class="obs" title="' + esc(l.obs) + '">' + esc(l.obs) + '</td>';
       var f = S.cfg.campos.find(function (x) { return x.rotulo === c; });

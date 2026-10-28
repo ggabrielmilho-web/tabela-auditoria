@@ -1061,8 +1061,10 @@ _CRM_TRAVA_AUTO = 7302614
 
 
 def _crm_faturar_pelo_ssw(carteira, dados):
-    """Passa para FATURADO, com a prova no log, o que o SSW mostra faturado (crm.faturados_pelo_ssw).
-    Quem não pega a trava segue sem gravar; a próxima leitura completa. Devolve quantas mudaram."""
+    """Passa para FATURADO, com a prova no log, o que o SSW mostra faturado (crm.faturados_pelo_ssw),
+    e volta para a etapa de antes o FATURADO automático cuja fatura foi excluída no SSW
+    (crm.desfaturados_pelo_ssw, 28/10/2026). Quem não pega a trava segue sem gravar; a próxima
+    leitura completa. Devolve quantas mudaram."""
     import crm_documentos as crm
     conn = get_db()
     try:
@@ -1071,12 +1073,35 @@ def _crm_faturar_pelo_ssw(carteira, dados):
             if not cur.fetchone()[0]:
                 return 0
             marc = crm.marcacoes(cur, carteira)
-            itens = crm.faturados_pelo_ssw(carteira, _crm_montar(carteira, dados, marc), marc)
-            n = crm.gravar_faturados(cur, carteira, itens)
+            linhas = _crm_montar(carteira, dados, marc)
+            n = crm.gravar_faturados(cur, carteira, crm.faturados_pelo_ssw(carteira, linhas, marc))
+            n += crm.gravar_desfaturados(cur, carteira, _crm_desfaturados(cur, carteira, linhas, dados))
         conn.commit()
     finally:
         conn.close()
     return n
+
+
+def _crm_desfaturados(cur, carteira, linhas, dados):
+    import crm_documentos as crm
+    cand = crm.candidatos_desfaturar(linhas)
+    if not cand:
+        return []
+    return crm.desfaturados_pelo_ssw(carteira, cand, crm.ultimas_etapas(cur, [l['chave'] for l in cand]),
+                                     dados.get('lido_abertas'))
+
+
+def _crm_tem_desfaturado(carteira, linhas, dados):
+    """Conferência barata antes da trava: só abre o banco se houver FATURADO que o SSW mostra sem fatura."""
+    import crm_documentos as crm
+    if not crm.candidatos_desfaturar(linhas):
+        return False
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            return bool(_crm_desfaturados(cur, carteira, linhas, dados))
+    finally:
+        conn.close()
 
 
 def _crm_bi_atualizado(dados, dataset_id=None):
@@ -1113,7 +1138,8 @@ def _crm_linhas(carteira, forcar=False):
         return _crm_descargas_montar(dados, cd.dados(_crm_dax_dre, _crm_dax_op, forcar=forcar)), dados
     marc = _crm_marcacoes(carteira)
     linhas = _crm_montar(carteira, dados, marc)
-    if crm.faturados_pelo_ssw(carteira, linhas, marc) and _crm_faturar_pelo_ssw(carteira, dados):
+    if ((crm.faturados_pelo_ssw(carteira, linhas, marc) or _crm_tem_desfaturado(carteira, linhas, dados))
+            and _crm_faturar_pelo_ssw(carteira, dados)):
         linhas = _crm_montar(carteira, dados, _crm_marcacoes(carteira))
     return linhas, dados
 
