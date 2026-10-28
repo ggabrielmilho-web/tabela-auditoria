@@ -16,6 +16,7 @@ zeros à direita até 13 dígitos, como no arquivo que a Nestlé aceitou.
 Funções puras (sem Flask nem banco); a rede fica em `buscar_nfe`.
 """
 import re
+import time
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
@@ -142,19 +143,44 @@ def nota_da_chave(chave):
 
 # ── Busca da NF-e (ConsultaDanfe → MeuDanfe) ────────────────────────────────
 
-def _consultadanfe(chave):
+def _consultadanfe(chave, tentativas=2):
+    """Falha passageira (limite, 5xx, demora) tenta de novo ANTES de cair no MeuDanfe, que cobra.
+    Fora da janela de datas é definitivo: vai direto para o pago. Em 28/10/2026 uma rodada de 67 notas
+    caiu inteira no MeuDanfe sem registro do porquê; 30 consultas seguidas não deram 429."""
     import base64
-    r = requests.post('https://consultadanfe.com/api/v1/consulta', json={'chave': chave}, timeout=TIMEOUT)
-    if r.status_code == 200:
-        x = (r.json() or {}).get('xml_base64')
-        if x:
-            return base64.b64decode(x), None
-        return None, 'ConsultaDanfe sem XML'
-    if r.status_code == 400 and r.headers.get('X-Error-Code') == 'data_fora_da_janela':
-        return None, 'ConsultaDanfe: nota fora da janela (mês atual, ou anterior até o dia 15)'
-    if r.status_code == 429:
-        return None, 'ConsultaDanfe: limite de consultas'
-    return None, f'ConsultaDanfe: status {r.status_code}'
+    erro = None
+    for i in range(tentativas):
+        if i:
+            time.sleep(espera)
+        espera = 3
+        try:
+            r = requests.post('https://consultadanfe.com/api/v1/consulta', json={'chave': chave}, timeout=TIMEOUT)
+        except requests.RequestException as e:
+            erro = f'ConsultaDanfe: {type(e).__name__}'
+            continue
+        if r.status_code == 200:
+            x = (r.json() or {}).get('xml_base64')
+            if x:
+                return base64.b64decode(x), None
+            return None, 'ConsultaDanfe sem XML'
+        if r.status_code == 400 and r.headers.get('X-Error-Code') == 'data_fora_da_janela':
+            return None, 'ConsultaDanfe: nota fora da janela (mês atual, ou anterior até o dia 15)'
+        if r.status_code == 429:
+            erro = 'ConsultaDanfe: limite de consultas'
+            try:
+                espera = min(max(int(r.headers.get('Retry-After') or 3), 1), 15)
+            except ValueError:
+                pass
+            continue
+        if r.status_code >= 500:
+            erro = f'ConsultaDanfe: status {r.status_code}'
+            continue
+        try:
+            msg = (r.json() or {}).get('message')
+        except ValueError:
+            msg = None
+        return None, f'ConsultaDanfe: {msg or "status " + str(r.status_code)}'
+    return None, erro
 
 
 def _meudanfe(chave, api_key):
@@ -177,7 +203,18 @@ def _meudanfe(chave, api_key):
 
 
 def buscar_nfe(chave, meudanfe_key=None):
-    """{'ok', 'fonte', 'valor', 'data', 'peso', 'erro'}. Nunca levanta: erro de rede vira 'erro'."""
+    """{'ok', 'fonte', 'valor', 'data', 'peso', 'erro', 'motivo_gratis'}. Nunca levanta: erro de rede vira
+    'erro'. Cada nota deixa uma linha no log do container (`docker service logs … | grep "Arquivo Nestlé"`)
+    com a origem e, se pagou, por que a grátis não serviu."""
+    r = _buscar_nfe(chave, meudanfe_key)
+    print(f'[Arquivo Nestlé] NF {chave[25:34]} chave {chave}: '
+          + (r['fonte'] if r['ok'] else 'NÃO ACHOU')
+          + (f' — grátis: {r["motivo_gratis"]}' if r.get('motivo_gratis') else '')
+          + ('' if r['ok'] else f' — {r["erro"]}'), flush=True)
+    return r
+
+
+def _buscar_nfe(chave, meudanfe_key):
     erros = []
     fontes = [('ConsultaDanfe', lambda: _consultadanfe(chave))]
     if meudanfe_key:
@@ -193,7 +230,7 @@ def buscar_nfe(chave, meudanfe_key=None):
             except ET.ParseError:
                 n = None
             if n and n['chave'] == chave and n['valor'] is not None:
-                return {'ok': True, 'fonte': nome, 'erro': None, **n}
+                return {'ok': True, 'fonte': nome, 'erro': None, 'motivo_gratis': erros[0] if erros else None, **n}
             erro = f'{nome}: XML não é desta nota'
         erros.append(erro)
     if not meudanfe_key:
@@ -202,8 +239,8 @@ def buscar_nfe(chave, meudanfe_key=None):
 
 
 def buscar_lote(chaves, meudanfe_key=None, buscar=buscar_nfe):
-    """{chave: resultado de buscar_nfe}. 3 de cada vez: a grátis responde ~1 s por nota e devolve 429 se
-    apertar. Serve à prévia e ao "Tentar de novo" das notas que nenhuma das duas achou."""
+    """{chave: resultado de buscar_nfe}. 3 de cada vez (~1 s por nota na grátis; 30 seguidas a 3 de cada
+    vez não deram 429 em 28/10/2026). Serve à prévia e ao "Tentar de novo" das notas que nenhuma das duas achou."""
     chaves = [c for c in dict.fromkeys(chaves) if re.fullmatch(r'\d{44}', c or '')]
     if not chaves:
         return {}
