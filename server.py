@@ -124,7 +124,7 @@ def admin_required(f):
 # Abas concedíveis por usuário (a aba Admin NÃO entra — é exclusiva de role=admin).
 PAGINAS_VALIDAS = {'auditoria', 'tarifas', 'embarques', 'reuniao', 'dre',
                    'despesas', 'conhecimentos', 'faturamento', 'contratos', 'veiculos',
-                   'pgr', 'contabil', 'verda', 'jornada', 'ciot', 'projecao', 'crm_documentos'}
+                   'pgr', 'contabil', 'verda', 'jornada', 'ciot', 'projecao', 'crm_documentos', 'cte_nestle'}
 # O de-para aba → rota e a ordem de preferência viviam aqui para escolher em qual
 # aba o usuário caía no login. Não existem mais: quem escolhe é ele, na /inicio.
 # As rotas de cada aba são declaradas uma vez só, no `ABAS` do nav-perms.js.
@@ -1379,6 +1379,76 @@ def api_crm_documentos_xlsx():
     nome = f"CRM Documentos - {crm.cfg_de(carteira)['nome']} - {crm.hoje_brt():%d-%m-%Y}.xlsx"
     return send_file(io.BytesIO(conteudo), as_attachment=True, download_name=nome,
                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
+# ── Arquivo Nestlé — o TXT da planilha CNH a partir do XML do CT-e (28/10/2026) ──
+# A lógica e o layout moram em nestle_txt.py. Duas chamadas: a prévia lê os XMLs e busca as NF-e (rede);
+# o gerar recebe de volta a prévia conferida e só monta o arquivo — não consulta nada de novo, então o
+# MeuDanfe não cobra duas vezes a mesma nota.
+_NESTLE_MAX_ARQ = 300
+_NESTLE_MAX_BYTES = 20 * 1024 * 1024
+
+
+@app.route('/cte-nestle')
+@page_required('cte_nestle')
+def cte_nestle_page():
+    resp = send_from_directory('.', 'cte-nestle.html')
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+@app.route('/api/cte-nestle/previa', methods=['POST'])
+@page_required('cte_nestle')
+def api_cte_nestle_previa():
+    import nestle_txt as nt
+    arqs = request.files.getlist('xml')
+    if not arqs:
+        return jsonify({'ok': False, 'error': 'Anexe o XML do CT-e.'}), 400
+    if len(arqs) > _NESTLE_MAX_ARQ:
+        return jsonify({'ok': False, 'error': f'No máximo {_NESTLE_MAX_ARQ} arquivos por vez.'}), 400
+    lidos, total = [], 0
+    for f in arqs:
+        conteudo = f.read()
+        total += len(conteudo)
+        if total > _NESTLE_MAX_BYTES:
+            return jsonify({'ok': False, 'error': 'Arquivos grandes demais (limite de 20 MB no total).'}), 400
+        lidos.append((f.filename or 'arquivo', conteudo))
+    try:
+        previa = nt.montar_previa(lidos, meudanfe_key=os.getenv('MEUDANFE_API_KEY') or None)
+    except Exception as e:
+        return jsonify({'ok': False, 'error': f'Erro ao ler os arquivos: {e}'}), 500
+    if not previa['ctes']:
+        return jsonify({'ok': False, 'error': 'Nenhum XML de CT-e entre os arquivos.', 'avisos': previa['avisos']}), 400
+    return jsonify({'ok': True, **nt.para_json(previa)})
+
+
+@app.route('/api/cte-nestle/rebuscar', methods=['POST'])
+@page_required('cte_nestle')
+def api_cte_nestle_rebuscar():
+    """"Tentar de novo": consulta só as notas que nenhuma das duas APIs achou na prévia."""
+    import nestle_txt as nt
+    chaves = (request.get_json(silent=True) or {}).get('chaves')
+    if not isinstance(chaves, list) or not chaves or len(chaves) > 500:
+        return jsonify({'ok': False, 'error': 'Nenhuma nota para consultar.'}), 400
+    achou = nt.buscar_lote([str(c) for c in chaves], meudanfe_key=os.getenv('MEUDANFE_API_KEY') or None)
+    return jsonify({'ok': True, 'notas': nt.para_json(achou)})
+
+
+@app.route('/api/cte-nestle/gerar', methods=['POST'])
+@page_required('cte_nestle')
+def api_cte_nestle_gerar():
+    import nestle_txt as nt
+    ctes = (request.get_json(silent=True) or {}).get('ctes')
+    if not isinstance(ctes, list) or not ctes:
+        return jsonify({'ok': False, 'error': 'Nada para gerar.'}), 400
+    try:
+        conteudo = nt.montar_txt(ctes)
+    except nt.ErroArquivo as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    except (KeyError, TypeError, ValueError) as e:
+        return jsonify({'ok': False, 'error': f'Prévia incompleta ({e}). Anexe os XMLs de novo.'}), 400
+    return send_file(io.BytesIO(conteudo), as_attachment=True, download_name=nt.nome_arquivo(ctes),
+                     mimetype='text/plain')
 
 
 # ── CIOT — conferência CTRB × manifesto × CIOT ──────────────────────
