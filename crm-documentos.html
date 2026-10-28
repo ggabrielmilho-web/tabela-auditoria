@@ -313,7 +313,8 @@
     renderTabela: renderTabela,
     colsMoeda: ['Frete', 'Valor', 'Idade'],
     colsData: ['Emissão', 'Vencimento'],
-    fmtData: dm,
+    // o Vencimento da Química é digitado: às vezes texto ("PROGRAMADO") — esse sai como está
+    fmtData: function (v) { return ehIso(v) ? dm(v) : (v == null ? '' : String(v)); },
     defaultSort: { col: 'Idade', dir: 'desc', type: 'number' },
     onView: onView,
     limparBtnId: 'btnLimparFiltros',
@@ -341,9 +342,11 @@
       d.push('Idade');
       return d;
     }
-    // Vencimento entre a Etapa e o SSW (pedido de 28/10/2026)
-    var c = ['CTRC', 'Emissão', 'CT-e', 'NF', 'Frete'].concat(S.cfg.transporte ? ['Transporte'] : [], ['Idade', 'Etapa', 'Vencimento', 'SSW']);
-    S.cfg.campos.forEach(function (f) { c.push(f.rotulo); });
+    // Vencimento entre a Etapa e o SSW (pedido de 28/10/2026), conforme a carteira (`col_vencimento`).
+    // Na Química é o campo que ela digita: fica aqui e sai da fila dos outros campos.
+    var mv = S.cfg.col_vencimento;
+    var c = ['CTRC', 'Emissão', 'CT-e', 'NF', 'Frete'].concat(S.cfg.transporte ? ['Transporte'] : [], ['Idade', 'Etapa'], mv ? ['Vencimento'] : [], ['SSW']);
+    S.cfg.campos.forEach(function (f) { if (!(mv === 'campo' && f.id === 'vencimento')) c.push(f.rotulo); });
     c.push('Obs. do CT-e');
     return c;
   }
@@ -360,12 +363,14 @@
               'NF': l.nf ? String(l.nf) : '', 'Frete': l.frete || 0, 'Idade': l.idade, 'Etapa': rotEtapa(l.etapa),
               'SSW': sswRot(l), 'Obs. do CT-e': l.obs || '', 'Transporte': l.transporte || '' };
     S.cfg.campos.forEach(function (f) { r[f.rotulo] = valorDaColuna(l, f); });
-    r['Vencimento'] = vencDe(l) || '';
+    if (vencCalculado()) r['Vencimento'] = vencDe(l) || '';   // no 'campo' o laço acima já pôs o que ela digitou
     return r;
   }
-  // Vencimento: na carteira com prazo (Ambev) é a conta dela (emissão + prazo, ou o ajustado);
-  // nas outras, o da fatura do SSW em que o CT-e está (em aberto ou paga) — sem fatura, vazio.
-  function vencDe(l) { return S.cfg.prazo_dias ? l.vencimento : l.venc_fatura; }
+  // Vencimento calculado: 'prazo' (Ambev) é a conta dela (emissão + prazo, ou o ajustado); 'ssw'
+  // (Unilever) é o da fatura do SSW em que o CT-e está — sem fatura, vazio. 'campo' (Química) não é
+  // calculado: é o campo editável dela.
+  function vencCalculado() { return S.cfg.col_vencimento === 'prazo' || S.cfg.col_vencimento === 'ssw'; }
+  function vencDe(l) { return S.cfg.col_vencimento === 'prazo' ? l.vencimento : l.venc_fatura; }
 
   // o texto da coluna (é o que o filtro estilo Excel e a ordenação usam)
   function valorDaColuna(l, f) {
@@ -655,9 +660,9 @@
         return '<td><span class="ssw ' + cls + '" title="' + esc(tit) + '">' + esc(t) + '</span>'
           + (l.diverg.length ? ' <span class="marca" title="' + esc(l.diverg.map(function (d) { return d.texto; }).join(' | ')) + '">⚠</span>' : '') + '</td>';
       }
-      if (c === 'Vencimento') {
+      if (c === 'Vencimento' && vencCalculado()) {
         var venc = vencDe(l), vencido = venc && venc < S.hoje && l.ssw !== 'pago';
-        var tv = !venc ? '' : S.cfg.prazo_dias ? 'emissão + ' + S.cfg.prazo_dias + ' dias, ou o vencimento ajustado'
+        var tv = !venc ? '' : S.cfg.col_vencimento === 'prazo' ? 'emissão + ' + S.cfg.prazo_dias + ' dias, ou o vencimento ajustado'
           : 'vencimento da fatura ' + (l.fatura_aberta ? l.fatura_aberta.fatura : (l.faturas || []).join(', ')) + ' no SSW (441)';
         return '<td class="mono' + (vencido ? ' vencido' : '') + '" title="' + esc(tv) + '">' + dm(venc) + '</td>';
       }

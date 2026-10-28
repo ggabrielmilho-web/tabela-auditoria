@@ -134,6 +134,7 @@ CARTEIRAS = {
     },
     'quimica_amparo': {
         'nome': 'Química Amparo', 'raizes': ('43461789',), 'desde': '2025-12-06',
+        'col_vencimento': 'campo',          # manual: o que ela digita, nada do SSW
         'aba': 'QUIMICA AMPARO', 'col_etapa': 'STATUS', 'col_cte': 'CT-e',
         'etapas': [
             _E('AG. COMPROVANTE', 'Aguardando retorno do comprovante de entrega', 'ciano', 'Aguardando comprovante'),
@@ -151,8 +152,9 @@ CARTEIRAS = {
         'campos': [
             {'id': 'tipo', 'rotulo': 'Tipo frete', 'tipo': 'lista', 'opcoes': TIPOS_FRETE, 'col': 'TIPO FRETE'},
             {'id': 'situacao', 'rotulo': 'Situação', 'tipo': 'texto', 'col': 'SITUAÇÃO'},
-            # digitado por ela (1.429 de 1.692 em 21/10/2026: data, ou "PROGRAMADO")
-            {'id': 'vencimento', 'rotulo': 'Vencimento previsto', 'tipo': 'data_texto', 'col': 'VENCIMENTO'},
+            # digitado por ela (1.429 de 1.692 em 21/10/2026: data, ou "PROGRAMADO"); é a coluna
+            # Vencimento entre a Etapa e o SSW (`col_vencimento: 'campo'`, 28/10/2026)
+            {'id': 'vencimento', 'rotulo': 'Vencimento', 'tipo': 'data_texto', 'col': 'VENCIMENTO'},
             {'id': 'programado', 'rotulo': 'Programado', 'tipo': 'data_texto', 'col': 'PROGRAMADO'},
             {'id': 'pagamento', 'rotulo': 'Pagamento', 'tipo': 'data_texto', 'col': 'PAGAMENTO'},
             {'id': 'arquivado', 'rotulo': 'Arquivado', 'tipo': 'texto', 'col': 'ARQUIVADO'},
@@ -161,6 +163,7 @@ CARTEIRAS = {
     },
     'unilever': {
         'nome': 'Unilever', 'raizes': ('61068276',), 'desde': '2025-08-31',
+        'col_vencimento': 'ssw',            # o vencimento da fatura do 441 em que o CT-e está
         'aba': 'UNILEVER 2025', 'col_etapa': 'Farol', 'col_cte': 'CT-e',
         # a emissão está na 1ª coluna, que a tabela do Excel chama de "Colunas2"; a coluna S, sem nome
         # (14 números de 10 dígitos em 21/10/2026), vai para a anotação para não se perder
@@ -189,7 +192,7 @@ CARTEIRAS = {
         'nome': 'Ambev', 'raizes': ('07526557',), 'desde': '2026-01-17',
         'aba': 'AMBEV', 'col_etapa': 'STATUS', 'col_cte': 'CT-e',
         # A planilha calcula o vencimento como emissão + 110 dias; pagamento sempre no dia 4.
-        'prazo_dias': 110,
+        'prazo_dias': 110, 'col_vencimento': 'prazo',
         # Sem FATURADO automático: a fatura da Ambev sai junto com o CT-e (os 10 em aberto em
         # 20/10/2026 já estavam em fatura) e as etapas dela — programação, AG. PAGAMENTO, PGTO
         # AGENDADO — vêm depois; virar tudo FATURADO apagaria o que a aba acompanha.
@@ -276,6 +279,10 @@ def config_publica():
     return [{'id': cid, 'nome': CARTEIRAS[cid]['nome'], 'etapas': CARTEIRAS[cid]['etapas'],
              'campos': CARTEIRAS[cid]['campos'], 'prazo_dias': CARTEIRAS[cid].get('prazo_dias'),
              'transporte': bool(CARTEIRAS[cid].get('col_transporte')),
+             # coluna Vencimento entre a Etapa e o SSW (28/10/2026): 'prazo' (Ambev, emissão + prazo ou o
+             # ajustado), 'ssw' (Unilever, a fatura do 441), 'campo' (Química, só o que ela digita) ou
+             # None (Nestlé: não usam)
+             'col_vencimento': CARTEIRAS[cid].get('col_vencimento'),
              'fora_do_aberto': sorted(ETAPAS_FORA_DO_ABERTO)}
             for cid in ORDEM] + [DESCARGAS]
 

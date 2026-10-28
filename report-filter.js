@@ -88,7 +88,7 @@ window.ReportFilter = (function () {
         view = [...view].sort((a, b) => {
           let va = a[col], vb = b[col];
           if (t === 'number')      { va = Number(va) || 0; vb = Number(vb) || 0; }
-          else if (t === 'date')   { va = va ? new Date(va).getTime() : 0; vb = vb ? new Date(vb).getTime() : 0; }
+          else if (t === 'date')   { va = va ? new Date(va).getTime() || 0 : 0; vb = vb ? new Date(vb).getTime() || 0 : 0; }   // texto numa coluna de data (NaN) ordena como vazio
           else                     { va = (va == null ? '' : String(va)).toLowerCase(); vb = (vb == null ? '' : String(vb)).toLowerCase(); }
           return dir === 'asc' ? (va < vb ? -1 : va > vb ? 1 : 0) : (va > vb ? -1 : va < vb ? 1 : 0);
         });
