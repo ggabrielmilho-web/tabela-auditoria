@@ -46,6 +46,23 @@ window.ReportFilter = (function () {
       return 'text';
     }
 
+    // Data sem hora ('2026-11-04') o navegador lê como meia-noite UTC — em Brasília, 03/11 21:00 —, e
+    // data com hora ele lê no fuso local. Misturar as duas fazia o filtro "até 03/11" trazer o 04/11.
+    // Aqui tudo é lido no fuso local, e o filtro compara o DIA ('AAAA-MM-DD'), sem fuso nenhum.
+    function tempo(v) {
+      if (v == null || v === '') return NaN;
+      const s = String(v);
+      return new Date(/^\d{4}-\d{2}-\d{2}$/.test(s) ? s + 'T00:00:00' : s).getTime();
+    }
+    function dia(v) {
+      const s = v == null ? '' : String(v);
+      if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+      const t = tempo(v);
+      if (isNaN(t)) return null;
+      const d = new Date(t);
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    }
+
     function setColumns(newCols) {
       cols = newCols || [];
       // (re)aplica ordenação padrão sempre que (re)carrega, resolvendo a chave real
@@ -73,10 +90,10 @@ window.ReportFilter = (function () {
             if (f.min != null && n < f.min) return false;
             if (f.max != null && n > f.max) return false;
           } else if (f.type === 'date') {
-            const t = v ? new Date(v).getTime() : null;
-            if (t == null || isNaN(t)) return false;
-            if (f.from != null && t < f.from) return false;
-            if (f.to != null && t > f.to) return false;
+            const d = dia(v);
+            if (d == null) return false;
+            if (f.from && d < f.from) return false;
+            if (f.to && d > f.to) return false;
           }
         }
         return true;
@@ -88,7 +105,7 @@ window.ReportFilter = (function () {
         view = [...view].sort((a, b) => {
           let va = a[col], vb = b[col];
           if (t === 'number')      { va = Number(va) || 0; vb = Number(vb) || 0; }
-          else if (t === 'date')   { va = va ? new Date(va).getTime() || 0 : 0; vb = vb ? new Date(vb).getTime() || 0 : 0; }   // texto numa coluna de data (NaN) ordena como vazio
+          else if (t === 'date')   { va = tempo(va) || 0; vb = tempo(vb) || 0; }   // texto numa coluna de data (NaN) ordena como vazio
           else                     { va = (va == null ? '' : String(va)).toLowerCase(); vb = (vb == null ? '' : String(vb)).toLowerCase(); }
           return dir === 'asc' ? (va < vb ? -1 : va > vb ? 1 : 0) : (va > vb ? -1 : va < vb ? 1 : 0);
         });
@@ -312,8 +329,7 @@ window.ReportFilter = (function () {
       if (atual._deStr) de.value = atual._deStr;
       if (atual._ateStr) ate.value = atual._ateStr;
       wrap.appendChild(rodape(col, () => {
-        const from = de.value ? new Date(de.value).getTime() : null;
-        const to = ate.value ? new Date(ate.value + 'T23:59:59').getTime() : null;
+        const from = de.value || null, to = ate.value || null;   // 'AAAA-MM-DD' do <input type=date>
         if (from == null && to == null) delete filterState[col];
         else filterState[col] = { type: 'date', from, to, _deStr: de.value, _ateStr: ate.value };
       }));
