@@ -813,7 +813,24 @@ function renderMensalTabela(estrutura, meses, listaMeses) {
         <tbody>${linhas}</tbody>
       </table>
     </div>`;
+  ajustarLarguraDre();
 }
+
+// Encolhe a tabela mensal (como o zoom do navegador) para o período caber na tela sem rolagem
+function ajustarLarguraDre() {
+  const tabela = document.querySelector('#conteudo .dre-card table.dre');
+  if (!tabela) return;
+  tabela.style.zoom = '';
+  tabela.style.width = '';
+  const card = tabela.parentElement;
+  const sobra = card.clientWidth - 8;              // padding de 4px do card
+  if (tabela.scrollWidth <= sobra) return;
+  // com width:100% o zoom recalcula a largura e corta o Total; fixa a largura natural antes
+  tabela.style.width = tabela.scrollWidth + 'px';
+  tabela.style.zoom = Math.floor(sobra / tabela.scrollWidth * 100) / 100;
+}
+window.addEventListener('resize', ajustarLarguraDre);
+document.fonts && document.fonts.addEventListener('loadingdone', ajustarLarguraDre);   // a fonte mono alarga a tabela ao chegar
 
 function periodoStartEnd(listaMeses) {
   if (!listaMeses.length) return ['', ''];
