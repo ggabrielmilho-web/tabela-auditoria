@@ -151,13 +151,11 @@ CARTEIRAS = {
         ],
         'campos': [
             {'id': 'tipo', 'rotulo': 'Tipo frete', 'tipo': 'lista', 'opcoes': TIPOS_FRETE, 'col': 'TIPO FRETE'},
-            {'id': 'situacao', 'rotulo': 'Situação', 'tipo': 'texto', 'col': 'SITUAÇÃO'},
             # digitado por ela (1.429 de 1.692 em 21/10/2026: data, ou "PROGRAMADO"); é a coluna
             # Vencimento entre a Etapa e o SSW (`col_vencimento: 'campo'`, 28/10/2026)
             {'id': 'vencimento', 'rotulo': 'Vencimento', 'tipo': 'data_texto', 'col': 'VENCIMENTO'},
-            {'id': 'programado', 'rotulo': 'Programado', 'tipo': 'data_texto', 'col': 'PROGRAMADO'},
-            {'id': 'pagamento', 'rotulo': 'Pagamento', 'tipo': 'data_texto', 'col': 'PAGAMENTO'},
-            {'id': 'arquivado', 'rotulo': 'Arquivado', 'tipo': 'texto', 'col': 'ARQUIVADO'},
+            # Situação, Programado, Pagamento e Arquivado saíram da tela a pedido dela (28/10/2026); o
+            # que estava preenchido segue no banco (`campos`) e na linha original da planilha (gaveta)
             _ANOTACAO,
         ],
     },
