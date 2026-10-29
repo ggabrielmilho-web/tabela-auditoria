@@ -3611,56 +3611,17 @@ def _dax_data(d):
     return f'DATE({d.year},{d.month},{d.day})'
 
 
-_SUBST_CACHE = {}            # dataset -> (instante, lista de originais)
-_SUBST_CACHE_S = 600
-
-
-def _originais_substituidos(dataset_id=None):
-    """CT-e que foram substituídos e AINDA estão na base, para sair da receita do financeiro.
-
-    O cliente paga só o substituto (nenhum original está em fatura do 441), e o SSW em geral tira
-    o original da `conhecimentos_emitidos` — mas nem sempre: em 29/10/2026 eram 19 originais
-    (R$ 124.206,81, fev/mar/set de 2026) somando junto com o substituto. Decisão do diretor
-    (29/10/2026): no financeiro sai o original e fica o substituto, no mês do substituto.
-    O original é lido da observação do substituto, a mesma regra da Projeção. Substituto que não
-    cita o original de forma legível (3 em 29/10/2026) não tira nada."""
-    import projecao as pj
-    ds = dataset_id or CONFIG['dataset_id']
-    c = _SUBST_CACHE.get(ds)
-    if c and time.time() - c[0] < _SUBST_CACHE_S:
-        return c[1]
-    CE = "'public conhecimentos_emitidos'"
-    res = execute_dax(get_token(), f"EVALUATE SELECTCOLUMNS(FILTER({CE},{CE}[tipo_documento]=\"SUBSTITUTO\"),"
-                      f"\"obs\",{CE}[observacao])", dataset_id=ds)['results'][0]
-    if res.get('error'):
-        raise RuntimeError(f"resposta do Power BI cortada/erro: {res['error']}")
-    lista = sorted(pj.originais_substituidos(r.get('obs') for r in clean_rows(res['tables'][0]['rows'])))
-    _SUBST_CACHE[ds] = (time.time(), lista)
-    return lista
-
-
-def _dax_sem_substituidos(dataset_id=None):
-    """Condição DAX que tira os originais substituídos ('' quando não há nenhum)."""
-    lista = _originais_substituidos(dataset_id)
-    if not lista:
-        return ''
-    return (f"NOT 'public conhecimentos_emitidos'[serie_numero_ctrc] IN "
-            "{" + ','.join(f'"{o}"' for o in lista) + "}")
-
-
 def _calcular_dre_periodo(start_date, end_date):
     """Calcula uma DRE para um período fechado via Power BI DAX."""
     token = get_token()
 
-    # Receita Bruta = SUM(valor_frete) filtrado por data_autorizacao, sem o CT-e substituído
-    sem_subst = _dax_sem_substituidos(CONFIG['dre_dataset_id'])
+    # Receita Bruta = SUM(valor_frete) filtrado por data_autorizacao
     dax_receita = (
         f'EVALUATE ROW("total", '
         f'CALCULATE(SUM(\'public conhecimentos_emitidos\'[valor_frete]), '
         f'FILTER(\'public conhecimentos_emitidos\', '
         f'\'public conhecimentos_emitidos\'[data_autorizacao] >= {_dax_data(start_date)} && '
-        f'\'public conhecimentos_emitidos\'[data_autorizacao] <= {_dax_data(end_date)}'
-        f'{" && " + sem_subst if sem_subst else ""})))'
+        f'\'public conhecimentos_emitidos\'[data_autorizacao] <= {_dax_data(end_date)})))'
     )
     result = execute_dax(token, dax_receita, dataset_id=CONFIG['dre_dataset_id'])
     rows = result.get('results', [{}])[0].get('tables', [{}])[0].get('rows', [])
@@ -4177,25 +4138,17 @@ def _fat_dax(ds, ini, fim):
     CE = "'public conhecimentos_emitidos'"
     gcols = ['cnpj_pagador', 'cliente_pagador', 'cidade_origem_prestacao', 'uf_origem_prestacao',
              'cidade_destinatario', 'uf_destinatario', 'primeiro_manifesto', 'data_autorizacao']
-    # CT-e substituído sai do R$ e do nº de CT-e, como na DRE (decisão do diretor, 29/10/2026 — ver
-    # _originais_substituidos). O manifesto dele continua contando carga: a viagem aconteceu, e o
-    # substituto nasce sem manifesto. Por isso o filtro vai nas medidas e "k" segura a linha.
-    sem_subst = _dax_sem_substituidos(ds)
-    if sem_subst:
-        medidas = (f"\"f\", CALCULATE(SUM({CE}[valor_frete]), {sem_subst}), "
-                   f"\"n\", CALCULATE(COUNTROWS({CE}), {sem_subst}), \"k\", COUNTROWS({CE})")
-    else:
-        medidas = f"\"f\", SUM({CE}[valor_frete]), \"n\", COUNTROWS({CE})"
     dax = (
         f"EVALUATE SUMMARIZECOLUMNS({', '.join(f'{CE}[{c}]' for c in gcols)}, "
         f"FILTER(ALL({CE}[data_autorizacao]), {CE}[data_autorizacao] >= DATE({ini.year},{ini.month},{ini.day}) && "
-        f"{CE}[data_autorizacao] <= DATE({fim.year},{fim.month},{fim.day})), {medidas})"
+        f"{CE}[data_autorizacao] <= DATE({fim.year},{fim.month},{fim.day})), "
+        f"\"f\", SUM({CE}[valor_frete]), \"n\", COUNTROWS({CE}))"
     )
     res = execute_dax(get_token(), dax, dataset_id=ds).get('results', [{}])[0]
     if res.get('error'):
         raise _FatCortada((res['error'] or {}).get('code') or str(res['error'])[:120])
     rows = res.get('tables', [{}])[0].get('rows', [])
-    if len(rows) >= 100000 or len(rows) * (len(gcols) + (3 if sem_subst else 2)) >= 1000000:
+    if len(rows) >= 100000 or len(rows) * (len(gcols) + 2) >= 1000000:
         raise _FatCortada(f'{len(rows)} linhas')
     return rows
 
