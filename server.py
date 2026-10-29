@@ -124,7 +124,8 @@ def admin_required(f):
 # Abas concedíveis por usuário (a aba Admin NÃO entra — é exclusiva de role=admin).
 PAGINAS_VALIDAS = {'auditoria', 'tarifas', 'embarques', 'reuniao', 'dre',
                    'despesas', 'conhecimentos', 'faturamento', 'contratos', 'veiculos',
-                   'pgr', 'contabil', 'verda', 'jornada', 'ciot', 'projecao', 'crm_documentos', 'cte_nestle'}
+                   'pgr', 'contabil', 'verda', 'jornada', 'ciot', 'projecao', 'crm_documentos', 'cte_nestle',
+                   'contas_receber'}
 # O de-para aba → rota e a ordem de preferência viviam aqui para escolher em qual
 # aba o usuário caía no login. Não existem mais: quem escolhe é ele, na /inicio.
 # As rotas de cada aba são declaradas uma vez só, no `ABAS` do nav-perms.js.
@@ -1381,6 +1382,274 @@ def api_crm_documentos_xlsx():
     nome = f"CRM Documentos - {crm.cfg_de(carteira)['nome']} - {crm.hoje_brt():%d-%m-%Y}.xlsx"
     return send_file(io.BytesIO(conteudo), as_attachment=True, download_name=nome,
                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
+# ── Contas a Receber — o faturamento e a cobrança numa tela só (29/10/2026) ──
+#
+# Substitui as três planilhas da Laura: o relatório de CT-e sem fatura, a PDD e o vencimento diário.
+# A lógica mora em contas_receber.py; aqui ficam a sessão, o banco e o Power BI. Mesma maquinaria do
+# CRM - Documentos: marcação com histórico, conferência de conflito, Desfazer e atualização a cada minuto.
+_CR_TABELAS = {'ok': False}
+
+
+def _cr_db(fn):
+    """Abre o banco, garante as tabelas na 1ª vez, roda fn(cur) e confirma."""
+    import contas_receber as cr
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            if not _CR_TABELAS['ok']:
+                cr.garantir_tabelas(cur)
+                _CR_TABELAS['ok'] = True
+            r = fn(cur)
+        conn.commit()
+        return r
+    finally:
+        conn.close()
+
+
+def _cr_crm_etapas(cur):
+    """{CTRC: etapa no CRM - Documentos} dos 4 clientes do CRM — só para leitura na fila A faturar."""
+    import crm_documentos as crm
+    cur.execute("SELECT to_regclass('crm_doc_marcacao') IS NOT NULL")
+    if not cur.fetchone()[0]:
+        return {}
+    cur.execute("SELECT chave, carteira, etapa FROM crm_doc_marcacao WHERE etapa IS NOT NULL AND carteira = ANY(%s)",
+                (list(crm.ORDEM),))
+    out = {}
+    for chave, cart, etapa in cur.fetchall():
+        cfg = crm.CARTEIRAS[cart]
+        e = next((x for x in cfg['etapas'] if x['cod'] == etapa), None)
+        out[chave] = {'carteira': cart, 'nome': cfg['nome'], 'etapa': etapa,
+                      'rotulo': e['rotulo'] if e else etapa, 'cor': e['cor'] if e else 'cinza'}
+    return out
+
+
+def _cr_linhas(forcar=False):
+    """→ (CT-e, faturas, dados do SSW)."""
+    import contas_receber as cr
+    import crm_documentos as crm
+    dados = cr.dados_ssw(_crm_dax_op, contabil_dax, forcar=forcar)
+
+    def ler(cur):
+        return cr.marcacoes(cur, 'cte'), cr.marcacoes(cur, 'fatura'), _cr_crm_etapas(cur)
+    m_cte, m_fat, etapas = _cr_db(ler)
+    ctes = cr.montar_ctes(dados, m_cte, etapas)
+    # cliente do CRM sem etapa marcada lá: aparece como "sem etapa", para ela saber onde olhar
+    raizes = {r: cid for cid in crm.ORDEM for r in crm.CARTEIRAS[cid]['raizes']}
+    for l in ctes:
+        cid = raizes.get(str(l.get('cnpj') or '')[:8])
+        if cid and not l.get('crm'):
+            l['crm'] = {'carteira': cid, 'nome': crm.CARTEIRAS[cid]['nome'], 'etapa': None,
+                        'rotulo': 'Sem etapa', 'cor': 'cinza'}
+    return ctes, cr.montar_faturas(dados, m_fat), dados
+
+
+@app.route('/contas-receber')
+@page_required('contas_receber')
+def contas_receber_page():
+    resp = send_from_directory('.', 'contas-receber.html')
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+@app.route('/api/contas-receber')
+@page_required('contas_receber')
+def api_contas_receber():
+    import contas_receber as cr
+    try:
+        desde = _cr_db(lambda cur: (cur.execute('SELECT now()'), cur.fetchone()[0].isoformat())[1])
+        ctes, faturas, dados = _cr_linhas(forcar=request.args.get('refresh') == '1')
+        bi = _crm_bi_atualizado(dados)
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+    return jsonify({'ok': True, 'config': cr.config_publica(), 'ctes': ctes, 'faturas': faturas,
+                    'lido_455': dados['lido_455'], 'lido_abertas': dados['lido_abertas'],
+                    'lido_pagas': dados['lido_pagas'], 'lido_em': dados['lido_em'], 'bi_atualizado': bi,
+                    'desde_mudancas': desde, 'hoje': cr.hoje_brt().isoformat(), 'eu': session.get('nome') or ''})
+
+
+def _cr_valor(linha, campo):
+    v = linha.get('etapa') if campo == 'etapa' else (linha.get('campos') or {}).get(campo)
+    return str(v if v is not None else '').strip()
+
+
+@app.route('/api/contas-receber/marcar', methods=['POST'])
+@page_required('contas_receber')
+def api_contas_receber_marcar():
+    """Grava um campo em uma ou várias linhas: {tipo: 'cte'|'fatura', chaves, campo, valor}. Mesma
+    conferência do CRM: com `esperado`, linha que outra pessoa mudou depois que a tela abriu volta 409
+    com `conflito`; `forcar` grava assim mesmo; `checar` só confere (o Desfazer); `alvo` = valor por linha."""
+    import contas_receber as cr
+    d = request.get_json(silent=True) or {}
+    tipo, chaves, campo = d.get('tipo'), d.get('chaves') or [], d.get('campo')
+    if tipo not in cr.TIPOS:
+        return jsonify({'ok': False, 'error': 'Tipo desconhecido.'}), 400
+    if not isinstance(chaves, list) or not chaves or len(chaves) > 3000 or not all(isinstance(k, str) for k in chaves):
+        return jsonify({'ok': False, 'error': 'Nenhuma linha escolhida.'}), 400
+    alvo = d.get('alvo') if isinstance(d.get('alvo'), dict) else None
+    try:
+        valor = cr.normalizar_entrada(tipo, campo, d.get('valor'))
+        alvos = {k: cr.normalizar_entrada(tipo, campo, alvo.get(k)) for k in chaves} if alvo is not None else None
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    try:
+        ctes, faturas, _ = _cr_linhas()
+        da_tela = {x['chave']: x for x in (ctes if tipo == 'cte' else faturas)}
+        fora = [k for k in chaves if k not in da_tela]
+        if fora:
+            return jsonify({'ok': False, 'error': f'{len(fora)} linha(s) não estão mais na tela (o SSW mudou?): '
+                                                  + ', '.join(fora[:5]) + ' — clique em Atualizar.'}), 400
+        esperado = d.get('esperado') if isinstance(d.get('esperado'), dict) else None
+        conflito = []
+        if esperado is not None and not d.get('forcar'):
+            for k in chaves:
+                if k not in esperado:
+                    continue
+                atual = _cr_valor(da_tela[k], campo)
+                quer = alvos.get(k) if alvos is not None else valor
+                quer = '' if quer is None else str(quer).strip()
+                # mudou depois que a tela abriu — e para outra coisa (se a colega já pôs o mesmo valor, não pergunta)
+                if atual != str(esperado.get(k) or '').strip() and atual != quer:
+                    conflito.append(k)
+        if conflito or d.get('checar'):
+            quem = _cr_db(lambda cur: cr.ultima_mudanca(cur, tipo, conflito, campo)) if conflito else {}
+            itens = [{'chave': k, 'ctrc': k, 'campo': campo, 'atual': _cr_valor(da_tela[k], campo),
+                      'por': (quem.get(k) or {}).get('por') or da_tela[k].get('por'),
+                      'em': (quem.get(k) or {}).get('em') or da_tela[k].get('atualizado')} for k in conflito]
+            return jsonify({'ok': not conflito, 'conflito': itens, 'linhas': [da_tela[k] for k in conflito]}), \
+                (200 if d.get('checar') or not conflito else 409)
+        antes = {}
+        por = session.get('nome') or 'usuário'
+
+        def grava(cur):
+            n = 0
+            if alvos is not None:
+                for k in chaves:
+                    n += cr.gravar(cur, tipo, [k], campo, alvos[k], por, {k: cr.copia_ssw(tipo, da_tela[k])}, antes)
+            else:
+                n = cr.gravar(cur, tipo, chaves, campo, valor, por,
+                              {k: cr.copia_ssw(tipo, da_tela[k]) for k in chaves}, antes)
+            return n
+        n = _cr_db(grava)
+        ctes, faturas, _ = _cr_linhas()
+        quero = set(chaves)
+        novas = [x for x in (ctes if tipo == 'cte' else faturas) if x['chave'] in quero]
+        # a linha que saiu da tela (ex.: o CT-e voltou de "Fatura emitida" e já está em fatura) volta como `sumiu`
+        return jsonify({'ok': True, 'mudou': n, 'antes': antes, 'linhas': novas,
+                        'sumiu': sorted(quero - {x['chave'] for x in novas})})
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/contas-receber/mudancas')
+@page_required('contas_receber')
+def api_contas_receber_mudancas():
+    """O que OUTRAS pessoas mudaram desde `desde` — a tela pergunta a cada minuto e troca só essas
+    linhas. Sem mudança é uma consulta no log; não relê o SSW."""
+    import contas_receber as cr
+    desde = request.args.get('desde')
+    if not desde:
+        return jsonify({'ok': False, 'error': '"desde" faltando.'}), 400
+    eu = session.get('nome') or 'usuário'
+    try:
+        def ler(cur):
+            cur.execute('SELECT now()')
+            return cur.fetchone()[0].isoformat(), cr.mudancas_desde(cur, desde, eu)
+        agora, mud = _cr_db(ler)
+        if not mud:
+            return jsonify({'ok': True, 'agora': agora, 'ctes': [], 'faturas': [], 'quem': []})
+        ctes, faturas, _ = _cr_linhas()
+        kc = {k for t, k, _ in mud if t == 'cte'}
+        kf = {k for t, k, _ in mud if t == 'fatura'}
+        return jsonify({'ok': True, 'agora': agora, 'ctes': [x for x in ctes if x['chave'] in kc],
+                        'faturas': [x for x in faturas if x['chave'] in kf],
+                        'sumiu_ctes': sorted(kc - {x['chave'] for x in ctes}),
+                        'quem': sorted({p or 'alguém' for _, _, p in mud})})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/contas-receber/historico')
+@page_required('contas_receber')
+def api_contas_receber_historico():
+    import contas_receber as cr
+    tipo, chave = request.args.get('tipo'), request.args.get('chave') or ''
+    if tipo not in cr.TIPOS:
+        return jsonify({'ok': False, 'error': 'Tipo desconhecido.'}), 400
+    try:
+        return jsonify({'ok': True, 'historico': _cr_db(lambda cur: cr.historico(cur, tipo, chave))})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/contas-receber/xlsx', methods=['GET', 'POST'])
+@page_required('contas_receber')
+def api_contas_receber_xlsx():
+    """A fila (CT-e ou faturas) em Excel; `chaves` (separadas por vírgula, no corpo do POST — milhares de
+    CTRCs não cabem na URL) limita ao que a tela mostra."""
+    import contas_receber as cr
+    tipo = request.args.get('tipo')
+    if tipo not in cr.TIPOS:
+        return jsonify({'ok': False, 'error': 'Tipo desconhecido.'}), 400
+    try:
+        ctes, faturas, _ = _cr_linhas()
+        linhas = ctes if tipo == 'cte' else faturas
+        so = request.values.get('chaves')
+        if so:
+            quero = set(so.split(','))
+            linhas = [x for x in linhas if x['chave'] in quero]
+        conteudo = cr.exportar_xlsx(tipo, linhas)
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+    nome = f"Contas a Receber - {'A faturar' if tipo == 'cte' else 'Cobrança'} - {cr.hoje_brt():%d-%m-%Y}.xlsx"
+    return send_file(io.BytesIO(conteudo), as_attachment=True, download_name=nome,
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
+@app.route('/api/contas-receber/importar', methods=['POST'])
+@page_required('contas_receber')
+def api_contas_receber_importar():
+    """As planilhas da Laura (PDD.xlsx e/ou VENCIMENTO DIÁRIO.xlsx). Sem `confirmar`, só a prévia; com
+    ela, grava — linha já mexida na tela fica como está."""
+    import contas_receber as cr
+    arqs = request.files.getlist('arquivos')
+    if not arqs:
+        return jsonify({'ok': False, 'error': 'Escolha a PDD.xlsx e/ou a planilha de vencimento.'}), 400
+    regs, lidos = [], []
+    try:
+        for a in arqs[:4]:
+            conteudo = io.BytesIO(a.read())
+            nome = a.filename or 'planilha'
+            import openpyxl
+            wb = openpyxl.load_workbook(conteudo, read_only=True)
+            abas = [s.upper() for s in wb.sheetnames]
+            conteudo.seek(0)
+            if any('PDD' in s or 'SINGULAR' in s for s in abas):
+                r = cr.ler_pdd(conteudo)
+                lidos.append({'arquivo': nome, 'tipo': 'PDD', 'linhas': len(r)})
+            else:
+                r = cr.ler_vencimento(conteudo)
+                lidos.append({'arquivo': nome, 'tipo': 'Vencimento', 'linhas': len(r)})
+            regs += r
+    except Exception as e:
+        return jsonify({'ok': False, 'error': f'Não consegui ler a planilha: {e}'}), 400
+    if not regs:
+        return jsonify({'ok': False, 'error': 'Nenhuma linha reconhecida — é a PDD ou a planilha de vencimento?',
+                        'lidos': lidos}), 400
+    try:
+        dados = cr.dados_ssw(_crm_dax_op, contabil_dax)
+        m_cte, m_fat = _cr_db(lambda cur: (cr.marcacoes(cur, 'cte'), cr.marcacoes(cur, 'fatura')))
+        previa = cr.previa_importacao(regs, dados, m_cte, m_fat)
+        if request.args.get('confirmar') != '1':
+            return jsonify({'ok': True, 'lidos': lidos, 'previa': previa})
+        n, preservadas = _cr_db(lambda cur: cr.gravar_importacao(
+            cur, regs, f"Importação das planilhas ({session.get('nome') or 'usuário'})"))
+        return jsonify({'ok': True, 'lidos': lidos, 'previa': previa, 'gravadas': n, 'preservadas': preservadas})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
 
 
 # ── Arquivo Nestlé — o TXT da planilha CNH a partir do XML do CT-e (28/10/2026) ──

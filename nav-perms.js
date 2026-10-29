@@ -67,6 +67,9 @@
     { id: 'crm_documentos', page: 'crm_documentos', href: '/crm-documentos', label: '📄 CRM - Documentos' },
     // O TXT que a planilha CNH da Nestlé exportava, montado do XML do CT-e (28/10/26). 📤 é Emoji 1.0.
     { id: 'cte_nestle',    page: 'cte_nestle',    href: '/cte-nestle',        label: '📤 Arquivo Nestlé' },
+    // O faturamento e a cobrança numa tela só: CT-e sem fatura, o que não será faturado e as faturas
+    // vencidas — as três planilhas da Laura (29/10/26). 💵 é Emoji 1.0 (glifo no Windows 10).
+    { id: 'contas_receber', page: 'contas_receber', href: '/contas-receber',  label: '💵 Contas a Receber' },
     // 🚛 (carreta articulada) e não 🚚 (baú, que fica com Embarques): esta aba analisa
     // cavalo + carreta. Nada de 🛞/🛻 — são do Emoji 13/14 e o Windows 10 não tem o
     // glifo, sai quadradinho vazio. Emoji desta lista: só de blocos antigos.
@@ -86,7 +89,7 @@
   var GRUPOS = [
     { nome: 'Operação',   abas: ['torre', 'viagem', 'embarques', 'ordens', 'semordem', 'sm', 'mapa', 'pgr', 'jornada', 'ciot', 'veiculos', 'verda'] },
     { nome: 'Comercial',  abas: ['tarifas', 'faturamento', 'contratos'] },
-    { nome: 'Financeiro', abas: ['auditoria', 'dre', 'projecao', 'despesas', 'conhecimentos', 'contabil', 'crm_documentos', 'cte_nestle'] },
+    { nome: 'Financeiro', abas: ['auditoria', 'dre', 'projecao', 'despesas', 'conhecimentos', 'contabil', 'contas_receber', 'crm_documentos', 'cte_nestle'] },
     { nome: 'Sistema',    abas: ['reuniao', 'admin', 'uso'] }
   ];
 
