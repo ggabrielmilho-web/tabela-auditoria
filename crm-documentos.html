@@ -13,7 +13,7 @@
     --green: #34d399; --red: #f87171; --orange: #fb923c; --yellow: #fbbf24;
     --c-vermelho: #f87171; --c-laranja: #fb923c; --c-amarelo: #fbbf24; --c-verde: #34d399;
     --c-azul: #38bdf8; --c-rosa: #f472b6; --c-roxo: #a78bfa; --c-ciano: #22d3ee; --c-cinza: #94a3b8;
-    --c-indigo: #818cf8; --c-magenta: #e879f9;
+    --c-indigo: #818cf8; --c-magenta: #e879f9; --c-chumbo: #64748b;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   /* `display: flex` da gaveta, do modal e da barra de lote venceria o `hidden` */
@@ -386,6 +386,8 @@
   // dela: só com os a receber, o cartão ficava sempre em 0 e o Substituído parecia não existir na
   // tela (21/10/2026).
   function naEtapa(l, cod) { return l.etapa === cod && (foraDoAberto(cod) || l.aberto || l.diverg.length > 0); }
+  // Cancelado: marcado à mão (etapa) ou cancelado no SSW (saiu do 455) — um cartão só para os dois
+  function cancelado(l) { return l.etapa === 'CANCELADO' || l.ssw === 'cancelado'; }
 
   // ── o que entra na tabela antes dos filtros de coluna ──
   function passa(l) {
@@ -396,7 +398,7 @@
     else if (c && c.indexOf('custo') === 0) { if (!custosDe(l).some(function (x) { return custoCasa(x, c); })) return false; }
     else if (c === 'novos') { if (!l.novo) return false; }
     else if (c === 'diverg') { if (!l.diverg.length) return false; }
-    else if (c === 'cancelados') { if (l.ssw !== 'cancelado') return false; }
+    else if (c === 'cancelados') { if (!cancelado(l)) return false; }
     else if (c === 'vencidas') { if (!(l.vencida && l.aberto)) return false; }
     else if (c === 'pagos') { if (!(l.ssw === 'pago' && l.pago_em && l.pago_em >= S.desde30)) return false; }
     else if (c) { if (!naEtapa(l, c)) return false; }
@@ -526,6 +528,7 @@
     var ls = S.linhas, cards = [aberto];
     cards.push({ id: 'novos', t: 'Novos', d: 'CT-e do SSW ainda sem etapa', cor: 'cinza', ls: ls.filter(function (l) { return l.novo; }) });
     S.cfg.etapas.forEach(function (e) {
+      if (e.cod === 'CANCELADO') return;   // é o cartão "Cancelado", que junta o do SSW (abaixo)
       cards.push({ id: e.cod, t: e.rotulo, cor: e.cor,
                    d: e.desc + (foraDoAberto(e.cod) ? ' — todos os CT-e nesta etapa (não entram no em aberto)' : ' — a receber ou com divergência'),
                    ls: ls.filter(function (l) { return naEtapa(l, e.cod); }) });
@@ -535,10 +538,12 @@
                    ls: ls.filter(function (l) { return l.vencida && l.aberto; }) });
     }
     cards.push({ id: 'diverg', t: 'Divergência', d: 'a marcação diz uma coisa e o SSW outra', cor: 'vermelho', ls: ls.filter(function (l) { return l.diverg.length; }) });
-    // CT-e que veio do SSW, foi marcado aqui e depois saiu do 455 (o relatório não traz cancelado): fora do
-    // em aberto, mas à vista para mapear (29/10/2026)
-    cards.push({ id: 'cancelados', t: 'Cancelado no SSW', d: 'marcado aqui e depois cancelado no SSW (saiu do 455) — não entra no em aberto',
-                 cor: 'magenta', ls: ls.filter(function (l) { return l.ssw === 'cancelado'; }) });
+    // Cancelado (29/10/2026): a etapa posta à mão e o CT-e que veio do SSW, foi marcado aqui e depois saiu
+    // do 455 (o relatório não traz cancelado) — fora do em aberto, mas à vista para mapear. O selo da
+    // coluna SSW diz qual é qual ("Cancelado no SSW").
+    cards.push({ id: 'cancelados', t: 'Cancelado', cor: 'chumbo',
+                 d: 'marcado como cancelado aqui, ou cancelado no SSW (saiu do 455) — não entra no em aberto',
+                 ls: ls.filter(cancelado) });
     cards.push({ id: 'pagos', t: 'Pagos 30 dias', d: 'pagamento registrado no SSW nos últimos 30 dias', cor: 'verde', pagos: true,
                  ls: ls.filter(function (l) { return l.ssw === 'pago' && l.pago_em >= S.desde30; }) });
     $('cards').innerHTML = cards.map(cardHTML).join('') + cardsCustoHTML();

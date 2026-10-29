@@ -80,6 +80,11 @@ CANAIS = ['MIDAS', 'B2B', 'GLL', 'PIPEFY', 'PORTAL OLIMPO', 'GALILEU', 'E-MAIL']
 
 _ANOTACAO = {'id': 'anotacao', 'rotulo': 'Anotação', 'tipo': 'texto', 'col': None}
 
+# Cancelado à mão (pedido de 29/10/2026): a linha da planilha sem CTRC não tem como o SSW dizer que foi
+# cancelada — a Química escrevia "CANCELADO" no Vencimento. Fora do em aberto, como o SUBST; o cartão
+# "Cancelado" da tela junta estas e as que o SSW cancelou (`ssw == 'cancelado'`).
+ETAPA_CANCELADO = _E('CANCELADO', 'CT-e cancelado', 'chumbo', 'Cancelado')
+
 # Custo extra da Nestlé (pedido de 26/10/2026): descarga, estadia, devolução, pallet e pedágio que ela
 # cobra por ticket FSC — as colunas da planilha dela. Tudo manual: o complemento que a operação emite
 # nem sempre é o do ticket dela; o SSW só sugere. Um CT-e pode ter mais de um (em 2025–26, 46 cargas
@@ -116,6 +121,7 @@ CARTEIRAS = {
             _E('AUTORIZADO', 'Aguardando antecipar', 'verde', 'Autorizado'),
             _E('FATURADO', 'Fatura emitida', 'azul', 'Faturado'),
             _E('SUBST', 'CT-e substituído por outro', 'roxo', 'Substituído'),
+            ETAPA_CANCELADO,
         ],
         'campos': [
             {'id': 'tipo', 'rotulo': 'Tipo frete', 'tipo': 'lista', 'opcoes': TIPOS_FRETE, 'col': 'TIPO FRETE'},
@@ -148,6 +154,7 @@ CARTEIRAS = {
             _E('AUTORIZADO', 'Aguardando antecipar', 'verde', 'Autorizado'),
             _E('FATURADO', 'Fatura emitida', 'azul', 'Faturado'),
             _E('SUBST', 'CT-e substituído por outro', 'roxo', 'Substituído'),
+            ETAPA_CANCELADO,
         ],
         'campos': [
             {'id': 'tipo', 'rotulo': 'Tipo frete', 'tipo': 'lista', 'opcoes': TIPOS_FRETE, 'col': 'TIPO FRETE'},
@@ -175,6 +182,7 @@ CARTEIRAS = {
             _E('AUTORIZADO', 'Aguardando antecipar', 'verde', 'Autorizado'),
             _E('FATURADO', 'Fatura emitida', 'azul', 'Faturado'),
             _E('SUBST', 'CT-e substituído por outro', 'roxo', 'Substituído'),
+            ETAPA_CANCELADO,
         ],
         'campos': [
             {'id': 'tipo', 'rotulo': 'Tipo frete', 'tipo': 'lista', 'opcoes': TIPOS_FRETE, 'col': 'TIPO FRETE'},
@@ -204,6 +212,7 @@ CARTEIRAS = {
             _E('PGTO AGENDADO', 'Pagamento agendado (sempre dia 4)', 'verde', 'Pagamento agendado'),
             _E('FATURADO', 'Fatura emitida', 'azul', 'Faturado'),
             _E('SUBST', 'CT-e substituído por outro', 'roxo', 'Substituído'),
+            ETAPA_CANCELADO,
         ],
         'campos': [
             {'id': 'tipo', 'rotulo': 'Tipo frete', 'tipo': 'lista', 'opcoes': TIPOS_FRETE, 'col': 'TIPO FRETE'},
@@ -219,8 +228,8 @@ CARTEIRAS = {
 }
 ORDEM = ['nestle', 'quimica_amparo', 'unilever', 'ambev']
 
-# Etapas que não estão "em aberto": o substituído nunca vai ser pago.
-ETAPAS_FORA_DO_ABERTO = {'SUBST'}
+# Etapas que não estão "em aberto": o substituído e o cancelado nunca vão ser pagos.
+ETAPAS_FORA_DO_ABERTO = {'SUBST', 'CANCELADO'}
 
 # A 5ª aba: a descarga da NESTLÉ paga a terceiro (477, evento 5100) — a lógica mora em crm_descargas.py.
 # Só Nestlé/Garoto, pelo tomador do CT-e (21/10/2026: o relatório de segunda ia com todos os clientes).
@@ -903,14 +912,14 @@ def faturados_pelo_ssw(carteira, linhas, marc):
 
     Prova de fatura: o CT-e está numa fatura em aberto ou paga do 441, ou o 455 leu a baixa
     FATURADO (que só existe com a fatura emitida). LIQUIDADO do 455 sozinho não prova fatura.
-    Fica de fora: SUBST (substituído em fatura é divergência para alguém olhar), linha que
+    Fica de fora: SUBST e CANCELADO (em fatura é divergência para alguém olhar), linha que
     alguém tirou do FATURADO à mão depois da mudança automática (a mão vale; a mudança não
     volta) e carteira com `auto_faturado` False."""
     if not CARTEIRAS[carteira].get('auto_faturado', True):
         return []
     out = []
     for l in linhas:
-        if l['etapa'] in ('FATURADO', 'SUBST') or (marc.get(l['chave']) or {}).get('mao_depois_do_auto'):
+        if l['etapa'] in ('FATURADO', 'SUBST', 'CANCELADO') or (marc.get(l['chave']) or {}).get('mao_depois_do_auto'):
             continue
         fa = l.get('fatura_aberta') or {}
         if l['ssw'] == 'fatura' and l.get('fonte') == '441 abertas':
@@ -1140,6 +1149,9 @@ def divergencias(etapa, sit):
     if etapa == 'SUBST' and sit.get('ssw') == 'fatura' and fa:
         out.append({'cod': 'subst_em_fatura',
                     'texto': f"Substituído aqui, mas está na fatura {fa['fatura']} em aberto no SSW."})
+    if etapa == 'CANCELADO' and sit.get('ssw') == 'fatura' and fa:
+        out.append({'cod': 'cancelado_em_fatura',
+                    'texto': f"Cancelado aqui, mas está na fatura {fa['fatura']} em aberto no SSW."})
     if etapa == 'FATURADO' and sit.get('ssw') == 'aberto':
         out.append({'cod': 'faturado_sem_fatura',
                     'texto': 'FATURADO aqui, e o 441 não tem este CT-e em fatura nenhuma (nem paga, nem em aberto) — conferir.'})
