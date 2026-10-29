@@ -776,6 +776,14 @@ DO $$ BEGIN
         ALTER TABLE crm_doc_log ADD COLUMN auto BOOLEAN NOT NULL DEFAULT false;
     END IF;
 END $$;
+-- Cópia do que o 455 dizia do CT-e (emissão, valor, pagador…) quando a marcação nasceu da tela: o 455
+-- não traz CT-e cancelado, e sem ela a linha cancelada ficava só com o CTRC (29/10/2026).
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema()
+                     AND table_name = 'crm_doc_marcacao' AND column_name = 'ssw') THEN
+        ALTER TABLE crm_doc_marcacao ADD COLUMN ssw JSONB;
+    END IF;
+END $$;
 """
 
 
@@ -784,7 +792,7 @@ def garantir_tabelas(cur):
 
 
 def marcacoes(cur, carteira):
-    cur.execute("""SELECT chave, ctrc, cte, etapa, campos, planilha, origem,
+    cur.execute("""SELECT chave, ctrc, cte, etapa, campos, planilha, origem, ssw,
                           to_char(atualizado_em AT TIME ZONE 'America/Sao_Paulo', 'DD/MM/YYYY HH24:MI'),
                           atualizado_por,
                           EXISTS (SELECT 1 FROM crm_doc_log l WHERE l.chave = m.chave
@@ -795,11 +803,41 @@ def marcacoes(cur, carteira):
                                        AND l.campo = 'etapa' AND l.auto), false)
                      FROM crm_doc_marcacao m WHERE carteira = %s""", (carteira,))
     out = {}
-    for (chave, ctrc, cte, etapa, campos, planilha, origem, quando, por, editado, mao) in cur.fetchall():
+    for (chave, ctrc, cte, etapa, campos, planilha, origem, ssw, quando, por, editado, mao) in cur.fetchall():
         out[chave] = {'chave': chave, 'ctrc': ctrc, 'cte': cte, 'etapa': etapa, 'campos': campos or {},
-                      'planilha': planilha, 'origem': origem, 'atualizado': quando, 'por': por,
+                      'planilha': planilha, 'origem': origem, 'ssw': ssw, 'atualizado': quando, 'por': por,
                       'editado': editado, 'mao_depois_do_auto': mao}
     return out
+
+
+# O que se copia do 455 para a marcação (coluna `ssw`): o bastante para a linha cancelada no SSW
+# continuar dizendo o que era.
+CAMPOS_COPIA_SSW = ('emissao', 'emissao_455', 'frete', 'nf', 'uf_o', 'doc', 'pagador', 'cnpj',
+                    'remetente', 'destinatario', 'destino')
+
+
+def base_ssw(linha):
+    """A linha da tela → o que `gravar` recebe em `ssw_por_chave` (CTRC, CT-e e a cópia do 455)."""
+    return {k: linha.get(k) for k in ('ctrc', 'cte') + CAMPOS_COPIA_SSW}
+
+
+def copias_faltando(linhas, marc):
+    """Marcações nascidas da tela, com o CT-e ainda no 455, que não têm a cópia → [(chave, cópia)].
+    Preenche uma vez as que já existiam antes da coluna `ssw` (29/10/2026)."""
+    out = []
+    for l in linhas:
+        m = marc.get(l['chave'])
+        if m and not l['manual'] and m.get('planilha') is None and m.get('ssw') is None:
+            out.append((l['chave'], {k: l.get(k) for k in CAMPOS_COPIA_SSW}))
+    return out
+
+
+def gravar_copias(cur, itens):
+    """Grava a cópia do 455 (sem log e sem mexer em `atualizado_em`: não é mudança de ninguém)."""
+    for chave, copia in itens:
+        cur.execute('UPDATE crm_doc_marcacao SET ssw = %s::jsonb WHERE chave = %s AND ssw IS NULL',
+                    (json.dumps(copia, ensure_ascii=False, default=str), chave))
+    return len(itens)
 
 
 def gravar(cur, carteira, chaves, campo, valor, por, ssw_por_chave=None, auto=False, antes_out=None):
@@ -818,9 +856,11 @@ def gravar(cur, carteira, chaves, campo, valor, por, ssw_por_chave=None, auto=Fa
             # esperar a primeira e seguir com a linha que ela criou (antes, a segunda dava erro de chave).
             s = ssw_por_chave.get(chave) or {}
             cte = s.get('cte')
-            cur.execute("""INSERT INTO crm_doc_marcacao (chave, carteira, ctrc, cte, atualizado_por)
-                           VALUES (%s, %s, %s, %s, %s) ON CONFLICT (chave) DO NOTHING""",
-                        (chave, carteira, s.get('ctrc'), int(cte) if str(cte or '').isdigit() else None, por))
+            copia = {k: s[k] for k in CAMPOS_COPIA_SSW if k in s} or None
+            cur.execute("""INSERT INTO crm_doc_marcacao (chave, carteira, ctrc, cte, ssw, atualizado_por)
+                           VALUES (%s, %s, %s, %s, %s::jsonb, %s) ON CONFLICT (chave) DO NOTHING""",
+                        (chave, carteira, s.get('ctrc'), int(cte) if str(cte or '').isdigit() else None,
+                         json.dumps(copia, ensure_ascii=False, default=str) if copia else None, por))
             cur.execute('SELECT etapa, campos, carteira FROM crm_doc_marcacao WHERE chave = %s FOR UPDATE', (chave,))
             r = cur.fetchone()
         etapa, campos, cart = r
@@ -892,7 +932,7 @@ def gravar_faturados(cur, carteira, itens):
     n = 0
     for l, motivo in itens:
         n += gravar(cur, carteira, [l['chave']], 'etapa', 'FATURADO', f'{AUTO_POR}: {motivo}',
-                    {l['chave']: {'ctrc': l['ctrc'], 'cte': l['cte']}}, auto=True)
+                    {l['chave']: base_ssw(l)}, auto=True)
     return n
 
 
@@ -1070,6 +1110,25 @@ def complementos_ssw(ce_rows):
     return out
 
 
+# CT-e substituto: "CTRC EMITIDO PARA SUBSTITUIR O CTRC UDI 404842-3,CT-e 002 …". O original é
+# cancelado e sai do 455; o substituto fica, e é por ele que a linha cancelada aponta para onde foi.
+_RE_SUBSTITUI = re.compile(r'SUBSTITUIR\s+O\s+CTRC\s+([A-Z]{3})\s?(\d{6})-?(\d)', re.I)
+
+
+def substitutos_ssw(ce_rows):
+    """{CTRC original: CTRC do substituto} pelas observações do 455."""
+    out = {}
+    for r in ce_rows:
+        obs = str(r.get('obs') or '')
+        if 'SUBSTITU' not in obs.upper():
+            continue
+        m = _RE_SUBSTITUI.search(re.sub(r'\s+', ' ', obs.replace(',', ' ')))
+        k = chave_ctrc(r.get('ctrc'))
+        if m and k:
+            out.setdefault(f'{m[1].upper()}{m[2]}-{m[3]}', k)
+    return out
+
+
 def divergencias(etapa, sit):
     """Marcação × SSW, só com prova do 441. A linha fica onde ela marcou; a divergência só aparece.
 
@@ -1098,6 +1157,7 @@ def montar_linhas(carteira, ce_rows, pagamentos, marc, hoje=None, abertas=None, 
     cfg = CARTEIRAS[carteira]
     desde = cfg['desde']
     compl = complementos_ssw(ce_rows) if any(c['tipo'] == 'custos' for c in cfg['campos']) else {}
+    subst = substitutos_ssw(ce_rows)
     por_chave, antes = {}, {}
     for r in ce_rows:
         k = chave_ctrc(r.get('ctrc'))
@@ -1131,11 +1191,14 @@ def montar_linhas(carteira, ce_rows, pagamentos, marc, hoje=None, abertas=None, 
                     'destino': '/'.join(x for x in (ce.get('cid_d'), ce.get('uf_d')) if x),
                     'obs': ce.get('obs'), 'lido_455': _iso(ce.get('imp'))}
         else:
+            c = {} if p else ((m or {}).get('ssw') or {})   # nascida da tela: a cópia do que o 455 dizia
             base = {'ctrc': (m or {}).get('ctrc') or p.get('ctrc'), 'cte': (m or {}).get('cte') or p.get('cte'),
-                    'emissao': p.get('emissao'), 'emissao_455': None, 'uf_o': p.get('uf_o'), 'nf': p.get('nf'),
-                    'frete': p.get('frete'), 'doc': None, 'pagador': p.get('cliente'), 'cnpj': p.get('cnpj'),
-                    'remetente': None, 'destinatario': None, 'destino': None, 'obs': p.get('obs'),
-                    'lido_455': None}
+                    'emissao': p.get('emissao') or c.get('emissao'), 'emissao_455': c.get('emissao_455'),
+                    'uf_o': p.get('uf_o') or c.get('uf_o'), 'nf': p.get('nf') or c.get('nf'),
+                    'frete': p.get('frete') or c.get('frete'), 'doc': c.get('doc'),
+                    'pagador': p.get('cliente') or c.get('pagador'), 'cnpj': p.get('cnpj') or c.get('cnpj'),
+                    'remetente': c.get('remetente'), 'destinatario': c.get('destinatario'),
+                    'destino': c.get('destino'), 'obs': p.get('obs'), 'lido_455': None}
         # Linha manual (fora do 455) com CTRC de verdade — nota de serviço de descarga, CT-e
         # antigo — ainda pode ter sido paga numa fatura do 441.
         ck = k if chave_ctrc(k) else chave_ctrc(base['ctrc'])
@@ -1144,6 +1207,10 @@ def montar_linhas(carteira, ce_rows, pagamentos, marc, hoje=None, abertas=None, 
         cobre = bool(abertas_ok and em and (abertas_corte is None or em >= abertas_corte))
         s = situacao_ssw(ce, pagamentos.get(ck) if ck else None,
                          (abertas or {}).get(ck) if ck else None, hoje, ck, cobre, inicio_441)
+        # Nasceu do SSW (marcada na tela, sem linha da planilha) e saiu do 455: o relatório não traz CT-e
+        # cancelado (29/10/2026). Só quando o 441 também não o conhece — fatura ou pagamento provam que existe.
+        if ce is None and not p and chave_ctrc(k) == k and s['ssw'] == 'sem_ssw':
+            s = {'ssw': 'cancelado', 'fonte': '455', 'substituto': subst.get(k)}
         idade = (hoje - date.fromisoformat(em)).days if em else None
         venc = None
         if cfg.get('prazo_dias') and em:
@@ -1154,7 +1221,7 @@ def montar_linhas(carteira, ce_rows, pagamentos, marc, hoje=None, abertas=None, 
         # A receber: o SSW não mostra pagamento e ela não o deu por encerrado. Onde o SSW não tem
         # resposta confiável (CT-e que ele não conhece, ou situação indefinida), vale a etapa dela,
         # e FATURADO encerra.
-        aberto = (s['ssw'] != 'pago' and etapa not in ETAPAS_FORA_DO_ABERTO
+        aberto = (s['ssw'] not in ('pago', 'cancelado') and etapa not in ETAPAS_FORA_DO_ABERTO
                   and not (s['ssw'] in ('sem_ssw', 'indefinido') and etapa == 'FATURADO'))
         # NFS: só onde o SSW não deu o número do CT-e. O que ela digitou na tela vale; senão, o que estava
         # na coluna do CT-e da planilha (na Nestlé ela se chamava "CT-e/ NFS": 124 das 130 UDS).
@@ -1170,7 +1237,7 @@ def montar_linhas(carteira, ce_rows, pagamentos, marc, hoje=None, abertas=None, 
                      transporte=transporte_da_obs(base['obs']) if cfg.get('col_transporte') else None,
                      atualizado=(m or {}).get('atualizado'), por=(m or {}).get('por'),
                      editado=bool((m or {}).get('editado')), idade=idade, vencimento=venc,
-                     aberto=aberto, novo=etapa is None and s['ssw'] != 'pago',
+                     aberto=aberto, novo=etapa is None and s['ssw'] not in ('pago', 'cancelado'),
                      abertas_cobre=cobre, diverg=divergencias(etapa, s), **s)
         linha.setdefault('vencida', False)
         linha.setdefault('fatura_aberta', None)
@@ -1410,6 +1477,7 @@ def exportar_xlsx(carteira, linhas):
     if cfg.get('prazo_dias'):
         cols.append(('VENCIMENTO', lambda l: _dt(l['vencimento'])))
     rotulo_ssw = {'pago': 'PAGO', 'fatura': 'FATURA EMITIDA', 'aberto': 'SEM FATURA', 'sem_ssw': 'SEM CT-E NO SSW',
+                  'cancelado': 'CANCELADO NO SSW',
                   'indefinido': 'SEM INFORMAÇÃO'}
     fa = lambda l, k: (l.get('fatura_aberta') or {}).get(k)
     cols += [('SSW', lambda l: ('FATURA VENCIDA' if l.get('vencida') else

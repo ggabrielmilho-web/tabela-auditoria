@@ -122,6 +122,7 @@
   .ssw.fatura { color: var(--accent); background: rgba(56,189,248,.12); }
   .ssw.aberto { color: var(--text-dim); background: rgba(148,163,184,.1); }
   .ssw.sem_ssw { color: var(--orange); background: rgba(251,146,60,.12); }
+  .ssw.cancelado { color: var(--red); background: rgba(248,113,113,.10); text-decoration: line-through; }
   .ssw.vencida { color: var(--red); background: rgba(248,113,113,.14); }
   .ssw.indefinido { color: var(--text-dim); background: transparent; border: 1px dashed #334155; font-weight: 500; }
   .marca { font-size: 0.62rem; color: var(--orange); margin-left: 4px; }
@@ -298,7 +299,8 @@
   // A NFS (nota de serviço, UDS…) não é coluna: ela é digitada na coluna do CT-e, onde o SSW não deu o número.
   var CAMPO_NFS = { id: 'nfs', rotulo: 'NFS', tipo: 'texto' };
   function campoDef(id) { return id === 'nfs' ? CAMPO_NFS : (S.cfg.campos || []).find(function (c) { return c.id === id; }); }
-  var SSW_ROT = { pago: 'Pago', fatura: 'Fatura emitida', aberto: 'Sem fatura', sem_ssw: 'Sem CT-e no SSW', indefinido: 'Sem informação' };
+  var SSW_ROT = { pago: 'Pago', fatura: 'Fatura emitida', aberto: 'Sem fatura', sem_ssw: 'Sem CT-e no SSW',
+                  cancelado: 'Cancelado no SSW', indefinido: 'Sem informação' };
   // O que o SSW diz, em uma palavra (é também o valor do filtro da coluna SSW).
   function sswRot(l) {
     if (l.ssw === 'pago') return l.fonte === '441 parcial' ? 'Pago (parcial)' : 'Pago';
@@ -394,6 +396,7 @@
     else if (c && c.indexOf('custo') === 0) { if (!custosDe(l).some(function (x) { return custoCasa(x, c); })) return false; }
     else if (c === 'novos') { if (!l.novo) return false; }
     else if (c === 'diverg') { if (!l.diverg.length) return false; }
+    else if (c === 'cancelados') { if (l.ssw !== 'cancelado') return false; }
     else if (c === 'vencidas') { if (!(l.vencida && l.aberto)) return false; }
     else if (c === 'pagos') { if (!(l.ssw === 'pago' && l.pago_em && l.pago_em >= S.desde30)) return false; }
     else if (c) { if (!naEtapa(l, c)) return false; }
@@ -532,6 +535,10 @@
                    ls: ls.filter(function (l) { return l.vencida && l.aberto; }) });
     }
     cards.push({ id: 'diverg', t: 'Divergência', d: 'a marcação diz uma coisa e o SSW outra', cor: 'vermelho', ls: ls.filter(function (l) { return l.diverg.length; }) });
+    // CT-e que veio do SSW, foi marcado aqui e depois saiu do 455 (o relatório não traz cancelado): fora do
+    // em aberto, mas à vista para mapear (29/10/2026)
+    cards.push({ id: 'cancelados', t: 'Cancelado no SSW', d: 'marcado aqui e depois cancelado no SSW (saiu do 455) — não entra no em aberto',
+                 cor: 'magenta', ls: ls.filter(function (l) { return l.ssw === 'cancelado'; }) });
     cards.push({ id: 'pagos', t: 'Pagos 30 dias', d: 'pagamento registrado no SSW nos últimos 30 dias', cor: 'verde', pagos: true,
                  ls: ls.filter(function (l) { return l.ssw === 'pago' && l.pago_em >= S.desde30; }) });
     $('cards').innerHTML = cards.map(cardHTML).join('') + cardsCustoHTML();
@@ -1117,6 +1124,9 @@
       : l.fonte === '441 abertas' ? 'fatura em aberto no 441 (carteira lida em ' + dm(S.lidoAbertas) + ')'
       : l.ssw === 'pago' ? 'baixa LIQUIDADO no 455 (pagamento não volta atrás)'
       : l.ssw === 'sem_ssw' ? (l.nota_linha || 'o CT-e não está no 455')
+      : l.ssw === 'cancelado' ? 'o CT-e veio do 455, foi marcado aqui e depois saiu dele — o 455 não traz CT-e cancelado'
+        + (l.substituto ? '. Substituído por ' + l.substituto : '. Nenhum CT-e da carteira diz que o substitui')
+        + (l.emissao ? '; os dados abaixo são de quando ele estava no SSW' : '')
       : l.ssw === 'aberto' ? 'o 441 não tem este CT-e em fatura nenhuma — nem paga, nem em aberto'
       : l.ssw === 'fatura' ? 'o 455 leu FATURADO em ' + dm(l.lido_455) + '; pagamento antes disso teria virado LIQUIDADO, e depois estaria no 441 (desde ' + dm(S.inicio441) + ') — fatura emitida e não paga'
       : (S.abertasOk ? 'CT-e anterior a ' + dm(S.abertasCorte) + ', e o 441 não lista CTRC tão antigo' : 'a carteira em aberto do 441 ainda não está no BI')

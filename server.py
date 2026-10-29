@@ -1076,6 +1076,7 @@ def _crm_faturar_pelo_ssw(carteira, dados):
             linhas = _crm_montar(carteira, dados, marc)
             n = crm.gravar_faturados(cur, carteira, crm.faturados_pelo_ssw(carteira, linhas, marc))
             n += crm.gravar_desfaturados(cur, carteira, _crm_desfaturados(cur, carteira, linhas, dados))
+            crm.gravar_copias(cur, crm.copias_faltando(linhas, marc))   # não muda a tela: fora do `n`
         conn.commit()
     finally:
         conn.close()
@@ -1141,6 +1142,8 @@ def _crm_linhas(carteira, forcar=False):
     if ((crm.faturados_pelo_ssw(carteira, linhas, marc) or _crm_tem_desfaturado(carteira, linhas, dados))
             and _crm_faturar_pelo_ssw(carteira, dados)):
         linhas = _crm_montar(carteira, dados, _crm_marcacoes(carteira))
+    elif crm.copias_faltando(linhas, marc):
+        _crm_faturar_pelo_ssw(carteira, dados)   # só a cópia do 455 nas marcações antigas (uma vez)
     return linhas, dados
 
 
@@ -1284,8 +1287,7 @@ def api_crm_documentos_marcar():
         try:
             with conn.cursor() as cur:
                 n = crm.gravar(cur, carteira, chaves, campo, valor, session.get('nome') or 'usuário',
-                               {k: {'ctrc': da_carteira[k]['ctrc'], 'cte': da_carteira[k]['cte']} for k in chaves},
-                               antes_out=antes)
+                               {k: crm.base_ssw(da_carteira[k]) for k in chaves}, antes_out=antes)
             conn.commit()
         finally:
             conn.close()
