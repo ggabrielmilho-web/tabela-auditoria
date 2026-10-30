@@ -70,6 +70,9 @@
     // O faturamento e a cobrança numa tela só: CT-e sem fatura, o que não será faturado e as faturas
     // vencidas — as três planilhas da Laura (29/10/26). 💵 é Emoji 1.0 (glifo no Windows 10).
     { id: 'contas_receber', page: 'contas_receber', href: '/contas-receber',  label: '💵 Contas a Receber' },
+    // A planilha de comissão de quem contrata frete de terceiro, conferida pelo CTRB (30/10/26).
+    // 💰 já é das Despesas; 🧮 é Emoji 9 (sem glifo no Windows 10) — ✅ é Emoji 1.0.
+    { id: 'comissoes',     page: 'comissoes',     href: '/comissoes',         label: '✅ Comissões' },
     // 🚛 (carreta articulada) e não 🚚 (baú, que fica com Embarques): esta aba analisa
     // cavalo + carreta. Nada de 🛞/🛻 — são do Emoji 13/14 e o Windows 10 não tem o
     // glifo, sai quadradinho vazio. Emoji desta lista: só de blocos antigos.
@@ -89,7 +92,7 @@
   var GRUPOS = [
     { nome: 'Operação',   abas: ['torre', 'viagem', 'embarques', 'ordens', 'semordem', 'sm', 'mapa', 'pgr', 'jornada', 'ciot', 'veiculos', 'verda'] },
     { nome: 'Comercial',  abas: ['tarifas', 'faturamento', 'contratos'] },
-    { nome: 'Financeiro', abas: ['auditoria', 'dre', 'projecao', 'despesas', 'conhecimentos', 'contabil', 'contas_receber', 'crm_documentos', 'cte_nestle'] },
+    { nome: 'Financeiro', abas: ['auditoria', 'dre', 'projecao', 'despesas', 'conhecimentos', 'contabil', 'contas_receber', 'comissoes', 'crm_documentos', 'cte_nestle'] },
     { nome: 'Sistema',    abas: ['reuniao', 'admin', 'uso'] }
   ];
 

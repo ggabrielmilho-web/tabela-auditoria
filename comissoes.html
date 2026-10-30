@@ -1,0 +1,763 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Comissões — Rizza Log</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%2338bdf8'/%3E%3Ctext x='50' y='72' font-family='Arial,sans-serif' font-size='68' font-weight='900' text-anchor='middle' fill='%230a0e17'%3ER%3C/text%3E%3C/svg%3E">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0e17; --surface: #111827; --surface2: #1a2235; --border: #1e293b;
+    --text: #e2e8f0; --text-dim: #94a3b8; --accent: #38bdf8; --accent2: #818cf8;
+    --green: #34d399; --red: #f87171; --orange: #fb923c; --yellow: #fbbf24;
+    --c-vermelho: #f87171; --c-laranja: #fb923c; --c-amarelo: #fbbf24; --c-verde: #34d399;
+    --c-azul: #38bdf8; --c-roxo: #a78bfa; --c-cinza: #94a3b8; --c-indigo: #818cf8;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .mono { font-family: 'JetBrains Mono', monospace; }
+
+  .dashboard { padding: 22px; max-width: 1320px; margin: 0 auto; }
+  .top-bar { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; flex-wrap: wrap; gap: 12px; }
+  .top-bar h1 { font-size: 1.4rem; font-weight: 700; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .meta { font-size: 0.74rem; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; margin-top: 4px; line-height: 1.5; }
+  .acoes-topo { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .btn-sm { padding: 7px 14px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); font-weight: 500; font-size: 0.8rem; border-radius: 8px; cursor: pointer; transition: all 0.15s; font-family: 'DM Sans', sans-serif; white-space: nowrap; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+  .btn-sm:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-sm.primary { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 700; }
+  .btn-sm.primary:hover { color: var(--bg); filter: brightness(1.1); }
+  .btn-sm.aprovar { background: var(--green); border-color: var(--green); color: #052e1f; font-weight: 700; padding: 9px 18px; font-size: 0.86rem; }
+  .btn-sm.aprovar:hover { color: #052e1f; filter: brightness(1.08); }
+  .btn-sm.perigo:hover { border-color: var(--red); color: var(--red); }
+  .btn-sm:disabled { opacity: .5; cursor: default; }
+  .voltar { color: var(--text-dim); font-size: 0.8rem; text-decoration: none; display: inline-flex; gap: 6px; margin-bottom: 10px; cursor: pointer; }
+  .voltar:hover { color: var(--accent); }
+
+  .erro { padding: 12px 14px; border-radius: 10px; font-size: 0.82rem; margin-bottom: 14px; background: rgba(248,113,113,0.08); border: 1px solid rgba(248,113,113,0.28); color: #fecaca; white-space: pre-wrap; }
+  .carregando { display: flex; flex-direction: column; gap: 14px; align-items: center; padding: 70px 20px; justify-content: center; color: var(--text-dim); text-align: center; line-height: 1.6; }
+  .spinner { width: 30px; height: 30px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; }
+
+  /* entrada */
+  .soltar-grande { border: 2px dashed #26324a; border-radius: 16px; padding: 46px 24px; text-align: center; cursor: pointer; transition: all .15s; background: linear-gradient(180deg, rgba(56,189,248,.04), transparent); margin-bottom: 22px; }
+  .soltar-grande:hover, .soltar-grande.sobre { border-color: var(--accent); background: rgba(56,189,248,.06); }
+  .soltar-grande .ic { font-size: 2.2rem; }
+  .soltar-grande .t { font-size: 1.1rem; font-weight: 700; margin-top: 8px; }
+  .soltar-grande .s { font-size: 0.82rem; color: var(--text-dim); margin-top: 6px; line-height: 1.6; }
+  .soltar-grande.compacto { padding: 16px; display: flex; gap: 14px; align-items: center; justify-content: center; text-align: left; }
+  .soltar-grande.compacto .ic { font-size: 1.5rem; }
+  .soltar-grande.compacto .t { margin: 0; font-size: 0.95rem; }
+  .soltar-grande.compacto .s { margin: 2px 0 0; }
+  .sec-titulo { font-size: 0.7rem; text-transform: uppercase; letter-spacing: .08em; color: var(--text-dim); font-weight: 700; margin: 22px 0 10px; display: flex; align-items: center; gap: 10px; }
+  .sec-titulo .n { font-family: 'JetBrains Mono', monospace; color: var(--text); background: var(--surface2); border-radius: 999px; padding: 1px 8px; letter-spacing: 0; }
+  .sec-titulo .lin { flex: 1; height: 1px; background: var(--border); }
+  .hist-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
+  .fech { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; cursor: pointer; transition: all .15s; }
+  .fech:hover { border-color: var(--accent); background: var(--surface2); }
+  .fech .r { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .fech .nome { font-weight: 700; font-size: 0.98rem; }
+  .fech .mes { font-size: 0.76rem; color: var(--text-dim); margin-top: 2px; }
+  .fech .v { font-family: 'JetBrains Mono', monospace; font-size: 1.15rem; font-weight: 600; margin-top: 10px; }
+  .fech .s { font-size: 0.72rem; color: var(--text-dim); margin-top: 3px; line-height: 1.5; }
+
+  /* resumo */
+  .hero { background: linear-gradient(135deg, rgba(56,189,248,.07), rgba(129,140,248,.04) 60%, transparent), var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 20px 22px; margin-bottom: 14px; }
+  .hero-cab { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; flex-wrap: wrap; }
+  .hero-cab .t { font-size: 1.25rem; font-weight: 700; }
+  .hero-cab .s { font-size: 0.8rem; color: var(--text-dim); margin-top: 4px; }
+  .numeros { display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 14px; margin-top: 18px; }
+  .num-b { padding: 4px 0; }
+  .num-b .l { font-size: 0.66rem; text-transform: uppercase; letter-spacing: .08em; color: var(--text-dim); font-weight: 700; }
+  .num-b .v { font-family: 'JetBrains Mono', monospace; font-size: 1.55rem; font-weight: 600; margin-top: 4px; }
+  .num-b.principal .v { font-size: 2.3rem; color: var(--text); }
+  .num-b .x { font-size: 0.74rem; color: var(--text-dim); margin-top: 3px; }
+  .pos { color: var(--green) !important; } .neg { color: var(--red) !important; }
+  .contadores { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+  .cont { display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px; border-radius: 999px; font-size: 0.8rem; background: var(--bg); border: 1px solid var(--border); cursor: pointer; color: var(--text); font-family: 'DM Sans', sans-serif; }
+  .cont:hover { border-color: var(--cor); }
+  .cont b { font-family: 'JetBrains Mono', monospace; color: var(--cor); }
+  .faixa { display: flex; gap: 10px; align-items: center; padding: 10px 14px; border-radius: 10px; font-size: 0.82rem; margin-bottom: 14px; }
+  .faixa.ok { background: rgba(52,211,153,.08); border: 1px solid rgba(52,211,153,.3); color: #a7f3d0; }
+  .faixa.info { background: rgba(56,189,248,.07); border: 1px solid rgba(56,189,248,.25); color: #bae6fd; }
+
+  /* decisões */
+  .dec { background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--cor, var(--orange)); border-radius: 12px; padding: 14px 16px; margin-bottom: 10px; display: grid; grid-template-columns: 1fr auto; gap: 10px 18px; }
+  .dec .cab { font-size: 0.86rem; font-weight: 600; display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; }
+  .dec .cab .ctrb { font-family: 'JetBrains Mono', monospace; color: var(--accent); cursor: pointer; }
+  .dec .cab .ctrb:hover { text-decoration: underline; }
+  .dec .cab .dim { color: var(--text-dim); font-weight: 400; font-size: 0.8rem; }
+  .dec ul { list-style: none; margin-top: 7px; font-size: 0.82rem; line-height: 1.55; }
+  .dec ul li { padding-left: 14px; position: relative; }
+  .dec ul li::before { content: '•'; position: absolute; left: 2px; color: var(--cor, var(--orange)); }
+  .dec .alts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .dec .lado { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; min-width: 300px; }
+  .dec .compara { font-family: 'JetBrains Mono', monospace; font-size: 0.82rem; color: var(--text-dim); white-space: nowrap; }
+  .dec .compara b { color: var(--text); font-weight: 600; }
+  .dec .motivo { width: 100%; padding: 6px 9px; background: var(--bg); border: 1px solid var(--border); border-radius: 7px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 0.78rem; }
+  .dec .motivo:focus { outline: none; border-color: var(--accent); }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 9px; overflow: hidden; background: var(--bg); }
+  .seg button { padding: 7px 11px; font-size: 0.76rem; background: transparent; border: none; color: var(--text-dim); cursor: pointer; font-family: 'DM Sans', sans-serif; border-right: 1px solid var(--border); text-align: center; line-height: 1.3; }
+  .seg button:last-child { border-right: none; }
+  .seg button small { display: block; font-family: 'JetBrains Mono', monospace; font-size: 0.74rem; color: var(--text); }
+  .seg button:hover:not(:disabled) { background: var(--surface2); color: var(--text); }
+  .seg button.on { background: rgba(56,189,248,.16); color: var(--accent); font-weight: 700; }
+  .seg button.on small { color: var(--accent); }
+  .seg button:disabled { cursor: default; }
+  .seg button.on.fora { background: rgba(148,163,184,.16); color: var(--text); }
+  .padrao-tag { font-size: 0.62rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: .05em; }
+
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 5px; font-size: 0.68rem; font-weight: 700; white-space: nowrap; color: var(--cor); background: color-mix(in srgb, var(--cor) 15%, transparent); }
+  .pill.alerta { cursor: help; }
+
+  /* fora da planilha */
+  .fora-item { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px 16px; margin-bottom: 8px; display: grid; grid-template-columns: 1fr auto; gap: 8px 18px; align-items: center; }
+  .fora-item.reemissao { opacity: .78; }
+  .fora-item .cab { font-size: 0.84rem; font-weight: 600; display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; }
+  .fora-item .notas { font-size: 0.78rem; color: var(--text-dim); margin-top: 4px; line-height: 1.5; }
+  .fora-item .notas .forte { color: var(--yellow); }
+
+  /* tabela */
+  details.todas { margin-top: 6px; }
+  details.todas > summary { list-style: none; cursor: pointer; }
+  details.todas > summary::-webkit-details-marker { display: none; }
+  details.todas > summary .seta { display: inline-block; transition: transform .15s; }
+  details.todas[open] > summary .seta { transform: rotate(90deg); }
+  .barra { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+  .busca { padding: 7px 10px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 0.8rem; min-width: 240px; }
+  .busca:focus { outline: none; border-color: var(--accent); }
+  .filtro { padding: 5px 11px; border-radius: 999px; font-size: 0.76rem; border: 1px solid var(--border); background: transparent; color: var(--text-dim); cursor: pointer; font-family: 'DM Sans', sans-serif; }
+  .filtro.on { border-color: var(--accent); color: var(--accent); background: rgba(56,189,248,.1); }
+  .tabela-box { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: auto; max-height: 70vh; }
+  table.dados { width: 100%; border-collapse: collapse; font-size: 0.77rem; }
+  table.dados thead th { position: sticky; top: 0; z-index: 2; background: #0f1625; text-align: left; padding: 8px 9px; font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); font-weight: 700; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  table.dados tbody td { padding: 6px 9px; border-bottom: 1px solid rgba(30,41,59,0.6); white-space: nowrap; }
+  table.dados tbody tr { cursor: pointer; }
+  table.dados tbody tr:hover td { background: rgba(26,34,53,.55); }
+  table.dados tbody tr.foratot td { color: #64748b; }
+  table.dados tfoot td { padding: 8px 9px; font-weight: 700; border-top: 1px solid var(--border); background: #0f1625; position: sticky; bottom: 0; }
+  td.num, th.num { text-align: right; font-family: 'JetBrains Mono', monospace; }
+  td.txt { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+
+  .regra { margin-top: 24px; padding: 14px 16px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface); font-size: 0.8rem; line-height: 1.7; color: var(--text-dim); }
+  .regra b { color: var(--text); }
+
+  /* gaveta */
+  .gaveta { position: fixed; top: 0; right: 0; bottom: 0; width: min(600px, 100vw); background: #0d1320; border-left: 1px solid var(--border); z-index: 950; display: flex; flex-direction: column; box-shadow: -12px 0 30px rgba(0,0,0,.4); }
+  .gaveta-cab { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; padding: 16px 18px 12px; border-bottom: 1px solid var(--border); }
+  .gaveta-cab h2 { font-size: 1.05rem; font-family: 'JetBrains Mono', monospace; }
+  .gaveta-cab .sub { font-size: 0.78rem; color: var(--text-dim); margin-top: 3px; line-height: 1.5; }
+  .gaveta-corpo { overflow: auto; padding: 14px 18px 30px; }
+  .bloco { margin-bottom: 18px; }
+  .bloco h3 { font-size: 0.66rem; text-transform: uppercase; letter-spacing: .07em; color: var(--text-dim); margin-bottom: 8px; }
+  table.cmp { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+  table.cmp th { font-size: 0.62rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-dim); text-align: right; padding: 5px 6px; border-bottom: 1px solid var(--border); }
+  table.cmp th:first-child, table.cmp td:first-child { text-align: left; }
+  table.cmp td { padding: 6px; border-bottom: 1px solid rgba(30,41,59,.6); text-align: right; font-family: 'JetBrains Mono', monospace; }
+  table.cmp td:first-child { font-family: 'DM Sans', sans-serif; }
+  table.cmp td.onde { font-family: 'DM Sans', sans-serif; color: var(--text-dim); font-size: 0.72rem; text-align: left; white-space: normal; }
+  table.cmp tr.dif td:nth-child(2), table.cmp tr.dif td:nth-child(3) { color: var(--orange); }
+  table.cmp tr.tot td { font-weight: 700; border-top: 1px solid var(--border); }
+  .aviso { font-size: 0.8rem; line-height: 1.5; padding: 8px 10px; border-radius: 7px; margin-bottom: 8px; background: color-mix(in srgb, var(--cor, var(--red)) 8%, transparent); border-left: 3px solid var(--cor, var(--red)); }
+  .aviso b { color: var(--text); }
+  .obs { font-size: 0.78rem; line-height: 1.55; color: var(--text-dim); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px; font-family: 'JetBrains Mono', monospace; word-break: break-word; }
+  table.pg { font-size: 0.76rem; border-collapse: collapse; width: 100%; }
+  table.pg td, table.pg th { padding: 4px 6px; border-bottom: 1px solid var(--border); text-align: left; }
+  table.pg th { color: var(--text-dim); font-size: 0.62rem; text-transform: uppercase; }
+  table.pg td.num { text-align: right; }
+  .hist { list-style: none; font-size: 0.76rem; }
+  .hist li { padding: 6px 0 6px 10px; border-left: 2px solid var(--border); margin-bottom: 4px; line-height: 1.45; }
+  .hist .q { color: var(--text-dim); font-size: 0.7rem; font-family: 'JetBrains Mono', monospace; }
+
+  /* modal */
+  .modal { position: fixed; inset: 0; background: rgba(2,6,15,.65); z-index: 960; display: flex; align-items: flex-start; justify-content: center; padding: 8vh 16px 16px; }
+  .modal .caixa { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 20px; width: min(560px, 100%); max-height: 84vh; overflow: auto; }
+  .modal h3 { font-size: 1.05rem; margin-bottom: 6px; }
+  .modal .nota { font-size: 0.8rem; color: var(--text-dim); line-height: 1.55; }
+  .modal .acoes { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; margin-top: 16px; }
+  .soltar { border: 2px dashed var(--border); border-radius: 10px; padding: 22px; text-align: center; color: var(--text-dim); font-size: 0.82rem; margin: 12px 0; cursor: pointer; transition: all .15s; }
+  .soltar:hover, .soltar.sobre { border-color: var(--accent); color: var(--accent); background: rgba(56,189,248,.05); }
+  .previa { font-size: 0.82rem; line-height: 1.6; }
+  .previa .grupo-p { padding: 10px 12px; border: 1px solid var(--border); border-radius: 9px; margin-top: 8px; display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+  .previa select { padding: 5px 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 7px; color: var(--text); font-family: 'DM Sans', sans-serif; color-scheme: dark; }
+  .previa .grupo-p .mono { white-space: nowrap; }
+  .previa .av { color: var(--yellow); font-size: 0.76rem; }
+  .previa .av.bloq { color: var(--red); }
+
+  .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: #0f1a2e; border: 1px solid var(--accent); color: var(--text); padding: 9px 16px; border-radius: 9px; font-size: 0.8rem; z-index: 999; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+  .toast.erro { border-color: var(--red); }
+
+  @media (max-width: 860px) {
+    .dashboard { padding: 14px 16px; }
+    .numeros { grid-template-columns: 1fr 1fr; }
+    .num-b.principal { grid-column: 1 / -1; }
+    .dec, .fora-item { grid-template-columns: 1fr; }
+    .dec .lado { align-items: flex-start; min-width: 0; }
+    .busca { min-width: 0; flex: 1 1 100%; }
+  }
+</style>
+</head>
+<body>
+<div class="dashboard">
+  <div class="top-bar">
+    <div>
+      <h1>Comissões</h1>
+      <div class="meta" id="meta">Comissão de quem contrata o frete de terceiro, conferida pelo CTRB</div>
+    </div>
+    <div class="acoes-topo">
+      <button class="btn-sm primary" id="btnAnexar">📥 Anexar planilha</button>
+      <span data-nav-menu data-nav-style="btn-anchor" data-nav-active="comissoes"></span>
+    </div>
+  </div>
+  <div id="erro" class="erro" hidden></div>
+  <div id="vista"></div>
+</div>
+
+<aside class="gaveta" id="gaveta" hidden>
+  <div class="gaveta-cab">
+    <div><h2 id="gavTitulo"></h2><div class="sub" id="gavSub"></div></div>
+    <div class="acoes-topo">
+      <button class="btn-sm" id="gavAnt" title="Anterior (↑)">↑</button>
+      <button class="btn-sm" id="gavProx" title="Próxima (↓)">↓</button>
+      <button class="btn-sm" id="gavFechar" title="Fechar (Esc)">✕</button>
+    </div>
+  </div>
+  <div class="gaveta-corpo" id="gavCorpo"></div>
+</aside>
+
+<div class="modal" id="modalImportar" hidden>
+  <div class="caixa">
+    <h3>Anexar a planilha de comissão</h3>
+    <div class="nota">A planilha do mês, do jeito que vocês já preenchem (uma linha por CTRB). A tela confere cada linha
+      pelo SSW e mostra onde ela diverge — nada é pago nem aprovado sem você clicar em <b>Aprovar</b>.</div>
+    <div class="soltar" id="soltar">Arraste a planilha aqui ou clique para escolher<input type="file" id="arq" accept=".xlsx" hidden></div>
+    <div class="previa" id="previa"></div>
+    <div class="acoes">
+      <button class="btn-sm" id="btnFecharImportar">Cancelar</button>
+      <button class="btn-sm primary" id="btnConfirmar" disabled>Conferir</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="/nav-perms.js"></script>
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var S = { lista: [], f: null, conf: null, filtro: 'todas', busca: '', gav: null, arquivo: null, previa: null };
+
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function n2(v) { return (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+  function brl(v) { v = Number(v) || 0; return (v < 0 ? '−' : '') + 'R$ ' + n2(Math.abs(v)); }
+  function delta(v) { v = Number(v) || 0; if (Math.abs(v) < 0.005) return 'R$ 0,00'; return (v > 0 ? '+ ' : '− ') + 'R$ ' + n2(Math.abs(v)); }
+  function dm(iso) { return iso ? iso.slice(8, 10) + '/' + iso.slice(5, 7) : '—'; }
+  function dmy(iso) { return iso ? iso.slice(8, 10) + '/' + iso.slice(5, 7) + '/' + iso.slice(0, 4) : '—'; }
+  function plural(n, um, varios) { return n + ' ' + (n === 1 ? um : varios); }
+  function cor(c) { return 'var(--c-' + c + ')'; }
+  function toast(msg, erro) {
+    var t = $('toast'); t.textContent = msg; t.className = 'toast' + (erro ? ' erro' : ''); t.hidden = false;
+    clearTimeout(toast._t); toast._t = setTimeout(function () { t.hidden = true; }, erro ? 7000 : 2600);
+  }
+  function erro(msg) { $('erro').textContent = msg || ''; $('erro').hidden = !msg; }
+  function api(url, opt) {
+    return fetch(url, Object.assign({ credentials: 'same-origin' }, opt || {})).then(function (r) {
+      return r.json().catch(function () { return { ok: false, error: 'HTTP ' + r.status }; });
+    });
+  }
+  function postJson(url, corpo) {
+    return api(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo || {}) });
+  }
+
+  var ALERTA = {
+    substituido: { cor: 'azul', ic: '↻' }, pendente: { cor: 'amarelo', ic: '⏳' }, sem_ctrb: { cor: 'laranja', ic: '∅' },
+    nao_achado: { cor: 'vermelho', ic: '?' }, outro_mes: { cor: 'roxo', ic: '📅' }, ja_comissionado: { cor: 'vermelho', ic: '⚠' },
+    digitacao: { cor: 'amarelo', ic: '✎' }, sem_receita: { cor: 'cinza', ic: '∅' }
+  };
+  var STATUS = { confere: ['Confere', 'verde'], diverge: ['Valor diferente', 'laranja'], sem_base: ['Sem base no SSW', 'cinza'] };
+  var PAG = { pago: ['Pago', 'verde'], parcial: ['Parcial', 'azul'], pendente: ['A pagar', 'amarelo'], sem: ['Sem lançamento', 'cinza'] };
+  var ESC = { conferida: 'Conferida', planilha: 'Planilha', fora: 'Fora', incluir: 'Incluída' };
+  function pill(txt, c, title) { return '<span class="pill' + (title ? ' alerta' : '') + '" style="--cor:' + cor(c) + '"' + (title ? ' title="' + esc(title) + '"' : '') + '>' + esc(txt) + '</span>'; }
+  function pillAlerta(a) { var d = ALERTA[a.tipo] || { cor: 'cinza', ic: '•' }; return pill(d.ic + ' ' + a.texto, d.cor, a.detalhe); }
+  function pillPag(p) { var d = PAG[(p || {}).sit] || PAG.sem; return pill(d[0], d[1]); }
+
+  // ── rotas da página ──
+  function idDaUrl() { var m = /[?&]id=(\d+)/.exec(location.search); return m ? +m[1] : null; }
+  function ir(id) { history.pushState({}, '', id ? '?id=' + id : location.pathname); carregar(); }
+  window.addEventListener('popstate', carregar);
+
+  function carregar() {
+    erro('');
+    fecharGaveta();
+    var id = idDaUrl();
+    if (id) return abrirFechamento(id);
+    $('vista').innerHTML = '<div class="carregando"><div class="spinner"></div></div>';
+    api('/api/comissoes').then(function (j) {
+      if (!j.ok) { erro(j.error); $('vista').innerHTML = ''; return; }
+      S.lista = j.fechamentos || [];
+      desenharLista();
+    });
+  }
+
+  // ── lista / histórico ──
+  function desenharLista() {
+    $('meta').textContent = 'Comissão de quem contrata o frete de terceiro, conferida pelo CTRB';
+    var vazio = !S.lista.length;
+    var h = '<div class="soltar-grande' + (vazio ? '' : ' compacto') + '" id="soltarGrande">' +
+      '<div class="ic">📥</div><div><div class="t">Arraste aqui a planilha de comissão do mês</div>' +
+      '<div class="s">A tela refaz cada linha pelo CTRB no SSW e mostra só o que precisa da sua decisão.</div></div></div>';
+    if (!vazio) {
+      var porMes = {};
+      S.lista.forEach(function (f) { (porMes[f.mes] = porMes[f.mes] || []).push(f); });
+      Object.keys(porMes).sort().reverse().forEach(function (mes) {
+        var fs = porMes[mes];
+        h += '<div class="sec-titulo">' + esc(fs[0].mes_rotulo) + '<span class="lin"></span></div><div class="hist-grid">';
+        fs.forEach(function (f) {
+          var aprov = f.situacao === 'aprovada';
+          var valor = aprov ? f.total_pagar : f.total_planilha;
+          h += '<div class="fech" data-id="' + f.id + '"><div class="r"><div><div class="nome">' + esc(f.responsavel) + '</div>' +
+            '<div class="mes">' + plural(f.linhas, 'viagem', 'viagens') + '</div></div>' +
+            (aprov ? pill('✓ Aprovada', 'verde') : pill('Rascunho', 'amarelo')) + '</div>' +
+            '<div class="v">' + brl(valor) + '</div>' +
+            '<div class="s">' + (aprov ? 'Aprovada por ' + esc(f.aprovado_por) + ' em ' + esc(f.aprovado_em) +
+              (Math.abs((f.total_pagar || 0) - (f.total_planilha || 0)) >= 0.01 ? ' · planilha pedia ' + brl(f.total_planilha) : '')
+              : 'Planilha pede · anexada por ' + esc(f.criado_por) + ' em ' + esc(f.criado_em)) + '</div></div>';
+        });
+        h += '</div>';
+      });
+    }
+    $('vista').innerHTML = h;
+    ligarSoltar($('soltarGrande'), true);
+    Array.prototype.forEach.call(document.querySelectorAll('.fech'), function (el) {
+      el.onclick = function () { ir(+el.dataset.id); };
+    });
+  }
+
+  // ── um fechamento ──
+  function abrirFechamento(id, refresh) {
+    $('vista').innerHTML = '<a class="voltar" id="voltar">← Todas as comissões</a>' +
+      '<div class="carregando"><div class="spinner"></div><div>Conferindo cada CTRB no SSW…<br>' +
+      '<small>A primeira leitura do mês leva uns 20 segundos.</small></div></div>';
+    $('voltar').onclick = function () { ir(null); };
+    api('/api/comissoes/' + id + (refresh ? '?refresh=1' : '')).then(function (j) {
+      if (!j.ok) { erro(j.error); $('vista').innerHTML = '<a class="voltar" id="voltar">← Todas as comissões</a>'; $('voltar').onclick = function () { ir(null); }; return; }
+      S.f = j.fechamento; S.conf = j.conferencia;
+      recalcular();
+      desenharFechamento();
+    });
+  }
+
+  function itens() { return S.conf.linhas.concat(S.conf.fora); }
+  function valorEscolha(it, e) {
+    if (e === 'fora') return 0;
+    var pl = (it.planilha || {}).comissao || 0;
+    if (e === 'planilha' || !it.conferido) return pl;
+    return it.conferido.comissao;
+  }
+  function recalcular() {
+    var t = { planilha: 0, pagar: 0, confere: 0, diverge: 0, alertas: 0, fora: S.conf.fora.length, incluidos: 0, foraTotal: 0 };
+    S.conf.linhas.forEach(function (it) {
+      it.pagar = valorEscolha(it, it.escolha);
+      t.planilha += it.planilha.comissao || 0; t.pagar += it.pagar;
+      if (it.status === 'confere') t.confere++; else if (it.status === 'diverge') t.diverge++;
+      if (it.alertas.length) t.alertas++;
+      if (it.escolha === 'fora') t.foraTotal++;
+    });
+    S.conf.fora.forEach(function (it) { it.pagar = valorEscolha(it, it.escolha); t.pagar += it.pagar; if (it.escolha !== 'fora') t.incluidos++; });
+    t.dif = t.pagar - t.planilha;
+    S.tot = t;
+  }
+  function precisaDecisao(it) { return it.status === 'diverge' || it.alertas.length > 0; }
+  function editavel() { return S.f && S.f.situacao === 'rascunho'; }
+
+  function desenharFechamento() {
+    var f = S.f, c = S.conf, t = S.tot, aprov = f.situacao === 'aprovada';
+    $('meta').textContent = 'SSW lido em ' + (c.lido_em || '—') + ' · ' + Math.round((c.percentual || 0.03) * 100) + '% do resultado';
+    var dec = c.linhas.filter(precisaDecisao).sort(function (a, b) {
+      return Math.abs(impacto(b)) - Math.abs(impacto(a)) || a.lin - b.lin;
+    });
+    var h = '<a class="voltar" id="voltar">← Todas as comissões</a>';
+    h += '<div class="hero"><div class="hero-cab"><div><div class="t">' + esc(f.responsavel) + ' · ' + esc(f.mes_rotulo) + '</div>' +
+      '<div class="s">' + plural(c.linhas.length, 'viagem', 'viagens') + ' na planilha <span class="mono">' + esc(f.arquivo || '') + '</span></div></div>' +
+      '<div class="acoes-topo">' +
+      (aprov ? '<button class="btn-sm" id="btnReabrir">↺ Reabrir</button>'
+             : '<button class="btn-sm" id="btnReler" title="Lê o SSW de novo no Power BI">⟳ Reler SSW</button>' +
+               '<button class="btn-sm perigo" id="btnExcluir">Excluir</button>') +
+      '<button class="btn-sm" id="btnHist">🕘 Histórico</button>' +
+      '<a class="btn-sm" href="/api/comissoes/' + f.id + '/xlsx">⬇ Excel</a>' +
+      (aprov ? '' : '<button class="btn-sm aprovar" id="btnAprovar">✓ Aprovar ' + brl(t.pagar) + '</button>') +
+      '</div></div>' +
+      '<div class="numeros">' +
+      '<div class="num-b principal"><div class="l">' + (aprov ? 'Aprovado para pagar' : 'A pagar (conferido)') + '</div><div class="v" id="vPagar">' + brl(t.pagar) + '</div>' +
+      '<div class="x">' + (aprov ? 'por ' + esc(f.aprovado_por) + ' em ' + esc(f.aprovado_em) : 'é o que vale se você não mexer em nada') + '</div></div>' +
+      '<div class="num-b"><div class="l">A planilha pede</div><div class="v">' + brl(t.planilha) + '</div></div>' +
+      '<div class="num-b"><div class="l">Diferença</div><div class="v ' + (t.dif > 0.004 ? 'pos' : t.dif < -0.004 ? 'neg' : '') + '" id="vDif">' + delta(t.dif) + '</div>' +
+      '<div class="x">conferido − planilha</div></div></div>' +
+      '<div class="contadores">' +
+      '<button class="cont" data-f="confere" style="--cor:var(--green)"><b>' + t.confere + '</b> conferem</button>' +
+      '<button class="cont" data-f="diverge" style="--cor:var(--orange)"><b>' + t.diverge + '</b> com valor diferente</button>' +
+      '<button class="cont" data-f="alerta" style="--cor:var(--yellow)"><b>' + t.alertas + '</b> com alerta</button>' +
+      (t.fora ? '<button class="cont" data-ir="secFora" style="--cor:var(--c-roxo)"><b>' + t.fora + '</b> no SSW e fora da planilha</button>' : '') +
+      '</div></div>';
+    if (aprov) h += '<div class="faixa ok">✓ Aprovada por <b>' + esc(f.aprovado_por) + '</b> em ' + esc(f.aprovado_em) +
+      '. Os valores ficaram congelados como estavam na aprovação — o Excel sai igual. Para mudar, reabra.</div>';
+
+    // decisões
+    h += '<div class="sec-titulo" id="secDec">Precisa da sua decisão <span class="n">' + dec.length + '</span><span class="lin"></span></div>';
+    if (!dec.length) h += '<div class="faixa ok">Todas as linhas conferem com o SSW. É só aprovar.</div>';
+    else h += '<div class="nota-sec" style="font-size:.78rem;color:var(--text-dim);margin:-4px 0 10px">Da maior diferença para a menor. A opção marcada já vale — mude só se discordar.</div>';
+    dec.forEach(function (it) { h += cartaoDecisao(it); });
+
+    // fora da planilha
+    if (c.fora.length) {
+      h += '<div class="sec-titulo" id="secFora">No SSW e fora da planilha <span class="n">' + c.fora.length + '</span><span class="lin"></span></div>' +
+        '<div style="font-size:.78rem;color:var(--text-dim);margin:-4px 0 10px">CTRBs do mês em que a observação diz "frete combinado com ' + esc(f.responsavel) + '" e que a planilha não traz. Não entram no total, a não ser que você inclua.</div>';
+      c.fora.forEach(function (it) { h += cartaoFora(it); });
+    }
+
+    // todas
+    h += '<details class="todas" id="detTodas"' + (S.abertaTodas ? ' open' : '') + '><summary class="sec-titulo"><span class="seta">▸</span>Todas as viagens <span class="n">' + c.linhas.length + '</span><span class="lin"></span></summary>' +
+      '<div class="barra"><input class="busca" id="busca" placeholder="Buscar CTRB, motorista, cliente, cidade…" value="' + esc(S.busca) + '">' +
+      ['todas', 'confere', 'diverge', 'alerta', 'fora'].map(function (k) {
+        return '<button class="filtro' + (S.filtro === k ? ' on' : '') + '" data-filtro="' + k + '">' +
+          { todas: 'Todas', confere: 'Conferem', diverge: 'Valor diferente', alerta: 'Com alerta', fora: 'Fora do total' }[k] + '</button>';
+      }).join('') + '</div><div class="tabela-box"><table class="dados" id="tab"></table></div></details>';
+
+    h += '<div class="regra"><b>Como a conta é feita.</b> Receita = frete do CT-e <b>sem ICMS e sem a descarga</b> (o campo "Outros" do CT-e, que é repasse ao carreteiro). ' +
+      'Custo = frete do motorista + vale-pedágio <b>só quando a Rizza pagou o vale</b> (lançamento 5403 no 477 — TAG do cliente não conta). ' +
+      'Comissão = <b>' + Math.round((c.percentual || 0.03) * 100) + '% do resultado</b>; negativa desconta. ' +
+      'O mês é o da <b>emissão do CTRB</b>. Diferença de comissão abaixo de ' + brl(c.tolerancia || 1) + ' conta como "confere".</div>';
+    $('vista').innerHTML = h;
+    ligarFechamento();
+    desenharTabela();
+  }
+
+  function impacto(it) { return (it.pagar || 0) - (it.planilha.comissao || 0) || (it.status === 'diverge' ? valorEscolha(it, 'conferida') - (it.planilha.comissao || 0) : 0); }
+
+  function segmento(it, opcoes) {
+    var ed = editavel();
+    return '<div class="seg" data-chave="' + esc(it.chave) + '">' + opcoes.map(function (o) {
+      var v = valorEscolha(it, o === 'incluir' ? 'conferida' : o);
+      return '<button data-e="' + o + '" class="' + (it.escolha === o ? 'on' : '') + (o === 'fora' ? ' fora' : '') + '"' + (ed ? '' : ' disabled') + '>' +
+        ESC[o] + (o === 'fora' ? '<small>não paga</small>' : '<small>' + brl(v) + '</small>') + '</button>';
+    }).join('') + '</div>';
+  }
+
+  function cabLinha(it) {
+    var p = it.planilha;
+    return '<div class="cab"><span class="dim">Linha ' + p.lin + '</span>' +
+      '<span class="ctrb" data-gav="' + esc(it.chave) + '">' + esc(it.ctrb_usado || p.ctrb || 'sem CTRB') + '</span>' +
+      '<span>' + esc(p.cliente || '') + ' · ' + esc((p.origem || '—') + ' → ' + (p.destino || '—')) + '</span>' +
+      '<span class="dim">' + esc(p.motorista || '') + ' · ' + dm(it.emissao || p.data) + '</span></div>';
+  }
+
+  function cartaoDecisao(it) {
+    var corBorda = it.status === 'diverge' ? 'var(--orange)' : 'var(--yellow)';
+    if (it.alertas.some(function (a) { return a.tipo === 'outro_mes' || a.tipo === 'ja_comissionado'; })) corBorda = 'var(--c-roxo)';
+    var opcoes = it.conferido ? ['conferida', 'planilha', 'fora'] : ['planilha', 'fora'];
+    var linhasTxt = (it.motivos || []).map(function (m) { return '<li>' + esc(m) + '</li>'; }).concat(
+      it.alertas.map(function (a) { return '<li><b>' + esc(a.texto) + '.</b> ' + esc(a.detalhe) + '</li>'; }));
+    var c = it.conferido;
+    return '<div class="dec" style="--cor:' + corBorda + '" id="d-' + esc(it.chave) + '"><div>' + cabLinha(it) +
+      '<ul>' + linhasTxt.join('') + '</ul></div>' +
+      '<div class="lado"><div class="compara">planilha <b>' + brl(it.planilha.comissao) + '</b>' +
+      (c ? ' → conferida <b>' + brl(c.comissao) + '</b>' : '') + '</div>' + segmento(it, opcoes) +
+      '<div class="padrao-tag">' + (it.escolha === it.padrao ? 'opção padrão' : 'você mudou · padrão: ' + ESC[it.padrao]) + '</div>' +
+      (it.escolha !== it.padrao || it.motivo_escolha ? '<input class="motivo" data-chave="' + esc(it.chave) + '" placeholder="Por quê? (opcional)" value="' + esc(it.motivo_escolha || '') + '"' + (editavel() ? '' : ' disabled') + '>' : '') +
+      '</div></div>';
+  }
+
+  function cartaoFora(it) {
+    var c = it.conferido;
+    return '<div class="fora-item' + (it.reemissao ? ' reemissao' : '') + '" id="d-' + esc(it.chave) + '"><div>' +
+      '<div class="cab"><span class="ctrb mono" style="color:var(--accent);cursor:pointer" data-gav="' + esc(it.chave) + '">' + esc(it.ctrb) + '</span>' +
+      '<span>' + (c && c.cliente ? esc(c.cliente) + ' · ' : '') + esc(it.rota) + '</span><span style="color:var(--text-dim);font-weight:400;font-size:.8rem">' + esc(it.motorista || '') + ' · ' + dm(it.emissao) + '</span>' +
+      pillPag(it.pagamento) + (it.reemissao ? pill('↻ reemissão', 'azul') : '') + '</div>' +
+      '<div class="notas">' + (it.notas || []).map(function (n) { return '<span class="' + (/financeiro/.test(n) ? 'forte' : '') + '">' + esc(n) + '</span>'; }).join(' ') +
+      (c ? ' Comissão pela conta: <b style="color:var(--text)">' + brl(c.comissao) + '</b>.' : '') + '</div></div>' +
+      '<div>' + (c ? segmento(it, ['fora', 'incluir']) : '<span style="font-size:.76rem;color:var(--text-dim)">sem conta pelo SSW</span>') + '</div></div>';
+  }
+
+  function filtradas() {
+    var q = S.busca.trim().toUpperCase();
+    return S.conf.linhas.filter(function (it) {
+      if (S.filtro === 'confere' && it.status !== 'confere') return false;
+      if (S.filtro === 'diverge' && it.status !== 'diverge') return false;
+      if (S.filtro === 'alerta' && !it.alertas.length) return false;
+      if (S.filtro === 'fora' && it.escolha !== 'fora') return false;
+      if (!q) return true;
+      var p = it.planilha;
+      return [p.ctrb, it.ctrb_usado, p.motorista, p.cliente, p.origem, p.destino].join(' ').toUpperCase().indexOf(q) >= 0;
+    });
+  }
+
+  function desenharTabela() {
+    var ls = filtradas();
+    var h = '<thead><tr><th>Lin</th><th>Data</th><th>Cliente</th><th>Rota</th><th>Motorista</th><th>CTRB</th>' +
+      '<th class="num">Planilha</th><th class="num">Conferida</th><th class="num">Diferença</th><th>Decisão</th><th class="num">A pagar</th><th>Situação</th><th>Pagamento</th></tr></thead><tbody>';
+    var soma = { pl: 0, pg: 0 };
+    ls.forEach(function (it) {
+      var p = it.planilha, c = it.conferido, st = STATUS[it.status];
+      soma.pl += p.comissao || 0; soma.pg += it.pagar || 0;
+      var d = c ? c.comissao - (p.comissao || 0) : null;
+      h += '<tr data-gav="' + esc(it.chave) + '" class="' + (it.escolha === 'fora' ? 'foratot' : '') + '"><td class="num">' + p.lin + '</td><td>' + dm(it.emissao || p.data) + '</td>' +
+        '<td class="txt">' + esc(p.cliente || '') + '</td><td class="txt">' + esc((p.origem || '') + ' → ' + (p.destino || '')) + '</td>' +
+        '<td class="txt">' + esc(p.motorista || '') + '</td><td class="mono">' + esc(it.ctrb_usado || p.ctrb || '—') + '</td>' +
+        '<td class="num">' + n2(p.comissao) + '</td><td class="num">' + (c ? n2(c.comissao) : '—') + '</td>' +
+        '<td class="num" style="color:' + (d == null || Math.abs(d) < 0.005 ? 'var(--text-dim)' : d > 0 ? 'var(--green)' : 'var(--red)') + '">' + (d == null ? '—' : Math.abs(d) < 0.005 ? '·' : (d > 0 ? '+' : '−') + n2(Math.abs(d))) + '</td>' +
+        '<td>' + ESC[it.escolha] + '</td><td class="num">' + n2(it.pagar) + '</td>' +
+        '<td>' + pill(st[0], st[1]) + ' ' + it.alertas.map(function (a) { return pill((ALERTA[a.tipo] || {}).ic || '•', (ALERTA[a.tipo] || {}).cor || 'cinza', a.texto + ': ' + a.detalhe); }).join(' ') + '</td>' +
+        '<td>' + pillPag(it.pagamento) + '</td></tr>';
+    });
+    h += '</tbody><tfoot><tr><td colspan="6">' + plural(ls.length, 'linha', 'linhas') + '</td><td class="num">' + n2(soma.pl) + '</td><td></td><td></td><td></td><td class="num">' + n2(soma.pg) + '</td><td colspan="2"></td></tr></tfoot>';
+    var tab = $('tab');
+    if (tab) tab.innerHTML = h;
+  }
+
+  function ligarFechamento() {
+    $('voltar').onclick = function () { ir(null); };
+    var v = $('vista');
+    v.onclick = function (ev) {
+      var b = ev.target.closest('.seg button');
+      if (b && !b.disabled) return decidir(b.parentNode.dataset.chave, b.dataset.e);
+      var g = ev.target.closest('[data-gav]');
+      if (g) return abrirGaveta(g.dataset.gav);
+      var ct = ev.target.closest('.cont');
+      if (ct) {
+        if (ct.dataset.ir) return $(ct.dataset.ir).scrollIntoView({ behavior: 'smooth' });
+        S.filtro = ct.dataset.f; S.abertaTodas = true; $('detTodas').open = true; marcarFiltros(); desenharTabela();
+        return $('detTodas').scrollIntoView({ behavior: 'smooth' });
+      }
+      var fl = ev.target.closest('.filtro');
+      if (fl) { S.filtro = fl.dataset.filtro; marcarFiltros(); desenharTabela(); }
+    };
+    v.addEventListener('change', function (ev) {
+      if (ev.target.classList.contains('motivo')) {
+        var it = acha(ev.target.dataset.chave);
+        if (it) decidir(it.chave, it.escolha, ev.target.value);
+      }
+    });
+    $('busca').oninput = function () { S.busca = this.value; desenharTabela(); };
+    $('detTodas').addEventListener('toggle', function () { S.abertaTodas = this.open; });
+    if ($('btnAprovar')) $('btnAprovar').onclick = aprovar;
+    if ($('btnReabrir')) $('btnReabrir').onclick = function () { acao('reabrir', 'Reabrir a comissão aprovada? Ela volta a rascunho e os valores voltam a ser lidos do SSW.'); };
+    if ($('btnExcluir')) $('btnExcluir').onclick = function () { acao('excluir', 'Excluir este rascunho? A planilha e as decisões somem (o histórico fica).'); };
+    if ($('btnReler')) $('btnReler').onclick = function () { abrirFechamento(S.f.id, true); };
+    $('btnHist').onclick = historico;
+  }
+  function marcarFiltros() {
+    Array.prototype.forEach.call(document.querySelectorAll('.filtro'), function (b) { b.classList.toggle('on', b.dataset.filtro === S.filtro); });
+  }
+  function acha(chave) { return itens().find(function (x) { return x.chave === chave; }); }
+
+  function decidir(chave, escolha, motivo) {
+    var it = acha(chave);
+    if (!it || !editavel()) return;
+    var antes = { escolha: it.escolha, motivo: it.motivo_escolha };
+    it.escolha = escolha;
+    if (motivo !== undefined) it.motivo_escolha = motivo;
+    atualizarItem(it);
+    postJson('/api/comissoes/' + S.f.id + '/decidir', { chave: chave, escolha: escolha, motivo: it.motivo_escolha || '' }).then(function (j) {
+      if (!j.ok) { it.escolha = antes.escolha; it.motivo_escolha = antes.motivo; atualizarItem(it); toast(j.error || 'Não gravou.', true); }
+    }).catch(function () { it.escolha = antes.escolha; atualizarItem(it); toast('Sem conexão — não gravou.', true); });
+  }
+
+  function atualizarItem(it) {
+    recalcular();
+    var el = $('d-' + it.chave);
+    if (el) {
+      var novo = document.createElement('div');
+      novo.innerHTML = it.chave.charAt(0) === 'X' ? cartaoFora(it) : cartaoDecisao(it);
+      el.replaceWith(novo.firstChild);
+    }
+    var t = S.tot;
+    $('vPagar').textContent = brl(t.pagar);
+    $('vDif').textContent = delta(t.dif);
+    $('vDif').className = 'v ' + (t.dif > 0.004 ? 'pos' : t.dif < -0.004 ? 'neg' : '');
+    if ($('btnAprovar')) $('btnAprovar').textContent = '✓ Aprovar ' + brl(t.pagar);
+    desenharTabela();
+    if (S.gav === it.chave) abrirGaveta(it.chave);
+  }
+
+  function aprovar() {
+    var t = S.tot;
+    var mudou = itens().filter(function (x) { return x.escolha !== x.padrao; }).length;
+    if (!confirm('Aprovar a comissão de ' + S.f.responsavel + ' — ' + S.f.mes_rotulo + '?\n\nA pagar: ' + brl(t.pagar) +
+      '\nA planilha pedia: ' + brl(t.planilha) + (mudou ? '\nDecisões suas: ' + mudou : '') +
+      '\n\nOs valores ficam congelados e os CTRBs ficam marcados como comissionados.')) return;
+    postJson('/api/comissoes/' + S.f.id + '/aprovar').then(function (j) {
+      if (!j.ok) return toast(j.error || 'Não aprovou.', true);
+      toast('Comissão aprovada.');
+      abrirFechamento(S.f.id);
+    });
+  }
+  function acao(nome, pergunta) {
+    if (!confirm(pergunta)) return;
+    postJson('/api/comissoes/' + S.f.id + '/' + nome).then(function (j) {
+      if (!j.ok) return toast(j.error || 'Não deu certo.', true);
+      if (nome === 'excluir') { toast('Rascunho excluído.'); ir(null); } else { toast('Comissão reaberta.'); abrirFechamento(S.f.id); }
+    });
+  }
+
+  // ── gaveta ──
+  function ordemGaveta() {
+    var dec = S.conf.linhas.filter(precisaDecisao).sort(function (a, b) { return Math.abs(impacto(b)) - Math.abs(impacto(a)) || a.lin - b.lin; });
+    var resto = S.conf.linhas.filter(function (x) { return !precisaDecisao(x); });
+    return dec.concat(S.conf.fora, resto);
+  }
+  function abrirGaveta(chave) {
+    var it = acha(chave);
+    if (!it) return;
+    S.gav = chave;
+    var ehFora = chave.charAt(0) === 'X', p = it.planilha || {}, c = it.conferido;
+    $('gavTitulo').textContent = it.ctrb_usado || it.ctrb || p.ctrb || 'Sem CTRB';
+    $('gavSub').innerHTML = ehFora
+      ? esc(it.rota) + ' · ' + esc(it.motorista || '') + ' · emitido em ' + dmy(it.emissao)
+      : 'Linha ' + p.lin + ' · ' + esc(p.cliente || '') + ' · ' + esc((p.origem || '') + ' → ' + (p.destino || '')) + '<br>' +
+        esc(p.motorista || '') + ' · CTRB emitido em ' + dmy(it.emissao) + (p.data ? ' · data na planilha ' + dmy(p.data) : '');
+    var h = '';
+    (it.alertas || []).forEach(function (a) { h += '<div class="aviso" style="--cor:' + cor((ALERTA[a.tipo] || {}).cor || 'cinza') + '"><b>' + esc(a.texto) + '.</b> ' + esc(a.detalhe) + '</div>'; });
+    (it.motivos || []).forEach(function (m) { h += '<div class="aviso" style="--cor:var(--orange)">' + esc(m) + '</div>'; });
+    (it.notas || []).forEach(function (m) { h += '<div class="aviso" style="--cor:var(--c-azul)">' + esc(m) + '</div>'; });
+    // a conta lado a lado
+    var L = [];
+    function lin(rot, vp, vs, onde, cls) { L.push('<tr class="' + (cls || '') + (vp != null && vs != null && Math.abs(vp - vs) > 0.99 ? ' dif' : '') + '"><td>' + rot + '</td><td>' + (vp == null ? '—' : n2(vp)) + '</td><td>' + (vs == null ? '—' : n2(vs)) + '</td><td class="onde">' + (onde || '') + '</td></tr>'); }
+    if (c) {
+      lin('Frete sem ICMS', ehFora ? null : p.frete_s_icms, c.receita, 'CT-e ' + esc((c.ctes || []).join(', ')) + (c.irmaos && c.irmaos.length ? ' · CT-e inteiro (reemissão)' : '') + (c.rateado ? ' · inclui ' + brl((c.de_outros || []).reduce(function (s, d) { return s + d.aqui; }, 0)) + ' de CT-e de outro motorista (rateio do BI)' : ''));
+      if (c.descarga) lin('<span style="color:var(--text-dim)">Descarga (fora da conta)</span>', null, c.descarga, 'campo "Outros" do CT-e — repasse ao carreteiro');
+      if (!ehFora && p.icms) lin('<span style="color:var(--text-dim)">ICMS (planilha)</span>', p.icms, c.icms || null, '');
+      lin('Frete motorista', ehFora ? null : p.frete_motorista, c.frete_motorista, 'CTRB ' + esc(c.ctrb));
+      lin('Vale-pedágio', ehFora ? null : (p.pedagio || 0), c.vale_pago_rizza ? c.vale_pedagio : 0,
+        c.vale_pedagio ? (c.vale_pago_rizza ? 'pago pela Rizza (5403 no 477) — desconta' : 'R$ ' + n2(c.vale_pedagio) + ' destacado no CTRB, TAG do cliente — não desconta') : 'sem vale-pedágio');
+      if (!ehFora && ((p.carga || 0) + (p.descarga || 0) + (p.outros || 0))) lin('Carga/descarga/outros', (p.carga || 0) + (p.descarga || 0) + (p.outros || 0), 0, 'não aparece no CTRB');
+      lin('Resultado', ehFora ? null : p.resultado, c.resultado, '', 'tot');
+      lin('Comissão ' + Math.round((S.conf.percentual || 0.03) * 100) + '%', ehFora ? null : p.comissao, c.comissao, '', 'tot');
+      h += '<div class="bloco"><h3>A conta</h3><table class="cmp"><tr><th></th><th>Planilha</th><th>SSW</th><th>De onde vem</th></tr>' + L.join('') + '</table></div>';
+    } else if (!ehFora) {
+      h += '<div class="bloco"><h3>A conta</h3><div class="aviso" style="--cor:var(--c-cinza)">Sem CT-e no SSW para refazer a conta — vale o que a planilha diz: comissão <b>' + brl(p.comissao) + '</b> (frete ' + brl(p.frete_s_icms) + ', custo ' + brl(p.total) + ').</div></div>';
+    }
+    // decisão
+    if (!ehFora) h += '<div class="bloco"><h3>Decisão</h3>' + segmento(it, c ? ['conferida', 'planilha', 'fora'] : ['planilha', 'fora']) + '</div>';
+    else if (c) h += '<div class="bloco"><h3>Decisão</h3>' + segmento(it, ['fora', 'incluir']) + '</div>';
+    // pagamento
+    var pg = it.pagamento || {};
+    h += '<div class="bloco"><h3>Pagamento do CTRB no 477 ' + pillPag(pg) + '</h3>';
+    if (pg.parcelas && pg.parcelas.length) {
+      h += '<table class="pg"><tr><th>Parcela</th><th class="num">Valor</th><th>Situação</th><th>Data</th></tr>' +
+        pg.parcelas.map(function (x) { return '<tr><td>' + esc(x.parcela) + (x.parcela === '01' ? ' · adiantamento' : x.parcela === '02' ? ' · saldo' : '') + '</td><td class="num">' + n2(x.valor) + '</td><td>' + (x.sit === 'LIQU' ? pill('Pago', 'verde') : pill('A pagar', 'amarelo')) + '</td><td>' + dmy(x.data) + '</td></tr>'; }).join('') + '</table>';
+    } else h += '<div style="font-size:.78rem;color:var(--text-dim)">Nenhum lançamento de pagamento deste CTRB no 477.</div>';
+    h += '</div>';
+    if (it.obs) h += '<div class="bloco"><h3>Observação do CTRB no SSW</h3><div class="obs">' + esc(it.obs) + '</div></div>';
+    $('gavCorpo').innerHTML = h;
+    $('gaveta').hidden = false;
+  }
+  function fecharGaveta() { $('gaveta').hidden = true; S.gav = null; }
+  function moverGaveta(d) {
+    if (!S.gav) return;
+    var o = ordemGaveta(), i = o.findIndex(function (x) { return x.chave === S.gav; });
+    var n = o[i + d];
+    if (n) abrirGaveta(n.chave);
+  }
+  $('gavFechar').onclick = fecharGaveta;
+  $('gavAnt').onclick = function () { moverGaveta(-1); };
+  $('gavProx').onclick = function () { moverGaveta(1); };
+  $('gavCorpo').onclick = function (ev) {
+    var b = ev.target.closest('.seg button');
+    if (b && !b.disabled) decidir(b.parentNode.dataset.chave, b.dataset.e);
+  };
+  document.addEventListener('keydown', function (ev) {
+    if (ev.target.matches('input, textarea, select')) return;
+    if (ev.key === 'Escape') { fecharGaveta(); $('modalImportar').hidden = true; }
+    if (!$('gaveta').hidden && (ev.key === 'ArrowDown' || ev.key === 'ArrowUp')) { ev.preventDefault(); moverGaveta(ev.key === 'ArrowDown' ? 1 : -1); }
+  });
+
+  function historico() {
+    api('/api/comissoes/' + S.f.id + '/historico').then(function (j) {
+      if (!j.ok) return toast(j.error, true);
+      S.gav = null;
+      $('gavTitulo').textContent = 'Histórico';
+      $('gavSub').textContent = S.f.responsavel + ' · ' + S.f.mes_rotulo;
+      $('gavCorpo').innerHTML = '<ul class="hist">' + (j.historico.length ? j.historico.map(function (x) {
+        var alvo = x.chave ? (x.chave.charAt(0) === 'L' ? 'linha ' + x.chave.slice(1) : x.chave.slice(1)) + ': ' : '';
+        return '<li><b>' + esc(x.acao) + '</b> ' + esc(alvo) + (x.antes ? esc(x.antes) + ' → ' : '') + esc(x.depois || '') +
+          '<div class="q">' + esc(x.por || '') + ' · ' + esc(x.em) + '</div></li>';
+      }).join('') : '<li>Nada ainda.</li>') + '</ul>';
+      $('gaveta').hidden = false;
+    });
+  }
+
+  // ── anexar ──
+  function ligarSoltar(el, abreModal) {
+    if (!el) return;
+    el.onclick = function () { if (abreModal) abrirImportar(); else $('arq').click(); };
+    el.ondragover = function (e) { e.preventDefault(); el.classList.add('sobre'); };
+    el.ondragleave = function () { el.classList.remove('sobre'); };
+    el.ondrop = function (e) {
+      e.preventDefault(); el.classList.remove('sobre');
+      var f = e.dataTransfer.files[0];
+      if (!f) return;
+      if (abreModal) abrirImportar();
+      lerArquivo(f);
+    };
+  }
+  function abrirImportar() {
+    S.arquivo = null; S.previa = null;
+    $('previa').innerHTML = ''; $('btnConfirmar').disabled = true; $('arq').value = '';
+    $('modalImportar').hidden = false;
+  }
+  $('btnAnexar').onclick = abrirImportar;
+  $('btnFecharImportar').onclick = function () { $('modalImportar').hidden = true; };
+  ligarSoltar($('soltar'), false);
+  $('arq').onchange = function () { if (this.files[0]) lerArquivo(this.files[0]); };
+
+  function enviar(confirmar, mes) {
+    var fd = new FormData();
+    fd.append('arquivo', S.arquivo);
+    if (mes) fd.append('mes', mes);
+    return api('/api/comissoes/importar' + (confirmar ? '?confirmar=1' : ''), { method: 'POST', body: fd });
+  }
+  function lerArquivo(f) {
+    S.arquivo = f;
+    $('previa').innerHTML = '<div class="carregando" style="padding:16px"><div class="spinner"></div></div>';
+    $('btnConfirmar').disabled = true;
+    enviar(false).then(mostrarPrevia);
+  }
+  function mostrarPrevia(j) {
+    if (!j.ok) { $('previa').innerHTML = '<div class="erro">' + esc(j.error) + '</div>'; return; }
+    S.previa = j;
+    var meses = Object.keys(j.meses || {}).sort();
+    if (meses.indexOf(j.mes) < 0) meses.push(j.mes);
+    var opts = meses.map(function (m) { return '<option value="' + m + '"' + (m === j.mes ? ' selected' : '') + '>' + m.slice(5) + '/' + m.slice(0, 4) + ((j.meses || {})[m] ? ' · ' + j.meses[m] + ' linhas' : '') + '</option>'; }).join('');
+    var bloq = false;
+    var h = '<div><b>' + esc(j.arquivo) + '</b> <span style="color:var(--text-dim)">· aba ' + esc(j.aba) + '</span></div>' +
+      '<div class="grupo-p"><span>Comissão do mês</span><select id="selMes">' + opts + '</select></div>';
+    j.previa.forEach(function (p) {
+      var ex = p.existente, aviso = '';
+      if (ex && ex.situacao === 'aprovada') { bloq = true; aviso = '<div class="av bloq">Já existe a comissão aprovada deste mês — reabra antes de trocar a planilha.</div>'; }
+      else if (ex) aviso = '<div class="av">Já existe um rascunho deste mês: a planilha nova entra no lugar e as decisões tomadas nele se perdem.</div>';
+      h += '<div class="grupo-p"><div><b>' + esc(p.nome) + '</b> · ' + plural(p.linhas, 'linha', 'linhas') + aviso + '</div><span class="mono">' + brl(p.comissao) + '</span></div>';
+    });
+    $('previa').innerHTML = h;
+    $('btnConfirmar').disabled = bloq;
+    $('selMes').onchange = function () {
+      $('btnConfirmar').disabled = true;
+      enviar(false, this.value).then(mostrarPrevia);
+    };
+  }
+  $('btnConfirmar').onclick = function () {
+    var b = this; b.disabled = true;
+    enviar(true, $('selMes') ? $('selMes').value : null).then(function (j) {
+      if (!j.ok) { b.disabled = false; return toast(j.error, true); }
+      $('modalImportar').hidden = true;
+      ir(j.ids[0]);
+    });
+  };
+
+  carregar();
+})();
+</script>
+</body>
+</html>

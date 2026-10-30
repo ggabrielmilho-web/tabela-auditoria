@@ -125,7 +125,7 @@ def admin_required(f):
 PAGINAS_VALIDAS = {'auditoria', 'tarifas', 'embarques', 'reuniao', 'dre',
                    'despesas', 'conhecimentos', 'faturamento', 'contratos', 'veiculos',
                    'pgr', 'contabil', 'verda', 'jornada', 'ciot', 'projecao', 'crm_documentos', 'cte_nestle',
-                   'contas_receber'}
+                   'contas_receber', 'comissoes'}
 # O de-para aba → rota e a ordem de preferência viviam aqui para escolher em qual
 # aba o usuário caía no login. Não existem mais: quem escolhe é ele, na /inicio.
 # As rotas de cada aba são declaradas uma vez só, no `ABAS` do nav-perms.js.
@@ -1650,6 +1650,217 @@ def api_contas_receber_importar():
         return jsonify({'ok': True, 'lidos': lidos, 'previa': previa, 'gravadas': n, 'preservadas': preservadas})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+# ── Comissão de frete — a planilha do responsável conferida contra o SSW (30/10/2026) ──
+#
+# O diretor anexa a planilha de comissão de quem contrata frete de terceiro; a tela refaz cada linha
+# pelo CTRB (receita do CT-e sem a descarga, frete do motorista, vale-pedágio só se a Rizza pagou) e
+# guarda o fechamento aprovado. A lógica mora em comissoes.py; aqui ficam a sessão, o banco e o BI.
+_CM_TABELAS = {'ok': False}
+
+
+def _cm_db(fn):
+    """Abre o banco, garante as tabelas na 1ª vez, roda fn(cur) e confirma."""
+    import comissoes as cm
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            if not _CM_TABELAS['ok']:
+                cm.garantir_tabelas(cur)
+                _CM_TABELAS['ok'] = True
+            r = fn(cur)
+        conn.commit()
+        return r
+    finally:
+        conn.close()
+
+
+def _cm_fechamento(fid):
+    import comissoes as cm
+    f = _cm_db(lambda cur: cm.obter(cur, fid))
+    if not f:
+        raise LookupError('Comissão não encontrada.')
+    return f
+
+
+def _cm_conferencia(f, forcar=False):
+    """A conferência do fechamento com as decisões aplicadas. Aprovado = a foto da aprovação."""
+    import comissoes as cm
+    if f['situacao'] == 'aprovada' and f.get('conferencia'):
+        return f['conferencia']
+    ks = [cm.chave_ctrb(l.get('ctrb')) for l in f['planilha']]
+    ssw = cm.dados_ssw(_crm_dax_op, f['mes'], ks, forcar=forcar)
+    ja, dec = _cm_db(lambda cur: (cm.comissionados(cur, exceto=f['id']), cm.decisoes(cur, f['id'])))
+    conf = cm.conferir(f['planilha'], f['responsavel'], f['mes'], ssw, ja)
+    cm.aplicar_decisoes(conf, dec)
+    return conf
+
+
+def _cm_meta(f):
+    return {k: v for k, v in f.items() if k not in ('planilha', 'conferencia')}
+
+
+@app.route('/comissoes')
+@page_required('comissoes')
+def comissoes_page():
+    resp = send_from_directory('.', 'comissoes.html')
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+@app.route('/api/comissoes')
+@page_required('comissoes')
+def api_comissoes():
+    import comissoes as cm
+    try:
+        return jsonify({'ok': True, 'fechamentos': _cm_db(cm.listar), 'percentual': cm.PERCENTUAL})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/comissoes/importar', methods=['POST'])
+@page_required('comissoes')
+def api_comissoes_importar():
+    """A planilha de comissão. Sem `confirmar`, só a prévia (responsáveis, mês, total, o que já existe);
+    com ela, grava um fechamento por responsável no `mes` escolhido (rascunho)."""
+    import comissoes as cm
+    from collections import defaultdict
+    arq = request.files.get('arquivo')
+    if not arq:
+        return jsonify({'ok': False, 'error': 'Anexe a planilha de comissão (.xlsx).'}), 400
+    nome = arq.filename or 'planilha.xlsx'
+    try:
+        lida = cm.ler_planilha(io.BytesIO(arq.read()))
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'ok': False, 'error': f'Não consegui ler a planilha: {e}'}), 400
+    resumo = cm.resumo_planilha(lida['linhas'])
+    mes = request.form.get('mes') or resumo['mes']
+    if not re.match(r'^\d{4}-\d{2}$', mes or ''):
+        return jsonify({'ok': False, 'error': 'Mês inválido.'}), 400
+    # linha sem responsável vai para o responsável principal da planilha
+    principal = next((r for r in resumo['responsaveis'] if r['chave'] != '(SEM RESPONSÁVEL)'), None)
+    if not principal:
+        return jsonify({'ok': False, 'error': 'A planilha não diz o responsável (coluna "Responsável").'}), 400
+    grupos = defaultdict(list)
+    for l in lida['linhas']:
+        k = cm.nome_norm(l.get('responsavel')) or principal['chave']
+        grupos[k].append(l)
+    nomes = {r['chave']: r['nome'] for r in resumo['responsaveis']}
+    try:
+        existentes = _cm_db(lambda cur: {k: cm.existente(cur, k, mes) for k in grupos})
+        previa = [{'chave': k, 'nome': nomes.get(k, k), 'linhas': len(ls),
+                   'comissao': round(sum(l.get('comissao') or 0 for l in ls), 2),
+                   'existente': _cm_meta(existentes[k]) if existentes.get(k) else None} for k, ls in grupos.items()]
+        if request.args.get('confirmar') != '1':
+            return jsonify({'ok': True, 'arquivo': nome, 'aba': lida['aba'], 'mes': mes,
+                            'mes_rotulo': cm.rotulo_mes(mes, True), 'meses': resumo['meses'], 'previa': previa})
+        por = session.get('nome') or 'usuário'
+        ids = _cm_db(lambda cur: [cm.salvar_planilha(cur, nomes.get(k, k), mes, nome, ls, por)[0]
+                                  for k, ls in grupos.items()])
+        return jsonify({'ok': True, 'ids': ids})
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/comissoes/<int:fid>')
+@page_required('comissoes')
+def api_comissao(fid):
+    try:
+        f = _cm_fechamento(fid)
+        conf = _cm_conferencia(f, forcar=request.args.get('refresh') == '1')
+    except LookupError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 404
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+    return jsonify({'ok': True, 'fechamento': _cm_meta(f), 'conferencia': conf, 'eu': session.get('nome') or ''})
+
+
+@app.route('/api/comissoes/<int:fid>/decidir', methods=['POST'])
+@page_required('comissoes')
+def api_comissao_decidir(fid):
+    """{chave, escolha, motivo?}: linha da planilha = conferida | planilha | fora; CTRB de fora = fora | incluir."""
+    import comissoes as cm
+    d = request.get_json(silent=True) or {}
+    chave, escolha = str(d.get('chave') or ''), d.get('escolha')
+    try:
+        f = _cm_fechamento(fid)
+        if f['situacao'] != 'rascunho':
+            return jsonify({'ok': False, 'error': 'Comissão aprovada — reabra para mudar.'}), 400
+        conf = _cm_conferencia(f)
+        item = next((x for x in conf['linhas'] + conf['fora'] if x['chave'] == chave), None)
+        if not item:
+            return jsonify({'ok': False, 'error': 'Linha não encontrada.'}), 400
+        validas = ('fora', 'incluir') if chave.startswith('X') else ('conferida', 'planilha', 'fora')
+        if escolha not in validas:
+            return jsonify({'ok': False, 'error': 'Escolha inválida.'}), 400
+        if escolha == 'conferida' and not item.get('conferido'):
+            return jsonify({'ok': False, 'error': 'Esta linha não tem conta pelo SSW.'}), 400
+        _cm_db(lambda cur: cm.decidir(cur, fid, chave, escolha, d.get('motivo'), session.get('nome') or 'usuário',
+                                      item['padrao']))
+        return jsonify({'ok': True, 'pagar': cm.valor_da_escolha(item, escolha)})
+    except LookupError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 404
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/comissoes/<int:fid>/<acao>', methods=['POST'])
+@page_required('comissoes')
+def api_comissao_acao(fid, acao):
+    """aprovar (guarda a foto da conferência) · reabrir · excluir (só rascunho)."""
+    import comissoes as cm
+    if acao not in ('aprovar', 'reabrir', 'excluir'):
+        return jsonify({'ok': False, 'error': 'Ação desconhecida.'}), 404
+    por = session.get('nome') or 'usuário'
+    try:
+        f = _cm_fechamento(fid)
+        if acao == 'aprovar':
+            if f['situacao'] != 'rascunho':
+                return jsonify({'ok': False, 'error': 'Esta comissão já está aprovada.'}), 400
+            conf = _cm_conferencia(f)
+            _cm_db(lambda cur: cm.aprovar(cur, fid, conf, por))
+        elif acao == 'reabrir':
+            _cm_db(lambda cur: cm.reabrir(cur, fid, por))
+        else:
+            _cm_db(lambda cur: cm.excluir(cur, fid, por))
+        return jsonify({'ok': True})
+    except LookupError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 404
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/comissoes/<int:fid>/historico')
+@page_required('comissoes')
+def api_comissao_historico(fid):
+    import comissoes as cm
+    try:
+        return jsonify({'ok': True, 'historico': _cm_db(lambda cur: cm.historico(cur, fid))})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/comissoes/<int:fid>/xlsx')
+@page_required('comissoes')
+def api_comissao_xlsx(fid):
+    import comissoes as cm
+    try:
+        f = _cm_fechamento(fid)
+        conteudo = cm.exportar_xlsx(f, _cm_conferencia(f))
+    except LookupError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 404
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+    nome = f"Comissão - {f['responsavel']} - {cm.rotulo_mes(f['mes']).replace('/', '-')}.xlsx"
+    return send_file(io.BytesIO(conteudo), as_attachment=True, download_name=nome,
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 
 # ── Arquivo Nestlé — o TXT da planilha CNH a partir do XML do CT-e (28/10/2026) ──
