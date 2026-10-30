@@ -1145,6 +1145,13 @@ def _crm_linhas(carteira, forcar=False):
         linhas = _crm_montar(carteira, dados, _crm_marcacoes(carteira))
     elif crm.copias_faltando(linhas, marc):
         _crm_faturar_pelo_ssw(carteira, dados)   # só a cópia do 455 nas marcações antigas (uma vez)
+    # CT-e do Arquivo Nestlé ainda sem a marca EXPORTADO (gerado agora, ou antes de chegar ao 455 do BI)
+    if carteira == 'nestle':
+        try:
+            if _cte_nestle_marcar_pendentes(linhas):
+                linhas = _crm_montar(carteira, dados, _crm_marcacoes(carteira))
+        except Exception as e:   # a marca fica para a próxima leitura; a aba não cai por ela
+            print(f'[cte-nestle] marca no CRM falhou: {e}', flush=True)
     return linhas, dados
 
 
@@ -1929,8 +1936,97 @@ def api_cte_nestle_gerar():
         return jsonify({'ok': False, 'error': str(e)}), 400
     except (KeyError, TypeError, ValueError) as e:
         return jsonify({'ok': False, 'error': f'Prévia incompleta ({e}). Anexe os XMLs de novo.'}), 400
-    return send_file(io.BytesIO(conteudo), as_attachment=True, download_name=nt.nome_arquivo(ctes),
-                     mimetype='text/plain')
+    nome = nt.nome_arquivo(ctes)
+    # Guarda no histórico e entrega na hora; a marca EXPORTADO no CRM vem logo depois, em segundo plano
+    # (a leitura da carteira Nestlé pode precisar ir ao BI, ~40 s com o cache frio).
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            _cte_nestle_tabelas(cur)
+            nt.registrar(cur, nome, session.get('nome') or 'usuário', ctes, conteudo)
+        conn.commit()
+    finally:
+        conn.close()
+    threading.Thread(target=_cte_nestle_marcar_agora, daemon=True, name='CteNestleCRM').start()
+    return send_file(io.BytesIO(conteudo), as_attachment=True, download_name=nome, mimetype='text/plain')
+
+
+_CTE_NESTLE_TABELAS = {'ok': False}
+
+
+def _cte_nestle_tabelas(cur):
+    import nestle_txt as nt
+    if not _CTE_NESTLE_TABELAS['ok']:
+        nt.garantir_tabelas(cur)
+        _CTE_NESTLE_TABELAS['ok'] = True
+
+
+def _cte_nestle_marcar_agora():
+    """Depois do Gerar: ler a carteira Nestlé do CRM já marca os CT-e do arquivo (`_crm_linhas`)."""
+    try:
+        _crm_linhas('nestle')
+    except Exception as e:
+        print(f'[cte-nestle] marca no CRM fica para a próxima leitura: {e}', flush=True)
+
+
+def _cte_nestle_marcar_pendentes(linhas):
+    """Os CT-e de arquivo gerado que ainda não estão marcados no CRM → EXPORTADO na coluna
+    "Ticket B2B/Transp" (campo `conferencia`), com a pessoa e o arquivo no histórico da linha.
+    Chamada a cada leitura da carteira Nestlé; sem pendente é uma consulta. Devolve quantas mudaram."""
+    import crm_documentos as crm
+    import nestle_txt as nt
+    por_chave = {l['chave']: l for l in linhas}
+    conn = get_db()
+    n = 0
+    try:
+        with conn.cursor() as cur:
+            _cte_nestle_tabelas(cur)
+            pend = nt.pendentes(cur)
+            for p, (sit, chave) in zip(pend, nt.casar_crm(pend, linhas)):
+                if sit == 'aguardando':
+                    continue
+                if sit == 'marcado':
+                    n += crm.gravar(cur, 'nestle', [chave], 'conferencia', nt.VALOR_CRM, nt.por_do_log(p),
+                                    {chave: crm.base_ssw(por_chave[chave])})
+                nt.gravar_situacao(cur, p['id'], sit, chave)
+        conn.commit()
+    finally:
+        conn.close()
+    return n
+
+
+@app.route('/api/cte-nestle/historico')
+@page_required('cte_nestle')
+def api_cte_nestle_historico():
+    """Os últimos arquivos gerados, com os CT-e e a situação da marca no CRM."""
+    import nestle_txt as nt
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            _cte_nestle_tabelas(cur)
+            arqs = nt.historico(cur)
+        conn.commit()
+    finally:
+        conn.close()
+    return jsonify({'ok': True, 'arquivos': arqs, 'dias_aguardar': nt.DIAS_AGUARDAR})
+
+
+@app.route('/api/cte-nestle/arquivo/<int:aid>')
+@page_required('cte_nestle')
+def api_cte_nestle_arquivo(aid):
+    """Baixar de novo um arquivo do histórico, como saiu (não marca nada de novo no CRM)."""
+    import nestle_txt as nt
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            _cte_nestle_tabelas(cur)
+            r = nt.arquivo(cur, aid)
+        conn.commit()
+    finally:
+        conn.close()
+    if not r:
+        return jsonify({'ok': False, 'error': 'Arquivo não encontrado.'}), 404
+    return send_file(io.BytesIO(r[1]), as_attachment=True, download_name=r[0], mimetype='text/plain')
 
 
 # ── CIOT — conferência CTRB × manifesto × CIOT ──────────────────────

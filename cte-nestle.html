@@ -73,6 +73,17 @@
   .pill.bad { background: rgba(248,113,113,0.13); color: var(--red); }
   .pill.warn { background: rgba(251,146,60,0.13); color: var(--orange); }
   .soma.bad { color: var(--red); } .soma.ok { color: var(--green); }
+
+  .hist { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; margin-top: 22px; overflow: hidden; }
+  .hist-cab { padding: 14px 16px; border-bottom: 1px solid var(--border); display: flex; gap: 8px 16px; align-items: baseline; flex-wrap: wrap; }
+  .hist-cab h2 { font-size: 1rem; font-weight: 700; }
+  .hist-cab .meta { margin-top: 0; }
+  .rolagem { overflow-x: auto; }
+  .hist td { vertical-align: top; }
+  .chips { display: flex; gap: 4px; flex-wrap: wrap; max-width: 520px; }
+  .vazio { padding: 18px 16px; color: var(--text-dim); font-size: 0.82rem; }
+  a.baixar { color: var(--accent); text-decoration: none; font-size: 0.8rem; white-space: nowrap; }
+  a.baixar:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
@@ -102,6 +113,15 @@
   <div id="naoAchou" class="alerta bad" hidden></div>
   <div class="kpis" id="kpis" hidden></div>
   <div id="ctes"></div>
+
+  <div class="hist">
+    <div class="hist-cab">
+      <h2>Arquivos gerados</h2>
+      <span class="meta">Ao gerar, cada CT-e passa para <b>EXPORTADO</b> na coluna Ticket B2B/Transp da aba Nestlé do
+        CRM - Documentos; quem e quando ficam no histórico da linha.</span>
+    </div>
+    <div id="hist"><div class="vazio"><span class="spin"></span>Carregando…</div></div>
+  </div>
 </div>
 
 <script src="/nav-perms.js"></script>
@@ -337,10 +357,76 @@
         a.download = m ? m[1] : 'CNH.txt';
         document.body.appendChild(a); a.click(); a.remove();
         setTimeout(function () { URL.revokeObjectURL(a.href); }, 2000);
+        acompanharMarca();
       });
     }).catch(function (e) { mostrarErro(e.message); })
       .then(function () { b.disabled = false; atualizar(); });
   });
+
+  // ── histórico dos arquivos gerados ──
+  var diasAguardar = 60;
+  function chipCte(c, expirado) {
+    var rot = esc(c.numero) + (c.complementar ? ' (compl.)' : ''), cls, tit;
+    if (c.situacao === 'marcado') { cls = 'ok'; tit = 'EXPORTADO no CRM — ' + (c.crm || ''); }
+    else if (c.situacao === 'ambiguo') { cls = 'bad'; tit = 'O nº do CT-e aparece em mais de uma linha do CRM com o mesmo frete: marque à mão'; }
+    else if (expirado) { cls = 'dim'; tit = 'Não apareceu na aba Nestlé do CRM em ' + diasAguardar + ' dias (pagador fora da carteira?)'; }
+    else { cls = 'warn'; tit = 'Aguardando: o CT-e ainda não está no 455 do BI — é marcado quando chegar'; }
+    return '<span class="pill ' + cls + ' mono" title="' + esc(tit) + '">' + rot + '</span>';
+  }
+  function resumoCrm(a) {
+    var n = a.ctes.length, m = 0, amb = 0, ag = 0;
+    a.ctes.forEach(function (c) { if (c.situacao === 'marcado') m++; else if (c.situacao === 'ambiguo') amb++; else ag++; });
+    var out = [];
+    if (m) out.push('<span class="pill ok">' + (m === n ? 'EXPORTADO' : m + ' EXPORTADO') + '</span>');
+    if (ag) out.push(a.expirado ? '<span class="pill dim">' + ag + ' não achado(s)</span>'
+                                : '<span class="pill warn">' + ag + ' aguardando o BI</span>');
+    if (amb) out.push('<span class="pill bad">' + amb + ' ambíguo(s) — marcar à mão</span>');
+    return out.join(' ');
+  }
+  function desenharHistorico(arqs) {
+    if (!arqs.length) { $('hist').innerHTML = '<div class="vazio">Nenhum arquivo gerado ainda.</div>'; return; }
+    $('hist').innerHTML = '<div class="rolagem"><table><thead><tr><th>Gerado em</th><th>Por</th><th>CT-e</th>' +
+      '<th class="num">Notas</th><th class="num">Frete</th><th>CRM</th><th></th></tr></thead><tbody>' +
+      arqs.map(function (a) {
+        var notas = 0, frete = 0;
+        a.ctes.forEach(function (c) { notas += c.notas || 0; frete += centavos(c.valor_servico); });
+        return '<tr>' +
+          '<td class="mono">' + esc(a.em) + '</td>' +
+          '<td>' + esc(a.por || '—') + '</td>' +
+          '<td><div class="chips">' + a.ctes.map(function (c) { return chipCte(c, a.expirado); }).join('') + '</div></td>' +
+          '<td class="num mono">' + notas + '</td>' +
+          '<td class="num mono">' + brl(frete / 100) + '</td>' +
+          '<td>' + resumoCrm(a) + '</td>' +
+          '<td><a class="baixar" href="/api/cte-nestle/arquivo/' + a.id + '" title="' + esc(a.nome) + '">⬇ baixar</a></td>' +
+        '</tr>';
+      }).join('') + '</tbody></table></div>';
+  }
+  function carregarHistorico() {
+    return fetch('/api/cte-nestle/historico', { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (!j.ok) throw new Error(j.error || 'Erro ao ler o histórico.');
+        diasAguardar = j.dias_aguardar || diasAguardar;
+        desenharHistorico(j.arquivos);
+        return j.arquivos;
+      })
+      .catch(function (e) { $('hist').innerHTML = '<div class="vazio">' + esc(e.message) + '</div>'; return []; });
+  }
+  // Depois do Gerar: a marca no CRM vem em segundo plano (ler a carteira pode levar ~40 s com o BI frio).
+  // Relê o histórico algumas vezes enquanto o arquivo novo tiver CT-e aguardando.
+  var acompanhando = null;
+  function acompanharMarca() {
+    clearTimeout(acompanhando);
+    var esperas = [1500, 4000, 8000, 15000, 25000, 40000], i = 0;
+    (function passo() {
+      carregarHistorico().then(function (arqs) {
+        var novo = arqs[0];
+        var falta = novo && novo.ctes.some(function (c) { return c.situacao === 'aguardando'; });
+        if (falta && i < esperas.length) acompanhando = setTimeout(passo, esperas[i++]);
+      });
+    })();
+  }
+  carregarHistorico();
 
   $('btnLimpar').addEventListener('click', function () {
     estado = null;

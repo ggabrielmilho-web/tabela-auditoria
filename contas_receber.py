@@ -191,7 +191,33 @@ _COLS_455 = (f'"ctrc", {_T455}[serie_numero_ctrc], "cte", {_T455}[serie_numero_c
              f'"unid", {_T455}[unidade_responsavel_pagador], "nf", {_T455}[numero_nota_fiscal], '
              f'"rem", {_T455}[cliente_remetente], "dest", {_T455}[cliente_destinatario], '
              f'"cid_d", {_T455}[cidade_destinatario], "uf_d", {_T455}[uf_destinatario], '
-             f'"imp", {_T455}[data_importacao], "obs", LEFT({_T455}[observacao], 240)')
+             f'"imp", {_T455}[data_importacao], "obs", LEFT({_T455}[observacao], 240), '
+             f'"cav", {_T455}[placa_cavalo], "car", {_T455}[placa_carreta], "mf", {_T455}[ultimo_manifesto]')
+
+# O motorista não está no 455: vem do último manifesto do CT-e (o 455 escreve "CAR 004648-5", a tabela
+# de manifestos "CAR004648-5"). As placas ficam as do 455 — iguais às do manifesto e na grafia do SSW.
+# O manifesto corta o nome em 30 letras (589 de 5.758 em 30/10/2026): o nome inteiro vem do cadastro de
+# motoristas (047) pelo CPF; sem cadastro, fica o do manifesto.
+_TMF = "'public manifestos'"
+DAX_MOTORISTAS_047 = "EVALUATE SELECTCOLUMNS('public motoristas_047', \"cpf\", [cpf], \"nome\", [nome])"
+
+
+def dax_manifestos(ini):
+    return (f'EVALUATE SELECTCOLUMNS(FILTER({_TMF}, {_TMF}[data_emissao] >= DATE({ini.year},{ini.month},{ini.day})), '
+            f'"mf", {_TMF}[CHAVE_MANIFESTO], "nome", {_TMF}[nome_motorista], "cpf", {_TMF}[cpf_motorista])')
+
+
+def nomes_motoristas(manifestos, cadastro):
+    """{manifesto: nome do motorista} — o do cadastro 047 pelo CPF, senão o (cortado) do manifesto."""
+    so_dig = lambda v: re.sub(r'\D', '', str(v or ''))
+    inteiro = {so_dig(r.get('cpf')): _txt(r.get('nome')) for r in cadastro if so_dig(r.get('cpf'))}
+    return {chave_manifesto(r.get('mf')): inteiro.get(so_dig(r.get('cpf'))) or _txt(r.get('nome'))
+            for r in manifestos if r.get('mf')}
+
+
+def chave_manifesto(v):
+    s = re.sub(r'\s+', '', str(v or '')).upper()
+    return s or None
 
 
 def dax_455(ini, fim):
@@ -241,6 +267,18 @@ def buscar_ssw(dax_op, dax_cont, hoje=None):
         b = min(date(a.year + (a.month + 2) // 12, (a.month + 2) % 12 + 1, 1), fim)
         ce += dax_op(dax_455(a, b))
         a = b
+    # Manifesto emitido até ~1 mês antes do CT-e mais antigo (carga que o CT-e herda de manifesto anterior).
+    # Sem ele a tela segue, só sem o nome do motorista.
+    try:
+        mfs = dax_op(dax_manifestos(date.fromisoformat(INICIO) - timedelta(days=31)))
+        try:
+            cadastro = dax_op(DAX_MOTORISTAS_047)
+        except Exception:
+            cadastro = []
+        motoristas = nomes_motoristas(mfs, cadastro)
+    except Exception as e:
+        print(f'[contas-receber] manifestos fora (sem motorista): {e}', flush=True)
+        motoristas = {}
     abertas = dax_cont(DAX_ABERTAS)
     ab_ctrcs = dax_cont(DAX_ABERTAS_CTRC)
     pagas = dax_cont(DAX_PAGAS_FAT)
@@ -249,7 +287,7 @@ def buscar_ssw(dax_op, dax_cont, hoje=None):
     lido_abertas = max((str(r.get('data_importacao'))[:16] for r in abertas if r.get('data_importacao')), default=None)
     lido_pagas = max((str(r.get('imp'))[:16] for r in pagas if r.get('imp')), default=None)
     return {'ce': ce, 'abertas': abertas, 'ab_ctrcs': ab_ctrcs, 'pagas': pagas, 'pg_ctrcs': pg_ctrcs,
-            'lido_455': lido_455, 'lido_abertas': lido_abertas, 'lido_pagas': lido_pagas,
+            'motoristas': motoristas, 'lido_455': lido_455, 'lido_abertas': lido_abertas, 'lido_pagas': lido_pagas,
             'lido_em': datetime.now(BRT).strftime('%d/%m/%Y %H:%M')}
 
 
@@ -397,18 +435,21 @@ def em_fatura(dados):
     return out
 
 
-def base_cte(r):
-    """Linha do 455 → o que a tela mostra (e o que se copia para a marcação)."""
+def base_cte(r, motoristas=None):
+    """Linha do 455 → o que a tela mostra (e o que se copia para a marcação). `motoristas` = {manifesto: nome}."""
+    mf = _txt(r.get('mf'))
     return {'ctrc': chave_ctrc(r.get('ctrc')), 'cte': r.get('cte'), 'emissao': _iso(r.get('aut')),
             'emissao_455': _iso(r.get('emi')), 'doc': _txt(r.get('doc')), 'frete': _num(r.get('frete')),
             'cnpj': _txt(r.get('cnpj')), 'pagador': _txt(r.get('pagador')), 'unid': _txt(r.get('unid')),
             'nf': _txt(r.get('nf')), 'remetente': _txt(r.get('rem')), 'destinatario': _txt(r.get('dest')),
             'destino': '/'.join(x for x in (_txt(r.get('cid_d')), _txt(r.get('uf_d'))) if x) or None,
-            'obs': _txt(r.get('obs')), 'baixa': _txt(r.get('baixa'))}
+            'obs': _txt(r.get('obs')), 'baixa': _txt(r.get('baixa')),
+            'cavalo': _txt(r.get('cav')), 'carreta': _txt(r.get('car')), 'manifesto': mf,
+            'motorista': (motoristas or {}).get(chave_manifesto(mf)) if mf else None}
 
 
 COPIA_CTE = ('ctrc', 'cte', 'emissao', 'doc', 'frete', 'cnpj', 'pagador', 'unid', 'nf', 'remetente',
-             'destinatario', 'destino', 'obs')
+             'destinatario', 'destino', 'obs', 'cavalo', 'carreta', 'manifesto', 'motorista')
 
 
 def montar_ctes(dados, marc, crm_etapas=None, hoje=None):
@@ -436,7 +477,7 @@ def montar_ctes(dados, marc, crm_etapas=None, hoje=None):
         etapa = (m or {}).get('etapa')
         onde = fat.get(k)
         if r is not None:
-            base = base_cte(r)
+            base = base_cte(r, dados.get('motoristas'))
             baixa = (base['baixa'] or '').upper()
         elif m and m.get('ssw'):
             base = dict({c: None for c in COPIA_CTE}, **m['ssw'], baixa=None, emissao_455=None)
@@ -486,13 +527,25 @@ def montar_faturas(dados, marc, hoje=None):
     `grupo`: 'a_vencer', 'vencida' (vencida desde CORTE_ANTIGAS), 'antiga' (antes dele) ou 'recebida'."""
     hoje = hoje or hoje_brt()
     h = hoje.isoformat()
+    # veículo e motorista de cada CT-e da fatura, pelo 455 (o 441 não traz)
+    no_455 = {}
+    for r in dados['ce']:
+        k = chave_ctrc(r.get('ctrc'))
+        if k:
+            no_455[k] = r
+    # A lista de CTRCs escreve a fatura sem o dígito ("0030426") e a fatura em aberto com ele ("0030426-0"):
+    # casa pelo número sem o dígito, como o CRM - Documentos (até 30/10/2026 a lista nunca casava).
+    sem_dv = lambda f: f.split('-')[0]
     ctrcs = {}
     for r in dados['ab_ctrcs']:
         f = chave_fatura(r.get('fatura'))
+        f = sem_dv(f) if f else None
         k = chave_ctrc(r.get('ctrc'))
         if f and k:
+            b = base_cte(no_455[k], dados.get('motoristas')) if k in no_455 else {}
             ctrcs.setdefault(f, []).append({'ctrc': k, 'cte': r.get('cte'), 'emissao': _iso(r.get('emi')),
-                                            'frete': _num(r.get('frete'))})
+                                            'frete': _num(r.get('frete')), 'cavalo': b.get('cavalo'),
+                                            'carreta': b.get('carreta'), 'motorista': b.get('motorista')})
     linhas = []
     for a in dados['abertas']:
         f = chave_fatura(a.get('fatura'))
@@ -505,7 +558,7 @@ def montar_faturas(dados, marc, hoje=None):
         grupo = 'a_vencer' if not venc or venc >= h else ('vencida' if venc >= CORTE_ANTIGAS else 'antiga')
         atraso = (hoje - date.fromisoformat(venc)).days if venc and venc < h else 0
         prev = campos.get('previsao')
-        cs = ctrcs.get(f, [])
+        cs = ctrcs.get(sem_dv(f), [])
         linhas.append({
             'chave': f, 'fatura': f, 'cliente': _txt(a.get('cliente')), 'cnpj': _txt(a.get('cnpj_cpf')),
             'emissao': _iso(a.get('emissao')), 'vencimento': venc, 'venc_original': _iso(a.get('venc_ori')),

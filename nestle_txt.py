@@ -13,7 +13,8 @@ TXT real gerado por ela (28/10/2026). A única diferença é o peso: o dela foi 
 aqui vale o do CT-e, que bate com o 455 e com a soma dos pesos das NF-e. O pedido sai completado com
 zeros à direita até 13 dígitos, como no arquivo que a Nestlé aceitou.
 
-Funções puras (sem Flask nem banco); a rede fica em `buscar_nfe`.
+Funções puras (sem Flask); a rede fica em `buscar_nfe` e o banco no fim — o histórico dos arquivos
+gerados e a marca EXPORTADO na aba Nestlé do CRM - Documentos (30/10/2026).
 """
 import re
 import time
@@ -404,3 +405,147 @@ def montar_txt(ctes):
         return ('\r\n'.join(linhas) + '\r\n').encode('ascii')
     except UnicodeEncodeError:
         raise ErroArquivo('Caractere fora do ASCII no arquivo (pedido?)')
+
+
+# ── Histórico dos arquivos e a marca no CRM (30/10/2026) ────────────────────
+#
+# Cada TXT gerado fica guardado (quem, quando, os CT-e, o conteúdo para baixar de novo) e os CT-e
+# dele passam para EXPORTADO na coluna "Ticket B2B/Transp" da aba Nestlé do CRM - Documentos
+# (campo `conferencia`), que ela preenchia à mão ("EXP 30/10"). A data fica no histórico da linha,
+# não no texto. Só o CT-e cujo XML entrou no arquivo: o complementar marca a si mesmo, não o original.
+#
+# O XML não traz o CTRC, que é a chave do CRM: casa pelo nº do CT-e do 455 (`serie_numero_cte` =
+# série × 10⁹ + número: 2000008484 é a série 2, nº 8484). O mesmo número existe em mais de uma
+# unidade (NOD e RIO usam a série 2 em faixas que se cruzam) — aí desempata pelo valor do frete.
+# CT-e que ainda não está no 455 do BI (emitido hoje, antes do refresh) fica `aguardando` e é
+# marcado na próxima leitura da carteira, por até DIAS_AGUARDAR dias.
+
+DIAS_AGUARDAR = 60
+VALOR_CRM = 'EXPORTADO'
+
+DDL_HISTORICO = """
+CREATE TABLE IF NOT EXISTS cte_nestle_arquivo (
+    id          BIGSERIAL PRIMARY KEY,
+    nome        TEXT NOT NULL,
+    gerado_em   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    gerado_por  TEXT,
+    n_linhas    INTEGER NOT NULL,
+    conteudo    TEXT NOT NULL              -- o TXT como saiu (ASCII), para baixar de novo
+);
+CREATE TABLE IF NOT EXISTS cte_nestle_arquivo_cte (
+    id            BIGSERIAL PRIMARY KEY,
+    arquivo_id    BIGINT NOT NULL REFERENCES cte_nestle_arquivo (id) ON DELETE CASCADE,
+    chave_cte     TEXT NOT NULL,
+    numero        BIGINT NOT NULL,
+    serie         TEXT NOT NULL,
+    complementar  BOOLEAN NOT NULL DEFAULT false,
+    emissao       DATE,
+    destinatario  TEXT,
+    valor_servico NUMERIC(14, 2),
+    n_notas       INTEGER NOT NULL DEFAULT 0,
+    situacao      TEXT NOT NULL DEFAULT 'aguardando',   -- aguardando | marcado | ambiguo
+    crm_chave     TEXT,                                  -- a linha do CRM marcada (CTRC ou MAN-…)
+    marcado_em    TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS cte_nestle_arquivo_cte_arq ON cte_nestle_arquivo_cte (arquivo_id);
+CREATE INDEX IF NOT EXISTS cte_nestle_arquivo_cte_aguardando ON cte_nestle_arquivo_cte (situacao)
+    WHERE situacao = 'aguardando';
+"""
+
+
+def garantir_tabelas(cur):
+    cur.execute(DDL_HISTORICO)
+
+
+def numero_455(serie, numero):
+    """Série + nº do XML → o `serie_numero_cte` do 455 (o `cte` da linha do CRM)."""
+    return int(serie) * 10 ** 9 + int(numero)
+
+
+def casar_crm(itens, linhas):
+    """`itens` = [{'numero_455', 'valor_servico'}]; `linhas` = as da aba Nestlé do CRM.
+    → uma tupla por item: ('marcado', chave) | ('aguardando', None) | ('ambiguo', None)."""
+    por_num = {}
+    for l in linhas:
+        if l.get('cte'):
+            por_num.setdefault(int(l['cte']), []).append(l)
+    out = []
+    for it in itens:
+        cand = por_num.get(it['numero_455']) or []
+        if len(cand) > 1 and it.get('valor_servico') is not None:
+            v = Decimal(str(it['valor_servico']))
+            cand = [l for l in cand if l.get('frete') is not None
+                    and abs(Decimal(str(l['frete'])) - v) <= Decimal('0.01')]
+        if len(cand) == 1:
+            out.append(('marcado', cand[0]['chave']))
+        else:
+            out.append(('ambiguo', None) if cand else ('aguardando', None))
+    return out
+
+
+def registrar(cur, nome, por, ctes, conteudo):
+    """Guarda o arquivo gerado e os CT-e dele (todos `aguardando`). Devolve o id."""
+    texto = conteudo.decode('ascii')
+    cur.execute("""INSERT INTO cte_nestle_arquivo (nome, gerado_por, n_linhas, conteudo)
+                   VALUES (%s, %s, %s, %s) RETURNING id""", (nome, por, texto.count('\r\n'), texto))
+    aid = cur.fetchone()[0]
+    for c in ctes:
+        cur.execute("""INSERT INTO cte_nestle_arquivo_cte (arquivo_id, chave_cte, numero, serie, complementar,
+                                                           emissao, destinatario, valor_servico, n_notas)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                    (aid, c['chave'], int(c['numero']), str(c['serie']), bool(c.get('complementar')),
+                     c.get('emissao') or None, c.get('destinatario'), _dec(c.get('valor_servico')),
+                     0 if c.get('complementar') else len(c.get('notas') or [])))
+    return aid
+
+
+def pendentes(cur):
+    """CT-e `aguardando` dos últimos DIAS_AGUARDAR dias, travados para esta transação (SKIP LOCKED:
+    duas leituras ao mesmo tempo não marcam o mesmo CT-e duas vezes)."""
+    cur.execute("""SELECT c.id, c.serie, c.numero, c.valor_servico, a.gerado_por,
+                          to_char(a.gerado_em AT TIME ZONE 'America/Sao_Paulo', 'DD/MM/YYYY HH24:MI')
+                     FROM cte_nestle_arquivo_cte c JOIN cte_nestle_arquivo a ON a.id = c.arquivo_id
+                    WHERE c.situacao = 'aguardando' AND a.gerado_em > now() - make_interval(days => %s)
+                      FOR UPDATE OF c SKIP LOCKED""", (DIAS_AGUARDAR,))
+    return [{'id': i, 'numero_455': numero_455(s, n), 'valor_servico': v, 'por': p, 'em': e}
+            for i, s, n, v, p, e in cur.fetchall()]
+
+
+def por_do_log(p):
+    """Quem aparece no histórico da linha do CRM: a pessoa e o arquivo (a data do arquivo vale quando
+    a marca entra depois, na leitura em que o CT-e chegou ao BI)."""
+    return f'{p["por"] or "usuário"} · Arquivo Nestlé de {p["em"]}'
+
+
+def gravar_situacao(cur, id_cte, situacao, crm_chave=None):
+    cur.execute("""UPDATE cte_nestle_arquivo_cte SET situacao = %s, crm_chave = %s,
+                          marcado_em = CASE WHEN %s = 'marcado' THEN now() END WHERE id = %s""",
+                (situacao, crm_chave, situacao, id_cte))
+
+
+def historico(cur, limite=100):
+    """Os últimos arquivos gerados, com os CT-e de cada um e a situação da marca no CRM."""
+    cur.execute("""SELECT id, nome, to_char(gerado_em AT TIME ZONE 'America/Sao_Paulo', 'DD/MM/YYYY HH24:MI'),
+                          gerado_por, n_linhas, gerado_em < now() - make_interval(days => %s)
+                     FROM cte_nestle_arquivo ORDER BY gerado_em DESC, id DESC LIMIT %s""", (DIAS_AGUARDAR, limite))
+    arqs = [{'id': i, 'nome': n, 'em': e, 'por': p, 'linhas': nl, 'expirado': x, 'ctes': []}
+            for i, n, e, p, nl, x in cur.fetchall()]
+    if not arqs:
+        return []
+    por_id = {a['id']: a for a in arqs}
+    cur.execute("""SELECT arquivo_id, numero, serie, complementar, emissao, destinatario, valor_servico, n_notas,
+                          situacao, crm_chave
+                     FROM cte_nestle_arquivo_cte WHERE arquivo_id = ANY(%s) ORDER BY id""", (list(por_id),))
+    for aid, num, ser, comp, emi, dest, val, nn, sit, ch in cur.fetchall():
+        por_id[aid]['ctes'].append({'numero': num, 'serie': ser, 'complementar': comp,
+                                    'emissao': emi.isoformat() if emi else None, 'destinatario': dest,
+                                    'valor_servico': str(val) if val is not None else None, 'notas': nn,
+                                    'situacao': sit, 'crm': ch})
+    return arqs
+
+
+def arquivo(cur, aid):
+    """(nome, bytes) de um arquivo do histórico, ou None."""
+    cur.execute('SELECT nome, conteudo FROM cte_nestle_arquivo WHERE id = %s', (aid,))
+    r = cur.fetchone()
+    return (r[0], r[1].encode('ascii')) if r else None

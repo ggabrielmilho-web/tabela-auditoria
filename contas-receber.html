@@ -473,9 +473,10 @@
     ls.forEach(function (l) {
       por[l.chave] = l;
       var p = tipo === 'cte'
-        ? [l.ctrc, l.cte, l.nf, l.pagador, l.cnpj, l.unid, l.doc, l.obs, l.campos.anotacao, l.campos.motivo, (FILA[l.fila] || {}).rotulo, l.crm && l.crm.rotulo]
+        ? [l.ctrc, l.cte, l.nf, l.pagador, l.cnpj, l.unid, l.doc, l.obs, l.campos.anotacao, l.campos.motivo, (FILA[l.fila] || {}).rotulo, l.crm && l.crm.rotulo,
+           l.cavalo, l.carreta, l.motorista, l.manifesto]
         : [l.fatura, l.cliente, l.cnpj, l.unid, l.ocorrencia, l.email, l.campos.anotacao, l.campos.situacao, l.campos.classe]
-          .concat((l.ctrcs || []).map(function (c) { return c.ctrc + ' ' + c.cte; }));
+          .concat((l.ctrcs || []).map(function (c) { return [c.ctrc, c.cte, c.cavalo, c.carreta, c.motorista].filter(Boolean).join(' '); }));
       l._busca = p.join(' ').toUpperCase();
     });
     if (tipo === 'cte') S.ctes = ls; else S.faturas = ls;
@@ -499,7 +500,7 @@
     S.modo = modo; S.sel = new Set(); S.lista = null; S.abertos = new Set();
     guardar('modo', modo);
     try { history.replaceState(null, '', '/contas-receber?fila=' + (modo === 'cte' ? 'faturar' : 'cobranca')); } catch (e) {}
-    $('busca').placeholder = modo === 'cte' ? 'Buscar CTRC, CT-e, NF, cliente, anotação…  ( / )' : 'Buscar fatura, cliente, CNPJ, CTRC da fatura, anotação…  ( / )';
+    $('busca').placeholder = modo === 'cte' ? 'Buscar CTRC, CT-e, NF, cliente, placa, motorista, anotação…  ( / )' : 'Buscar fatura, cliente, CNPJ, CTRC, placa ou motorista da fatura, anotação…  ( / )';
     CFG_RF.defaultSort = ORDEM[modo];
     rf.setColumns(S.cols[modo]);
     $('gaveta').hidden = true;
@@ -1014,11 +1015,14 @@
     h += '<div class="bloco"><h3>No SSW (455)</h3>' + kv([
       ['CT-e', l.cte ? String(l.cte) : ''], ['Documento', l.doc], ['Baixa no 455', l.baixa],
       ['Pagador', (l.pagador || '') + (l.cnpj ? ' · ' + l.cnpj : '')], ['Unidade', l.unid],
+      ['Veículo', veiculo(l)], ['Motorista', (l.motorista || '') + (l.manifesto ? (l.motorista ? ' · ' : '') + 'manifesto ' + l.manifesto : '')],
       ['Autorização', dm(l.emissao)], ['Emissão', l.emissao_455 && l.emissao_455 !== l.emissao ? dm(l.emissao_455) : ''],
       ['Remetente', l.remetente], ['Destinatário', l.destinatario], ['Destino', l.destino], ['NF', l.nf], ['Observação', l.obs]]) + '</div>';
     h += '<div class="bloco"><h3>Histórico</h3><div id="gavHist"></div></div>';
     $('gavCorpo').innerHTML = h;
   }
+  // cavalo / carreta do 455, na grafia do SSW
+  function veiculo(l) { return [l.cavalo, l.carreta].filter(Boolean).join(' / '); }
   function contatoHTML(ic, v, tipo) {
     if (!v) return '';
     var link = tipo === 'email' ? '<a href="mailto:' + esc(v) + '">' + esc(v) + '</a>' : tipo === 'tel' ? '<a href="tel:' + esc(v.replace(/\D/g, '')) + '">' + esc(v) + '</a>' : esc(v);
@@ -1053,8 +1057,11 @@
         ['Promessa no SSW', dm(l.promessa_ssw)], ['Última ocorrência', l.ocorrencia]])
         + (flags.length ? '<div class="flags">' + flags.map(function (x) { return '<span class="pill" style="--cor:var(--c-vermelho)">' + esc(x[1]) + '</span>'; }).join('') + '</div>' : '') + '</div>';
       if (l.ctrcs && l.ctrcs.length) {
-        h += '<div class="bloco"><h3>CT-e da fatura (' + l.n_ctrcs + ')</h3><table class="pg"><tr><th>CTRC</th><th>CT-e</th><th>Autorização</th><th style="text-align:right">Frete</th></tr>'
-          + l.ctrcs.map(function (c) { return '<tr><td class="mono">' + esc(c.ctrc) + '</td><td class="mono">' + esc(c.cte || '') + '</td><td>' + dm(c.emissao) + '</td><td class="num mono">' + moeda(c.frete) + '</td></tr>'; }).join('')
+        h += '<div class="bloco"><h3>CT-e da fatura (' + l.n_ctrcs + ')</h3><table class="pg"><tr><th>CTRC</th><th>CT-e</th><th>Autorização</th><th>Veículo · motorista</th><th style="text-align:right">Frete</th></tr>'
+          + l.ctrcs.map(function (c) {
+              return '<tr><td class="mono">' + esc(c.ctrc) + '</td><td class="mono">' + esc(c.cte || '') + '</td><td>' + dm(c.emissao) + '</td>'
+                + '<td><span class="mono">' + esc(veiculo(c)) + '</span>' + (c.motorista ? '<div class="nota">' + esc(c.motorista) + '</div>' : '') + '</td>'
+                + '<td class="num mono">' + moeda(c.frete) + '</td></tr>'; }).join('')
           + '</table>' + (l.n_ctrcs > l.ctrcs.length ? '<div class="nota">… e mais ' + (l.n_ctrcs - l.ctrcs.length) + '</div>' : '') + '</div>';
       } else h += '<div class="bloco"><h3>CT-e da fatura</h3><div class="nota">O 441 não lista os CT-e desta fatura (fatura antiga ou incluída à mão).</div></div>';
     } else {
