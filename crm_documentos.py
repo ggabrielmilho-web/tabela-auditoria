@@ -107,7 +107,7 @@ CAMPO_CUSTOS = {'id': 'custos', 'rotulo': 'Custo extra', 'tipo': 'custos', 'col'
 CARTEIRAS = {
     'nestle': {
         'nome': 'Nestlé', 'raizes': ('60409075', '08334818', '28053619'), 'desde': '2025-01-02',
-        'col_transporte': True,             # a carga B10 da observação, coluna depois do Frete (pedido de 26/10/2026)
+        'col_transporte': 'Transporte',     # a carga B10 da observação, coluna depois do Frete (pedido de 26/10/2026)
         'aba': 'NESTLE 2025', 'col_etapa': 'STATUS', 'col_cte': 'CT-e/ NFS',
         'etapas': [
             _E('AG. COMPROVANTE', 'Aguardando retorno do comprovante de entrega', 'ciano', 'Aguardando comprovante'),
@@ -169,6 +169,8 @@ CARTEIRAS = {
     'unilever': {
         'nome': 'Unilever', 'raizes': ('61068276',), 'desde': '2025-08-31',
         'col_vencimento': 'ssw',            # o vencimento da fatura do 441 em que o CT-e está
+        # a DT da observação, coluna depois do Frete (pedido de 30/10/2026); o complemento herda a do original
+        'col_transporte': 'DT', 'transporte_do_original': True,
         'aba': 'UNILEVER 2025', 'col_etapa': 'Farol', 'col_cte': 'CT-e',
         # a emissão está na 1ª coluna, que a tabela do Excel chama de "Colunas2"; a coluna S, sem nome
         # (14 números de 10 dígitos em 21/10/2026), vai para a anotação para não se perder
@@ -285,7 +287,8 @@ def config_publica():
     """O que a tela precisa saber das abas (sem as raízes de CNPJ): as 4 carteiras e a de descargas."""
     return [{'id': cid, 'nome': CARTEIRAS[cid]['nome'], 'etapas': CARTEIRAS[cid]['etapas'],
              'campos': CARTEIRAS[cid]['campos'], 'prazo_dias': CARTEIRAS[cid].get('prazo_dias'),
-             'transporte': bool(CARTEIRAS[cid].get('col_transporte')),
+             # rótulo da coluna lida da observação, depois do Frete: 'Transporte' (Nestlé, B10) ou 'DT' (Unilever)
+             'transporte': CARTEIRAS[cid].get('col_transporte'),
              # coluna Vencimento entre a Etapa e o SSW (28/10/2026): 'prazo' (Ambev, emissão + prazo ou o
              # ajustado), 'ssw' (Unilever, a fatura do 441), 'campo' (Química, só o que ela digita) ou
              # None (Nestlé: não usam)
@@ -1094,6 +1097,60 @@ def transporte_da_obs(obs):
     return ', '.join(dict.fromkeys('B' + n for n in achou)) or None
 
 
+# A DT da Unilever (documento de transporte) na observação: "DT 0097844387", "DT : 0098294435", "DT 98646888".
+# Em 30/10/2026, 201 dos 280 CT-e da carteira, nunca mais de uma. Sai com 10 dígitos, como na maioria. Só
+# "DT": "DOC TRANSPORTE" e "ORDEM DE CARGO" ficam de fora (decidido com o Gabriel, 30/10/2026).
+_RE_DT = re.compile(r'\bDT\s*[:.\-]?\s*(\d{7,10})\b', re.I)
+
+
+def dt_da_obs(obs):
+    """Observação do CT-e → '0097844387' (ou 'x, y' com mais de uma DT), ou None."""
+    s = str(obs or '').upper()
+    achou = _RE_DT.findall(s) or _RE_DT.findall(s.replace(',', ''))
+    return ', '.join(dict.fromkeys(n.zfill(10) for n in achou)) or None
+
+
+LEITOR_TRANSPORTE = {'Transporte': transporte_da_obs, 'DT': dt_da_obs}
+
+# O complemento da Unilever cita o original pela CHAVE ("CT-e emitido como complemento ao CT-e 3226…") e
+# a DT dele vem depois dos 300 caracteres que a tela lê da observação. Da chave saem a série (posições
+# 23–25) e o nº (26–34): o `serie_numero_cte` do original no 455.
+_RE_COMPL_AO_CTE = re.compile(r'COMPLEMENTO\s+AO\s+CT-?E\s+(\d{44})', re.I)
+
+
+def obs_dos_originais(ce_rows):
+    """{CTRC: obs} e {nº do CT-e (série × 10⁹ + nº): obs} num dicionário só (chave texto × número)."""
+    out = {}
+    for r in ce_rows:
+        k = chave_ctrc(r.get('ctrc'))
+        if k:
+            out[k] = r.get('obs')
+        if str(r.get('cte') or '').isdigit() and int(r['cte']):
+            out[int(r['cte'])] = r.get('obs')
+    return out
+
+
+def transporte_da_linha(cfg, obs, doc=None, originais=None):
+    """O valor da coluna lida da observação (`col_transporte`). Com `transporte_do_original`, o complemento
+    de frete que não traz o número herda o do CT-e que ele complementa — citado pelo CTRC ("CTRC EMITIDO P/
+    COMPL. DO …") ou pela chave ("complemento ao CT-e 3226…"). `originais` = `obs_dos_originais`."""
+    ler = LEITOR_TRANSPORTE.get(cfg.get('col_transporte'))
+    if not ler:
+        return None
+    v = ler(obs)
+    if v or not cfg.get('transporte_do_original') or 'COMPLEMENT' not in str(doc or '').upper():
+        return v
+    s = re.sub(r'\s+', ' ', str(obs or '').replace(',', ''))   # o BI quebra a observação com vírgulas
+    originais = originais or {}
+    m = _RE_COMPL_DO.search(s)
+    if m:
+        return ler(originais.get(f'{m[1].upper()}{m[2]}-{m[3]}'))
+    m = _RE_COMPL_AO_CTE.search(s)
+    if m:
+        return ler(originais.get(int(m[1][22:25]) * 10 ** 9 + int(m[1][25:34])))
+    return None
+
+
 def complementos_ssw(ce_rows):
     """{CTRC da carga: [complementos do SSW que o citam]} — a sugestão do Custo extra."""
     out = {}
@@ -1170,6 +1227,8 @@ def montar_linhas(carteira, ce_rows, pagamentos, marc, hoje=None, abertas=None, 
     desde = cfg['desde']
     compl = complementos_ssw(ce_rows) if any(c['tipo'] == 'custos' for c in cfg['campos']) else {}
     subst = substitutos_ssw(ce_rows)
+    # observação de cada CT-e: o complemento de frete da Unilever herda a DT do CT-e que ele complementa
+    originais = obs_dos_originais(ce_rows) if cfg.get('transporte_do_original') else None
     por_chave, antes = {}, {}
     for r in ce_rows:
         k = chave_ctrc(r.get('ctrc'))
@@ -1246,7 +1305,7 @@ def montar_linhas(carteira, ce_rows, pagamentos, marc, hoje=None, abertas=None, 
         linha = dict(base, chave=k, etapa=etapa, campos=campos_m, nfs=nfs, nfs_editavel=nfs_editavel,
                      manual=ce is None, nota_linha=p.get('nota_linha') if ce is None else None,
                      do_historico=k in do_historico, compl_ssw=compl.get(k) or [],
-                     transporte=transporte_da_obs(base['obs']) if cfg.get('col_transporte') else None,
+                     transporte=transporte_da_linha(cfg, base['obs'], base.get('doc'), originais),
                      atualizado=(m or {}).get('atualizado'), por=(m or {}).get('por'),
                      editado=bool((m or {}).get('editado')), idade=idade, vencimento=venc,
                      aberto=aberto, novo=etapa is None and s['ssw'] not in ('pago', 'cancelado'),
@@ -1475,7 +1534,7 @@ def exportar_xlsx(carteira, linhas):
             ('CNPJ Pagador', lambda l: l['cnpj']), ('Cliente Pagador', lambda l: l['pagador']),
             ('UF O', lambda l: l['uf_o']), ('NF', lambda l: l['nf']), ('Frete', lambda l: l['frete'])]
     if cfg.get('col_transporte'):
-        cols.append(('TRANSPORTE', lambda l: l.get('transporte')))
+        cols.append((cfg['col_transporte'].upper(), lambda l: l.get('transporte')))
     for c in cfg['campos']:
         if c['id'] == 'tipo':
             cols.append(('TIPO FRETE', lambda l: l['campos'].get('tipo')))

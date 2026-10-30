@@ -347,7 +347,8 @@
     // Vencimento entre a Etapa e o SSW (pedido de 28/10/2026), conforme a carteira (`col_vencimento`).
     // Na Química é o campo que ela digita: fica aqui e sai da fila dos outros campos.
     var mv = S.cfg.col_vencimento;
-    var c = ['CTRC', 'Emissão', 'CT-e', 'NF', 'Frete'].concat(S.cfg.transporte ? ['Transporte'] : [], ['Idade', 'Etapa'], mv ? ['Vencimento'] : [], ['SSW']);
+    // coluna lida da observação, depois do Frete: o rótulo vem da carteira (Transporte na Nestlé, DT na Unilever)
+    var c = ['CTRC', 'Emissão', 'CT-e', 'NF', 'Frete'].concat(S.cfg.transporte ? [S.cfg.transporte] : [], ['Idade', 'Etapa'], mv ? ['Vencimento'] : [], ['SSW']);
     S.cfg.campos.forEach(function (f) { if (!(mv === 'campo' && f.id === 'vencimento')) c.push(f.rotulo); });
     c.push('Obs. do CT-e');
     return c;
@@ -363,7 +364,8 @@
     }
     var r = { _k: l.chave, 'CTRC': l.ctrc || '', 'Emissão': l.emissao || '', 'CT-e': l.cte ? String(l.cte) : (l.nfs || ''),
               'NF': l.nf ? String(l.nf) : '', 'Frete': l.frete || 0, 'Idade': l.idade, 'Etapa': rotEtapa(l.etapa),
-              'SSW': sswRot(l), 'Obs. do CT-e': l.obs || '', 'Transporte': l.transporte || '' };
+              'SSW': sswRot(l), 'Obs. do CT-e': l.obs || '' };
+    if (S.cfg.transporte) r[S.cfg.transporte] = l.transporte || '';
     S.cfg.campos.forEach(function (f) { r[f.rotulo] = valorDaColuna(l, f); });
     if (vencCalculado()) r['Vencimento'] = vencDe(l) || '';   // no 'campo' o laço acima já pôs o que ela digitou
     return r;
@@ -440,7 +442,7 @@
     S.linhas = ls; S.porChave = {};
     ls.forEach(function (l) {
       S.porChave[l.chave] = l;
-      var partes = [l.ctrc, l.cte, l.nfs, l.nf, l.obs, l.etapa, rotEtapa(l.etapa), l.pagador, l.nota_linha, l.fornecedor, l.lancto];
+      var partes = [l.ctrc, l.cte, l.nfs, l.nf, l.obs, l.transporte, l.etapa, rotEtapa(l.etapa), l.pagador, l.nota_linha, l.fornecedor, l.lancto];
       for (var k in l.campos) {
         var v = l.campos[k];
         // custo extra: busca pelo ticket FSC, OC, pedido, CT-e complementar…
@@ -635,7 +637,7 @@
       }
       if (c === 'CT-e' || c === 'NF') return '<td class="mono dim">' + esc(r[c]) + '</td>';
       if (c === 'Frete') return '<td class="num">' + moeda(l.frete) + '</td>';
-      if (c === 'Transporte') return '<td class="mono dim">' + esc(l.transporte || '') + '</td>';
+      if (c === S.cfg.transporte) return '<td class="mono dim">' + esc(l.transporte || '') + '</td>';
       if (c === 'Idade') return '<td class="num' + (l.aberto && l.idade > 90 ? ' velho' : '') + '">' + (l.idade == null ? '' : l.idade) + '</td>';
       if (c === 'Etapa') {
         var e = etapaDef(l.etapa);
@@ -1036,6 +1038,7 @@
       if (l.nf) String(l.nf).split(/[,\s]+/).forEach(function (n) { add(n, k); });
       if (l.lancto) add(String(l.lancto).split('/')[0], k);
       (String(l.obs || '').toUpperCase().match(/B\d{9}/g) || []).forEach(function (b) { add(b, k); });
+      String(l.transporte || '').split(/[,\s]+/).forEach(function (t) { add(t, k); });   // B10 ou a DT (com a herdada do original)
       if (l.campos.ticket_pipefy) add(l.campos.ticket_pipefy, k);
       custosDe(l).forEach(function (x) {                  // ticket FSC (pode vir "FSC1/FSC2"), Pipefy e CT-e complementar
         String(x.ticket || '').split(/[\/\s,;]+/).forEach(function (t) { add(t, k); });
