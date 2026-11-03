@@ -24,8 +24,6 @@ Casos que a conferência de out/26 mostrou e a tela trata:
 - **Reemissão para o mesmo CT-e** (dois CTRBs do mesmo motorista no mesmo CT-e): o Auditoria Receita
   divide a receita entre os dois; a conta usa o CT-e inteiro.
 - **Linha sem CTRB**: sugere o CTRB do mesmo motorista com data próxima (prefere o mesmo valor).
-- **Fora da planilha**: CTRB do mês cuja observação diz "FRETE COMBINADO COM <responsável>" e que a
-  planilha não traz — o diretor pode incluir.
 
 Este módulo não fala Flask nem abre conexão: recebe a função de consulta ao BI e o cursor.
 """
@@ -72,26 +70,6 @@ def _sem_acento(s):
 def nome_norm(s):
     """'José ' → 'JOSE'; 'JOAO DA  SILVA' → 'JOAO DA SILVA'."""
     return re.sub(r'\s+', ' ', _sem_acento(s).upper()).strip()
-
-
-def _lev(a, b):
-    if a == b:
-        return 0
-    ant = list(range(len(b) + 1))
-    for i, ca in enumerate(a, 1):
-        atual = [i]
-        for j, cb in enumerate(b, 1):
-            atual.append(min(ant[j] + 1, atual[j - 1] + 1, ant[j - 1] + (ca != cb)))
-        ant = atual
-    return ant[-1]
-
-
-def mesmo_nome(a, b):
-    """O nome digitado na observação do CTRB erra letra ("MARCLO" por "MARCELO"): mesmo começo e até 2 letras."""
-    a, b = nome_norm(a), nome_norm(b)
-    if not a or not b:
-        return False
-    return a == b or (a[:3] == b[:3] and _lev(a, b) <= 2)
 
 
 def chave_ctrb(v):
@@ -526,10 +504,9 @@ def conferir(linhas, responsavel, mes, ssw, comissionados=None):
     `comissionados` = {CTRB: 'out/26 · Fulano'} das comissões já aprovadas (outros fechamentos).
     Cada linha volta com `planilha`, `conferido` (ou None), `status` (confere/diverge/sem_base),
     `motivos`, `alertas`, `pagamento` e `padrao` (conferida/planilha/fora) — a escolha que vale se o
-    diretor não mexer. `fora` = CTRBs do responsável no mês que a planilha não traz."""
+    diretor não mexer. `fora` volta sempre vazia (a busca pela observação saiu em 03/11/2026)."""
     base = _Base(ssw)
     comissionados = comissionados or {}
-    resp = nome_norm(responsavel)
     k_planilha = {chave_ctrb(l.get('ctrb')) for l in linhas} - {None}
     usados = set(k_planilha)
     saida = []
@@ -599,39 +576,9 @@ def conferir(linhas, responsavel, mes, ssw, comissionados=None):
             'emissao': em, 'conferido': c, 'status': status, 'motivos': motivos, 'alertas': alertas,
             'pagamento': base.pagamento(usado) if usado else {'sit': 'sem', 'parcelas': [], 'aberto': 0},
             'obs': _txt(o.get('obs')), 'resp_ssw': responsavel_da_obs(o.get('obs')), 'padrao': padrao})
-    # Fora da planilha: CTRB do mês combinado com o responsável que ninguém citou
-    fora = []
-    planilha_ctes = defaultdict(list)
-    for s in saida:
-        for ct in ((s['conferido'] or {}).get('ctes') or []):
-            planilha_ctes[ct].append(s['ctrb_usado'])
-    for k, r in base.oss.items():
-        em = base.emissao(k)
-        if k in usados or not em or em[:7] != mes:
-            continue
-        quem = responsavel_da_obs(r.get('obs'))
-        if not quem or not mesmo_nome(quem, resp):
-            continue
-        c = conta(base, k)
-        pg = base.pagamento(k)
-        notas = []
-        do_mesmo_cte = sorted({o for ct in (c or {}).get('ctes', []) for o in planilha_ctes.get(ct, []) if o})
-        if do_mesmo_cte:
-            notas.append(f"Mesmo CT-e do {', '.join(do_mesmo_cte)} da planilha — reemissão: não é outra viagem.")
-            if pg['aberto'] > 0:
-                notas.append(f"Tem {_brl(pg['aberto'])} a pagar no 477: confira com o financeiro antes de pagar.")
-        elif c and c['irmaos']:
-            notas.append(f"O mesmo CT-e tem outro CTRB do mesmo motorista ({', '.join(c['irmaos'])}).")
-        if c is None:
-            notas.append('Sem CT-e no Auditoria Receita.')
-        elif c['resultado'] < 0:
-            notas.append('Resultado negativo.')
-        fora.append({'chave': f'X{k}', 'ctrb': k, 'emissao': em, 'motorista': _txt(r.get('motorista')),
-                     'rota': f"{_txt(r.get('origem')) or '—'} → {_txt(r.get('destino')) or '—'}",
-                     'valor': round(_num(r.get('vap')), 2), 'conferido': c, 'pagamento': pg, 'notas': notas,
-                     'reemissao': bool(do_mesmo_cte), 'obs': _txt(r.get('obs')), 'padrao': 'fora'})
-    fora.sort(key=lambda x: (x['reemissao'], x['emissao'] or ''))
-    return {'linhas': saida, 'fora': fora, 'mes': mes, 'responsavel': responsavel, 'lido_em': ssw.get('lido_em'),
+    # 'fora' (CTRB do mês com "frete combinado com <responsável>" na observação e fora da planilha)
+    # foi tirado em 03/11/2026 a pedido do Gabriel; a lista fica vazia para a tela e o Excel.
+    return {'linhas': saida, 'fora': [], 'mes': mes, 'responsavel': responsavel, 'lido_em': ssw.get('lido_em'),
             'percentual': PERCENTUAL, 'tolerancia': TOLERANCIA}
 
 
