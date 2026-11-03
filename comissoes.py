@@ -183,12 +183,18 @@ def _campo(cab):
 
 def ler_planilha(arq):
     """xlsx → {'linhas': [...], 'aba': nome}. Acha a linha de cabeçalho (a que tem CTRB e Comissão) e
-    lê até o fim; a linha de total (sem responsável, sem CTRB e sem frete) fica de fora."""
+    lê até o fim; a linha de total (sem responsável, sem CTRB e sem frete) fica de fora.
+    Linha oculta (filtro do Excel) não entra: a planilha do Rafael é o histórico inteiro, filtrado
+    pela coluna FATURAMENTO no mês da comissão."""
     import openpyxl
-    wb = openpyxl.load_workbook(arq, data_only=True, read_only=True)
+    wb = openpyxl.load_workbook(arq, data_only=True)      # sem read_only: ele não enxerga linha oculta
     for ws in wb.worksheets:
         cols, linhas = None, []
-        for i, row in enumerate(ws.iter_rows(values_only=True), start=1):
+        ocultas = {n for n, d in ws.row_dimensions.items() if d.hidden}
+        # a área usada vai até a coluna XEY; as colunas da comissão estão bem antes
+        for i, row in enumerate(ws.iter_rows(max_col=min(ws.max_column, 60), values_only=True), start=1):
+            if cols is not None and i in ocultas:
+                continue
             if cols is None:
                 mapa = {}
                 for j, v in enumerate(row):
