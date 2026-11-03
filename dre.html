@@ -9,7 +9,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
 <style>
   :root {
     --bg: #0a0e17; --surface: #111827; --surface2: #1a2235;
@@ -332,7 +332,8 @@
 
   .chat-container {
     position: fixed; bottom: 100px; right: 24px;
-    width: 440px; height: 620px; max-height: calc(100vh - 140px);
+    width: 600px; max-width: calc(100vw - 48px);
+    height: 680px; max-height: calc(100vh - 140px);
     background: var(--surface); border: 1px solid var(--border);
     border-radius: 16px; display: none;
     flex-direction: column; overflow: hidden;
@@ -392,6 +393,10 @@
     padding: 5px 8px; border: 1px solid var(--border); text-align: left;
   }
   .chat-msg.ia th { background: var(--surface2); color: var(--text-dim); }
+  .chat-msg.ia:has(table) { max-width: 100%; overflow-x: auto; }
+  .chat-msg.ia td { white-space: nowrap; }
+  .chat-msg.ia td:first-child { white-space: normal; }
+  .chat-status { font-size: 0.74rem; color: var(--text-dim); margin-top: 4px; }
 
   .chat-sugestoes {
     display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px;
@@ -695,6 +700,8 @@ async function carregarDRE() {
   const btn = document.getElementById('btnAplicar');
   btn.disabled = true;
   document.getElementById('conteudo').innerHTML = '<div class="status-box">Carregando...</div>';
+  // o chat não pode ler o detalhamento do período anterior se o novo falhar
+  window.detalhamentoData = null;
 
   try {
     const mesesStr = lista.join(',');
@@ -866,7 +873,7 @@ async function carregarDetalhamento(listaMeses) {
 }
 
 function renderDetalhamento(subgrupos, totalGeral) {
-  document.getElementById('totalGeralDet').textContent = 'R$ ' + fmt(totalGeral);
+  document.getElementById('totalGeralDet').textContent = fmt(totalGeral);
   if (!subgrupos.length) {
     document.getElementById('detalhamentoBody').innerHTML =
       '<div class="status-box">Nenhuma despesa no período</div>';
@@ -876,13 +883,13 @@ function renderDetalhamento(subgrupos, totalGeral) {
     const eventos = s.eventos.map(e =>
       `<div class="evento-row" onclick="abrirEvento('${e.descr_evento.replace(/'/g, "\\'")}')">
          <span class="descr">${e.descr_evento}</span>
-         <span class="valor">R$ ${fmt(e.total)}</span>
+         <span class="valor">${fmt(e.total)}</span>
        </div>`
     ).join('');
     return `
       <div class="subgrupo-row" onclick="toggleSubgrupo(${i})" id="sub-${i}">
         <div class="nome">${s.nome}<span class="grupo-badge">${s.grupo}</span></div>
-        <div class="valor">R$ ${fmt(s.total)}</div>
+        <div class="valor">${fmt(s.total)}</div>
       </div>
       <div class="eventos-lista" id="evt-${i}">${eventos}</div>`;
   }).join('');
@@ -1378,6 +1385,7 @@ function atualizarSugestoes() {
     sugestoes.push('Qual mês foi melhor e por quê?');
   } else {
     sugestoes.push('Como foi o resultado deste período?');
+    sugestoes.push('O que subiu no Administrativo em relação ao mês anterior?');
     sugestoes.push('Quais os maiores custos?');
   }
 
@@ -1395,13 +1403,22 @@ function usarSugestao(btn) {
   enviarPergunta();
 }
 
+// período em que a conversa está: o aviso e o reset só valem quando ele muda
+// (a carga inicial termina os gráficos depois — sem isto, zerava a conversa recém-aberta)
+let chatPeriodo = null;
+const periodoAtual = () => JSON.stringify([mesesAtuais, window.dreData?.dia_ini, window.dreData?.dia_fim]);
+
 function avisarFiltroAtualizado() {
+  if (chatPeriodo === null || chatPeriodo === periodoAtual()) return;
+  chatPeriodo = periodoAtual();
+  // as respostas anteriores falam dos números do período antigo: não voltam como histórico
+  chatHistorico = [];
   const body = document.getElementById('chatBody');
   // Remove aviso anterior se existir (evita acumular)
   body.querySelectorAll('.chat-msg.sistema').forEach(el => el.remove());
   const div = document.createElement('div');
   div.className = 'chat-msg sistema';
-  div.textContent = '⟳ Filtros atualizados — sugestões refeitas. Faça uma nova pergunta com base no novo período.';
+  div.textContent = '⟳ Filtros atualizados — a conversa recomeça no novo período.';
   body.appendChild(div);
   body.scrollTop = body.scrollHeight;
 }
@@ -1433,7 +1450,7 @@ function coletarContexto() {
   const estrutura = dre.estrutura || [];
   const padrao = detectarPadraoSelecao(mesesAtuais);
 
-  const ctx = { periodo, modo, padrao };
+  const ctx = { periodo, modo, padrao, meses_iso: mesesAtuais };
 
   // Sem isto o modelo lê a margem negativa estrutural do modo fracionado como prejuízo
   if (dre.fracionado) {
@@ -1462,7 +1479,7 @@ function coletarContexto() {
   const rb = dreDict.receita_bruta || 0;
   if (rb > 0) {
     ctx.margens_agregadas = {
-      margem_bruta: ((dreDict.receita_liquida || 0) / rb * 100),
+      receita_liquida_sobre_bruta: ((dreDict.receita_liquida || 0) / rb * 100),
       margem_ebitda: ((dreDict.ebitda || 0) / rb * 100),
       margem_liquida: ((dreDict.lucro_liquido || 0) / rb * 100),
       margem_final: ((dreDict.resultado_final || 0) / rb * 100),
@@ -1503,11 +1520,16 @@ function coletarContexto() {
   return ctx;
 }
 
+// A resposta repete fornecedor e histórico do SSW: nada de HTML cru dela vira HTML na tela
+function mdSeguro(texto) {
+  return marked.parse(String(texto).replace(/</g, '&lt;'));
+}
+
 function adicionarMensagem(texto, tipo) {
   const body = document.getElementById('chatBody');
   const div = document.createElement('div');
   div.className = `chat-msg ${tipo}`;
-  if (tipo === 'ia' && texto) div.innerHTML = marked.parse(texto);
+  if (tipo === 'ia' && texto) div.innerHTML = mdSeguro(texto);
   else div.textContent = texto;
   body.appendChild(div);
   body.scrollTop = body.scrollHeight;
@@ -1536,6 +1558,7 @@ async function enviarPergunta() {
   if (!pergunta) return;
 
   adicionarMensagem(pergunta, 'user');
+  chatPeriodo = periodoAtual();
   input.value = '';
   btn.disabled = true;
   mostrarTyping();
@@ -1554,8 +1577,9 @@ async function enviarPergunta() {
 
     if (!resp.ok) throw new Error('Erro do servidor: ' + resp.status);
 
-    removerTyping();
-    msgIA = adicionarMensagem('', 'ia');
+    // o balão de "digitando" fica até o 1º token: enquanto as ferramentas consultam a base,
+    // ele mostra o que está sendo feito
+    const garantirMsg = () => { if (!msgIA) { removerTyping(); msgIA = adicionarMensagem('', 'ia'); } };
 
     const reader = resp.body.getReader();
     const decoder = new TextDecoder();
@@ -1574,12 +1598,20 @@ async function enviarPergunta() {
         try {
           const obj = JSON.parse(dataStr);
           if (obj.erro) {
-            msgIA.innerHTML = marked.parse('**Erro:** ' + obj.erro);
+            garantirMsg();
+            msgIA.innerHTML = mdSeguro('**Erro:** ' + obj.erro);
             return;
           }
+          if (obj.status) {
+            const t = document.getElementById('chatTyping');
+            if (t) t.innerHTML = '<div class="chat-typing"><span></span><span></span><span></span></div>' +
+                                 `<div class="chat-status">${obj.status.replace(/</g, '&lt;')}</div>`;
+            document.getElementById('chatBody').scrollTop = document.getElementById('chatBody').scrollHeight;
+          }
           if (obj.token) {
+            garantirMsg();
             respostaCompleta += obj.token;
-            msgIA.innerHTML = marked.parse(respostaCompleta);
+            msgIA.innerHTML = mdSeguro(respostaCompleta);
             document.getElementById('chatBody').scrollTop = document.getElementById('chatBody').scrollHeight;
           }
         } catch {}
@@ -1589,11 +1621,14 @@ async function enviarPergunta() {
     if (respostaCompleta) {
       chatHistorico.push({ role: 'user', content: pergunta });
       chatHistorico.push({ role: 'assistant', content: respostaCompleta });
+    } else {
+      garantirMsg();
+      msgIA.innerHTML = mdSeguro('**Sem resposta** — tente de novo.');
     }
   } catch (e) {
     removerTyping();
     if (!msgIA) msgIA = adicionarMensagem('', 'ia');
-    msgIA.innerHTML = marked.parse('**Erro de conexão:** ' + e.message);
+    msgIA.innerHTML = mdSeguro('**Erro de conexão:** ' + e.message);
   } finally {
     btn.disabled = false;
     input.focus();
