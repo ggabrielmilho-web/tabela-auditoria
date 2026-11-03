@@ -393,7 +393,14 @@
     padding: 5px 8px; border: 1px solid var(--border); text-align: left;
   }
   .chat-msg.ia th { background: var(--surface2); color: var(--text-dim); }
-  .chat-msg.ia:has(table) { max-width: 100%; overflow-x: auto; }
+  /* o balão nunca encolhe (a coluna flex encolhia e ele rolava por dentro); só a tabela
+     rola, na horizontal, quando não cabe */
+  .chat-msg { flex-shrink: 0; }
+  .chat-msg.ia:has(table) { max-width: 100%; }
+  .chat-msg.ia table {
+    display: block; width: max-content; max-width: 100%; overflow-x: auto;
+    scrollbar-width: thin; scrollbar-color: var(--border) transparent;
+  }
   .chat-msg.ia td { white-space: nowrap; }
   .chat-msg.ia td:first-child { white-space: normal; }
   .chat-status { font-size: 0.74rem; color: var(--text-dim); margin-top: 4px; }

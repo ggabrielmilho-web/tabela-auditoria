@@ -352,7 +352,7 @@ def comparar_despesas(args, ctx):
                     item['novo_no_periodo_b'] = True
                 elif abs(b) < 0.005:
                     item['sumiu_no_periodo_b'] = True
-                if quebra == 'evento' and _parece_provisao(a, b):
+                if _parece_provisao(a, b):        # fornecedor dentro de um evento, ou o próprio evento
                     item['parece_provisao'] = True
                 abertura.append(item)
             if abertura:
@@ -364,7 +364,8 @@ def comparar_despesas(args, ctx):
         for linha in mostradas:
             nome = linha.get(quebra) or linha.get('fornecedor') or linha.get('subgrupo')
             candidatos = [(nome, linha)] + [(f"{nome} / {x.get('fornecedor') or x.get('evento')}", x)
-                                           for x in linha.get('abertura_por_fornecedor', [])]
+                                           for x in linha.get('abertura_por_fornecedor', [])
+                                           + linha.get('abertura_por_evento', [])]
             for rotulo, x in candidatos:
                 if x.get('parece_provisao'):
                     avisos.append(f"{rotulo}: R$ {_brl(x['b'])} redondo no período B contra R$ {_brl(x['a'])} no A, "
