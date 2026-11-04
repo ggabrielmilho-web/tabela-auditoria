@@ -1265,8 +1265,9 @@
     // POST: a lista do que está na tela passa de milhares de CTRCs, longa demais para a URL
     var f = document.createElement('form'), ks = S.visiveis;
     f.method = 'POST'; f.action = '/api/contas-receber/xlsx?tipo=' + S.modo;
+    // filtrado = vai a lista, na ordem da tela — inclusive vazia (filtro sem linha nenhuma não baixa a fila inteira)
     if (ks.length < linhas().length) {
-      var i = document.createElement('input'); i.type = 'hidden'; i.name = 'chaves'; i.value = ks.join(','); f.appendChild(i);
+      var i = document.createElement('input'); i.type = 'hidden'; i.name = 'chaves'; i.value = JSON.stringify(ks); f.appendChild(i);
     }
     document.body.appendChild(f); f.submit(); f.remove();
   });

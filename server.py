@@ -1369,16 +1369,29 @@ def api_crm_documentos_linha():
         return jsonify({'ok': False, 'error': str(e)}), 500
 
 
-@app.route('/api/crm-documentos/xlsx')
+@app.route('/api/crm-documentos/xlsx', methods=['GET', 'POST'])
 @page_required('crm_documentos')
 def api_crm_documentos_xlsx():
-    """A carteira no layout da aba da planilha delas, com o que o SSW diz no fim."""
+    """A carteira no layout da aba da planilha delas, com o que o SSW diz no fim.
+
+    POST com `chaves` (JSON, as linhas que a tela mostra, na ordem dela) = o Excel sai filtrado como a
+    tabela (04/11/2026): cartão, busca, Colar lista e filtro de coluna. GET = a carteira inteira."""
     import crm_documentos as crm
-    carteira = request.args.get('carteira')
+    carteira = request.values.get('carteira')
     if carteira not in crm.TODAS:
         return jsonify({'ok': False, 'error': 'Carteira desconhecida.'}), 400
+    chaves = None
+    if request.method == 'POST' and request.form.get('chaves'):
+        try:
+            chaves = json.loads(request.form['chaves'])
+            assert isinstance(chaves, list)
+        except Exception:
+            return jsonify({'ok': False, 'error': 'Lista de linhas inválida.'}), 400
     try:
         linhas, _ = _crm_linhas(carteira)
+        if chaves is not None:
+            por_chave = {l['chave']: l for l in linhas}
+            linhas = [por_chave[k] for k in dict.fromkeys(map(str, chaves)) if k in por_chave]
         if carteira == crm.DESCARGAS['id']:
             import crm_descargas as cd
             conteudo = cd.exportar_xlsx(linhas)
@@ -1386,7 +1399,8 @@ def api_crm_documentos_xlsx():
             conteudo = crm.exportar_xlsx(carteira, linhas)
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
-    nome = f"CRM Documentos - {crm.cfg_de(carteira)['nome']} - {crm.hoje_brt():%d-%m-%Y}.xlsx"
+    nome = (f"CRM Documentos - {crm.cfg_de(carteira)['nome']} - {crm.hoje_brt():%d-%m-%Y}"
+            f"{' (filtrado)' if chaves is not None else ''}.xlsx")
     return send_file(io.BytesIO(conteudo), as_attachment=True, download_name=nome,
                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
@@ -1595,23 +1609,31 @@ def api_contas_receber_historico():
 @app.route('/api/contas-receber/xlsx', methods=['GET', 'POST'])
 @page_required('contas_receber')
 def api_contas_receber_xlsx():
-    """A fila (CT-e ou faturas) em Excel; `chaves` (separadas por vírgula, no corpo do POST — milhares de
-    CTRCs não cabem na URL) limita ao que a tela mostra."""
+    """A fila (CT-e ou faturas) em Excel; `chaves` (JSON no corpo do POST — milhares de CTRCs não cabem
+    na URL) limita ao que a tela mostra, na ordem da tela. Presente e vazia = filtro sem linha nenhuma
+    (antes baixava a fila inteira); ausente = a fila toda."""
     import contas_receber as cr
     tipo = request.args.get('tipo')
     if tipo not in cr.TIPOS:
         return jsonify({'ok': False, 'error': 'Tipo desconhecido.'}), 400
+    chaves = None
+    if 'chaves' in request.values:
+        so = request.values.get('chaves') or ''
+        try:
+            chaves = json.loads(so) if so.startswith('[') else [k for k in so.split(',') if k]
+        except ValueError:
+            return jsonify({'ok': False, 'error': 'Lista de linhas inválida.'}), 400
     try:
         ctes, faturas, _ = _cr_linhas()
         linhas = ctes if tipo == 'cte' else faturas
-        so = request.values.get('chaves')
-        if so:
-            quero = set(so.split(','))
-            linhas = [x for x in linhas if x['chave'] in quero]
+        if chaves is not None:
+            por_chave = {x['chave']: x for x in linhas}
+            linhas = [por_chave[k] for k in dict.fromkeys(map(str, chaves)) if k in por_chave]
         conteudo = cr.exportar_xlsx(tipo, linhas)
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
-    nome = f"Contas a Receber - {'A faturar' if tipo == 'cte' else 'Cobrança'} - {cr.hoje_brt():%d-%m-%Y}.xlsx"
+    nome = (f"Contas a Receber - {'A faturar' if tipo == 'cte' else 'Cobrança'} - {cr.hoje_brt():%d-%m-%Y}"
+            f"{' (filtrado)' if chaves is not None else ''}.xlsx")
     return send_file(io.BytesIO(conteudo), as_attachment=True, download_name=nome,
                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 

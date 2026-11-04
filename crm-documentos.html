@@ -1282,8 +1282,18 @@
     ev.preventDefault();
     desfazer();
   });
+  // O Excel sai como a tabela está (04/11/2026): com cartão, busca, Colar lista ou filtro de coluna, vão
+  // só as linhas da tela, na ordem da tela (POST, a lista pode ter milhares de chaves); sem filtro, tudo.
   $('btnExcel').addEventListener('click', function () {
-    if (S.carteira) location = '/api/crm-documentos/xlsx?carteira=' + encodeURIComponent(S.carteira);
+    if (!S.carteira) return;
+    var vis = S.visiveis || [];
+    if (vis.length >= S.linhas.length) { location = '/api/crm-documentos/xlsx?carteira=' + encodeURIComponent(S.carteira); return; }
+    var f = document.createElement('form');
+    f.method = 'POST'; f.action = '/api/crm-documentos/xlsx'; f.style.display = 'none';
+    [['carteira', S.carteira], ['chaves', JSON.stringify(vis)]].forEach(function (p) {
+      var i = document.createElement('input'); i.type = 'hidden'; i.name = p[0]; i.value = p[1]; f.appendChild(i);
+    });
+    document.body.appendChild(f); f.submit(); f.remove();
   });
 
   // Atualização automática (três pessoas no mesmo painel): a cada minuto, com a aba visível, pergunta o
