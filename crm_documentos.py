@@ -171,6 +171,8 @@ CARTEIRAS = {
         'col_vencimento': 'ssw',            # o vencimento da fatura do 441 em que o CT-e está
         # a DT da observação, coluna depois do Frete (pedido de 30/10/2026); o complemento herda a do original
         'col_transporte': 'DT', 'transporte_do_original': True,
+        # Destinatário, Cidade e Outros (R$, a descarga cobrada no CT-e) depois da NF (pedido de 04/11/2026)
+        'col_destinatario': True,
         'aba': 'UNILEVER 2025', 'col_etapa': 'Farol', 'col_cte': 'CT-e',
         # a emissão está na 1ª coluna, que a tabela do Excel chama de "Colunas2"; a coluna S, sem nome
         # (14 números de 10 dígitos em 21/10/2026), vai para a anotação para não se perder
@@ -289,6 +291,8 @@ def config_publica():
              'campos': CARTEIRAS[cid]['campos'], 'prazo_dias': CARTEIRAS[cid].get('prazo_dias'),
              # rótulo da coluna lida da observação, depois do Frete: 'Transporte' (Nestlé, B10) ou 'DT' (Unilever)
              'transporte': CARTEIRAS[cid].get('col_transporte'),
+             # Destinatário, Cidade e Outros depois da NF (Unilever, 04/11/2026)
+             'col_destinatario': bool(CARTEIRAS[cid].get('col_destinatario')),
              # coluna Vencimento entre a Etapa e o SSW (28/10/2026): 'prazo' (Ambev, emissão + prazo ou o
              # ajustado), 'ssw' (Unilever, a fatura do 441), 'campo' (Química, só o que ela digita) ou
              # None (Nestlé: não usam)
@@ -567,7 +571,8 @@ _DATA_455 = f'COALESCE({_T455}[data_autorizacao], {_T455}[data_emissao])'
 _COLS_455 = (f'"ctrc", {_T455}[serie_numero_ctrc], "cte", {_T455}[serie_numero_cte], "emissao", {_DATA_455}, '
              f'"emi_ssw", {_T455}[data_emissao], '
              f'"pag", {_T455}[cnpj_pagador], "pagador", {_T455}[cliente_pagador], "doc", {_T455}[tipo_documento], '
-             f'"frete", {_T455}[valor_frete], "nf", {_T455}[numero_nota_fiscal], "uf_o", {_T455}[uf_origem_prestacao], '
+             f'"frete", {_T455}[valor_frete], "outros", {_T455}[outros], "nf", {_T455}[numero_nota_fiscal], '
+             f'"uf_o", {_T455}[uf_origem_prestacao], '
              f'"rem", {_T455}[cliente_remetente], "dest", {_T455}[cliente_destinatario], '
              f'"cid_d", {_T455}[cidade_destinatario], "uf_d", {_T455}[uf_destinatario], '
              f'"baixa", {_T455}[tipo_baixa], "liq", {_T455}[data_liquidacao], "imp", {_T455}[data_importacao], '
@@ -824,7 +829,7 @@ def marcacoes(cur, carteira):
 
 # O que se copia do 455 para a marcação (coluna `ssw`): o bastante para a linha cancelada no SSW
 # continuar dizendo o que era.
-CAMPOS_COPIA_SSW = ('emissao', 'emissao_455', 'frete', 'nf', 'uf_o', 'doc', 'pagador', 'cnpj',
+CAMPOS_COPIA_SSW = ('emissao', 'emissao_455', 'frete', 'outros', 'nf', 'uf_o', 'doc', 'pagador', 'cnpj',
                     'remetente', 'destinatario', 'destino')
 
 
@@ -1257,6 +1262,7 @@ def montar_linhas(carteira, ce_rows, pagamentos, marc, hoje=None, abertas=None, 
         if ce is not None:
             base = {'ctrc': k, 'cte': ce.get('cte'), 'emissao': _iso(ce.get('emissao')),
                     'emissao_455': _iso(ce.get('emi_ssw')), 'uf_o': ce.get('uf_o'), 'nf': ce.get('nf'), 'frete': ce.get('frete'),
+                    'outros': ce.get('outros'),
                     'doc': ce.get('doc'), 'pagador': ce.get('pagador'), 'cnpj': ce.get('pag'),
                     'remetente': ce.get('rem'), 'destinatario': ce.get('dest'),
                     'destino': '/'.join(x for x in (ce.get('cid_d'), ce.get('uf_d')) if x),
@@ -1266,7 +1272,7 @@ def montar_linhas(carteira, ce_rows, pagamentos, marc, hoje=None, abertas=None, 
             base = {'ctrc': (m or {}).get('ctrc') or p.get('ctrc'), 'cte': (m or {}).get('cte') or p.get('cte'),
                     'emissao': p.get('emissao') or c.get('emissao'), 'emissao_455': c.get('emissao_455'),
                     'uf_o': p.get('uf_o') or c.get('uf_o'), 'nf': p.get('nf') or c.get('nf'),
-                    'frete': p.get('frete') or c.get('frete'), 'doc': c.get('doc'),
+                    'frete': p.get('frete') or c.get('frete'), 'outros': c.get('outros'), 'doc': c.get('doc'),
                     'pagador': p.get('cliente') or c.get('pagador'), 'cnpj': p.get('cnpj') or c.get('cnpj'),
                     'remetente': c.get('remetente'), 'destinatario': c.get('destinatario'),
                     'destino': c.get('destino'), 'obs': p.get('obs'), 'lido_455': None}
@@ -1532,7 +1538,11 @@ def exportar_xlsx(carteira, linhas):
             ('Ano', lambda l: _dt(l['emissao']).year if l['emissao'] else None),
             ('CTRC', lambda l: l['ctrc']), (cfg['col_cte'], lambda l: l['cte'] or l.get('nfs')),
             ('CNPJ Pagador', lambda l: l['cnpj']), ('Cliente Pagador', lambda l: l['pagador']),
-            ('UF O', lambda l: l['uf_o']), ('NF', lambda l: l['nf']), ('Frete', lambda l: l['frete'])]
+            ('UF O', lambda l: l['uf_o']), ('NF', lambda l: l['nf'])]
+    if cfg.get('col_destinatario'):
+        cols += [('Destinatário', lambda l: l.get('destinatario')), ('Cidade', lambda l: l.get('destino')),
+                 ('Outros', lambda l: l.get('outros') or None)]
+    cols.append(('Frete', lambda l: l['frete']))
     if cfg.get('col_transporte'):
         cols.append((cfg['col_transporte'].upper(), lambda l: l.get('transporte')))
     for c in cfg['campos']:
@@ -1573,10 +1583,10 @@ def exportar_xlsx(carteira, linhas):
             c = ws.cell(row=i, column=j, value=v)
             if isinstance(v, date):
                 c.number_format = 'DD/MM/YYYY'
-            elif cab == 'Frete':
+            elif cab in ('Frete', 'Outros'):
                 c.number_format = '#,##0.00'
     for j, (cab, _) in enumerate(cols, start=1):
-        ws.column_dimensions[get_column_letter(j)].width = {'Observacao': 50, 'DIVERGÊNCIA': 45}.get(cab, 15)
+        ws.column_dimensions[get_column_letter(j)].width = {'Observacao': 50, 'DIVERGÊNCIA': 45, 'Destinatário': 40}.get(cab, 15)
     ws.freeze_panes = 'A2'
     ws.auto_filter.ref = f'A1:{get_column_letter(len(cols))}{max(1, len(linhas) + 1)}'
     if any(c['tipo'] == 'custos' for c in cfg['campos']):

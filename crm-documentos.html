@@ -313,7 +313,7 @@
   var rf = ReportFilter.init({
     getData: function () { return { cols: S.cols, data: S.linhas.filter(passa).map(vm) }; },
     renderTabela: renderTabela,
-    colsMoeda: ['Frete', 'Valor', 'Idade'],
+    colsMoeda: ['Frete', 'Outros', 'Valor', 'Idade'],
     colsData: ['Emissão', 'Vencimento'],
     // o Vencimento da Química é digitado: às vezes texto ("PROGRAMADO") — esse sai como está
     fmtData: function (v) { return ehIso(v) ? dm(v) : (v == null ? '' : String(v)); },
@@ -348,7 +348,8 @@
     // Na Química é o campo que ela digita: fica aqui e sai da fila dos outros campos.
     var mv = S.cfg.col_vencimento;
     // coluna lida da observação, depois do Frete: o rótulo vem da carteira (Transporte na Nestlé, DT na Unilever)
-    var c = ['CTRC', 'Emissão', 'CT-e', 'NF', 'Frete'].concat(S.cfg.transporte ? [S.cfg.transporte] : [], ['Idade', 'Etapa'], mv ? ['Vencimento'] : [], ['SSW']);
+    // Destinatário, Cidade e Outros (R$ do CT-e) depois da NF — só onde a carteira pede (Unilever, 04/11/2026)
+    var c = ['CTRC', 'Emissão', 'CT-e', 'NF'].concat(S.cfg.col_destinatario ? ['Destinatário', 'Cidade', 'Outros'] : [], ['Frete'], S.cfg.transporte ? [S.cfg.transporte] : [], ['Idade', 'Etapa'], mv ? ['Vencimento'] : [], ['SSW']);
     S.cfg.campos.forEach(function (f) { if (!(mv === 'campo' && f.id === 'vencimento')) c.push(f.rotulo); });
     c.push('Obs. do CT-e');
     return c;
@@ -366,6 +367,7 @@
               'NF': l.nf ? String(l.nf) : '', 'Frete': l.frete || 0, 'Idade': l.idade, 'Etapa': rotEtapa(l.etapa),
               'SSW': sswRot(l), 'Obs. do CT-e': l.obs || '' };
     if (S.cfg.transporte) r[S.cfg.transporte] = l.transporte || '';
+    if (S.cfg.col_destinatario) { r['Destinatário'] = l.destinatario || ''; r['Cidade'] = l.destino || ''; r['Outros'] = l.outros || 0; }
     S.cfg.campos.forEach(function (f) { r[f.rotulo] = valorDaColuna(l, f); });
     if (vencCalculado()) r['Vencimento'] = vencDe(l) || '';   // no 'campo' o laço acima já pôs o que ela digitou
     return r;
@@ -442,7 +444,7 @@
     S.linhas = ls; S.porChave = {};
     ls.forEach(function (l) {
       S.porChave[l.chave] = l;
-      var partes = [l.ctrc, l.cte, l.nfs, l.nf, l.obs, l.transporte, l.etapa, rotEtapa(l.etapa), l.pagador, l.nota_linha, l.fornecedor, l.lancto];
+      var partes = [l.ctrc, l.cte, l.nfs, l.nf, l.obs, l.transporte, l.destinatario, l.destino, l.etapa, rotEtapa(l.etapa), l.pagador, l.nota_linha, l.fornecedor, l.lancto];
       for (var k in l.campos) {
         var v = l.campos[k];
         // custo extra: busca pelo ticket FSC, OC, pedido, CT-e complementar…
@@ -637,6 +639,9 @@
       }
       if (c === 'CT-e' || c === 'NF') return '<td class="mono dim">' + esc(r[c]) + '</td>';
       if (c === 'Frete') return '<td class="num">' + moeda(l.frete) + '</td>';
+      if (c === 'Outros') return '<td class="num">' + (l.outros ? moeda(l.outros) : '') + '</td>';
+      if (c === 'Destinatário') return '<td class="obs" title="' + esc(r[c]) + '">' + esc(r[c]) + '</td>';
+      if (c === 'Cidade') return '<td class="dim">' + esc(r[c]) + '</td>';
       if (c === S.cfg.transporte) return '<td class="mono dim">' + esc(l.transporte || '') + '</td>';
       if (c === 'Idade') return '<td class="num' + (l.aberto && l.idade > 90 ? ' velho' : '') + '">' + (l.idade == null ? '' : l.idade) + '</td>';
       if (c === 'Etapa') {
@@ -1146,7 +1151,7 @@
         ? dm(l.emissao_455) + ' — a tela usa a data de autorização do CT-e (' + dm(l.emissao) + ')' : ''],
       ['Documento', l.doc], ['Pagador', (l.pagador || '') + (l.cnpj ? ' · ' + l.cnpj : '')],
       ['Remetente', l.remetente], ['Destinatário', l.destinatario], ['Destino', l.destino],
-      ['NF', l.nf], ['UF origem', l.uf_o], ['Vencimento', l.vencimento ? dm(l.vencimento) + ' (emissão + ' + S.cfg.prazo_dias + ' dias)' : ''],
+      ['NF', l.nf], ['Outros (R$ no CT-e)', l.outros ? moeda(l.outros) : ''], ['UF origem', l.uf_o], ['Vencimento', l.vencimento ? dm(l.vencimento) + ' (emissão + ' + S.cfg.prazo_dias + ' dias)' : ''],
       ['Observação', l.obs],
       ['Leitura', l.do_historico ? 'vem do 455 histórico (dataset do DRE, desde 2021): o 455 que a tela lê todo dia começa em 02/01/2025 e não tem este CT-e' : '']
     ]) + '</div>';
