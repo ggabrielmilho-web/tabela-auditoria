@@ -401,15 +401,18 @@
 
   // ── colunas ──
   function colunas() {
-    if (S.modo === 'cte') return ['CTRC', 'Emissão', 'Idade', 'Pagador', 'Unid.', 'Documento', 'NF', 'Frete', 'Situação', 'Motivo', 'Anotação', 'CRM', 'Obs. do CT-e'];
+    // As 10 primeiras na ordem do relatório de faturamento do SSW que a Laura usa (05/11/2026); depois, o que só a tela sabe.
+    if (S.modo === 'cte') return ['Emissão', 'CTRC', 'CT-e', 'CNPJ Pagador', 'Cliente Pagador', 'UF Rem', 'UF Dest', 'Nota Fiscal', 'Frete', 'Observação',
+                                  'Situação', 'Motivo', 'Anotação', 'CRM', 'Idade', 'Documento'];
     return ['Fatura', 'Cliente', 'Vencimento', 'Atraso', 'Saldo', 'Valor', 'Situação', 'Previsão', 'Classificação', 'Anotação', 'Contato', 'Unid.', 'Ocorrência no SSW'];
   }
   function vm(l) {
     if (S.modo === 'cte') {
-      return { _k: l.chave, 'CTRC': l.ctrc || '', 'Emissão': l.emissao || '', 'Idade': l.idade, 'Pagador': l.pagador || '',
-               'Unid.': l.unid || '', 'Documento': rotTitulo(l.doc || ''), 'NF': l.nf || '', 'Frete': l.frete || 0,
+      return { _k: l.chave, 'Emissão': l.emissao || '', 'CTRC': l.ctrc || '', 'CT-e': l.cte ? String(l.cte) : '',
+               'CNPJ Pagador': l.cnpj || '', 'Cliente Pagador': l.pagador || '', 'UF Rem': l.uf_rem || '', 'UF Dest': l.uf_dest || '',
+               'Nota Fiscal': l.nf || '', 'Frete': l.frete || 0, 'Observação': l.obs || '',
                'Situação': (FILA[l.fila] || {}).rotulo || l.fila, 'Motivo': l.campos.motivo || '', 'Anotação': l.campos.anotacao || '',
-               'CRM': l.crm ? l.crm.nome + ': ' + l.crm.rotulo : '', 'Obs. do CT-e': l.obs || '' };
+               'CRM': l.crm ? l.crm.nome + ': ' + l.crm.rotulo : '', 'Idade': l.idade, 'Documento': rotTitulo(l.doc || '') };
     }
     return { _k: l.chave, 'Fatura': l.fatura, 'Cliente': l.cliente || '', 'Vencimento': l.vencimento || '', 'Atraso': l.atraso || 0,
              'Saldo': l.saldo || 0, 'Valor': l.valor || 0, 'Situação': l.grupo === 'recebida' ? 'Recebida' : (l.campos.situacao ? rotTitulo(l.campos.situacao) : ''),
@@ -642,12 +645,15 @@
     return '<tr class="' + cls.join(' ') + '" data-k="' + esc(l.chave) + '">' + tds.join('') + '</tr>';
   }
   function celCte(c, l, r) {
-    if (c === 'CTRC') return '<td class="chave">' + selBox(l) + '<a href="#" data-abre="' + esc(l.chave) + '">' + esc(l.ctrc || l.chave) + '</a>'
+    // A caixinha de seleção vai na 1ª coluna (Emissão, desde 05/11/2026), embaixo da do cabeçalho.
+    if (c === 'CTRC') return '<td class="chave"><a href="#" data-abre="' + esc(l.chave) + '">' + esc(l.ctrc || l.chave) + '</a>'
       + (l.fora_455 ? '<span class="marca" title="fora do 455 de 2026 — dados da planilha PDD">●</span>' : '') + '</td>';
-    if (c === 'Emissão') return '<td class="mono">' + dm(l.emissao) + '</td>';
+    if (c === 'Emissão') return '<td class="mono chave">' + selBox(l) + dm(l.emissao) + '</td>';
     if (c === 'Idade') return '<td class="num' + (naFila(l) && l.idade > 60 ? ' vencido' : naFila(l) && l.idade > 30 ? ' velho' : '') + '">' + (l.idade == null ? '' : l.idade) + '</td>';
-    if (c === 'Pagador') return '<td class="txt" title="' + esc((l.pagador || '') + (l.cnpj ? ' · ' + l.cnpj : '')) + '">' + esc(l.pagador) + '</td>';
-    if (c === 'Unid.' || c === 'NF') return '<td class="mono dim">' + esc(r[c]) + '</td>';
+    if (c === 'CT-e') return l.cte ? '<td class="mono">' + esc(String(l.cte)) + '</td>'
+      : '<td class="mono dim" title="' + esc(/FORM LISO/i.test(l.doc || '') ? 'subcontrato em formulário liso: não tem CT-e próprio (o SSW mostra 0)' : 'sem número de CT-e no 455') + '">—</td>';
+    if (c === 'Cliente Pagador') return '<td class="txt" title="' + esc((l.pagador || '') + (l.cnpj ? ' · ' + l.cnpj : '')) + '">' + esc(l.pagador) + '</td>';
+    if (c === 'CNPJ Pagador' || c === 'UF Rem' || c === 'UF Dest' || c === 'Nota Fiscal') return '<td class="mono dim">' + esc(r[c]) + '</td>';
     if (c === 'Documento') return '<td class="dim">' + esc(r[c]) + '</td>';
     if (c === 'Frete') return '<td class="num">' + moeda(l.frete) + '</td>';
     if (c === 'Situação') {
@@ -658,7 +664,7 @@
     if (c === 'Motivo') return edCell(l, 'motivo', l.campos.motivo ? esc(rotTitulo(l.campos.motivo)) : '<span class="vazio">—</span>', 'motivo de não faturar', 'txt');
     if (c === 'Anotação') return edCell(l, 'anotacao', l.campos.anotacao ? esc(l.campos.anotacao) : '<span class="vazio">—</span>', l.campos.anotacao || 'clique para anotar', 'txt');
     if (c === 'CRM') return '<td>' + (l.crm ? '<span class="pill contorno" style="--cor:' + corVar(l.crm.cor) + '" title="CRM - Documentos, ' + esc(l.crm.nome) + ' (só leitura)">' + esc(l.crm.nome + ' · ' + l.crm.rotulo) + '</span>' : '') + '</td>';
-    if (c === 'Obs. do CT-e') return '<td class="obs" title="' + esc(l.obs) + '">' + esc(l.obs) + '</td>';
+    if (c === 'Observação') return '<td class="obs" title="' + esc(l.obs) + '">' + esc(l.obs) + '</td>';
     return '<td>' + esc(r[c]) + '</td>';
   }
   function celFat(c, l, r) {

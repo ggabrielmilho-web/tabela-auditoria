@@ -189,7 +189,7 @@ _COLS_455 = (f'"ctrc", {_T455}[serie_numero_ctrc], "cte", {_T455}[serie_numero_c
              f'"emi", {_T455}[data_emissao], "doc", {_T455}[tipo_documento], "baixa", {_T455}[tipo_baixa], '
              f'"frete", {_T455}[valor_frete], "cnpj", {_T455}[cnpj_pagador], "pagador", {_T455}[cliente_pagador], '
              f'"unid", {_T455}[unidade_responsavel_pagador], "nf", {_T455}[numero_nota_fiscal], '
-             f'"rem", {_T455}[cliente_remetente], "dest", {_T455}[cliente_destinatario], '
+             f'"rem", {_T455}[cliente_remetente], "uf_r", {_T455}[uf_remetente], "dest", {_T455}[cliente_destinatario], '
              f'"cid_d", {_T455}[cidade_destinatario], "uf_d", {_T455}[uf_destinatario], '
              f'"imp", {_T455}[data_importacao], "obs", LEFT({_T455}[observacao], 240), '
              f'"cav", {_T455}[placa_cavalo], "car", {_T455}[placa_carreta], "mf", {_T455}[ultimo_manifesto]')
@@ -443,13 +443,14 @@ def base_cte(r, motoristas=None):
             'cnpj': _txt(r.get('cnpj')), 'pagador': _txt(r.get('pagador')), 'unid': _txt(r.get('unid')),
             'nf': _txt(r.get('nf')), 'remetente': _txt(r.get('rem')), 'destinatario': _txt(r.get('dest')),
             'destino': '/'.join(x for x in (_txt(r.get('cid_d')), _txt(r.get('uf_d'))) if x) or None,
+            'uf_rem': _txt(r.get('uf_r')), 'uf_dest': _txt(r.get('uf_d')),
             'obs': _txt(r.get('obs')), 'baixa': _txt(r.get('baixa')),
             'cavalo': _txt(r.get('cav')), 'carreta': _txt(r.get('car')), 'manifesto': mf,
             'motorista': (motoristas or {}).get(chave_manifesto(mf)) if mf else None}
 
 
 COPIA_CTE = ('ctrc', 'cte', 'emissao', 'doc', 'frete', 'cnpj', 'pagador', 'unid', 'nf', 'remetente',
-             'destinatario', 'destino', 'obs', 'cavalo', 'carreta', 'manifesto', 'motorista')
+             'destinatario', 'destino', 'uf_rem', 'uf_dest', 'obs', 'cavalo', 'carreta', 'manifesto', 'motorista')
 
 
 def montar_ctes(dados, marc, crm_etapas=None, hoje=None):
@@ -795,14 +796,17 @@ def exportar_xlsx(tipo, linhas):
     from openpyxl.styles import Font, PatternFill
     from openpyxl.utils import get_column_letter
     if tipo == 'cte':
+        # As 10 primeiras na ordem do relatório de faturamento do SSW que a Laura usa (05/11/2026); o CT-e
+        # sai como o SSW escreve (0 no subcontrato em formulário liso). Depois, o que só a tela sabe.
         cols = [('Emissão', lambda l: _d(l['emissao'])), ('CTRC', lambda l: l['ctrc']), ('CT-e', lambda l: l['cte']),
-                ('Unidade', lambda l: l.get('unid')), ('CNPJ Pagador', lambda l: l['cnpj']),
-                ('Cliente Pagador', lambda l: l['pagador']), ('Documento', lambda l: l['doc']), ('NF', lambda l: l['nf']),
-                ('Frete', lambda l: l['frete']), ('Idade (dias)', lambda l: l['idade']),
-                ('Fila', lambda l: ROT_FILA.get(l['fila'], l['fila'])),
+                ('CNPJ Pagador', lambda l: l['cnpj']), ('Cliente Pagador', lambda l: l['pagador']),
+                ('UF Rem', lambda l: l.get('uf_rem')), ('UF Dest', lambda l: l.get('uf_dest')),
+                ('Nota Fiscal', lambda l: l['nf']), ('Frete', lambda l: l['frete']), ('Observação', lambda l: l['obs']),
+                ('Situação', lambda l: ROT_FILA.get(l['fila'], l['fila'])),
                 ('Motivo', lambda l: l['campos'].get('motivo')), ('Anotação', lambda l: l['campos'].get('anotacao')),
                 ('Etapa no CRM', lambda l: (l.get('crm') or {}).get('rotulo')),
-                ('Conferir', lambda l: l.get('conferir')), ('Observação do CT-e', lambda l: l['obs'])]
+                ('Idade (dias)', lambda l: l['idade']), ('Documento', lambda l: l['doc']),
+                ('Conferir', lambda l: l.get('conferir'))]
     else:
         cols = [('Fatura', lambda l: l['fatura']), ('CNPJ/CPF', lambda l: l['cnpj']), ('Cliente', lambda l: l['cliente']),
                 ('Emissão', lambda l: _d(l['emissao'])), ('Vencimento', lambda l: _d(l['vencimento'])),
@@ -831,7 +835,8 @@ def exportar_xlsx(tipo, linhas):
                 c.number_format = '#,##0.00'
     for j, (cab, _) in enumerate(cols, start=1):
         ws.column_dimensions[get_column_letter(j)].width = {'Cliente Pagador': 34, 'Cliente': 34, 'Anotação': 45,
-                                                            'Observação do CT-e': 50, 'Conferir': 40}.get(cab, 14)
+                                                            'Observação': 50, 'Conferir': 40, 'CNPJ Pagador': 17,
+                                                            'UF Rem': 8, 'UF Dest': 8}.get(cab, 14)
     ws.freeze_panes = 'A2'
     ws.auto_filter.ref = f'A1:{get_column_letter(len(cols))}{max(1, len(linhas) + 1)}'
     buf = io.BytesIO()
