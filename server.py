@@ -11,6 +11,7 @@ import html
 import json
 import time
 import threading
+import datetime as _dtm      # alias: as funções importam `datetime`/`date` localmente
 import difflib
 import tempfile
 import functools
@@ -70,28 +71,71 @@ def get_db():
     )
 
 # ── Log de acesso ──
-def _registra_acesso(aba):
-    """1 linha por tela aberta, em `auditoria_acessos`.
+# Uso no DIA (05/11/2026). A tela que fica aberta de um dia para o outro não recarrega — tudo o
+# que ela faz depois (atualização a cada minuto do CRM/Contas a Receber, mapa, trocar filtro)
+# passa por /api/ — e a pessoa que trabalhou o dia inteiro nela sumia do relatório. Agora a 1ª
+# chamada de API do dia, por login × aba, grava uma linha quando ainda não há nenhuma daquele
+# dia. Abrir a tela continua gravando sempre; API nunca grava mais de uma por login × aba × dia.
+# O conjunto é por processo (o app roda num processo só); o banco confere de novo, então
+# reiniciar o container no meio do dia não duplica.
+_ACESSO_DIA = {'dia': None, 'vistos': set()}
+_ACESSO_DIA_TRAVA = threading.Lock()
+_BRT = _dtm.timezone(_dtm.timedelta(hours=-3))   # sem horário de verão desde 2019
 
-    Só navegação de página: `/api/` fica de fora porque uma tela dispara várias
-    chamadas e a contagem por aba viraria contagem de requisição. Falhar aqui não
-    pode derrubar a tela — no pior caso o acesso não é contado."""
+
+def _aba_do_referer():
+    """Aba de uma chamada /api/ pela tela que a fez ('/uso?x' → 'uso'); None se não der."""
+    ref = request.headers.get('Referer') or ''
+    m = re.match(r'https?://[^/]+/([^/?#]*)', ref)
+    if not m:
+        return None
+    return (m.group(1) or 'inicio')[:40]
+
+
+def _registra_acesso(aba):
+    """Página: 1 linha por tela aberta. API: 1 linha por login × aba × dia, só se o dia
+    ainda não tem nenhuma (ver `_ACESSO_DIA`). Falhar aqui não pode derrubar a tela —
+    no pior caso o acesso não é contado."""
     try:
-        if request.path.startswith('/api/') or 'user_id' not in session:
+        if 'user_id' not in session or not aba:
             return
+        uid = session.get('user_id')
+        api = request.path.startswith('/api/')
+        hoje = _dtm.datetime.now(_BRT).date()
+        chave = (uid, aba)
+        with _ACESSO_DIA_TRAVA:
+            if _ACESSO_DIA['dia'] != hoje:
+                _ACESSO_DIA['dia'], _ACESSO_DIA['vistos'] = hoje, set()
+            if api and chave in _ACESSO_DIA['vistos']:
+                return
+            _ACESSO_DIA['vistos'].add(chave)
         ip = (request.headers.get('X-Forwarded-For', '').split(',')[0].strip()
               or request.remote_addr or '')      # atrás do Traefik o IP real vem no header
+        valores = (uid, session.get('nome'), aba, request.path[:255], ip[:64])
         conn = get_db()
-        with conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "INSERT INTO auditoria_acessos (user_id, nome, aba, caminho, ip) "
-                    "VALUES (%s, %s, %s, %s, %s)",
-                    (session.get('user_id'), session.get('nome'), aba,
-                     request.path[:255], ip[:64]))
-        conn.close()
+        try:
+            with conn:
+                with conn.cursor() as cur:
+                    if not api:
+                        cur.execute(
+                            "INSERT INTO auditoria_acessos (user_id, nome, aba, caminho, ip) "
+                            "VALUES (%s, %s, %s, %s, %s)", valores)
+                    else:
+                        # Mesmo "dia" da tela de Acessos: criado_em é NOW() do banco, sem fuso.
+                        cur.execute(
+                            "INSERT INTO auditoria_acessos (user_id, nome, aba, caminho, ip) "
+                            "SELECT %s, %s, %s, %s, %s WHERE NOT EXISTS ("
+                            "  SELECT 1 FROM auditoria_acessos"
+                            "   WHERE user_id = %s AND aba = %s"
+                            "     AND criado_em >= NOW() - INTERVAL '2 days'"
+                            "     AND (criado_em AT TIME ZONE current_setting('TimeZone')"
+                            "          AT TIME ZONE 'America/Sao_Paulo')::date = %s)",
+                            valores + (uid, aba, hoje))
+        finally:
+            conn.close()
     except Exception:
-        pass
+        with _ACESSO_DIA_TRAVA:          # não gravou: deixa a próxima chamada tentar de novo
+            _ACESSO_DIA['vistos'].discard((session.get('user_id'), aba))
 
 
 # ── Decorators de autenticação ──
@@ -102,8 +146,10 @@ def login_required(f):
             if request.path.startswith('/api/'):
                 return jsonify({'ok': False, 'error': 'Não autenticado'}), 401
             return redirect('/login')
-        # Sem chave de aba aqui: usa o caminho ('/inicio' → 'inicio').
-        _registra_acesso((request.path.strip('/').split('/')[0] or 'inicio')[:40])
+        # Sem chave de aba aqui: usa o caminho ('/inicio' → 'inicio'). As APIs só de login
+        # (/api/me, /api/status) toda tela chama ao abrir — não contam, senão viravam aba 'api'.
+        if not request.path.startswith('/api/'):
+            _registra_acesso((request.path.strip('/').split('/')[0] or 'inicio')[:40])
         return f(*args, **kwargs)
     return decorated
 
@@ -118,6 +164,12 @@ def admin_required(f):
             if request.path.startswith('/api/'):
                 return jsonify({'ok': False, 'error': 'Acesso negado'}), 403
             return redirect('/inicio')   # não-admin voltava p/ a Auditoria, que ele pode nem ter
+        # Admin e Acessos não eram contados (05/11/2026). Página pelo caminho ('/uso' → 'uso');
+        # API pela tela que a chamou (/api/admin/acessos vem da /uso, /api/ciot/link da /ciot).
+        if request.path.startswith('/api/'):
+            _registra_acesso(_aba_do_referer())
+        else:
+            _registra_acesso((request.path.strip('/').split('/')[0] or 'inicio')[:40])
         return f(*args, **kwargs)
     return decorated
 
@@ -454,9 +506,9 @@ def admin_page():
 @app.route('/uso')
 @admin_required
 def uso_page():
-    """Relatório de uso da ferramenta. Rota NÃO divulgada: de propósito fora do
-    `ABAS` do nav-perms.js, então não aparece na barra nem na tela de entrada.
-    Continua protegida por `admin_required` — escondida não é o mesmo que aberta."""
+    """Relatório de uso da ferramenta (aba "👥 Acessos"). Desde 25/09/2026 aparece no menu,
+    só para role=admin (`page: 'admin'` no `ABAS` do nav-perms.js); quem protege é o
+    `admin_required` — menu escondido nunca foi a proteção."""
     return send_from_directory('.', 'acessos.html')
 
 
@@ -2114,6 +2166,7 @@ def api_ciot_pendencias():
     import ciot_conferencia
     if _ciot_sessao_ok():
         modo = 'sessao'
+        _registra_acesso('ciot')         # uso no dia (ver `_ACESSO_DIA`)
     elif _ciot_token_ok(request.args.get('t')):
         modo = 'leitura'
     elif request.args.get('t'):
@@ -2390,6 +2443,8 @@ def pgr_page():
         if request.args.get('t'):
             return Response(_PGR_EXPIRADO_HTML, status=410, mimetype='text/html')
         return erro[0], erro[1]
+    if _pgr_sessao_ok():                 # o link do WhatsApp (token) não é login: não conta
+        _registra_acesso('pgr')
     return send_from_directory('.', 'pgr.html')
 
 
@@ -2568,6 +2623,8 @@ def _meses_pedidos():
 
 @app.route('/api/pgr')
 def api_pgr():
+    if _pgr_sessao_ok():
+        _registra_acesso('pgr')          # uso no dia (ver `_ACESSO_DIA`)
     meses = _meses_pedidos()
     if meses:
         if not _pgr_sessao_ok():
