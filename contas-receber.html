@@ -615,7 +615,12 @@
       g[k].rows.push(r); g[k].v += Number(l[campo] || (campo === 'saldo' ? l.pago : 0)) || 0;
       g[k].max = Math.max(g[k].max, (S.modo === 'cte' ? l.idade : l.atraso) || 0);
     });
-    ordem.sort(function (a, b) { return g[b].v - g[a].v; });
+    // ordem alfabética (sem diferença de maiúscula/acento); "(sem pagador)" vai para o fim
+    ordem.sort(function (a, b) {
+      var sa = a.charAt(0) === '(', sb = b.charAt(0) === '(';
+      if (sa !== sb) return sa ? 1 : -1;
+      return a.localeCompare(b, 'pt-BR', { sensitivity: 'base', numeric: true });
+    });
     var n = 0, h = '';
     ordem.forEach(function (k) {
       var x = g[k], aberto = S.abertos.has(k), ks = x.rows.map(function (r) { return r._k; });
