@@ -1098,6 +1098,7 @@
     return '<div class="bloco"><h3>Histórico</h3><ul class="hist">' + j.historico.map(function (x) {
       var fmt = x.campo === 'etapa' ? rotEtapa : txtCampo;
       var o = x.campo === '*importacao*' ? 'Importada da planilha' :
+        x.campo === '*fusao*' ? 'Juntada com a linha repetida da planilha' + (x.depois ? '. Na repetida estava: ' + x.depois : '') :
         (x.campo === 'etapa' ? 'Etapa' : ((campoDef(x.campo) || {}).rotulo || x.campo)) + ': ' + (x.antes ? fmt(x.antes) : '—') + ' → ' + (x.depois ? fmt(x.depois) : '—');
       return '<li>' + esc(o) + '<div class="q">' + esc(x.em) + ' · ' + esc(x.por || '') + '</div></li>'; }).join('') + '</ul></div>';
   }

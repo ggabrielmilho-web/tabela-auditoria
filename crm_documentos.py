@@ -313,6 +313,14 @@ def chave_ctrc(v):
     return s if re.fullmatch(r'[A-Z]{3}\d{6}-\d', s) else None
 
 
+def ctrc_da_planilha(v):
+    """`chave_ctrc` para o que foi digitado à mão: aceita zero a mais depois da filial
+    ('CAR0043371-3' → 'CAR043371-3'). Só na importação: em outro lugar, 7 dígitos não é CTRC."""
+    s = re.sub(r'\s+', '', str(v or '')).upper()
+    m = re.fullmatch(r'([A-Z]{3})0+(\d{6})-(\d)', s)
+    return f'{m[1]}{m[2]}-{m[3]}' if m else chave_ctrc(s)
+
+
 def normalizar_etapa(v, carteira):
     """O texto da coluna de status → código da etapa da carteira (ou None)."""
     s = _sem_acento(re.sub(r'\s+', ' ', str(v or '').strip().upper()))
@@ -1393,7 +1401,7 @@ def preparar_importacao(planilha, ce_rows):
             st['linhas'] += 1
             ctrc_txt = v.get('CTRC')
             cte_v = v.get(cfg['col_cte'])
-            ctrc = chave_ctrc(ctrc_txt)
+            ctrc = ctrc_da_planilha(ctrc_txt)
             cte = int(cte_v) if isinstance(cte_v, (int, float)) and not isinstance(cte_v, bool) else None
             if ctrc is None and isinstance(ctrc_txt, (int, float)) and not isinstance(ctrc_txt, bool):
                 cte = cte or int(ctrc_txt)          # CT-e digitado na coluna do CTRC
@@ -1515,6 +1523,100 @@ def gravar_importacao(cur, regs, por='Importação da planilha', ssw_chaves=None
         cur.execute('DELETE FROM crm_doc_log WHERE chave = ANY(%s)', (removidas,))
         cur.execute('DELETE FROM crm_doc_marcacao WHERE chave = ANY(%s)', (removidas,))
     return novas, atual, preserv, removidas
+
+
+# ── Linhas gêmeas: a linha manual da planilha e o CT-e do SSW ───────────────
+# A linha da planilha que não casou na importação vira MAN-… e fica para sempre, mesmo depois de o CT-e
+# aparecer no 455 (06/11/2026: CAR0043371-3, digitado com um zero a mais, ao lado de CAR043371-3, e
+# dobrando o Em aberto). Quem junta é `crm_documentos_fundir.py`, rodado à mão.
+
+POR_FUSAO = 'Fusão de linhas repetidas'
+
+
+def _ctrcs_no_texto(txt):
+    """'UDS003290-5 / UDS 003801-6' → os CTRCs da célula; [] se algum pedaço não for CTRC."""
+    partes = [p for p in str(txt or '').split('/') if p.strip()]
+    chaves = [ctrc_da_planilha(p) for p in partes]
+    return chaves if chaves and all(chaves) else []
+
+
+def _mesmo_valor(a, b):
+    return a is not None and b is not None and abs(float(a) - float(b)) < 0.01
+
+
+def linhas_gemeas(linhas, marc):
+    """Linha MAN-… cujo CT-e está na tela em outra linha, a do SSW → [{man, alvos, como, confere}].
+
+    Pelo CTRC escrito na planilha (com zero a mais, ou dois CT-e na mesma célula); sem ele, pelo nº do
+    CT-e com o mesmo frete, porque o número se repete entre filiais. `confere` = o frete da linha manual
+    é o do SSW (a soma, se forem dois CT-e); o que não confere não se junta, só aparece para conferir."""
+    reais = {l['chave']: l for l in linhas if not l['manual']}
+    por_cte = {}
+    for l in reais.values():
+        if l.get('cte'):
+            por_cte.setdefault(int(l['cte']), []).append(l)
+    out = []
+    for l in linhas:
+        if not l['chave'].startswith('MAN-'):
+            continue
+        p = (marc.get(l['chave']) or {}).get('planilha') or {}
+        chaves = _ctrcs_no_texto(p.get('ctrc') or l.get('ctrc'))
+        if chaves and all(k in reais for k in chaves):
+            alvos, como = [reais[k] for k in chaves], 'CTRC da planilha'
+        else:
+            alvos = [r for r in por_cte.get(int(l['cte']), []) if _mesmo_valor(r.get('frete'), l.get('frete'))] if l.get('cte') else []
+            como = 'nº do CT-e + frete'
+            if len(alvos) != 1:
+                continue
+        soma = sum(float(r.get('frete') or 0) for r in alvos)
+        out.append({'man': l, 'alvos': alvos, 'como': como, 'confere': _mesmo_valor(soma, l.get('frete'))})
+    return out
+
+
+def plano_fusao(man, alvo):
+    """O que passa da linha manual para a do SSW: só o que falta nela. {etapa, campos, divergem}:
+    `divergem` = o que as duas têm diferente — fica o da linha do SSW; o da manual vai para o log."""
+    vazio = lambda v: v in (None, '', [], {})
+    alvo, campos_alvo = alvo or {}, (alvo or {}).get('campos') or {}
+    plano = {'etapa': None, 'campos': {}, 'divergem': {}}
+    if not vazio(man.get('etapa')):
+        if vazio(alvo.get('etapa')):
+            plano['etapa'] = man['etapa']
+        elif man['etapa'] != alvo['etapa']:
+            plano['divergem']['etapa'] = (alvo['etapa'], man['etapa'])
+    for campo, valor in (man.get('campos') or {}).items():
+        if vazio(valor):
+            continue
+        if vazio(campos_alvo.get(campo)):
+            plano['campos'][campo] = valor
+        elif campos_alvo[campo] != valor:
+            plano['divergem'][campo] = (campos_alvo[campo], valor)
+    return plano
+
+
+def fundir_gemea(cur, carteira, g, marc):
+    """Passa o que falta para a linha do SSW e apaga a manual. A cópia inteira da manual fica no log da
+    linha do SSW (campo `*fusao*`), o que permite desfazer; o log da manual fica no banco, sem linha.
+    O que as duas tinham diferente aparece no histórico da linha, para não sumir da tela."""
+    chave = g['man']['chave']
+    man = marc[chave]
+    copia = {k: man.get(k) for k in ('chave', 'etapa', 'campos', 'planilha', 'ctrc', 'cte', 'origem', 'por', 'atualizado')}
+    for alvo in g['alvos']:
+        k = alvo['chave']
+        cur.execute('SELECT etapa, campos FROM crm_doc_marcacao WHERE chave = %s FOR UPDATE', (k,))
+        r = cur.fetchone()
+        plano = plano_fusao(man, {'etapa': r[0], 'campos': r[1]} if r else None)
+        ssw = {k: base_ssw(alvo)}
+        if plano['etapa']:
+            gravar(cur, carteira, [k], 'etapa', plano['etapa'], POR_FUSAO, ssw)
+        for campo, valor in plano['campos'].items():
+            gravar(cur, carteira, [k], campo, valor, POR_FUSAO, ssw)
+        rotulo = lambda c: 'Etapa' if c == 'etapa' else (campo_def(carteira, c) or {}).get('rotulo', c)
+        difere = '; '.join(f'{rotulo(c)}: {v[1]}' for c, v in plano['divergem'].items())
+        cur.execute('INSERT INTO crm_doc_log (chave, campo, antes, depois, por, auto) VALUES (%s, %s, %s, %s, %s, true)',
+                    (k, '*fusao*', json.dumps(copia, ensure_ascii=False, default=str), difere or None, POR_FUSAO))
+    cur.execute('DELETE FROM crm_doc_marcacao WHERE chave = %s AND carteira = %s', (chave, carteira))
+    return cur.rowcount
 
 
 # ── Excel no layout da planilha ──────────────────────────────────────────────
