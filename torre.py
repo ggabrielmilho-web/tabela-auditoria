@@ -692,8 +692,10 @@ def excecoes(cur, t, cargas, ordens, frota_):
             h = _h(t, c['desengate'] or c['atualizado'])
             if h is not None and h >= LIM_DESENGATADA_D * 24:
                 add('media', 'Desengatada', ref, rota, f"sem cavalo há {h / 24:.1f} dias", h, c['embarcador'])
-    ordem = {'alta': 0, 'media': 1, 'sensor': 2}
-    ex.sort(key=lambda e: (ordem[e['gravidade']], -(e['idade_h'] or 0)))
+    # 'baixa' = viagem local (aviso, não problema). Gravidade fora da lista vai para o fim em vez de
+    # derrubar a torre inteira (06/11/2026: KeyError 'baixa' deixou a tela vazia).
+    ordem = {'alta': 0, 'media': 1, 'sensor': 2, 'baixa': 3}
+    ex.sort(key=lambda e: (ordem.get(e['gravidade'], 9), -(e['idade_h'] or 0)))
     return ex
 
 

@@ -97,6 +97,7 @@
   .gr { font-size: .64rem; font-weight: 800; letter-spacing: .06em; padding: 3px 7px; border-radius: 5px; height: fit-content; text-align: center; }
   .gr.alta { background: rgba(248,113,113,.16); color: var(--red); }
   .gr.media { background: rgba(251,146,60,.14); color: var(--orange); }
+  .gr.baixa { background: rgba(148,163,184,.14); color: var(--muted, #94a3b8); }
   .gr.sensor { background: transparent; color: var(--text-dim); border: 1px dashed var(--text-faint); }
   .exc .t { font-weight: 600; font-size: .86rem; }
   .exc .r { font-size: .78rem; color: var(--text-dim); margin-top: 2px; }
@@ -389,9 +390,9 @@ function excecoes(d) {
   const altas = ex.filter(e => e.gravidade === 'alta').length;
   $('exc-nota').textContent = `${ex.length} · ${altas} altas` + (FILTRO ? ' · filtrado' : '');
   if (!ex.length) { $('excecoes').innerHTML = '<div class="vazio">Nada precisando de alguém agora ✓</div>'; return; }
-  const rot = { alta: 'ALTA', media: 'MÉDIA', sensor: 'SENSOR' };
+  const rot = { alta: 'ALTA', media: 'MÉDIA', sensor: 'SENSOR', baixa: 'AVISO' };
   $('excecoes').innerHTML = ex.map((e, i) => `<div class="exc" data-i="${i}">
-      <div><div class="gr ${e.gravidade}">${rot[e.gravidade]}</div></div>
+      <div><div class="gr ${e.gravidade}">${rot[e.gravidade] || esc(e.gravidade)}</div></div>
       <div><div class="t">${esc(e.tipo)}</div>
            <div class="r"><span class="mono">${esc(e.ref)}</span> · ${esc(e.texto)}</div>
            <div class="p">${esc(e.por_que)}</div></div>
