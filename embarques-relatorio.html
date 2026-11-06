@@ -145,6 +145,10 @@
   .log-item .body { font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; }
   .log-item .body .ant { color: var(--red); text-decoration: line-through; opacity: 0.7; }
   .log-item .body .nov { color: var(--green); }
+  /* Mapa e ficha da viagem logo no Nº (06/11/2026): o 🗺️ das Ações exige rolar a tabela inteira. */
+  td.num-carga { white-space: nowrap; }
+  .lk-carga { margin-left: 6px; text-decoration: none; font-size: 0.85rem; opacity: 0.7; }
+  .lk-carga:hover { opacity: 1; }
 </style>
 </head>
 <body>
@@ -678,7 +682,7 @@
         btnDesengate = `<button title="Finalizar descarga (marca Entregue)" onclick="finalizarDescarga(${c.id}, '${(c.numero || '').replace(/'/g,'')}')">🏁</button>`;
       }
       return `<tr class="${destacar}">
-        <td><strong>${c.numero || '—'}</strong></td>
+        <td class="num-carga"><strong>${c.numero || '—'}</strong><a class="lk-carga" href="/embarques/cargas/${c.id}/mapa" target="_blank" title="Abrir o mapa">🗺️</a><a class="lk-carga" href="/viagem/${c.id}" target="_blank" title="Abrir a ficha da viagem">📑</a></td>
         <td>${fmtData(c.data_carregamento)}</td>
         <td>${indicadoresStatus(c)}</td>
         <td>${c.tipo_operacao || '—'}</td>

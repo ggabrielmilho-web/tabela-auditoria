@@ -99,6 +99,10 @@
      rotulo, no padrao da 21.18: "rotulo, nunca status". Cinza porque nao houve entrega. */
   .badge-Vazia    { background: rgba(148,163,184,0.15); color: var(--text-dim); }
   .badge-Continuada { background: rgba(148,163,184,0.15); color: var(--text-dim); }
+  /* Mapa e ficha da viagem logo no Nº (06/11/2026) */
+  td.num-carga { white-space: nowrap; }
+  .lk-carga { margin-left: 6px; text-decoration: none; font-size: 0.85rem; opacity: 0.7; }
+  .lk-carga:hover { opacity: 1; }
 </style>
 </head>
 <body>
@@ -234,7 +238,9 @@
       let html = '<table><thead><tr><th>Nº</th><th>Data</th><th>Status</th><th>Tipo</th><th>Cliente</th><th>Origem → Destinos</th><th>Motorista</th><th>Cavalo</th></tr></thead><tbody>';
       for (const c of j.data) {
         html += '<tr>'
-          + '<td><strong>' + (c.numero || '—') + '</strong></td>'
+          + '<td class="num-carga"><strong>' + (c.numero || '—') + '</strong>'
+          + '<a class="lk-carga" href="/embarques/cargas/' + c.id + '/mapa" target="_blank" title="Abrir o mapa">🗺️</a>'
+          + '<a class="lk-carga" href="/viagem/' + c.id + '" target="_blank" title="Abrir a ficha da viagem">📑</a></td>'
           + '<td>' + fmtData(c.data_carregamento) + '</td>'
           + '<td>' + badgeStatus(c) + '</td>'
           + '<td>' + (c.tipo_operacao || '—') + '</td>'
