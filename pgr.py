@@ -449,6 +449,184 @@ def _historico_lookback(cur, placas_alvo, dia):
     return out
 
 
+# ── Situação de carga pelo Embarques (09/11/2026) ───────────────────
+#
+# O PGR casava o excesso com um manifesto por conta própria (o cache
+# `pgr_manifestos` + os três testes de posição acima). Era a ÚNICA tela que
+# respondia "que viagem estava nesta placa neste instante" sem perguntar ao
+# Embarques — a Jornada, o km por placa/dia, a Ficha da viagem e a Torre
+# perguntam. E errava: em 08/11 pôs na carreta HOA0J28 o Antonio Claudio de um
+# manifesto de 20/10 (NOD004983-2) que o Embarques já dava como continuado e
+# entregue em Brasília em 22/10, quando a carreta rodava com o Carlos Alberto
+# Dantas (UDI029956-1, de 07/11). Nenhuma das regras que o Embarques ganhou
+# depois de 12/08 — manifesto seguinte fecha a viagem, continuação, janela por
+# veículo, perna vazia — chegava aqui.
+#
+# Com a chave, a resposta é a carga do Embarques em que a placa estava no
+# instante do PICO, no mesmo intervalo que a Jornada usa: da saída medida (sem
+# saída, do dia do carregamento) até a conclusão; para o cavalo, até o
+# desengate, se vier antes (a carreta segue na carga, o cavalo foi liberado).
+#   carga       → carregado, com cliente, rota, motorista e placas DELA
+#   perna vazia → vazio, com "entregou em X" da última carga que a placa
+#                 concluiu. A perna é DERIVADA pelo robô e leva a equipe da
+#                 carga SEGUINTE — a V-2026-000546 (22/10 → 31/10) diz Eliomar,
+#                 mas quem trouxe a HOA0J28 de Brasília em 22/10 foi o Antonio.
+#                 Então, como na Jornada: a perna só tem motorista quando a
+#                 carga de antes e a de depois na mesma placa são do mesmo; o
+#                 par e o frota/agregado, quando também coincidem.
+#   entre uma carga concluída e a saída da próxima, sem linha de perna
+#               → vazio, pela MESMA definição: a perna do Embarques é exatamente
+#                 esse intervalo (`_rederivar_vazias.py`: conclusão de A → saída
+#                 de B). A linha da perna só nasce quando o manifesto seguinte
+#                 sai — às 06:35, na apuração, a volta vazia de ontem ainda não
+#                 existe —, e nem sempre nasce. Medido no dump de 06/11: sem esta
+#                 regra o envio sairia com 21% de "não confirmado" (o antigo,
+#                 3%); com ela, nenhum caso contradiz o Embarques convergido.
+#   nada antes  → não confirmado. Sem carga concluída antes, o PGR não sabe.
+# Erro de borda do Embarques (saída marcada tarde, por exemplo) passa a ser
+# corrigido UMA vez, lá, e vale aqui sozinho.
+FONTE_EMBARQUES = os.getenv('PGR_FONTE_EMBARQUES', 'false').lower() in ('1', 'true', 'sim')
+# Até onde olhar para trás atrás da carga que a perna vazia acabou de entregar.
+# A perna mais longa da HOA0J28 em out/26 durou 9 dias.
+JANELA_EMBARQUES_DIAS = int(os.getenv('PGR_EMBARQUES_JANELA_DIAS', '45'))
+# O Embarques diz "Terceiro"; o PGR e o histórico dele (vindo da Auditoria
+# Receita) dizem "CARRETEIRO". Fica o vocabulário do PGR, para o período e o
+# estudo não misturarem duas palavras para a mesma coisa.
+_TIPO_EMBARQUES = {'FROTA': 'FROTA', 'AGREGADO': 'AGREGADO', 'TERCEIRO': 'CARRETEIRO'}
+
+
+def _cargas_embarques(cur, placas_norm, dia):
+    """placa (chave Mercosul) → cargas e pernas vazias do Embarques que podem
+    explicar um excesso do dia ou ser a carga que a perna acabou de entregar.
+
+    Placa comparada pela chave (`= ANY(grafias)`): o Embarques grava a placa do
+    SSW, o GPS manda a do aparelho, e as duas grafias são o mesmo veículo."""
+    if not placas_norm:
+        return {}
+    gr = sorted({g for p in placas_norm for g in placas.grafias(p)})
+    ini, _ = janela_utc_do_dia(dia)
+    # Sem teto no carregamento: a carga SEGUINTE à perna vazia (a que diz se a
+    # perna tem dono) pode ter carregado depois do dia apurado.
+    cur.execute("""
+        SELECT c.id, c.numero, COALESCE(c.viagem_vazia, FALSE), c.tipo_operacao,
+               c.cliente_nome, c.motorista_nome, c.manifesto_origem,
+               c.cavalo_placa, c.carreta1_placa, c.carreta2_placa,
+               c.origem_cidade, c.origem_uf,
+               (SELECT d.cidade || '/' || d.uf FROM embarques_cargas_destinos d
+                 WHERE d.carga_id = c.id ORDER BY d.ordem DESC LIMIT 1),
+               COALESCE(c.inicio_viagem, c.data_saida_real,
+                        c.data_carregamento + %s * interval '1 hour'),
+               c.data_conclusao, c.desengatada_em, c.motorista_cpf
+          FROM embarques_cargas c
+         WHERE COALESCE(c.status, '') <> 'Cancelada'
+           AND (c.cavalo_placa = ANY(%s) OR c.carreta1_placa = ANY(%s)
+                OR c.carreta2_placa = ANY(%s))
+           AND (c.data_conclusao IS NULL OR c.data_conclusao >= %s)
+    """, (BRT_OFFSET_H, gr, gr, gr, ini - timedelta(days=JANELA_EMBARQUES_DIAS)))
+    idx = {}
+    for r in cur.fetchall():
+        c = {'id': r[0], 'numero': r[1], 'vazia': bool(r[2]),
+             'tipo_operacao': _TIPO_EMBARQUES.get((r[3] or '').strip().upper(),
+                                                  (r[3] or '').strip().upper() or None),
+             'tomador': r[4], 'motorista': r[5], 'manifesto': r[6],
+             'placa_cavalo': r[7], 'placa_carreta': r[8],
+             'cavalo': placas.mercosul(r[7]) if r[7] else None,
+             'carretas': {placas.mercosul(x) for x in (r[8], r[9]) if x},
+             'origem': f'{r[10]}/{r[11]}' if r[10] and r[11] else (r[10] or None),
+             'destino': r[12], 'inicio': r[13], 'conclusao': r[14], 'desengate': r[15],
+             'cpf': ''.join(ch for ch in (r[16] or '') if ch.isdigit()) or None}
+        for p in {c['cavalo'], *c['carretas']} - {None}:
+            idx.setdefault(p, []).append(c)
+    return idx
+
+
+def _janela_da_carga(c, placa_norm):
+    """(início, fim) da carga para ESTA placa, em UTC; fim None = aberta.
+    None se a placa não é dela. A carreta fica na carga até a conclusão; o
+    cavalo sai no que vier primeiro, conclusão ou desengate — mesma régua da
+    Jornada (`_jornada_embarques`)."""
+    if placa_norm in c['carretas']:
+        return c['inicio'], c['conclusao']
+    if placa_norm == c['cavalo']:
+        fins = [x for x in (c['conclusao'], c['desengate']) if x is not None]
+        return c['inicio'], (min(fins) if fins else None)
+    return None
+
+
+def carga_no_instante(cargas, placa_norm, instante):
+    """(carga ativa, última carga carregada concluída antes, primeira carga
+    carregada que começa depois) para a placa no instante (UTC). Função pura.
+
+    Duas cargas cobrindo o mesmo instante (bitrem, carga A esperando no pátio
+    enquanto a B já saiu): vale a que começou por último — é a viagem em curso.
+    """
+    ativa = anterior = proxima = None
+    for c in cargas:
+        jan = _janela_da_carga(c, placa_norm)
+        if not jan or jan[0] is None:
+            continue
+        ini, fim = jan
+        if ini <= instante and (fim is None or instante <= fim):
+            if ativa is None or (ini, c['id']) > (_janela_da_carga(ativa, placa_norm)[0], ativa['id']):
+                ativa = c
+        elif c['vazia']:
+            continue
+        elif fim is not None and fim <= instante:
+            if anterior is None or (fim, c['id']) > (_janela_da_carga(anterior, placa_norm)[1], anterior['id']):
+                anterior = c
+        elif ini > instante:
+            if proxima is None or (ini, c['id']) < (_janela_da_carga(proxima, placa_norm)[0], proxima['id']):
+                proxima = c
+    return ativa, anterior, proxima
+
+
+_CAMPOS_CONTEXTO = ('manifesto', 'tomador', 'origem', 'destino', 'motorista',
+                    'tipo_operacao', 'placa_cavalo', 'placa_carreta')
+
+
+def _mesma_pessoa(a, b):
+    """Mesmo motorista nas duas cargas: pelo CPF; sem CPF em uma delas, pelo nome."""
+    if a['cpf'] and b['cpf']:
+        return a['cpf'] == b['cpf']
+    na, nb = (' '.join((x['motorista'] or '').upper().split()) for x in (a, b))
+    return bool(na) and na == nb
+
+
+def _equipe_da_perna(perna, antes, depois, placa_norm):
+    """Motorista, par e frota/agregado da perna vazia — só o que a carga de
+    antes e a de depois, na mesma placa, confirmam juntas. O resto fica None."""
+    eq = {'motorista': None, 'tipo_operacao': None, 'placa_cavalo': None, 'placa_carreta': None}
+    if not (antes and depois and _mesma_pessoa(antes, depois)):
+        return eq
+    eq['motorista'] = perna.get('motorista') or depois['motorista']
+    ehcav = placa_norm == depois['cavalo']
+    if ehcav and antes['carretas'] == depois['carretas']:
+        eq['placa_carreta'] = depois['placa_carreta']
+    if not ehcav and antes['cavalo'] == depois['cavalo']:
+        eq['placa_cavalo'] = depois['placa_cavalo']
+    if antes['tipo_operacao'] == depois['tipo_operacao']:
+        eq['tipo_operacao'] = depois['tipo_operacao']
+    return eq
+
+
+def situacao_pelo_embarques(cargas, placa_norm, instante):
+    """(situacao, contexto|None, entregue_em_utc|None) — o mesmo formato de
+    `_situacao_do_episodio`, para gravar e mostrar sem mudar a tela."""
+    ativa, anterior, proxima = carga_no_instante(cargas, placa_norm, instante)
+    if ativa is None and anterior is None:
+        return 'nao_confirmado', None, None
+    if ativa is not None and not ativa['vazia']:
+        return 'carregado', {k: ativa[k] for k in _CAMPOS_CONTEXTO}, None
+    # Perna vazia (com linha ou não): o "entregou em X" (cliente, rota, manifesto)
+    # é da carga que a placa acabou de concluir; quem dirigia, só se antes e
+    # depois concordam.
+    ctx = _equipe_da_perna(ativa or {}, anterior, proxima, placa_norm)
+    ctx.update({k: (anterior[k] if anterior else None)
+                for k in ('manifesto', 'tomador', 'origem', 'destino')})
+    entregue = _janela_da_carga(anterior, placa_norm)[1] if anterior else None
+    return 'vazio', ctx, entregue
+
+
 def apurar_dia(cur, dia, cadastro=None):
     """Apura um dia de Brasília e grava pgr_eventos + pgr_cobertura.
 
@@ -466,13 +644,20 @@ def apurar_dia(cur, dia, cadastro=None):
     # Só as placas que de fato excederam precisam de manifesto e de histórico.
     placas_excesso = [p for p, pts in por_placa.items() if agrupar_episodios(pts)]
     com_excesso = {placas.mercosul(p) for p in placas_excesso}
-    manifestos = _manifestos_candidatos(cur, com_excesso, dia)
-    if com_excesso and not manifestos:
-        _logger.warning('PGR: nenhum manifesto em cache — situação de carga sairá '
-                        '"não confirmado". Rodar POST /api/pgr/sync-cadastro.')
-    # Os testes de origem/destino precisam dos dias ANTERIORES: a carga pode ter
-    # sido pega uma semana antes do excesso.
-    historico = _historico_lookback(cur, placas_excesso, dia)
+    if FONTE_EMBARQUES:
+        # A viagem vem do Embarques: sem cache de manifesto e sem os 12 dias de
+        # posição que os testes de origem/destino pediam.
+        cargas = _cargas_embarques(cur, com_excesso, dia)
+        manifestos, historico = {}, {}
+    else:
+        cargas = {}
+        manifestos = _manifestos_candidatos(cur, com_excesso, dia)
+        if com_excesso and not manifestos:
+            _logger.warning('PGR: nenhum manifesto em cache — situação de carga sairá '
+                            '"não confirmado". Rodar POST /api/pgr/sync-cadastro.')
+        # Os testes de origem/destino precisam dos dias ANTERIORES: a carga pode ter
+        # sido pega uma semana antes do excesso.
+        historico = _historico_lookback(cur, placas_excesso, dia)
 
     for placa, pontos in sorted(por_placa.items()):
         # A placa do GPS pode vir na grafia antiga; o cache é chaveado em
@@ -483,7 +668,13 @@ def apurar_dia(cur, dia, cadastro=None):
         hist = historico.get(placa) or pontos
         for ep in agrupar_episodios(pontos):
             r = resumir_episodio(ep, pontos)
-            r['situacao_carga'], man, entregue = _situacao_do_episodio(ep, hist, cands)
+            if FONTE_EMBARQUES:
+                # O instante é o do PICO, o mesmo ponto que a linha mostra.
+                instante = max(ep, key=lambda p: p['velocidade'])['data']
+                r['situacao_carga'], man, entregue = situacao_pelo_embarques(
+                    cargas.get(pnorm, []), pnorm, instante)
+            else:
+                r['situacao_carga'], man, entregue = _situacao_do_episodio(ep, hist, cands)
             r['manifesto'] = man
             r['entregue_em'] = _utc_para_brt(entregue) if entregue else None
             m = r['manifesto'] or {}
@@ -1039,3 +1230,75 @@ def validar_token(cur, token, dia=None):
     cur.execute("""UPDATE pgr_tokens SET acessos = acessos + 1, ultimo_acesso = NOW()
                    WHERE token = %s""", (token,))
     return r[0]
+
+
+# ── Reapuração avulsa (09/11/2026) ───────────────────────────────────
+#
+# Refaz `pgr_eventos` de dias já apurados — para levar a chave
+# PGR_FONTE_EMBARQUES aos dias que já saíram pela régua antiga. NÃO envia
+# WhatsApp: o envio é o passo 3 do job, e dia passado já foi enviado.
+# Sem --aplicar, roda tudo numa transação desfeita e só mostra o que mudaria.
+#
+#     python -X utf8 pgr.py --reapurar 2026-11-08                      # simula 1 dia
+#     python -X utf8 pgr.py --reapurar 2026-10-14 2026-11-08 --aplicar # grava
+#
+# A fonte é a da chave no ambiente: com ela desligada, reapurar só repete a
+# régua antiga.
+
+def _reapurar(d0, d1, aplicar=False):
+    from collections import Counter
+    import rastreamento_worker as worker
+    if d1 < d0:
+        d0, d1 = d1, d0
+    fonte = 'Embarques' if FONTE_EMBARQUES else 'manifesto (régua antiga)'
+    print(f'Reapuração {d0:%d/%m/%Y} a {d1:%d/%m/%Y} — fonte: {fonte} — '
+          f'{"GRAVA" if aplicar else "simulação (nada é gravado)"}')
+    cols = 'placa, ini, situacao_carga, motorista, tipo_operacao, placa_cavalo, placa_carreta'
+    conn = worker._get_db()
+    try:
+        cur = conn.cursor()
+        tot_sit, tot_mot, n = Counter(), Counter(), 0
+        dia = d0
+        while dia <= d1:
+            cur.execute(f'SELECT {cols} FROM pgr_eventos WHERE dia = %s', (dia,))
+            antes = {(r[0], r[1]): r for r in cur.fetchall()}
+            apurar_dia(cur, dia)
+            cur.execute(f'SELECT {cols} FROM pgr_eventos WHERE dia = %s', (dia,))
+            mud_sit = mud_mot = 0
+            for r in cur.fetchall():
+                a = antes.get((r[0], r[1]))
+                n += 1
+                if a and a[2] != r[2]:
+                    mud_sit += 1
+                    tot_sit[(a[2], r[2])] += 1
+                if a and (a[3] or '') != (r[3] or ''):
+                    mud_mot += 1
+                    tot_mot['sem nome' if not r[3] else 'outro motorista'] += 1
+            print(f'  {dia:%d/%m}: {len(antes)} episódios; situação muda em {mud_sit}, motorista em {mud_mot}')
+            dia += timedelta(days=1)
+        print(f'\n{n} episódios. Situação (antes → depois): '
+              + (', '.join(f'{a} → {b}: {k}' for (a, b), k in tot_sit.most_common()) or 'nada muda'))
+        print('Motorista: ' + (', '.join(f'{k}: {v}' for k, v in tot_mot.items()) or 'nada muda'))
+        if aplicar:
+            conn.commit()
+            print('Gravado.')
+        else:
+            conn.rollback()
+            print('Simulação: nada foi gravado. Repita com --aplicar para gravar.')
+    finally:
+        conn.close()
+
+
+if __name__ == '__main__':
+    import sys
+    from datetime import date as _date
+    args = [a for a in sys.argv[1:] if a != '--aplicar']
+    if not args or args[0] != '--reapurar' or len(args) not in (2, 3):
+        sys.exit('uso: python -X utf8 pgr.py --reapurar AAAA-MM-DD [AAAA-MM-DD] [--aplicar]')
+    try:
+        _d0 = _date.fromisoformat(args[1])
+        _d1 = _date.fromisoformat(args[2]) if len(args) == 3 else _d0
+    except ValueError:
+        sys.exit('Data inválida — use AAAA-MM-DD')
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
+    _reapurar(_d0, _d1, aplicar='--aplicar' in sys.argv)
