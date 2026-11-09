@@ -648,12 +648,20 @@
     if (forma === 'faixa') { w = W * 0.94; h = w / MOLDES[CAM.molde].razao; }
     else if (forma === 'folha') { h = Math.min(disp, W * 0.86 * 1.414); w = h / 1.414; }
     else { w = W * 0.88; h = Math.min(disp, w * 1.1); }
-    CAM.rm = { x: (W - w) / 2, y: topo + Math.max(0, (disp - h) / 2), w: w, h: h };
+    // no meio da TELA quando cabe entre as duas barras; senão, o mais perto do meio que couber
+    CAM.rm = { x: (W - w) / 2, y: Math.max(topo, Math.min((H - h) / 2, H - baixo - h - 4)), w: w, h: h };
+    if (!CAM.giro) $('deite').hidden = true;
     var mo = $('molde');
     mo.style.left = CAM.rm.x + 'px'; mo.style.top = CAM.rm.y + 'px'; mo.style.width = w + 'px'; mo.style.height = h + 'px';
     mo.style.setProperty('--fs', Math.max(9, Math.min(13, h * 0.17)) + 'px');
   }
-  window.addEventListener('resize', function () { geometria(); });
+  // Girar a tela: o iPhone avisa o `resize` ANTES de terminar de girar, com o tamanho antigo, e o molde ficava
+  // calculado para a posição anterior, empurrado para o canto (relato de 09/11/2026). O ResizeObserver avisa depois
+  // do layout, com o tamanho de verdade; o resize e o orientationchange refazem a conta logo depois, de reforço.
+  function regeometria() { geometria(); requestAnimationFrame(geometria); setTimeout(geometria, 350); }
+  window.addEventListener('resize', regeometria);
+  window.addEventListener('orientationchange', regeometria);
+  if (window.ResizeObserver) new ResizeObserver(function () { geometria(); }).observe($('telaCamera'));
   function dicaDeitar() {
     clearTimeout(TEMPO_DEITE);
     var a = $('deite');
