@@ -142,18 +142,23 @@ def montar_html(dados):
                 rota = ' &#8594; '.join(x for x in (l.get('origem'), l.get('destino')) if x)
                 if rota:
                     ctx += f' &#183; {_escapar(rota)}'
-            # A metade oposta do par — na linha fundida não entra, porque as
-            # duas placas já estão na coluna da placa.
-            if not l.get('fundida'):
-                eh_cavalo = tipo == 'CAVALO'
-                outra = l.get('placa_carreta') if eh_cavalo else l.get('placa_cavalo')
-                nela = {p.upper() for p in (l.get('placas') or [l.get('placa') or ''])}
-                if outra and outra.upper() not in nela:
-                    ctx += (f' &#183; {"carreta" if eh_cavalo else "cavalo"} '
-                            f'{_escapar(outra)}')
-            if l.get('motorista'):
-                ctx += f' &#183; {_escapar(l["motorista"])}'
         else:
+            ctx = ''
+        # A metade oposta do par e o motorista saem também sem cliente: com a
+        # situação vinda do Embarques (PGR_FONTE_EMBARQUES) há carga do robô sem
+        # cliente, e o nome de quem dirigia não pode sumir por isso. Na régua
+        # antiga linha sem cliente nunca tem par nem motorista — sai igual.
+        # Na linha fundida o par não entra: as duas placas já estão na coluna.
+        if not l.get('fundida'):
+            eh_cavalo = tipo == 'CAVALO'
+            outra = l.get('placa_carreta') if eh_cavalo else l.get('placa_cavalo')
+            nela = {p.upper() for p in (l.get('placas') or [l.get('placa') or ''])}
+            if outra and outra.upper() not in nela:
+                ctx += (f' &#183; {"carreta" if eh_cavalo else "cavalo"} '
+                        f'{_escapar(outra)}')
+        if l.get('motorista'):
+            ctx += f' &#183; {_escapar(l["motorista"])}'
+        if not ctx:
             ctx = ' &#183; &#8212;'
 
         cidades = ', '.join(_escapar(c) for c in (l.get('cidades') or [])[:8])

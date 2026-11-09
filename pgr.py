@@ -483,6 +483,16 @@ def _historico_lookback(cur, placas_alvo, dia):
 #                 regra o envio sairia com 21% de "não confirmado" (o antigo,
 #                 3%); com ela, nenhum caso contradiz o Embarques convergido.
 #   nada antes  → não confirmado. Sem carga concluída antes, o PGR não sabe.
+#   A PARTIDA   → carregado, da carga que está saindo. A saída do Embarques é
+#                 a ÚLTIMA posição dentro da cidade de origem (`geocoding.
+#                 detectar_inicio_viagem`), não o momento em que a carga subiu:
+#                 o trecho urbano da partida cai antes dela. HOA0J28, 08/11:
+#                 127 km/h às 11:32 saindo de Uberlândia, saída marcada 11:47 —
+#                 o pico do dia saía "vazio" e sem motorista. Medido em 23 dias
+#                 (dump 06/11): a até 30 km da origem da carga seguinte, 21
+#                 excessos a 2–35 min da saída e sem parar no meio (partida) e
+#                 11 a 196–1.065 min, com 41–868 min parados (chegou vazio e
+#                 carregou). Nada entre 35 e 196 min: o corte é 60.
 # Erro de borda do Embarques (saída marcada tarde, por exemplo) passa a ser
 # corrigido UMA vez, lá, e vale aqui sozinho.
 FONTE_EMBARQUES = os.getenv('PGR_FONTE_EMBARQUES', 'false').lower() in ('1', 'true', 'sim')
@@ -493,6 +503,9 @@ JANELA_EMBARQUES_DIAS = int(os.getenv('PGR_EMBARQUES_JANELA_DIAS', '45'))
 # Receita) dizem "CARRETEIRO". Fica o vocabulário do PGR, para o período e o
 # estudo não misturarem duas palavras para a mesma coisa.
 _TIPO_EMBARQUES = {'FROTA': 'FROTA', 'AGREGADO': 'AGREGADO', 'TERCEIRO': 'CARRETEIRO'}
+# A partida: o raio é o mesmo de saída da origem do worker.
+PARTIDA_KM = float(os.getenv('PGR_PARTIDA_KM', os.getenv('RASTREAMENTO_RAIO_SAIDA_ORIGEM', '30')))
+PARTIDA_MIN = int(os.getenv('PGR_PARTIDA_MIN', '60'))
 
 
 def _cargas_embarques(cur, placas_norm, dia):
@@ -516,7 +529,8 @@ def _cargas_embarques(cur, placas_norm, dia):
                  WHERE d.carga_id = c.id ORDER BY d.ordem DESC LIMIT 1),
                COALESCE(c.inicio_viagem, c.data_saida_real,
                         c.data_carregamento + %s * interval '1 hour'),
-               c.data_conclusao, c.desengatada_em, c.motorista_cpf
+               c.data_conclusao, c.desengatada_em, c.motorista_cpf,
+               c.origem_latitude, c.origem_longitude
           FROM embarques_cargas c
          WHERE COALESCE(c.status, '') <> 'Cancelada'
            AND (c.cavalo_placa = ANY(%s) OR c.carreta1_placa = ANY(%s)
@@ -534,7 +548,9 @@ def _cargas_embarques(cur, placas_norm, dia):
              'carretas': {placas.mercosul(x) for x in (r[8], r[9]) if x},
              'origem': f'{r[10]}/{r[11]}' if r[10] and r[11] else (r[10] or None),
              'destino': r[12], 'inicio': r[13], 'conclusao': r[14], 'desengate': r[15],
-             'cpf': ''.join(ch for ch in (r[16] or '') if ch.isdigit()) or None}
+             'cpf': ''.join(ch for ch in (r[16] or '') if ch.isdigit()) or None,
+             'o_lat': float(r[17]) if r[17] is not None else None,
+             'o_lng': float(r[18]) if r[18] is not None else None}
         for p in {c['cavalo'], *c['carretas']} - {None}:
             idx.setdefault(p, []).append(c)
     return idx
@@ -609,10 +625,26 @@ def _equipe_da_perna(perna, antes, depois, placa_norm):
     return eq
 
 
-def situacao_pelo_embarques(cargas, placa_norm, instante):
+def _na_partida(proxima, placa_norm, instante, lat, lng):
+    """True se o excesso é a saída da cidade de origem da `proxima`: até
+    PARTIDA_KM da origem dela e até PARTIDA_MIN antes da saída que o Embarques
+    marcou (a última posição ainda dentro da cidade)."""
+    if proxima is None or lat is None or lng is None or proxima.get('o_lat') is None:
+        return False
+    saida = _janela_da_carga(proxima, placa_norm)[0]
+    if saida is None or not (0 <= (saida - instante).total_seconds() <= PARTIDA_MIN * 60):
+        return False
+    d = geocoding.km_entre(lat, lng, proxima['o_lat'], proxima['o_lng'])
+    return d is not None and d <= PARTIDA_KM
+
+
+def situacao_pelo_embarques(cargas, placa_norm, instante, lat=None, lng=None):
     """(situacao, contexto|None, entregue_em_utc|None) — o mesmo formato de
-    `_situacao_do_episodio`, para gravar e mostrar sem mudar a tela."""
+    `_situacao_do_episodio`, para gravar e mostrar sem mudar a tela.
+    `lat`/`lng`: o ponto do excesso, para reconhecer a partida."""
     ativa, anterior, proxima = carga_no_instante(cargas, placa_norm, instante)
+    if (ativa is None or ativa['vazia']) and _na_partida(proxima, placa_norm, instante, lat, lng):
+        return 'carregado', {k: proxima[k] for k in _CAMPOS_CONTEXTO}, None
     if ativa is None and anterior is None:
         return 'nao_confirmado', None, None
     if ativa is not None and not ativa['vazia']:
@@ -670,9 +702,10 @@ def apurar_dia(cur, dia, cadastro=None):
             r = resumir_episodio(ep, pontos)
             if FONTE_EMBARQUES:
                 # O instante é o do PICO, o mesmo ponto que a linha mostra.
-                instante = max(ep, key=lambda p: p['velocidade'])['data']
+                pico = max(ep, key=lambda p: p['velocidade'])
                 r['situacao_carga'], man, entregue = situacao_pelo_embarques(
-                    cargas.get(pnorm, []), pnorm, instante)
+                    cargas.get(pnorm, []), pnorm, pico['data'],
+                    pico.get('latitude'), pico.get('longitude'))
             else:
                 r['situacao_carga'], man, entregue = _situacao_do_episodio(ep, hist, cands)
             r['manifesto'] = man
@@ -930,7 +963,8 @@ def _agregar_por_placa(eventos, cobertura):
             'sustentado': False, 'cidades': [], 'situacoes': [], 'episodios': [],
             'tomador': None, 'origem': None, 'destino': None,
             'motorista': None, 'manifesto': None, 'entregue_em': None,
-            'placa_cavalo': None, 'placa_carreta': None, '_eps': [],
+            'placa_cavalo': None, 'placa_carreta': None, '_eps': [], '_ctx': False,
+            '_ctx_carregado': False,
         })
         if e['placa'] not in p['placas']:
             p['placas'].append(e['placa'])
@@ -940,10 +974,26 @@ def _agregar_por_placa(eventos, cobertura):
         # ordem cronologica: numa placa "parcial" o primeiro episodio do dia
         # costuma ser o vazio, e a linha saia com "-" mesmo havendo carga
         # provada no resto do dia.
-        if e['tomador'] and not p['tomador']:
+        # Com a chave do Embarques, numa linha "parcial" o contexto é o de um
+        # episódio CARREGADO, mesmo que o vazio tenha vindo antes: o do vazio é a
+        # carga que o veículo JÁ ENTREGOU, e a linha parcial o mostra como rota
+        # ("parcial · Pernod · Extrema → Uberlândia"), sem o "entregou em".
+        # E vale o episódio com MOTORISTA mesmo sem cliente: o Embarques tem carga
+        # do robô sem `cliente_nome` (8 de 583 desde 01/10 — a C-2026-001812 do
+        # Neimar), e exigir cliente deixava a linha sem o nome de quem dirigia.
+        if FONTE_EMBARQUES:
+            troca = bool(e['tomador'] or e['motorista']) and (not p['_ctx'] or (
+                e['situacao_carga'] == 'carregado' and not p['_ctx_carregado']))
+        else:
+            troca = e['tomador'] and not p['tomador']
+        if troca:
             p.update({k: e[k] for k in
                       ('tomador', 'origem', 'destino', 'motorista', 'manifesto',
                        'entregue_em', 'placa_cavalo', 'placa_carreta')})
+            p['_ctx'] = True
+            p['_ctx_carregado'] = e['situacao_carga'] == 'carregado'
+            if FONTE_EMBARQUES and e['tipo_operacao']:
+                p['tipo_operacao'] = e['tipo_operacao']
         if e['tipo_operacao'] and not p['tipo_operacao']:
             p['tipo_operacao'] = e['tipo_operacao']
         p['pico'] = max(p['pico'], pico_exibido(e['vel_max'], e['vel_sustentada']))
@@ -976,7 +1026,7 @@ def _agregar_por_placa(eventos, cobertura):
                           else sum(n or 0 for _, _, n in p['_eps']))
         if fundida:
             p['tipo_veiculo'] = '+'.join(p['tipos']) if p['tipos'] else None
-        del p['_eps']
+        del p['_eps'], p['_ctx'], p['_ctx_carregado']
         p['situacao_carga'] = _situacao_consolidada(p['situacoes'])
         p['situacao_rotulo'] = _SITUACAO_ROTULO.get(p['situacao_carga'], p['situacao_carga'])
         # Cobertura e por placa; na linha fundida vale a do primeiro rastreador.
