@@ -152,6 +152,9 @@ CARTEIRAS = {
             _E('PQD', 'Parqueado: aguardando a criação do pedido', 'amarelo', 'Parqueado (PQD)'),
             _E('RZA', 'Pendência aguardando ação Rizza', 'vermelho', 'Pendência Rizza (RZA)'),
             _E('AUTORIZADO', 'Aguardando antecipar', 'verde', 'Autorizado'),
+            # pedido dela (09/11/2026). O FATURADO automático não passa por cima (`ETAPAS_SEM_AUTO`):
+            # a programação do pagamento é dela e o SSW não sabe dela
+            _E('PGTO PROGRAMADO', 'Pagamento programado pelo cliente', 'magenta', 'Pagamento programado'),
             _E('FATURADO', 'Fatura emitida', 'azul', 'Faturado'),
             _E('SUBST', 'CT-e substituído por outro', 'roxo', 'Substituído'),
             ETAPA_CANCELADO,
@@ -234,6 +237,9 @@ ORDEM = ['nestle', 'quimica_amparo', 'unilever', 'ambev']
 
 # Etapas que não estão "em aberto": o substituído e o cancelado nunca vão ser pagos.
 ETAPAS_FORA_DO_ABERTO = {'SUBST', 'CANCELADO'}
+# etapas que o FATURADO automático não troca: as que já encerram (FATURADO) ou pedem alguém olhar
+# (SUBST, CANCELADO), e as que dizem algo que o SSW não sabe (a programação do pagamento da Química)
+ETAPAS_SEM_AUTO = {'FATURADO', 'SUBST', 'CANCELADO', 'PGTO PROGRAMADO'}
 
 # A 5ª aba: a descarga da NESTLÉ paga a terceiro (477, evento 5100) — a lógica mora em crm_descargas.py.
 # Só Nestlé/Garoto, pelo tomador do CT-e (21/10/2026: o relatório de segunda ia com todos os clientes).
@@ -935,7 +941,7 @@ def faturados_pelo_ssw(carteira, linhas, marc):
         return []
     out = []
     for l in linhas:
-        if l['etapa'] in ('FATURADO', 'SUBST', 'CANCELADO') or (marc.get(l['chave']) or {}).get('mao_depois_do_auto'):
+        if l['etapa'] in ETAPAS_SEM_AUTO or (marc.get(l['chave']) or {}).get('mao_depois_do_auto'):
             continue
         fa = l.get('fatura_aberta') or {}
         if l['ssw'] == 'fatura' and l.get('fonte') == '441 abertas':
