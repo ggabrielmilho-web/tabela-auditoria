@@ -283,6 +283,16 @@
   var COR_STATUS = { 'EM ANDAMENTO': 'amarelo', 'CONCLUÍDO': 'verde', 'NEGADO': 'vermelho' };
   function corCusto(x) { return COR_STATUS[x.status] || 'cinza'; }
   function rotTipo(t) { return t ? t.charAt(0) + t.slice(1).toLowerCase() : ''; }
+  // 'L477-UDI-106775-1' (o lançamento de onde o custo foi lançado, aba Descargas) → '106775/1'
+  function lancRot(c) { var p = String(c || '').split('-'); return p.length >= 4 ? p[2] + '/' + p[3] : c; }
+  // cartões do custo extra na aba Descargas (09/11/2026)
+  var CARDS_DC = [
+    { id: 'dc:com', t: 'Custo extra', cor: 'laranja', d: 'descargas com custo extra lançado', f: function (l) { return custosDe(l).length > 0; } },
+    { id: 'dc:valsem', t: 'Validado sem custo extra', cor: 'amarelo', d: 'farol verde e nenhum custo extra lançado para esta descarga',
+      f: function (l) { return !!l.campos.validado && !custosDe(l).length; } },
+    { id: 'dc:sem', t: 'Sem custo extra', cor: 'cinza', d: 'nenhum custo extra lançado para esta descarga', f: function (l) { return !custosDe(l).length; } }
+  ];
+  function cardDC(id) { return CARDS_DC.find(function (c) { return c.id === id; }); }
   function resumoCustos(v) {
     if (typeof v === 'string') { try { v = JSON.parse(v); } catch (e) { return v; } }
     return (v || []).map(function (x) {
@@ -398,6 +408,7 @@
     if (S.lista && !S.lista.has(l.chave)) return false;
     var c = S.card;
     if (c === 'abertos') { if (!l.aberto) return false; }
+    else if (c && ehDescargas() && cardDC(c)) { if (!cardDC(c).f(l)) return false; }
     else if (c && ehDescargas()) { if (l.situacao !== c) return false; }
     else if (c && c.indexOf('custo') === 0) { if (!custosDe(l).some(function (x) { return custoCasa(x, c); })) return false; }
     else if (c === 'novos') { if (!l.novo) return false; }
@@ -526,7 +537,10 @@
       $('cards').innerHTML = S.cfg.situacoes.map(function (s) {
         return { id: s.id, t: s.rotulo, d: s.desc, cor: s.cor,
                  ls: S.linhas.filter(function (l) { return l.situacao === s.id; }) };
-      }).map(cardHTML).join('');
+      }).map(cardHTML).join('')
+        + '<div class="cards-sep">Custo extra</div>' + CARDS_DC.map(function (c) {
+          return { id: c.id, t: c.t, d: c.d, cor: c.cor, ls: S.linhas.filter(c.f) };
+        }).map(cardHTML).join('');
       return;
     }
     var ls = S.linhas, cards = [aberto];
@@ -594,7 +608,7 @@
                    custo_sem_compl: 'Custo extra concluído sem CT-e complementar' }[S.card]
         || (S.card.indexOf('custo:') === 0 ? 'Custo extra ' + rotTipo(S.card.slice(6))
             : S.card.indexOf('custost:') === 0 ? 'Custo extra ' + rotTipo(S.card.slice(8)) : null)
-        || (ehDescargas() ? (sitDef(S.card) || {}).rotulo || S.card : (e ? e.rotulo : S.card));
+        || (ehDescargas() ? (cardDC(S.card) || sitDef(S.card) || {}).t || (sitDef(S.card) || {}).rotulo || S.card : (e ? e.rotulo : S.card));
       h += '<span class="chip-filtro">cartão: ' + esc(nome) + ' <button data-limpa="card" title="Tirar">✕</button></span> ';
     }
     if (S.lista) h += '<span class="chip-filtro">lista colada: ' + S.lista.size + ' linhas <button data-limpa="lista" title="Tirar">✕</button></span>';
@@ -694,12 +708,16 @@
           + corVar(ok ? 'verde' : 'vermelho') + '"></span>' + (ok ? 'Validado' : 'A validar') + '</td>';
       }
       if (f && f.tipo === 'custos') {
-        var xs = custosDe(l), sug = (l.compl_ssw || []).length;
-        return '<td class="custos" data-custos="' + esc(l.chave) + '" title="' + esc(xs.length ? resumoCustos(xs) : 'clique para lançar um custo extra') + '">'
+        // na aba Descargas: só com o CT-e da Nestlé (o custo mora nele); os outros custos do CT-e só aparecem
+        if (desc && !l.custo_ok) return '<td class="dim" title="sem CT-e da Nestlé — o custo extra mora no CT-e da aba Nestlé; preencha o CT-e à mão"><span class="vazio">—</span></td>';
+        var xs = custosDe(l), sug = (l.compl_ssw || []).length, outros = desc ? (l.custos_outros || []) : [];
+        return '<td class="custos" data-custos="' + esc(l.chave) + '" title="' + esc((xs.length ? resumoCustos(xs) : 'clique para lançar um custo extra')
+            + (outros.length ? ' | outros no CT-e ' + l.ctrc + ': ' + resumoCustos(outros) : '')) + '">'
           + (xs.length ? xs.map(function (x) {
               return '<span class="pill" style="--cor:' + corVar(corCusto(x)) + '">' + esc(rotTipo(x.tipo)) + (x.valor != null ? ' ' + moeda(x.valor) : '') + '</span>';
             }).join('')
             : '<span class="vazio">—</span>' + (sug ? ' <span class="marca" title="o SSW tem ' + sug + ' complemento(s) que citam este CT-e">SSW ' + sug + '</span>' : ''))
+          + (outros.length ? ' <span class="marca">+' + outros.length + ' no CT-e</span>' : '')
           + '</td>';
       }
       if (f) {
@@ -936,11 +954,16 @@
       return '<label>' + esc(d.rotulo) + '<input ' + nome + ' value="' + esc(val) + '" placeholder="' + ph + '"></label>';
     }
     function desenhar() {
-      var sug = l.compl_ssw || [];
-      caixa.innerHTML = '<div class="caixa largo"><h3>Custo extra — ' + esc(l.ctrc || '') + '</h3>'
+      var sug = l.compl_ssw || [], desc = ehDescargas(), outros = desc ? (l.custos_outros || []) : [];
+      caixa.innerHTML = '<div class="caixa largo"><h3>Custo extra — ' + esc(l.ctrc || '') + (desc ? ' · descarga ' + esc(l.lancto) : '') + '</h3>'
+        + (desc ? '<div class="nota">Fica no CT-e ' + esc(l.ctrc) + ' da aba Nestlé, marcado como desta descarga. '
+            + 'Valor pago ao terceiro: R$ ' + moeda(l.frete) + ' — só referência; o Valor do custo é o do ticket.</div>' : '')
         + '<div class="nota">Um bloco por custo (descarga, estadia, devolução, pallet, pedágio). Bloco vazio não é gravado.</div>'
+        + (outros.length ? '<div class="nota">Já no CT-e (lançados na aba Nestlé ou por outra descarga — não mudam aqui): '
+            + esc(resumoCustos(outros)) + '</div>' : '')
         + itens.map(function (it, i) {
             return '<div class="custo" style="--cor:' + corVar(corCusto(it)) + '"><div class="cab"><span>Custo ' + (i + 1) + (it.tipo ? ' · ' + esc(rotTipo(it.tipo)) : '')
+              + (!desc && it.lanc ? ' · <span class="nota">lançado na descarga ' + esc(lancRot(it.lanc)) + '</span>' : '')
               + '</span><button class="btn-sm" data-rem="' + i + '">Remover</button></div><div class="grade">'
               + cc.itens.map(function (d) { return campoHTML(it, i, d); }).join('') + '</div></div>';
           }).join('')
@@ -1119,7 +1142,8 @@
       ['Como achou', l.cte_criterio], ['Outros CT-e com a NF', l.cte_outros]])
       : '<div class="nota">' + esc(l.cte_criterio || 'O histórico não traz NF que leve a um CT-e') + '. Preencha "CT-e (à mão)" na tabela.</div>') + '</div>';
     if (l.ctrc) {
-      h += '<div class="bloco"><div class="nota">A cobrança desta descarga (ticket FSC, OC, CT-e complementar) é o Custo extra da aba Nestlé: '
+      h += '<div class="bloco"><div class="nota">A cobrança desta descarga (ticket FSC, OC, CT-e complementar) é o Custo extra: lance na coluna '
+        + 'Custo extra desta tabela — ele fica no CT-e da aba Nestlé: '
         + '<a href="/crm-documentos?carteira=nestle&busca=' + encodeURIComponent(l.ctrc) + '" target="_blank">abrir ' + esc(l.ctrc) + ' ↗</a></div></div>';
     }
     var marcados = S.cfg.campos.filter(function (f) { return l.campos[f.id]; });

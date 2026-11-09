@@ -176,6 +176,30 @@ def montar(dd, marc, hoje=None):
     return linhas
 
 
+def anexar_custos(linhas, marc_nestle):
+    """Custo extra na linha da descarga (pedido de 09/11/2026). O custo mora no CT-e da aba Nestlé
+    (`marc_nestle`, chave = CTRC); cada um lançado daqui leva o lançamento em `lanc`. A linha mostra em
+    `campos.custos` só os DESTE lançamento — o CT-e pode ter duas descargas — e em `custos_outros` os
+    demais do CT-e (lançados na aba Nestlé ou em outra descarga), só para ver. `custo_ok`: há CT-e e
+    ele é da carteira Nestlé (o CT-e à mão pode ser de outro cliente). Muda as linhas no lugar."""
+    for l in linhas:
+        ctrc = l.get('ctrc')
+        l['custo_ok'] = bool(ctrc) and l.get('carteira') == 'nestle'
+        lista = ((marc_nestle.get(ctrc) or {}).get('campos') or {}).get('custos') if l['custo_ok'] else None
+        lista = lista if isinstance(lista, list) else []
+        meus = [x for x in lista if x.get('lanc') == l['chave']]
+        l['campos'] = dict(l.get('campos') or {}, custos=meus or None)
+        l['custos_outros'] = [x for x in lista if x.get('lanc') != l['chave']]
+    return linhas
+
+
+def mesclar_custos(atual, chave, novos):
+    """A lista do CT-e na aba Nestlé + os custos que a tela da descarga `chave` mandou → a lista nova.
+    Troca só os desta descarga; os da aba Nestlé e os de outra descarga ficam como estão."""
+    fica = [x for x in (atual or []) if x.get('lanc') != chave]
+    return fica + [dict(x, lanc=chave) for x in (novos or [])]
+
+
 def resumo(linhas):
     """Para a aba: o que ela ainda não validou (farol vermelho)."""
     ab = [l for l in linhas if l['aberto']]
@@ -235,6 +259,15 @@ def cache_quente():
 
 # ── Excel ────────────────────────────────────────────────────────────────────
 
+def _txt_custos(xs):
+    """Os custos da descarga em uma célula: 'DESCARGA R$ 500,00 (EM ANDAMENTO) · …'."""
+    def um(x):
+        v = x.get('valor')
+        val = f" R$ {v:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.') if isinstance(v, (int, float)) else ''
+        return f"{x.get('tipo') or ''}{val}{' (' + x['status'] + ')' if x.get('status') else ''}"
+    return ' · '.join(um(x) for x in (xs or [])) or None
+
+
 def exportar_xlsx(linhas):
     import io
     from openpyxl import Workbook
@@ -249,7 +282,8 @@ def exportar_xlsx(linhas):
             ('CTRC', lambda l: l['ctrc']), ('Nº CT-e', lambda l: l['cte']), ('Tomador', lambda l: l['pagador']),
             ('Destinatário', lambda l: l['destinatario']), ('Destino', lambda l: l['destino']),
             ('Validação', lambda l: SITUACOES[l['situacao']]['rotulo']),
-            ('CT-e (à mão)', cp('cte_manual')), ('Anotação', cp('anotacao')),
+            ('CT-e (à mão)', cp('cte_manual')), ('Custo extra', lambda l: _txt_custos(l['campos'].get('custos'))),
+            ('Anotação', cp('anotacao')),
             ('Como achou o CT-e', lambda l: l['cte_criterio'])]
     wb = Workbook()
     ws = wb.active

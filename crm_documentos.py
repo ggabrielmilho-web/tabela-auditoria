@@ -100,6 +100,7 @@ ITENS_CUSTO = [   # (id, rótulo = cabeçalho da planilha dela, tipo), na ordem 
     ('pipefy', 'Pipefy', 'texto'), ('doc_transporte', 'Doc transporte', 'texto'), ('pedido_compras', 'Pedido Compras', 'texto'),
     ('cte_compl', 'CT-e complementar', 'ctrc'),
 ]
+RE_LANC = re.compile(r'L477-[A-Z0-9]{1,6}-[\w.]{1,20}-[\w.]{0,10}')   # crm_descargas.chave_lancamento
 CAMPO_CUSTOS = {'id': 'custos', 'rotulo': 'Custo extra', 'tipo': 'custos', 'col': None,
                 'tipos': TIPOS_CUSTO, 'status': STATUS_CUSTO,
                 'itens': [{'id': i, 'rotulo': r, 'tipo': t} for i, r, t in ITENS_CUSTO]}
@@ -251,6 +252,9 @@ DESCARGAS = {
     'campos': [
         {'id': 'validado', 'rotulo': 'Validação', 'tipo': 'farol', 'col': None},
         {'id': 'cte_manual', 'rotulo': 'CT-e (à mão)', 'tipo': 'texto', 'col': None},
+        # Custo extra lançado daqui (pedido de 09/11/2026): mora no CT-e da aba Nestlé, cada custo com o
+        # lançamento de que veio (`lanc`). A linha mostra só os desta descarga (crm_descargas.anexar_custos)
+        CAMPO_CUSTOS,
         _ANOTACAO,
     ],
     # id → rótulo e cor; a ordem é a dos cartões. `aberto`: ainda falta ela validar.
@@ -522,6 +526,10 @@ def normalizar_custos(valor):
         if x and 'tipo' not in x:
             raise ValueError(f'Custo {i}: escolha o Tipo.')
         if x:
+            # o lançamento do 5100 de onde o custo foi lançado (aba Descargas): não é coluna, vai junto
+            lanc = str(it.get('lanc') or '').strip()
+            if RE_LANC.fullmatch(lanc):
+                x['lanc'] = lanc
             out.append(x)
     return out or None
 

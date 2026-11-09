@@ -1181,7 +1181,32 @@ def _crm_dax_dre(q):
 
 def _crm_descargas_montar(dados, dd):
     import crm_descargas as cd
-    return cd.montar(dd, _crm_marcacoes('descargas'))
+    # o Custo extra de cada descarga mora no CT-e da aba Nestlé (09/11/2026)
+    return cd.anexar_custos(cd.montar(dd, _crm_marcacoes('descargas')), _crm_marcacoes('nestle'))
+
+
+def _crm_descargas_gravar_custos(cur, dados, chaves, valor, da_carteira, por, antes_out):
+    """Custo extra lançado na aba Descargas: grava no CT-e da aba Nestlé, trocando só os custos desta
+    descarga (crm_descargas.mesclar_custos) — os lançados lá, ou por outra descarga do mesmo CT-e, ficam.
+    Histórico e conferência de conflito do CT-e são os da aba Nestlé. `antes_out` recebe, por descarga,
+    os custos dela antes (o Desfazer da tela). Devolve quantas mudaram."""
+    import crm_documentos as crm
+    import crm_descargas as cd
+    nestle = {x['chave']: x for x in _crm_montar('nestle', dados, _crm_marcacoes('nestle'))}
+    n = 0
+    for k in chaves:
+        ctrc = da_carteira[k]['ctrc']
+        ln = nestle.get(ctrc)
+        if ln is None:
+            raise ValueError(f'{ctrc} não está na aba Nestlé — o custo extra mora no CT-e de lá.')
+        cur.execute('SELECT campos FROM crm_doc_marcacao WHERE chave = %s FOR UPDATE', (ctrc,))
+        r = cur.fetchone()
+        atual = ((r[0] if r else None) or {}).get('custos') or []
+        nova = crm.normalizar_custos(cd.mesclar_custos(atual, k, valor))
+        if crm.gravar(cur, 'nestle', [ctrc], 'custos', nova, por, {ctrc: crm.base_ssw(ln)}):
+            antes_out[k] = [x for x in atual if x.get('lanc') == k] or None
+            n += 1
+    return n
 
 
 def _crm_linhas(carteira, forcar=False):
@@ -1301,12 +1326,18 @@ def api_crm_documentos_marcar():
     except ValueError as e:
         return jsonify({'ok': False, 'error': str(e)}), 400
     try:
-        linhas, _ = _crm_linhas(carteira)
+        linhas, dados_ssw = _crm_linhas(carteira)
         da_carteira = {x['chave']: x for x in linhas}
         fora = [k for k in chaves if k not in da_carteira]
         if fora:
             return jsonify({'ok': False, 'error': f'{len(fora)} linha(s) não são de {crm.cfg_de(carteira)["nome"]}: '
                                                   + ', '.join(fora[:5])}), 400
+        desc_custos = carteira == crm.DESCARGAS['id'] and campo == 'custos'
+        if desc_custos:
+            sem = [da_carteira[k].get('lancto') or k for k in chaves if not da_carteira[k].get('custo_ok')]
+            if sem:
+                return jsonify({'ok': False, 'error': f'{len(sem)} descarga(s) sem CT-e da Nestlé — o custo extra mora no '
+                                                      'CT-e da aba Nestlé; preencha o CT-e antes: ' + ', '.join(sem[:5])}), 400
         if campo == 'nfs':
             # o nº que vem do SSW não se edita: a NFS só onde o CT-e vem vazio (nota de serviço, UDS…)
             com_cte = [k for k in chaves if not da_carteira[k].get('nfs_editavel')]
@@ -1346,13 +1377,20 @@ def api_crm_documentos_marcar():
         antes = {}
         try:
             with conn.cursor() as cur:
-                n = crm.gravar(cur, carteira, chaves, campo, valor, session.get('nome') or 'usuário',
-                               {k: crm.base_ssw(da_carteira[k]) for k in chaves}, antes_out=antes)
+                if desc_custos:
+                    n = _crm_descargas_gravar_custos(cur, dados_ssw, chaves, valor, da_carteira,
+                                                     session.get('nome') or 'usuário', antes)
+                else:
+                    n = crm.gravar(cur, carteira, chaves, campo, valor, session.get('nome') or 'usuário',
+                                   {k: crm.base_ssw(da_carteira[k]) for k in chaves}, antes_out=antes)
             conn.commit()
         finally:
             conn.close()
         novas, _ = _crm_linhas(carteira)
         quero = set(chaves)
+        if desc_custos:   # as outras descargas do mesmo CT-e mostram os custos dele ("+N no CT-e")
+            ctrcs = {da_carteira[k]['ctrc'] for k in chaves}
+            quero |= {x['chave'] for x in novas if x.get('ctrc') in ctrcs}
         # `antes`: o valor de cada linha que mudou — o Desfazer (Ctrl+Z) da tela devolve estes
         return jsonify({'ok': True, 'mudou': n, 'antes': antes, 'linhas': [x for x in novas if x['chave'] in quero]})
     except ValueError as e:
@@ -1381,12 +1419,22 @@ def api_crm_documentos_mudancas():
                                 WHERE m.carteira = %s AND l.em > %s::timestamptz AND l.campo <> '*importacao*'
                                   AND l.por IS DISTINCT FROM %s""", (carteira, desde, eu))
                 mud = cur.fetchall()
+                ctrcs = set()
+                if carteira == crm.DESCARGAS['id']:
+                    # o Custo extra da descarga mora no CT-e da aba Nestlé: quem mexeu lá muda a linha daqui
+                    cur.execute("""SELECT l.chave, l.por FROM crm_doc_log l JOIN crm_doc_marcacao m USING (chave)
+                                    WHERE m.carteira = 'nestle' AND l.campo = 'custos' AND l.em > %s::timestamptz
+                                      AND l.por IS DISTINCT FROM %s""", (desde, eu))
+                    n_mud = cur.fetchall()
+                    ctrcs = {k for k, _ in n_mud}
+                    mud += n_mud
         finally:
             conn.close()
         if not mud:
             return jsonify({'ok': True, 'agora': agora, 'linhas': [], 'quem': []})
         chaves = {k for k, _ in mud}
         linhas, _ = _crm_linhas(carteira)
+        chaves |= {x['chave'] for x in linhas if ctrcs and x.get('ctrc') in ctrcs}
         quem = sorted({'Automático (SSW)' if str(p or '').startswith('Automático') else (p or 'alguém') for _, p in mud})
         return jsonify({'ok': True, 'agora': agora, 'linhas': [x for x in linhas if x['chave'] in chaves], 'quem': quem})
     except Exception as e:
