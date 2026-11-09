@@ -37,6 +37,10 @@ lab_*/
 *.dump.gz
 eventos.json
 
+# Fotos de canhoto (assinatura, nome e RG de quem recebeu). Em produção ficam no volume de
+# CANHOTO_DIR; esta pasta é o padrão fora do servidor (teste local).
+canhotos_fotos/
+
 # Exportações com dado da contabilidade (nomes de clientes/fornecedores, contratos).
 # O repositório é PÚBLICO — levar ao servidor por docker cp, nunca pelo git.
 _plano_contas_*.json

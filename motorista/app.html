@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Canhotos Rizza</title>
+<meta name="theme-color" content="#0f1724">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="/motorista/manifest.webmanifest">
+<link rel="icon" type="image/png" href="/motorista/icone-192.png">
+<link rel="apple-touch-icon" href="/motorista/icone-192.png">
+<!--
+  App do motorista para mandar o canhoto da NF e o do CT-e (Tabela Auditoria, módulo Canhotos).
+  Uma página só, sem biblioteca e sem fonte externa: abre sem sinal (o service worker guarda esta página)
+  e pesa pouco no 3G. As fotos esperam na fila do aparelho (IndexedDB) e vão quando houver sinal.
+  O molde da câmera: faixa (NF ou CT-e, celular deitado), folha inteira ou papel livre. Na faixa o
+  texto do molde já vem girado, então funciona com a rotação automática do celular desligada.
+-->
+<style>
+  :root {
+    --tela: #f4f6f9; --cartao: #ffffff; --tinta: #0f1724; --tinta2: #475569; --linha: #d3dae4;
+    --acao: #0369a1; --acao2: #075985; --ok: #047857; --ok-fundo: #d1fae5; --espera: #b45309; --espera-fundo: #fef3c7;
+    --erro: #b91c1c; --erro-fundo: #fee2e2; --escuro: #0f1724; --verde: #34d399; --ambar: #fbbf24;
+    --sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    --mono: ui-monospace, 'SF Mono', Menlo, Consolas, 'Roboto Mono', monospace;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--tela); color: var(--tinta); font-family: var(--sans); font-size: 16px; line-height: 1.45;
+    -webkit-text-size-adjust: 100%; -webkit-tap-highlight-color: transparent; }
+  button, input { font: inherit; }
+  button { cursor: pointer; }
+  :focus-visible { outline: 3px solid var(--acao); outline-offset: 2px; }
+
+  .barra { position: sticky; top: 0; z-index: 5; background: var(--escuro); color: #fff; display: flex; align-items: center;
+    justify-content: space-between; gap: 10px; padding: calc(10px + env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) 10px max(16px, env(safe-area-inset-left, 0px)); }
+  .marca { font-weight: 800; letter-spacing: .02em; font-size: 15px; }
+  .marca span { color: #7dd3fc; font-weight: 600; }
+  .sinal { background: var(--espera); color: #fff; font-size: 12.5px; font-weight: 700; padding: 3px 10px; border-radius: 99px; }
+  .tela { max-width: 560px; margin: 0 auto; padding: 18px max(16px, env(safe-area-inset-right, 0px)) calc(28px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+    display: flex; flex-direction: column; gap: 14px; }
+  h1 { margin: 0; font-size: 24px; line-height: 1.2; }
+  h2 { margin: 0; font-size: 20px; line-height: 1.25; }
+  .sub { margin: 0; color: var(--tinta2); font-size: 14.5px; }
+  .rotulo { font-size: 14px; font-weight: 700; color: var(--tinta2); }
+  .cpf { width: 100%; height: 62px; border: 2px solid var(--linha); border-radius: 12px; background: #fff; color: var(--tinta);
+    font: 600 24px var(--mono); text-align: center; letter-spacing: .02em; }
+  .cpf:focus { border-color: var(--acao); outline: none; }
+  .btn { min-height: 54px; border: 0; border-radius: 12px; background: var(--acao); color: #fff; font-weight: 700; font-size: 17px;
+    padding: 10px 16px; width: 100%; }
+  .btn:active { background: var(--acao2); }
+  .btn:disabled { opacity: .55; }
+  .btn.claro { background: transparent; color: var(--acao); border: 2px solid var(--linha); font-size: 15.5px; min-height: 50px; }
+  .btn.pequeno { width: auto; min-height: 40px; font-size: 14px; padding: 6px 14px; }
+  .erro-msg { background: var(--erro-fundo); color: var(--erro); border-radius: 10px; padding: 10px 12px; font-size: 14.5px; font-weight: 600; }
+  .info { background: var(--espera-fundo); color: #7c2d12; border-radius: 10px; padding: 10px 12px; font-size: 14px; }
+  .centro { min-height: calc(100vh - 140px); display: flex; flex-direction: column; justify-content: center; gap: 14px; }
+  .cabeca { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  .link { background: none; border: 0; color: var(--acao); font-weight: 700; padding: 8px 0; font-size: 15px; }
+  .lista { display: flex; flex-direction: column; gap: 10px; }
+  .viagem, .item { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 3px 10px; width: 100%;
+    text-align: left; background: var(--cartao); color: var(--tinta); border: 1px solid var(--linha); border-radius: 14px; padding: 13px 14px; min-height: 66px; }
+  .viagem b { font-size: 16.5px; line-height: 1.25; }
+  .viagem .meta { grid-column: 1; font: 13px var(--mono); color: var(--tinta2); }
+  .viagem .falta { grid-column: 1; font-size: 14.5px; font-weight: 700; color: var(--espera); }
+  .viagem .falta.ok { color: var(--ok); }
+  .seta { grid-column: 2; grid-row: 1 / span 3; font-size: 26px; color: var(--acao); line-height: 1; }
+  .pilula { display: inline-block; font-size: 11.5px; font-weight: 800; padding: 1px 8px; border-radius: 99px; background: var(--acao); color: #fff; margin-right: 6px; vertical-align: 2px; }
+  .parada { display: flex; flex-direction: column; gap: 8px; }
+  .parada h3 { margin: 4px 0 0; font-size: 16px; line-height: 1.3; }
+  .parada .cid { display: block; font-size: 13.5px; color: var(--tinta2); font-weight: 400; }
+  .item { grid-template-columns: 30px minmax(0, 1fr) auto; }
+  .bola { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--linha); display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 800; color: #fff; }
+  .item.ok .bola { background: var(--ok); border-color: var(--ok); }
+  .item.fila .bola { background: var(--espera); border-color: var(--espera); }
+  .item b { display: block; font-size: 15.5px; line-height: 1.25; }
+  .item small { display: block; color: var(--tinta2); font-size: 13px; }
+  .item .num { font-family: var(--mono); }
+  .item .acao { grid-column: 3; font-size: 13.5px; font-weight: 700; color: var(--acao); white-space: nowrap; }
+  .item.ok .acao { color: var(--ok); }
+  .item.fila .acao { color: var(--espera); }
+  .extra { font-size: 13.5px; color: var(--tinta2); padding-left: 4px; }
+  .mais { display: flex; flex-direction: column; gap: 8px; }
+  .tudo-ok { background: var(--ok-fundo); color: #064e3b; border-radius: 12px; padding: 12px 14px; font-weight: 700; font-size: 15px; }
+  .fila-resumo { font-size: 14px; color: var(--espera); font-weight: 700; }
+  .rodape { font-size: 12.5px; color: var(--tinta2); text-align: center; }
+  .aviso { position: fixed; left: 12px; right: 12px; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); z-index: 50; background: var(--tinta); color: #fff;
+    border-radius: 12px; padding: 12px 14px; font-size: 15px; box-shadow: 0 8px 24px rgba(0,0,0,.25); max-width: 560px; margin: 0 auto; }
+
+  /* câmera — tela cheia, sempre escura */
+  .camera { position: fixed; inset: 0; z-index: 20; background: #000; overflow: hidden; color: #fff; }
+  #video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .camera-ui { position: absolute; left: 0; top: 0; overflow: hidden; user-select: none; -webkit-user-select: none; }
+  .camera-ui.giro { left: 100%; transform-origin: 0 0; transform: rotate(90deg); }
+  .molde { --cor: #fff; position: absolute; border: 2px solid var(--cor); border-radius: 6px; box-shadow: 0 0 0 3000px rgba(3,7,18,.5); pointer-events: none; transition: border-color .2s; }
+  .molde[data-estado="foco"], .molde[data-estado="luz"], .molde[data-estado="mexendo"] { --cor: var(--ambar); }
+  .molde[data-estado="pronto"] { --cor: var(--verde); border-width: 3px; }
+  .zona { position: absolute; border-left: 1px dashed rgba(255,255,255,.6); padding: 1px 3px; font: 700 var(--fs, 10px)/1.12 var(--sans); color: #fff;
+    text-shadow: 0 1px 2px #000, 0 0 3px #000; transition: opacity .25s; overflow: hidden; }
+  .zona.num { font-family: var(--mono); color: #7dd3fc; }
+  .zona.sem-linha { border-left: 0; }
+  .molde[data-estado="pronto"] .zona, .molde[data-estado="pronto"] .miolo { opacity: 0; }
+  .miolo { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 12px; font-weight: 700; font-size: 15px; text-shadow: 0 1px 3px #000; transition: opacity .25s; }
+  .cam-topo { position: absolute; left: 0; right: 0; top: 0; display: flex; align-items: center; gap: 8px; padding: calc(8px + env(safe-area-inset-top, 0px)) 10px 8px; background: linear-gradient(rgba(0,0,0,.65), transparent); }
+  .camera-ui.giro .cam-topo { padding-top: 8px; }
+  .cam-topo button { background: rgba(0,0,0,.5); color: #fff; border: 1px solid rgba(255,255,255,.35); border-radius: 9px; padding: 7px 12px; font-size: 14px; white-space: nowrap; }
+  .cam-topo button[aria-pressed="true"] { background: #fff; color: #0f1724; }
+  .cam-doc { flex: 1 1 auto; min-width: 0; font-weight: 700; font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center; text-shadow: 0 1px 2px #000; }
+  .cam-status { position: absolute; left: 50%; top: 52px; transform: translateX(-50%); max-width: 94%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    background: rgba(0,0,0,.76); border-radius: 99px; padding: 6px 16px; font-weight: 700; font-size: 15px; }
+  .camera-ui:not(.giro) .cam-status { top: calc(52px + env(safe-area-inset-top, 0px)); }
+  .cam-status[data-estado="foco"], .cam-status[data-estado="luz"], .cam-status[data-estado="mexendo"] { color: var(--ambar); }
+  .cam-status[data-estado="pronto"] { color: var(--verde); }
+  .cam-baixo { position: absolute; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 8px;
+    padding: 10px 12px calc(12px + env(safe-area-inset-bottom, 0px)); background: linear-gradient(transparent, rgba(0,0,0,.65)); }
+  .camera-ui.giro .cam-baixo { padding-bottom: 12px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { min-height: 34px; padding: 4px 11px; border-radius: 99px; background: rgba(0,0,0,.55); color: #fff; border: 1px solid rgba(255,255,255,.35); font-size: 13.5px; white-space: nowrap; }
+  .chip[aria-pressed="true"] { background: #fff; color: #0f1724; font-weight: 700; border-color: #fff; }
+  #disparo { width: 70px; height: 70px; border-radius: 50%; background: #fff; background-clip: padding-box; border: 6px solid rgba(255,255,255,.4); padding: 0; }
+  #disparo:active { transform: scale(.94); }
+  #disparo.pulsa { border-color: var(--verde); box-shadow: 0 0 0 0 rgba(52,211,153,.8); animation: pulsa 1.2s infinite; }
+  @keyframes pulsa { to { box-shadow: 0 0 0 16px rgba(52,211,153,0); } }
+  .conferir { position: absolute; inset: 0; background: #0b1020; display: flex; flex-direction: column; gap: 10px; padding: calc(12px + env(safe-area-inset-top, 0px)) 14px calc(14px + env(safe-area-inset-bottom, 0px)); }
+  .camera-ui.giro .conferir { padding: 12px 14px; }
+  .conf-img { flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center; }
+  .conf-img canvas { max-width: 100%; max-height: 100%; border-radius: 4px; display: block; background: #fff; }
+  .conf-texto { font-size: 15px; display: flex; flex-direction: column; gap: 2px; }
+  .conf-texto b { font-size: 16px; }
+  .conf-texto .num { font-family: var(--mono); color: #7dd3fc; }
+  .conf-botoes { display: grid; grid-template-columns: 1fr auto 1.4fr; gap: 8px; }
+  .conf-botoes button { min-height: 52px; border-radius: 12px; font-weight: 700; border: 0; font-size: 16px; padding: 0 14px; }
+  #refazer, #girar { background: transparent; color: #fff; border: 1px solid rgba(255,255,255,.4); }
+  #usar { background: var(--verde); color: #04231a; }
+  .deite { position: absolute; inset: 0; z-index: 4; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+    background: rgba(3,7,18,.86); font-size: 21px; font-weight: 700; text-align: center; padding: 24px; }
+  .deite svg { width: 92px; height: 92px; animation: deitar 1.4s ease-in-out infinite alternate; }
+  @keyframes deitar { from { transform: rotate(0deg); } to { transform: rotate(-90deg); } }
+  .sem-camera { position: absolute; inset: 0; z-index: 6; background: #0b1020; display: flex; flex-direction: column; justify-content: center; gap: 16px;
+    padding: 24px max(20px, env(safe-area-inset-right, 0px)) 24px max(20px, env(safe-area-inset-left, 0px)); font-size: 16px; }
+  .sem-camera p { margin: 0; }
+  .sem-camera .btn { display: flex; align-items: center; justify-content: center; }
+  .sem-camera .btn.claro { color: #fff; border-color: rgba(255,255,255,.35); }
+  .oculto { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
+  @media (prefers-reduced-motion: reduce) { .deite svg, #disparo.pulsa { animation: none; } }
+</style>
+</head>
+<body>
+<header class="barra">
+  <span class="marca">RIZZA <span>Canhotos</span></span>
+  <span class="sinal" id="sinal" hidden>Sem sinal</span>
+</header>
+
+<main>
+  <section class="tela" id="telaCpf" hidden>
+    <form class="centro" id="formCpf" novalidate>
+      <h1>Envio de canhotos</h1>
+      <p class="sub">Fotografe o canhoto da NF e o do CT-e logo depois da entrega.</p>
+      <label class="rotulo" for="cpf">Seu CPF</label>
+      <input class="cpf" id="cpf" inputmode="numeric" autocomplete="off" maxlength="14" placeholder="000.000.000-00">
+      <div class="erro-msg" id="erroCpf" role="alert" hidden></div>
+      <button class="btn" id="entrar" type="submit">Entrar</button>
+      <p class="sub" id="filaOutro" hidden></p>
+    </form>
+  </section>
+
+  <section class="tela" id="telaViagens" hidden>
+    <div class="cabeca">
+      <h1 id="ola">Olá</h1>
+      <button class="link" id="sair" type="button">Sair</button>
+    </div>
+    <div class="info" id="confirmaSair" hidden></div>
+    <h2>Viagens em aberto</h2>
+    <p class="sub">Só aparece o que ainda falta enviar.</p>
+    <p class="fila-resumo" id="filaResumo" hidden></p>
+    <div class="lista" id="listaViagens"></div>
+    <button class="btn claro" id="naoAchei" type="button">Não achei minha viagem</button>
+    <button class="btn claro" id="instalar" type="button" hidden>Pôr o app na tela inicial</button>
+    <p class="rodape" id="atualizado"></p>
+  </section>
+
+  <section class="tela" id="telaEntrega" hidden>
+    <button class="link" id="entregaVoltar" type="button">‹ Viagens</button>
+    <h1 id="entregaRota"></h1>
+    <p class="sub" id="entregaMeta"></p>
+    <div class="lista" id="listaParadas"></div>
+    <div class="tudo-ok" id="tudoOk" hidden>Tudo certo. Esta viagem sai da lista quando as fotos chegarem.</div>
+  </section>
+</main>
+
+<section class="camera" id="telaCamera" hidden>
+  <video id="video" playsinline muted autoplay></video>
+  <div class="camera-ui" id="ui">
+    <div class="molde" id="molde" data-estado="enquadrar"></div>
+    <div class="cam-topo">
+      <button id="camVoltar" type="button">‹ Voltar</button>
+      <span class="cam-doc" id="camDoc"></span>
+      <button id="lanterna" type="button" aria-pressed="false" hidden>Lanterna</button>
+    </div>
+    <div class="cam-status" id="camStatus" data-estado="enquadrar" role="status"></div>
+    <div class="cam-baixo" id="camBaixo">
+      <div class="chips" id="chips"></div>
+      <button id="disparo" type="button" aria-label="Tirar a foto"></button>
+      <div></div>
+    </div>
+    <div class="conferir" id="conferir" hidden>
+      <div class="conf-img"><canvas id="corte"></canvas></div>
+      <div class="conf-texto" id="confTexto"></div>
+      <div class="conf-botoes">
+        <button id="refazer" type="button">Tirar de novo</button>
+        <button id="girar" type="button" aria-label="Girar a foto">↻</button>
+        <button id="usar" type="button">Enviar</button>
+      </div>
+    </div>
+  </div>
+  <div class="deite" id="deite" hidden>
+    <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><rect x="20" y="6" width="24" height="52" rx="5"/><path d="M28 12h8"/></svg>
+    Deite o celular para a esquerda
+  </div>
+  <div class="sem-camera" id="semCamera" hidden>
+    <p id="semCameraTexto"></p>
+    <label class="btn">Abrir a câmera do celular<input class="oculto" id="arquivo" type="file" accept="image/*" capture="environment"></label>
+    <button class="btn claro" id="semCameraVoltar" type="button">Voltar</button>
+  </div>
+</section>
+
+<div class="aviso" id="aviso" role="status" hidden></div>
+
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var API = '/motorista/api/';
+  var CACHE = 'canhotos.v1';
+  var S = { me: null, viagens: [], viagem: null, tela: null, online: navigator.onLine, fila: [], enviando: false,
+            atualizado: null, tentativas: 0, timer: 0, instalar: null, sairConfirmar: false };
+  var MOLDES = {
+    nf:    { forma: 'faixa', razao: 210 / 25,  nome: 'Canhoto da NF',   pede: 'Encaixe o canhoto da NF no molde' },
+    cte:   { forma: 'faixa', razao: 210 / 28,  nome: 'Canhoto do CT-e', pede: 'Encaixe o canhoto do CT-e no molde' },
+    folha: { forma: 'folha', razao: 210 / 297, nome: 'Folha inteira',   pede: 'Encaixe a folha inteira no molde' },
+    outro: { forma: 'livre', razao: 210 / 150, nome: 'Outro papel',     pede: 'Enquadre o papel inteiro' }
+  };
+  var FRASE = { luz: 'Está escuro. Use a lanterna ou procure claridade', mexendo: 'Segure firme',
+                foco: 'Esperando o foco', pronto: 'Pronto. Pode tirar a foto' };
+
+  // ── utilidades ──────────────────────────────────────────────────────────
+  function digitos(s) { return String(s || '').replace(/\D/g, ''); }
+  function fmtCpf(d) {
+    d = digitos(d).slice(0, 11);
+    return d.replace(/^(\d{3})(\d)/, '$1.$2').replace(/^(\d{3})\.(\d{3})(\d)/, '$1.$2.$3').replace(/\.(\d{3})(\d{1,2})$/, '.$1-$2');
+  }
+  function cpfValido(c) {
+    if (c.length !== 11 || /^(\d)\1+$/.test(c)) return false;
+    for (var n = 9; n <= 10; n++) {
+      var s = 0; for (var i = 0; i < n; i++) s += +c[i] * (n + 1 - i);
+      if ((s * 10) % 11 % 10 !== +c[n]) return false;
+    }
+    return true;
+  }
+  function novoUid() {
+    if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+    var b = new Uint8Array(16); (window.crypto || window.msCrypto).getRandomValues(b);
+    b[6] = (b[6] & 15) | 64; b[8] = (b[8] & 63) | 128;
+    var h = Array.prototype.map.call(b, function (x) { return (x + 256).toString(16).slice(1); }).join('');
+    return h.slice(0, 8) + '-' + h.slice(8, 12) + '-' + h.slice(12, 16) + '-' + h.slice(16, 20) + '-' + h.slice(20);
+  }
+  function primeiroNome(n) { n = String(n || '').trim().split(/\s+/)[0] || ''; return n ? n.charAt(0) + n.slice(1).toLowerCase() : ''; }
+  function dm(iso) { return iso ? iso.slice(8, 10) + '/' + iso.slice(5, 7) : ''; }
+  function hora(d) { return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2); }
+  function ler(k) { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } }
+  function guardar(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* sem storage: só não lembra */ } }
+  var tempoAviso = 0;
+  function avisar(t, ms) {
+    var a = $('aviso'); a.textContent = t; a.hidden = false;
+    clearTimeout(tempoAviso); tempoAviso = setTimeout(function () { a.hidden = true; }, ms || 3600);
+  }
+  function chamar(metodo, rota, corpo) {
+    var op = { method: metodo, credentials: 'same-origin', headers: {} };
+    if (corpo instanceof FormData) op.body = corpo;
+    else if (corpo) { op.headers['Content-Type'] = 'application/json'; op.body = JSON.stringify(corpo); }
+    return fetch(API + rota, op).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) { j._http = r.status; return j; });
+    });
+  }
+
+  // ── fila no aparelho (IndexedDB; sem ele, só na memória) ───────────────
+  var DB = null, MEM = {};
+  function abrirDB() {
+    return new Promise(function (ok) {
+      try {
+        var r = indexedDB.open('canhotos', 1);
+        r.onupgradeneeded = function () { r.result.createObjectStore('fila', { keyPath: 'uid' }); };
+        r.onsuccess = function () { DB = r.result; ok(); };
+        r.onerror = function () { ok(); };
+      } catch (e) { ok(); }
+    });
+  }
+  function filaOp(modo, fn) {
+    return new Promise(function (ok) {
+      if (!DB) { ok(fn(null)); return; }
+      try {
+        var tx = DB.transaction('fila', modo), st = tx.objectStore('fila'), res = fn(st);
+        tx.oncomplete = function () { ok(res && res.result !== undefined ? res.result : res); };
+        tx.onerror = function () { ok(null); };
+      } catch (e) { ok(null); }
+    });
+  }
+  function filaTodos() {
+    if (!DB) return Promise.resolve(Object.keys(MEM).map(function (k) { return MEM[k]; }));
+    return filaOp('readonly', function (st) { return st.getAll(); }).then(function (l) {
+      return (l || []).sort(function (a, b) { return a.criado - b.criado; });
+    });
+  }
+  function filaPut(rec) { if (!DB) { MEM[rec.uid] = rec; return Promise.resolve(); } return filaOp('readwrite', function (st) { st.put(rec); }); }
+  function filaDel(uid) { if (!DB) { delete MEM[uid]; return Promise.resolve(); } return filaOp('readwrite', function (st) { st.delete(uid); }); }
+  function minhaFila() { return S.fila.filter(function (r) { return S.me && r.cpf === S.me.cpf; }); }
+  function naFila(itemId) { return minhaFila().some(function (r) { return r.item === itemId; }); }
+
+  // ── navegação (o botão Voltar do Android anda dentro do app) ────────────
+  function ir(tela, empilhar) {
+    if (empilhar) history.pushState({ tela: tela }, '', '#' + tela);
+    S.tela = tela;
+    $('telaCpf').hidden = tela !== 'cpf'; $('telaViagens').hidden = tela !== 'viagens';
+    $('telaEntrega').hidden = tela !== 'entrega'; $('telaCamera').hidden = tela !== 'camera';
+    document.querySelector('.barra').hidden = tela === 'camera';
+    if (tela !== 'camera') window.scrollTo(0, 0);
+  }
+  window.addEventListener('popstate', function () {
+    if (S.tela === 'camera') { fecharCamera(); ir(CAM_ANTES || 'viagens'); render(); }
+    else if (S.tela === 'entrega') { ir('viagens'); render(); }
+  });
+
+  // ── entrada ─────────────────────────────────────────────────────────────
+  $('cpf').addEventListener('input', function (e) { e.target.value = fmtCpf(e.target.value); $('erroCpf').hidden = true; });
+  $('formCpf').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var d = digitos($('cpf').value);
+    if (!cpfValido(d)) { erroCpf('CPF inválido. Confira os números.'); return; }
+    $('entrar').disabled = true;
+    chamar('POST', 'entrar', { cpf: d }).then(function (j) {
+      $('entrar').disabled = false;
+      if (!j.ok) { erroCpf(j.error || 'Não deu para entrar agora.'); return; }
+      receber(j); ir('viagens'); render(); enviarFila();
+    }).catch(function () { $('entrar').disabled = false; erroCpf('Sem sinal. Entre de novo quando a internet voltar.'); });
+  });
+  function erroCpf(t) { $('erroCpf').textContent = t; $('erroCpf').hidden = false; }
+  function receber(j) {
+    S.me = j.motorista; S.viagens = j.viagens || []; S.atualizado = new Date(); S.online = true;
+    guardar(CACHE, { me: S.me, viagens: S.viagens, quando: S.atualizado.toISOString() });
+  }
+  function precisaEntrar(msg) {
+    S.me = null; guardar(CACHE, null); ir('cpf'); render();
+    if (msg) erroCpf(msg);
+  }
+  $('sair').addEventListener('click', function () {
+    var n = minhaFila().length;
+    if (n && !S.sairConfirmar) {
+      S.sairConfirmar = true;
+      $('confirmaSair').textContent = (n === 1 ? 'Uma foto ainda espera' : n + ' fotos ainda esperam') +
+        ' sinal. Elas ficam guardadas e vão quando você entrar de novo. Toque em Sair mais uma vez para sair.';
+      $('confirmaSair').hidden = false; return;
+    }
+    S.sairConfirmar = false; $('confirmaSair').hidden = true;
+    chamar('POST', 'sair').catch(function () {});
+    $('cpf').value = ''; precisaEntrar();
+  });
+
+  // ── lista ───────────────────────────────────────────────────────────────
+  function itensDa(v) { var l = []; v.paradas.forEach(function (p) { p.itens.forEach(function (i) { l.push(i); }); }); return l; }
+  function faltam(v) { return itensDa(v).filter(function (i) { return i.estado !== 'ok' && !naFila(i.id); }).length; }
+  function esperando(v) { return minhaFila().filter(function (r) { return r.manifesto === v.manifesto; }).length; }
+  function aberta(v) { return faltam(v) > 0 || esperando(v) > 0 || (S.viagem && S.viagem.manifesto === v.manifesto && S.tela === 'entrega'); }
+
+  function render() {
+    $('sinal').hidden = S.online;
+    if (S.tela === 'viagens') renderViagens();
+    if (S.tela === 'entrega') renderEntrega();
+    if (S.tela === 'cpf') {
+      var outros = S.fila.length;
+      $('filaOutro').hidden = !outros;
+      $('filaOutro').textContent = outros === 1 ? 'Há 1 foto guardada neste celular. Ela vai quando o motorista entrar de novo.'
+        : outros ? 'Há ' + outros + ' fotos guardadas neste celular. Elas vão quando o motorista entrar de novo.' : '';
+    }
+  }
+  function renderViagens() {
+    $('ola').textContent = S.me ? 'Olá, ' + (primeiroNome(S.me.nome) || 'motorista') : 'Olá';
+    var l = $('listaViagens'); l.textContent = '';
+    var abertas = S.viagens.filter(aberta);
+    abertas.forEach(function (v, i) {
+      var b = document.createElement('button'); b.type = 'button'; b.className = 'viagem';
+      var t = document.createElement('b');
+      if (i === 0) { var p = document.createElement('span'); p.className = 'pilula'; p.textContent = 'Mais recente'; t.appendChild(p); }
+      t.appendChild(document.createTextNode((v.origem ? v.origem + ' → ' : '') + (v.destinos || 'Destino')));
+      var m = document.createElement('span'); m.className = 'meta'; m.textContent = v.rotulo + ' · ' + dm(v.emissao) + (v.placa ? ' · ' + v.placa : '');
+      var f = document.createElement('span'), n = faltam(v), q = esperando(v);
+      f.className = 'falta' + (n ? '' : ' ok');
+      f.textContent = n ? (n === 1 ? 'Falta 1 canhoto' : 'Faltam ' + n + ' canhotos') : (q ? 'Fotos esperando sinal' : 'Tudo enviado');
+      var s = document.createElement('span'); s.className = 'seta'; s.textContent = '›'; s.setAttribute('aria-hidden', 'true');
+      b.appendChild(t); b.appendChild(s); b.appendChild(m); b.appendChild(f);
+      b.addEventListener('click', function () { S.viagem = v; ir('entrega', true); render(); });
+      l.appendChild(b);
+    });
+    if (!abertas.length) {
+      var p = document.createElement('p'); p.className = 'sub';
+      p.textContent = 'Nenhuma viagem com canhoto faltando.'; l.appendChild(p);
+    }
+    var q = minhaFila().length;
+    $('filaResumo').hidden = !q;
+    $('filaResumo').textContent = q ? (S.enviando ? 'Enviando ' : '') + (q === 1 ? '1 foto' : q + ' fotos') + (S.enviando ? '…' : (q === 1 ? ' esperando sinal' : ' esperando sinal')) : '';
+    $('atualizado').textContent = S.atualizado ? (S.online ? 'Lista atualizada às ' : 'Sem sinal. Lista de ') + hora(S.atualizado) : '';
+    $('instalar').hidden = !S.instalar;
+  }
+  function linhaItem(v, p, it) {
+    var b = document.createElement('button'); b.type = 'button';
+    var fila = naFila(it.id), ok = it.estado === 'ok';
+    b.className = 'item' + (ok ? ' ok' : fila ? ' fila' : '');
+    var bola = document.createElement('span'); bola.className = 'bola'; bola.textContent = ok ? '✓' : fila ? '…' : ''; bola.setAttribute('aria-hidden', 'true');
+    var t = document.createElement('span'), nome = document.createElement('b'), det = document.createElement('small');
+    nome.textContent = it.rotulo;
+    if (it.sub) det.textContent = it.sub;
+    else { det.className = 'num'; det.textContent = 'Nº ' + (it.num || '—'); }
+    t.appendChild(nome); t.appendChild(det);
+    var a = document.createElement('span'); a.className = 'acao';
+    a.textContent = ok ? 'Enviado ✓' : fila ? 'Na fila' : 'Fotografar ›';
+    b.appendChild(bola); b.appendChild(t); b.appendChild(a);
+    b.addEventListener('click', function () {
+      abrirCamera({ id: it.id, tipo: it.tipo, ctrc: it.ctrc, parada: p.chave, manifesto: v.manifesto, rotulo: it.rotulo, num: it.num },
+                  it.tipo === 'cte' ? 'cte' : it.tipo === 'nf' ? 'nf' : 'outro');
+    });
+    return b;
+  }
+  function renderEntrega() {
+    var v = S.viagem; if (!v) { ir('viagens'); renderViagens(); return; }
+    $('entregaRota').textContent = (v.origem ? v.origem + ' → ' : '') + (v.destinos || '');
+    $('entregaMeta').textContent = 'Manifesto ' + v.rotulo + ' · ' + dm(v.emissao) + (v.placa ? ' · ' + v.placa : '');
+    var raiz = $('listaParadas'); raiz.textContent = '';
+    v.paradas.forEach(function (p) {
+      var sec = document.createElement('div'); sec.className = 'parada';
+      var h = document.createElement('h3'); h.textContent = p.nome || 'Entrega';
+      var c = document.createElement('span'); c.className = 'cid'; c.textContent = (p.cidade || '') + (p.n_ctes > 1 ? ' · ' + p.n_ctes + ' CT-e' : '');
+      h.appendChild(c); sec.appendChild(h);
+      p.itens.forEach(function (it) { sec.appendChild(linhaItem(v, p, it)); });
+      var extras = (p.extras || []).map(function (e) { return '✓ ' + e.rotulo + (e.quando ? ' · ' + e.quando.slice(-5) : ''); });
+      minhaFila().forEach(function (r) { if (r.extra && r.manifesto === v.manifesto && r.parada === p.chave) extras.push('… ' + r.rotulo + ' · na fila'); });
+      extras.forEach(function (t) { var e = document.createElement('div'); e.className = 'extra'; e.textContent = t; sec.appendChild(e); });
+      var mais = document.createElement('div'); mais.className = 'mais';
+      var nf = document.createElement('button'); nf.type = 'button'; nf.className = 'btn claro'; nf.textContent = '+ Outra NF desta entrega';
+      nf.addEventListener('click', function () {
+        abrirCamera({ tipo: 'nf_extra', extra: true, ctrc: p.ctrc_unico, parada: p.chave, manifesto: v.manifesto, rotulo: 'Outra NF', num: null }, 'nf');
+      });
+      var o = document.createElement('button'); o.type = 'button'; o.className = 'btn claro'; o.textContent = '+ Outro papel (carimbo, protocolo)';
+      o.addEventListener('click', function () {
+        abrirCamera({ tipo: 'outro', extra: true, ctrc: p.ctrc_unico, parada: p.chave, manifesto: v.manifesto, rotulo: 'Outro papel', num: null }, 'outro');
+      });
+      mais.appendChild(nf); mais.appendChild(o); sec.appendChild(mais);
+      raiz.appendChild(sec);
+    });
+    $('tudoOk').hidden = faltam(v) > 0;
+    $('tudoOk').textContent = esperando(v) ? 'Tudo fotografado. As fotos vão sozinhas quando pegar sinal.' : 'Tudo enviado. Esta viagem sai da lista.';
+  }
+  $('entregaVoltar').addEventListener('click', function () { history.back(); });
+  $('naoAchei').addEventListener('click', function () {
+    abrirCamera({ tipo: 'solta', extra: true, rotulo: 'Foto sem viagem', num: null }, 'outro');
+  });
+  window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); S.instalar = e; render(); });
+  $('instalar').addEventListener('click', function () {
+    if (!S.instalar) return;
+    S.instalar.prompt(); S.instalar = null; render();
+  });
+
+  // ── atualização e envio ─────────────────────────────────────────────────
+  function atualizar() {
+    if (!S.me) return Promise.resolve();
+    return chamar('GET', 'viagens').then(function (j) {
+      if (j._http === 401) { precisaEntrar('Entre de novo com o seu CPF.'); return; }
+      if (j.ok) {
+        receber(j);
+        if (S.viagem) S.viagem = S.viagens.filter(function (v) { return v.manifesto === S.viagem.manifesto; })[0] || S.viagem;
+      }
+      render();
+    }).catch(function () { S.online = false; render(); });
+  }
+  function marcarEnviado(rec) {
+    S.viagens.forEach(function (v) {
+      if (v.manifesto !== rec.manifesto) return;
+      v.paradas.forEach(function (p) {
+        p.itens.forEach(function (i) { if (i.id === rec.item) i.estado = 'ok'; });
+        if (rec.extra && p.chave === rec.parada) (p.extras = p.extras || []).push({ rotulo: rec.rotulo, quando: hora(new Date()) });
+      });
+    });
+    guardar(CACHE, { me: S.me, viagens: S.viagens, quando: (S.atualizado || new Date()).toISOString() });
+  }
+  function agendar() {
+    clearTimeout(S.timer);
+    var espera = Math.min(60000, 4000 * Math.pow(2, Math.min(S.tentativas, 4)));
+    S.timer = setTimeout(enviarFila, espera);
+  }
+  function enviarFila() {
+    var minhas = minhaFila();
+    if (S.enviando || !minhas.length) return;
+    S.enviando = true; render();
+    var rec = minhas[0];
+    var fd = new FormData();
+    fd.append('meta', JSON.stringify(rec.meta));
+    fd.append('foto', rec.blob, rec.uid + '.jpg');
+    chamar('POST', 'foto', fd).then(function (j) {
+      S.enviando = false;
+      if (j._http === 200 && j.ok) {
+        S.tentativas = 0; S.online = true;
+        S.fila = S.fila.filter(function (r) { return r.uid !== rec.uid; });
+        return filaDel(rec.uid).then(function () {
+          marcarEnviado(rec);
+          if (j.tipo === 'solta' && !rec.extra) avisar('A viagem dessa foto saiu da lista. O escritório vai conferir.');
+          render();
+          if (minhaFila().length) enviarFila(); else atualizar();
+        });
+      }
+      if (j._http === 401) { render(); precisaEntrar('Entre de novo com o seu CPF para enviar as fotos.'); return; }
+      if (j._http >= 400 && j._http < 500 && j._http !== 408 && j._http !== 429) {
+        S.fila = S.fila.filter(function (r) { return r.uid !== rec.uid; });
+        return filaDel(rec.uid).then(function () {
+          avisar('Uma foto não foi aceita: ' + (j.error || 'erro ' + j._http), 7000);
+          render(); enviarFila();
+        });
+      }
+      throw new Error('HTTP ' + j._http);
+    }).catch(function () {
+      S.enviando = false; S.online = navigator.onLine && S.tentativas < 2; S.tentativas++;
+      render(); agendar();
+    });
+  }
+  window.addEventListener('online', function () { S.online = true; S.tentativas = 0; render(); enviarFila(); atualizar(); });
+  window.addEventListener('offline', function () { S.online = false; render(); });
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) { if (S.tela === 'camera') pararCamera(); return; }
+    if (S.tela === 'camera' && CAM && $('conferir').hidden && !CAM.semVideo) ligarCamera();
+    if (S.tela === 'viagens') atualizar();
+    enviarFila();
+  });
+
+  // ── câmera ──────────────────────────────────────────────────────────────
+  var CAM = null, CAM_ANTES = null, STREAM = null, RAF = 0, ULT = 0, TEMPO_DEITE = 0;
+  var aux = document.createElement('canvas'), ax = aux.getContext('2d', { willReadFrequently: true });
+  var video = $('video');
+
+  function abrirCamera(item, molde) {
+    CAM_ANTES = S.tela;
+    CAM = { item: item, molde: molde, giro: false, t0: performance.now(), focoMax: 0, prev: null, seguidos: 0,
+            resultado: null, semVideo: false, estado: '' };
+    ir('camera', true);
+    $('conferir').hidden = true; $('camBaixo').hidden = false; $('semCamera').hidden = true;
+    montarChips(); montarMolde(); geometria(); dicaDeitar();
+    ligarCamera();
+  }
+  function fecharCamera() {
+    pararCamera(); CAM = null; $('deite').hidden = true;
+  }
+  function pararCamera() {
+    cancelAnimationFrame(RAF); RAF = 0;
+    if (STREAM) { STREAM.getTracks().forEach(function (t) { t.stop(); }); STREAM = null; }
+    video.srcObject = null; $('lanterna').hidden = true; $('lanterna').setAttribute('aria-pressed', 'false');
+  }
+  function semCamera(texto) {
+    if (!CAM) return;
+    CAM.semVideo = true;
+    $('semCameraTexto').textContent = texto + ' Use a câmera do próprio celular: depois você confere a foto aqui.';
+    $('semCamera').hidden = false; $('deite').hidden = true; geometria();
+  }
+  function ligarCamera() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { semCamera('Este navegador não deixa o app abrir a câmera.'); return; }
+    if (STREAM) { laco(); return; }
+    navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } } })
+      .then(function (st) {
+        if (!CAM || S.tela !== 'camera') { st.getTracks().forEach(function (t) { t.stop(); }); return; }
+        STREAM = st; video.srcObject = st;
+        var p = video.play(); if (p && p.catch) p.catch(function () {});
+        var tr = st.getVideoTracks()[0], cap = tr && tr.getCapabilities ? tr.getCapabilities() : {};
+        $('lanterna').hidden = !(cap && cap.torch);
+        laco();
+      })
+      .catch(function (e) {
+        semCamera(e && e.name === 'NotAllowedError' ? 'O app está sem permissão para usar a câmera.' : 'Não deu para abrir a câmera aqui.');
+      });
+  }
+  $('lanterna').addEventListener('click', function () {
+    var tr = STREAM && STREAM.getVideoTracks()[0]; if (!tr) return;
+    var ligar = this.getAttribute('aria-pressed') !== 'true', bt = this;
+    tr.applyConstraints({ advanced: [{ torch: ligar }] }).then(function () { bt.setAttribute('aria-pressed', String(ligar)); }).catch(function () {});
+  });
+  function laco() {
+    cancelAnimationFrame(RAF);
+    var passo = function (agora) {
+      RAF = 0;
+      if (!CAM || S.tela !== 'camera' || !$('conferir').hidden) return;
+      if (agora - ULT > 250) { ULT = agora; try { medir(); } catch (e) { /* frame ainda sem imagem */ } }
+      RAF = requestAnimationFrame(passo);
+    };
+    RAF = requestAnimationFrame(passo);
+  }
+  function montarChips() {
+    var base = CAM.item.tipo === 'cte' ? 'cte' : 'nf';
+    var raiz = $('chips'); raiz.textContent = '';
+    [[base, 'Faixa'], ['folha', 'Folha inteira'], ['outro', 'Outro papel']].forEach(function (o) {
+      var b = document.createElement('button'); b.type = 'button'; b.className = 'chip'; b.textContent = o[1];
+      b.setAttribute('aria-pressed', String(CAM.molde === o[0]));
+      b.addEventListener('click', function () {
+        CAM.molde = o[0]; CAM.t0 = performance.now(); CAM.prev = null; CAM.focoMax = 0;
+        montarChips(); montarMolde(); geometria(); dicaDeitar();
+      });
+      raiz.appendChild(b);
+    });
+  }
+  function zona(cl, esq, topo, larg, alt, texto) {
+    var z = document.createElement('div'); z.className = 'zona ' + cl;
+    z.style.cssText = 'left:' + esq + '%;top:' + topo + '%;width:' + larg + '%;height:' + alt + '%';
+    z.textContent = texto; return z;
+  }
+  function montarMolde() {
+    var mo = $('molde'), m = CAM.molde, n = CAM.item.num; mo.textContent = '';
+    if (m === 'nf') {
+      mo.appendChild(zona('', 2.4, 40, 19, 40, 'Data'));
+      mo.appendChild(zona('', 21.4, 40, 61.9, 40, 'Assinatura ou carimbo'));
+      mo.appendChild(zona('num', 83.3, 12, 14.3, 68, n ? 'NF ' + n : 'Nº da NF'));
+    } else if (m === 'cte') {
+      mo.appendChild(zona('sem-linha', 2.4, 20, 23.8, 60, 'Nome e RG'));
+      mo.appendChild(zona('', 26.2, 20, 23.8, 60, 'Assinatura ou carimbo'));
+      mo.appendChild(zona('', 50, 20, 23.8, 60, 'Chegada e saída'));
+      mo.appendChild(zona('num', 73.8, 20, 23.8, 60, n ? 'CT-e ' + String(n).split(' ·')[0] : 'Nº do CT-e'));
+    } else {
+      var c = document.createElement('div'); c.className = 'miolo';
+      c.textContent = m === 'folha' ? 'A folha inteira, com o canhoto e o carimbo' : 'Carimbo, protocolo ou lista assinada';
+      mo.appendChild(c);
+    }
+    $('camDoc').textContent = CAM.item.rotulo + (n ? ' · Nº ' + n : '');
+    ponEstado('enquadrar');
+  }
+  function geometria() {
+    if (S.tela !== 'camera' || !CAM) return;
+    var cam = $('telaCamera'), fw = cam.clientWidth, fh = cam.clientHeight, forma = MOLDES[CAM.molde].forma;
+    CAM.giro = forma === 'faixa' && fh > fw && !CAM.semVideo;
+    var ui = $('ui'); ui.classList.toggle('giro', CAM.giro);
+    var W = CAM.giro ? fh : fw, H = CAM.giro ? fw : fh;
+    ui.style.width = W + 'px'; ui.style.height = H + 'px';
+    CAM.fw = fw; CAM.fh = fh; CAM.W = W; CAM.H = H;
+    var topo = 96, baixo = $('camBaixo').offsetHeight || 90, disp = H - topo - baixo - 8, w, h;
+    if (forma === 'faixa') { w = W * 0.94; h = w / MOLDES[CAM.molde].razao; }
+    else if (forma === 'folha') { h = Math.min(disp, W * 0.86 * 1.414); w = h / 1.414; }
+    else { w = W * 0.88; h = Math.min(disp, w * 1.1); }
+    CAM.rm = { x: (W - w) / 2, y: topo + Math.max(0, (disp - h) / 2), w: w, h: h };
+    var mo = $('molde');
+    mo.style.left = CAM.rm.x + 'px'; mo.style.top = CAM.rm.y + 'px'; mo.style.width = w + 'px'; mo.style.height = h + 'px';
+    mo.style.setProperty('--fs', Math.max(9, Math.min(13, h * 0.17)) + 'px');
+  }
+  window.addEventListener('resize', function () { geometria(); });
+  function dicaDeitar() {
+    clearTimeout(TEMPO_DEITE);
+    var a = $('deite');
+    if (CAM && CAM.giro) { a.hidden = false; TEMPO_DEITE = setTimeout(function () { a.hidden = true; }, 2200); }
+    else a.hidden = true;
+  }
+  $('deite').addEventListener('click', function () { this.hidden = true; });
+  // retângulo da tela (sem giro) ↔ pixels do vídeo, com o mesmo "cover" do CSS
+  function uiParaTela(r) { return CAM.giro ? { x: CAM.fw - (r.y + r.h), y: r.x, w: r.h, h: r.w } : r; }
+  function telaParaVideo(r) {
+    var vw = video.videoWidth, vh = video.videoHeight, s = Math.max(CAM.fw / vw, CAM.fh / vh);
+    var ox = (CAM.fw - vw * s) / 2, oy = (CAM.fh - vh * s) / 2;
+    var x0 = Math.max(0, (r.x - ox) / s), y0 = Math.max(0, (r.y - oy) / s);
+    var x1 = Math.min(vw, (r.x + r.w - ox) / s), y1 = Math.min(vh, (r.y + r.h - oy) / s);
+    return { x: x0, y: y0, w: Math.max(1, x1 - x0), h: Math.max(1, y1 - y0) };
+  }
+  function ponEstado(e) {
+    if (!CAM || CAM.estado === e) return;
+    CAM.estado = e;
+    $('molde').dataset.estado = e;
+    var st = $('camStatus'); st.dataset.estado = e;
+    st.textContent = e === 'enquadrar' ? MOLDES[CAM.molde].pede : FRASE[e];
+    $('disparo').classList.toggle('pulsa', e === 'pronto');
+  }
+  // Conferência ao vivo, só dentro do molde: luz, movimento e foco (relativo ao melhor foco dos últimos
+  // segundos). É orientação: o botão tira a foto em qualquer estado.
+  function medir() {
+    if (!video.videoWidth || !CAM || !CAM.rm) return;
+    var rv = telaParaVideo(uiParaTela(CAM.rm));
+    var k = Math.min(1, 200 / Math.max(rv.w, rv.h)), aw = Math.max(8, Math.round(rv.w * k)), ah = Math.max(8, Math.round(rv.h * k));
+    aux.width = aw; aux.height = ah; ax.drawImage(video, rv.x, rv.y, rv.w, rv.h, 0, 0, aw, ah);
+    var d = ax.getImageData(0, 0, aw, ah).data, n = aw * ah, g = new Float32Array(n), soma = 0, i;
+    for (i = 0; i < n; i++) { g[i] = 0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2]; soma += g[i]; }
+    var l = 0, l2 = 0, nl = 0;
+    for (var y = 1; y < ah - 1; y++) for (var x = 1; x < aw - 1; x++) {
+      i = y * aw + x; var lp = 4 * g[i] - g[i - 1] - g[i + 1] - g[i - aw] - g[i + aw]; l += lp; l2 += lp * lp; nl++;
+    }
+    var foco = nl ? l2 / nl - Math.pow(l / nl, 2) : 0, mov = 99;
+    if (CAM.prev && CAM.prev.length === n) { mov = 0; for (i = 0; i < n; i++) mov += Math.abs(g[i] - CAM.prev[i]); mov /= n; }
+    CAM.prev = g;
+    CAM.focoMax = Math.max(foco, CAM.focoMax * 0.96);
+    var e;
+    if (soma / n < 55) e = 'luz';
+    else if (mov > 9) e = 'mexendo';
+    else if (foco < CAM.focoMax * 0.5) e = 'foco';
+    else e = 'pronto';
+    if (e === 'pronto') { CAM.seguidos++; if (CAM.seguidos < 3) e = 'mexendo'; } else CAM.seguidos = 0;
+    if (performance.now() - CAM.t0 < 900) e = 'enquadrar';
+    ponEstado(e);
+  }
+  function girarCanvas(c, sentido) {
+    var o = document.createElement('canvas'); o.width = c.height; o.height = c.width;
+    var x = o.getContext('2d');
+    if (sentido < 0) { x.translate(0, o.height); x.rotate(-Math.PI / 2); } else { x.translate(o.width, 0); x.rotate(Math.PI / 2); }
+    x.drawImage(c, 0, 0); return o;
+  }
+  function reduzir(c, max) {
+    var k = Math.min(1, max / Math.max(c.width, c.height));
+    if (k >= 1) return c;
+    var o = document.createElement('canvas'); o.width = Math.round(c.width * k); o.height = Math.round(c.height * k);
+    var x = o.getContext('2d'); x.imageSmoothingQuality = 'high'; x.drawImage(c, 0, 0, o.width, o.height); return o;
+  }
+  $('disparo').addEventListener('click', function () {
+    if (!CAM || !video.videoWidth) { avisar('A câmera ainda está abrindo.'); return; }
+    var r = CAM.rm, m = Math.min(r.w, r.h) * 0.12;
+    var rv = telaParaVideo(uiParaTela({ x: r.x - m, y: r.y - m, w: r.w + 2 * m, h: r.h + 2 * m }));
+    var c = document.createElement('canvas'); c.width = Math.round(rv.w); c.height = Math.round(rv.h);
+    c.getContext('2d').drawImage(video, rv.x, rv.y, rv.w, rv.h, 0, 0, c.width, c.height);
+    conferir(reduzir(CAM.giro ? girarCanvas(c, -1) : c, 2000));
+  });
+  $('arquivo').addEventListener('change', function (e) {
+    var f = e.target.files && e.target.files[0]; e.target.value = '';
+    if (!f || !CAM) return;
+    var img = new Image(), url = URL.createObjectURL(f);
+    img.onload = function () {
+      var c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight;
+      c.getContext('2d').drawImage(img, 0, 0); URL.revokeObjectURL(url);
+      $('semCamera').hidden = true; geometria(); conferir(reduzir(c, 2000));
+    };
+    img.onerror = function () { URL.revokeObjectURL(url); avisar('Não deu para abrir essa foto.'); };
+    img.src = url;
+  });
+  function conferir(c) {
+    CAM.resultado = c;
+    cancelAnimationFrame(RAF); RAF = 0;
+    desenharCorte();
+    var t = $('confTexto'), it = CAM.item; t.textContent = '';
+    var b = document.createElement('b'); b.textContent = 'Dá para ler o número e o carimbo?'; t.appendChild(b);
+    if (it.num) { var s = document.createElement('span'); s.appendChild(document.createTextNode('Confira: ' + it.rotulo + ' ')); var n = document.createElement('span'); n.className = 'num'; n.textContent = 'Nº ' + it.num; s.appendChild(n); t.appendChild(s); }
+    $('conferir').hidden = false; $('camBaixo').hidden = true;
+  }
+  function desenharCorte() {
+    var c = CAM.resultado, co = $('corte'); co.width = c.width; co.height = c.height;
+    co.getContext('2d').drawImage(c, 0, 0);
+  }
+  $('girar').addEventListener('click', function () { if (CAM && CAM.resultado) { CAM.resultado = girarCanvas(CAM.resultado, 1); desenharCorte(); } });
+  $('refazer').addEventListener('click', function () {
+    if (!CAM) return;
+    $('conferir').hidden = true; $('camBaixo').hidden = false; CAM.resultado = null;
+    CAM.t0 = performance.now(); CAM.prev = null; CAM.seguidos = 0; CAM.estado = ''; ponEstado('enquadrar');
+    if (CAM.semVideo) $('semCamera').hidden = false; else ligarCamera();
+  });
+  $('usar').addEventListener('click', function () {
+    if (!CAM || !CAM.resultado) return;
+    var bt = this; bt.disabled = true;
+    CAM.resultado.toBlob(function (blob) {
+      bt.disabled = false;
+      if (!blob) { avisar('Não deu para salvar a foto. Tire de novo.'); return; }
+      var it = CAM.item, uid = novoUid();
+      var rec = { uid: uid, cpf: S.me && S.me.cpf, item: it.extra ? 'X:' + uid : it.id, extra: !!it.extra,
+                  manifesto: it.manifesto || null, parada: it.parada || null, rotulo: it.rotulo, blob: blob, criado: Date.now(),
+                  meta: { uid: uid, tipo: it.tipo, manifesto: it.manifesto || null, ctrc: it.ctrc || null, parada: it.parada || null,
+                          molde: CAM.molde, tirada_em: new Date().toISOString() } };
+      filaPut(rec).then(function () {
+        S.fila.push(rec);
+        var solta = it.tipo === 'solta';
+        fecharCamera(); history.back();
+        avisar(solta ? 'Recebido. O escritório liga a foto à viagem certa.' : (navigator.onLine ? 'Enviando a foto.' : 'Guardada. Vai sozinha quando pegar sinal.'));
+        S.tentativas = 0; enviarFila();
+      });
+    }, 'image/jpeg', 0.85);
+  });
+  $('camVoltar').addEventListener('click', function () { history.back(); });
+  $('semCameraVoltar').addEventListener('click', function () { history.back(); });
+
+  // ── início ──────────────────────────────────────────────────────────────
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('/motorista/sw.js', { scope: '/motorista/' }).catch(function () {});
+  history.replaceState({ tela: 'base' }, '', location.pathname);
+  abrirDB().then(filaTodos).then(function (l) {
+    S.fila = l || [];
+    var c = ler(CACHE);
+    if (c && c.me) { S.me = c.me; S.viagens = c.viagens || []; S.atualizado = c.quando ? new Date(c.quando) : null; ir('viagens'); render(); }
+    return chamar('GET', 'viagens').then(function (j) {
+      if (j._http === 401) { precisaEntrar(); return; }
+      if (j.ok) { receber(j); ir('viagens'); render(); enviarFila(); }
+      else if (!S.me) { ir('cpf'); render(); }
+    }).catch(function () {
+      S.online = false;
+      if (S.me) { ir('viagens'); render(); agendar(); } else { ir('cpf'); render(); }
+    });
+  });
+})();
+</script>
+</body>
+</html>

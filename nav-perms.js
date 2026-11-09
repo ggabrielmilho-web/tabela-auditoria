@@ -43,6 +43,9 @@
     // documentos e, para quem tem a Auditoria, o resultado. Mesma permissão de Embarques.
     // 🛣 é Emoji 1.0 (glifo no Windows 10).
     { id: 'viagem',        page: 'embarques',     href: '/viagem',            label: '🛣️ Viagem' },
+    // As fotos de canhoto que os motoristas mandam pelo celular (09/11/26). Aba própria: quem confere
+    // canhoto (CRM, faturamento) nem sempre tem Embarques. 📷 é Emoji 1.0 (glifo no Windows 10).
+    { id: 'canhotos',      page: 'canhotos',      href: '/canhotos',          label: '📷 Canhotos' },
     // Junto da família de rastreamento, não perto do DRE: é segurança
     // operacional, não financeiro.
     { id: 'pgr',           page: 'pgr',           href: '/pgr',               label: '🚦 PGR' },
@@ -90,7 +93,7 @@
   // Grupos da barra E dos cards do /inicio — uma lista só, para os dois não divergirem
   // no dia em que alguém mover uma aba de grupo.
   var GRUPOS = [
-    { nome: 'Operação',   abas: ['torre', 'viagem', 'embarques', 'ordens', 'semordem', 'sm', 'mapa', 'pgr', 'jornada', 'ciot', 'veiculos', 'verda'] },
+    { nome: 'Operação',   abas: ['torre', 'viagem', 'canhotos', 'embarques', 'ordens', 'semordem', 'sm', 'mapa', 'pgr', 'jornada', 'ciot', 'veiculos', 'verda'] },
     { nome: 'Comercial',  abas: ['tarifas', 'faturamento', 'contratos'] },
     { nome: 'Financeiro', abas: ['auditoria', 'dre', 'projecao', 'despesas', 'conhecimentos', 'contabil', 'contas_receber', 'comissoes', 'crm_documentos', 'cte_nestle'] },
     { nome: 'Sistema',    abas: ['reuniao', 'admin', 'uso'] }

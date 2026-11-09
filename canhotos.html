@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Canhotos — Rizza Log</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%2338bdf8'/%3E%3Ctext x='50' y='72' font-family='Arial,sans-serif' font-size='68' font-weight='900' text-anchor='middle' fill='%230a0e17'%3ER%3C/text%3E%3C/svg%3E">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0e17; --surface: #111827; --surface2: #1a2235; --border: #1e293b;
+    --text: #e2e8f0; --text-dim: #94a3b8; --accent: #38bdf8; --accent2: #818cf8;
+    --green: #34d399; --red: #f87171; --orange: #fb923c; --yellow: #fbbf24;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .mono { font-family: 'JetBrains Mono', monospace; }
+  .dashboard { padding: 22px; max-width: 1320px; margin: 0 auto; }
+  .top-bar { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; flex-wrap: wrap; gap: 12px; }
+  .top-bar h1 { font-size: 1.4rem; font-weight: 700; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .meta { font-size: 0.74rem; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; margin-top: 4px; line-height: 1.5; }
+  .acoes-topo { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .btn-sm { padding: 7px 14px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); font-weight: 500; font-size: 0.8rem; border-radius: 8px; cursor: pointer; font-family: 'DM Sans', sans-serif; white-space: nowrap; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+  .btn-sm:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-sm.perigo:hover { border-color: var(--red); color: var(--red); }
+  .btn-sm.primary { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 700; }
+  .btn-sm:disabled { opacity: .5; cursor: default; }
+  .erro { padding: 12px 14px; border-radius: 10px; font-size: 0.82rem; margin-bottom: 14px; background: rgba(248,113,113,0.08); border: 1px solid rgba(248,113,113,0.28); color: #fecaca; white-space: pre-wrap; }
+  .faixa { display: flex; gap: 10px; align-items: center; padding: 10px 14px; border-radius: 10px; font-size: 0.82rem; margin-bottom: 14px; line-height: 1.5; }
+  .faixa.info { background: rgba(56,189,248,.07); border: 1px solid rgba(56,189,248,.25); color: #bae6fd; }
+  .faixa.alerta { background: rgba(251,191,36,.08); border: 1px solid rgba(251,191,36,.3); color: #fde68a; }
+  .carregando { display: flex; justify-content: center; padding: 70px 20px; }
+  .spinner { width: 30px; height: 30px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; }
+
+  .cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+  .card .l { font-size: 0.66rem; text-transform: uppercase; letter-spacing: .08em; color: var(--text-dim); font-weight: 700; }
+  .card .v { font-family: 'JetBrains Mono', monospace; font-size: 1.6rem; font-weight: 600; margin-top: 6px; }
+  .card .x { font-size: 0.76rem; color: var(--text-dim); margin-top: 3px; }
+  .card.clica { cursor: pointer; } .card.clica:hover { border-color: var(--accent); }
+
+  .barra { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+  .busca { padding: 7px 10px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 0.8rem; min-width: 280px; }
+  .busca:focus { outline: none; border-color: var(--accent); }
+  .filtro { padding: 5px 11px; border-radius: 999px; font-size: 0.76rem; border: 1px solid var(--border); background: transparent; color: var(--text-dim); cursor: pointer; font-family: 'DM Sans', sans-serif; }
+  .filtro.on { border-color: var(--accent); color: var(--accent); background: rgba(56,189,248,.1); }
+  .sep { width: 1px; height: 22px; background: var(--border); }
+  .tabela-box { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: auto; max-height: 64vh; }
+  table.dados { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+  table.dados thead th { position: sticky; top: 0; z-index: 2; background: #0f1625; text-align: left; padding: 8px 9px; font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); font-weight: 700; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  table.dados tbody td { padding: 7px 9px; border-bottom: 1px solid rgba(30,41,59,0.6); white-space: nowrap; }
+  table.dados tbody tr { cursor: pointer; }
+  table.dados tbody tr:hover td { background: rgba(26,34,53,.55); }
+  td.txt { max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+  .vazio { padding: 30px; text-align: center; color: var(--text-dim); font-size: 0.85rem; }
+  .prog { display: inline-flex; align-items: center; gap: 8px; font-family: 'JetBrains Mono', monospace; }
+  .prog .trilho { width: 70px; height: 6px; border-radius: 3px; background: var(--surface2); overflow: hidden; }
+  .prog .cheio { height: 100%; background: var(--green); }
+  .prog.falta .cheio { background: var(--yellow); }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 5px; font-size: 0.68rem; font-weight: 700; white-space: nowrap; color: var(--cor); background: color-mix(in srgb, var(--cor) 15%, transparent); }
+  .sec-titulo { font-size: 0.7rem; text-transform: uppercase; letter-spacing: .08em; color: var(--text-dim); font-weight: 700; margin: 26px 0 10px; display: flex; align-items: center; gap: 10px; }
+  .sec-titulo .n { font-family: 'JetBrains Mono', monospace; color: var(--text); background: var(--surface2); border-radius: 999px; padding: 1px 8px; letter-spacing: 0; }
+  .sec-titulo .lin { flex: 1; height: 1px; background: var(--border); }
+  .soltas { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; }
+  .solta { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+  .solta img { width: 100%; max-height: 160px; object-fit: contain; background: #fff; border-radius: 6px; cursor: zoom-in; }
+  .solta .q { font-size: 0.78rem; color: var(--text-dim); line-height: 1.5; }
+  .solta .linha { display: flex; gap: 6px; flex-wrap: wrap; }
+  .solta input, .solta select, .gaveta input { padding: 6px 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 7px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 0.78rem; color-scheme: dark; }
+  .solta input { width: 130px; font-family: 'JetBrains Mono', monospace; }
+
+  .gaveta { position: fixed; top: 0; right: 0; bottom: 0; width: min(620px, 100vw); background: #0d1320; border-left: 1px solid var(--border); z-index: 950; display: flex; flex-direction: column; box-shadow: -12px 0 30px rgba(0,0,0,.4); }
+  .gaveta-cab { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; padding: 16px 18px 12px; border-bottom: 1px solid var(--border); }
+  .gaveta-cab h2 { font-size: 1.05rem; font-family: 'JetBrains Mono', monospace; }
+  .gaveta-cab .sub { font-size: 0.78rem; color: var(--text-dim); margin-top: 3px; line-height: 1.5; }
+  .gaveta-corpo { overflow: auto; padding: 14px 18px 30px; }
+  .parada { margin-bottom: 18px; }
+  .parada h3 { font-size: 0.86rem; margin-bottom: 8px; }
+  .parada h3 .cid { color: var(--text-dim); font-weight: 400; font-size: 0.78rem; }
+  .it { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; background: var(--surface); }
+  .it .cab { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; font-size: 0.82rem; }
+  .it .cab b { font-weight: 600; }
+  .it .num { font-family: 'JetBrains Mono', monospace; color: var(--text-dim); font-size: 0.76rem; }
+  .fotos { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  .foto { display: flex; flex-direction: column; gap: 4px; width: 100%; }
+  .foto img { width: 100%; max-height: 150px; object-fit: contain; background: #fff; border-radius: 6px; cursor: zoom-in; }
+  .foto .q { font-size: 0.72rem; color: var(--text-dim); display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+  .descarte { display: flex; gap: 6px; margin-top: 4px; }
+  .descarte input { flex: 1; }
+  .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: #0f1a2e; border: 1px solid var(--accent); color: var(--text); padding: 9px 16px; border-radius: 9px; font-size: 0.8rem; z-index: 999; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+  .toast.erro { border-color: var(--red); }
+  .regra { margin-top: 24px; padding: 14px 16px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface); font-size: 0.8rem; line-height: 1.7; color: var(--text-dim); }
+  .regra b { color: var(--text); }
+  @media (max-width: 860px) {
+    .dashboard { padding: 14px 16px; }
+    .cards { grid-template-columns: 1fr 1fr; }
+    .busca { min-width: 0; flex: 1 1 100%; }
+  }
+</style>
+</head>
+<body>
+<div class="dashboard">
+  <div class="top-bar">
+    <div>
+      <h1>Canhotos</h1>
+      <div class="meta" id="meta">Fotos de canhoto que os motoristas mandam pelo celular</div>
+    </div>
+    <div class="acoes-topo">
+      <button class="btn-sm" id="btnLink">🔗 Copiar link do app</button>
+      <button class="btn-sm" id="btnColetar" hidden>↻ Atualizar do BI</button>
+      <span data-nav-menu data-nav-style="btn-anchor" data-nav-active="canhotos"></span>
+    </div>
+  </div>
+  <div id="erro" class="erro" hidden></div>
+  <div id="faixas"></div>
+  <div id="vista"><div class="carregando"><div class="spinner"></div></div></div>
+</div>
+
+<aside class="gaveta" id="gaveta" hidden>
+  <div class="gaveta-cab">
+    <div><h2 id="gavTitulo"></h2><div class="sub" id="gavSub"></div></div>
+    <button class="btn-sm" id="gavFechar" title="Fechar (Esc)">✕</button>
+  </div>
+  <div class="gaveta-corpo" id="gavCorpo"></div>
+</aside>
+<div class="toast" id="toast" hidden></div>
+
+<script src="/nav-perms.js"></script>
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var S = { d: null, situacao: 'falta', relacao: '', busca: '', aberta: null };
+  var REL = { F: 'Frota', A: 'Agregado', C: 'Carreteiro' };
+
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function dm(iso) { return iso ? iso.slice(8, 10) + '/' + iso.slice(5, 7) : '—'; }
+  function dmhm(iso) { return iso ? iso.slice(8, 10) + '/' + iso.slice(5, 7) + ' ' + iso.slice(11, 16) : '—'; }
+  function pct(a, b) { return b ? Math.round(100 * a / b) + '%' : '—'; }
+  function toast(msg, erro) {
+    var t = $('toast'); t.textContent = msg; t.className = 'toast' + (erro ? ' erro' : ''); t.hidden = false;
+    clearTimeout(toast._t); toast._t = setTimeout(function () { t.hidden = true; }, erro ? 7000 : 2600);
+  }
+  function erro(msg) { $('erro').textContent = msg || ''; $('erro').hidden = !msg; }
+  function api(url, opt) {
+    return fetch(url, Object.assign({ credentials: 'same-origin' }, opt || {})).then(function (r) {
+      return r.json().catch(function () { return { ok: false, error: 'HTTP ' + r.status }; });
+    });
+  }
+  function postJson(url, corpo) { return api(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo || {}) }); }
+  function relPill(r) { var c = { F: '#38bdf8', A: '#a78bfa', C: '#fb923c' }[r] || '#94a3b8'; return '<span class="pill" style="--cor:' + c + '">' + esc(REL[r] || '—') + '</span>'; }
+
+  function carregar() {
+    erro('');
+    api('/api/canhotos').then(function (j) {
+      if (!j.ok) { erro(j.error || 'Não deu para carregar.'); $('vista').innerHTML = ''; return; }
+      S.d = j; desenhar();
+      if (S.aberta) abrir(S.aberta, true);
+    });
+  }
+
+  function desenhar() {
+    var d = S.d, r = d.resumo;
+    $('meta').textContent = 'Fotos de canhoto que os motoristas mandam pelo celular · viagens desde ' + dm(d.desde) +
+      ' (janela de ' + d.janela_dias + ' dias) · lista do BI de ' + dmhm(d.ultima_coleta);
+    $('btnColetar').hidden = !d.admin;
+    var f = '';
+    if (!d.ligado) f += '<div class="faixa info">O app do motorista está desligado (<span class="mono">CANHOTO_APP</span>). Esta aba mostra o que já foi coletado.</div>';
+    else if (!d.pasta_definida) f += '<div class="faixa alerta">As fotos estão sendo guardadas dentro do container (<span class="mono">CANHOTO_DIR</span> não definido) e somem no próximo deploy.</div>';
+    $('faixas').innerHTML = f;
+    var h = '<div class="cards">' +
+      '<div class="card"><div class="l">Canhotos recebidos</div><div class="v">' + pct(r.recebidos, r.itens) + '</div><div class="x">' + r.recebidos + ' de ' + r.itens + ' esperados na janela</div></div>' +
+      '<div class="card"><div class="l">Viagens com canhoto faltando</div><div class="v">' + r.com_pendencia + '</div><div class="x">de ' + r.viagens + ' viagens na janela</div></div>' +
+      '<div class="card"><div class="l">Fotos hoje</div><div class="v">' + r.fotos_hoje + '</div><div class="x">' + r.fotos + ' no total</div></div>' +
+      '<div class="card clica" id="cardSoltas"><div class="l">Fotos sem viagem</div><div class="v">' + r.sem_viagem + '</div><div class="x">para ligar ao CT-e certo</div></div>' +
+      '</div>';
+    h += '<div class="barra"><input class="busca" id="busca" placeholder="Buscar motorista, manifesto, CTRC, NF, placa ou cidade" value="' + esc(S.busca) + '">' +
+      filtro('situacao', 'falta', 'Com canhoto faltando') + filtro('situacao', 'completa', 'Completas') + filtro('situacao', '', 'Todas') +
+      '<span class="sep"></span>' + filtro('relacao', '', 'Todos') + filtro('relacao', 'F', 'Frota') + filtro('relacao', 'A', 'Agregado') + filtro('relacao', 'C', 'Carreteiro') + '</div>';
+    h += '<div class="tabela-box"><table class="dados"><thead><tr><th>Emissão</th><th>Manifesto</th><th>Motorista</th><th>Relação</th><th>Placa</th>' +
+      '<th>Destino</th><th>CT-e</th><th>Recebidos</th><th>Última foto</th></tr></thead><tbody id="corpo"></tbody></table></div>';
+    h += '<div class="sec-titulo" id="secSoltas">Fotos sem viagem <span class="n">' + d.soltas.length + '</span><span class="lin"></span></div>';
+    h += d.soltas.length ? '<div class="soltas" id="soltas"></div>' : '<div class="vazio">Nenhuma foto sem viagem.</div>';
+    h += '<div class="regra"><b>Como a lista é montada.</b> Cada manifesto desde ' + dm(d.desde) + ' com CT-e vira uma viagem do motorista do manifesto ' +
+      '(o CT-e é de quem tem o <b>último</b> manifesto). Cada CT-e pede ' + d.itens_exigidos.map(function (x) { return x === 'cte' ? 'o canhoto do CT-e' : 'o canhoto da NF'; }).join(' e ') +
+      '; uma parada com ' + d.lote_min + ' CT-e ou mais pede um comprovante só. A lista é refeita a cada refresh do BI. Descartar uma foto devolve o item para a lista do motorista.</div>';
+    $('vista').innerHTML = h;
+    $('busca').addEventListener('input', function (e) { S.busca = e.target.value; linhas(); });
+    Array.prototype.forEach.call(document.querySelectorAll('.filtro'), function (b) {
+      b.addEventListener('click', function () { S[b.dataset.k] = b.dataset.v; desenhar(); });
+    });
+    $('cardSoltas').addEventListener('click', function () { $('secSoltas').scrollIntoView({ behavior: 'smooth' }); });
+    linhas(); soltas();
+  }
+  function filtro(k, v, rot) { return '<button class="filtro' + (S[k] === v ? ' on' : '') + '" data-k="' + k + '" data-v="' + v + '">' + esc(rot) + '</button>'; }
+
+  function linhas() {
+    var q = S.busca.trim().toUpperCase(), q2 = q.replace(/[^A-Z0-9]/g, '');
+    var l = S.d.viagens.filter(function (v) {
+      if (S.situacao === 'falta' && !v.pendentes) return false;
+      if (S.situacao === 'completa' && v.pendentes) return false;
+      if (S.relacao && v.relacao !== S.relacao) return false;
+      if (!q) return true;
+      var txt = [v.motorista, v.rotulo, v.placa, v.carreta, v.destinos, v.origem].join(' ').toUpperCase();
+      if (txt.indexOf(q) >= 0) return true;
+      if (q2 && (v.manifesto.indexOf(q2) >= 0 || v.ctrcs.some(function (c) { return c.replace(/[^A-Z0-9]/g, '').indexOf(q2) >= 0; }) ||
+                 v.nfs.some(function (n) { return n.indexOf(q2) >= 0; }))) return true;
+      return false;
+    });
+    var c = $('corpo');
+    if (!l.length) { c.innerHTML = '<tr><td colspan="9" class="vazio">Nenhuma viagem neste filtro.</td></tr>'; return; }
+    c.innerHTML = l.map(function (v) {
+      var feitos = v.total - v.pendentes, w = v.total ? Math.round(100 * feitos / v.total) : 0;
+      return '<tr data-m="' + esc(v.manifesto) + '"><td class="mono">' + dm(v.emissao) + '</td><td class="mono">' + esc(v.rotulo) + '</td>' +
+        '<td class="txt">' + esc(v.motorista) + '</td><td>' + relPill(v.relacao) + '</td><td class="mono">' + esc(v.placa) + '</td>' +
+        '<td class="txt">' + esc(v.destinos) + '</td><td class="mono">' + v.n_ctes + '</td>' +
+        '<td><span class="prog' + (v.pendentes ? ' falta' : '') + '"><span class="trilho"><span class="cheio" style="width:' + w + '%"></span></span>' + feitos + '/' + v.total + '</span></td>' +
+        '<td class="mono">' + esc(v.ultima_foto || '—') + '</td></tr>';
+    }).join('');
+    Array.prototype.forEach.call(c.querySelectorAll('tr[data-m]'), function (tr) { tr.addEventListener('click', function () { abrir(tr.dataset.m); }); });
+  }
+
+  function imgFoto(uid) {
+    return '<a href="/api/canhotos/foto/' + uid + '" target="_blank" rel="noopener"><img loading="lazy" src="/api/canhotos/foto/' + uid + '?mini=1" alt="Foto do canhoto"></a>';
+  }
+  function soltas() {
+    var box = $('soltas'); if (!box) return;
+    box.innerHTML = S.d.soltas.map(function (s) {
+      return '<div class="solta" data-uid="' + s.uid + '">' + imgFoto(s.uid) +
+        '<div class="q"><b>' + esc(s.motorista || 'Motorista') + '</b> · ' + esc(s.quando) +
+        (s.referencia ? '<br>A viagem saiu da lista antes da foto chegar: <span class="mono">' + esc(s.referencia) + '</span>' : '<br>Mandada pelo botão “Não achei minha viagem”.') + '</div>' +
+        '<div class="linha"><input placeholder="CTRC: UDI418557-9" data-c="ctrc"><select data-c="tipo"><option value="nf">Canhoto da NF</option><option value="cte">Canhoto do CT-e</option><option value="outro">Outro papel</option></select>' +
+        '<button class="btn-sm" data-a="ligar">Ligar</button><button class="btn-sm perigo" data-a="descartar">Descartar</button></div></div>';
+    }).join('');
+    Array.prototype.forEach.call(box.querySelectorAll('.solta'), function (el) {
+      var uid = el.dataset.uid;
+      el.querySelector('[data-a="ligar"]').addEventListener('click', function () {
+        var ctrc = el.querySelector('[data-c="ctrc"]').value.trim(), tipo = el.querySelector('[data-c="tipo"]').value;
+        if (!ctrc) { toast('Digite o CTRC.', true); return; }
+        postJson('/api/canhotos/foto/' + uid + '/ligar', { ctrc: ctrc, tipo: tipo }).then(function (j) {
+          if (!j.ok) { toast(j.error || 'Não deu para ligar.', true); return; }
+          toast('Foto ligada ao ' + j.ctrc + '.'); carregar();
+        });
+      });
+      el.querySelector('[data-a="descartar"]').addEventListener('click', function () { descartar(uid); });
+    });
+  }
+  function descartar(uid, motivoEl) {
+    var motivo = motivoEl ? motivoEl.value.trim() : '';
+    postJson('/api/canhotos/foto/' + uid + '/descartar', { motivo: motivo }).then(function (j) {
+      if (!j.ok) { toast(j.error || 'Não deu para descartar.', true); return; }
+      toast('Foto descartada. O item volta para a lista do motorista.'); carregar();
+    });
+  }
+
+  function abrir(m, silencioso) {
+    S.aberta = m;
+    if (!silencioso) { $('gaveta').hidden = false; $('gavCorpo').innerHTML = '<div class="carregando"><div class="spinner"></div></div>'; }
+    api('/api/canhotos/viagem/' + encodeURIComponent(m)).then(function (j) {
+      if (!j.ok) { if (!silencioso) $('gavCorpo').innerHTML = '<div class="erro">' + esc(j.error) + '</div>'; return; }
+      var v = j.viagem;
+      $('gaveta').hidden = false;
+      $('gavTitulo').textContent = v.rotulo;
+      $('gavSub').innerHTML = esc(v.motorista) + ' · ' + relPill(v.relacao) + '<br>' + esc((v.origem ? v.origem + ' → ' : '') + v.destinos) +
+        '<br><span class="mono">' + esc(v.placa) + (v.carreta ? ' / ' + esc(v.carreta) : '') + ' · emissão ' + dm(v.emissao) + ' · ' + (v.total - v.pendentes) + '/' + v.total + ' recebidos</span>';
+      $('gavCorpo').innerHTML = v.paradas.map(function (p) {
+        return '<div class="parada"><h3>' + esc(p.nome || 'Entrega') + ' <span class="cid">' + esc(p.cidade) + (p.n_ctes > 1 ? ' · ' + p.n_ctes + ' CT-e' : '') + '</span></h3>' +
+          p.itens.map(function (it) {
+            return '<div class="it"><div class="cab"><b>' + esc(it.rotulo) + '</b>' + (it.estado === 'ok' ? '<span class="pill" style="--cor:#34d399">Recebido</span>' : '<span class="pill" style="--cor:#fbbf24">Falta</span>') + '</div>' +
+              '<div class="num">' + (it.ctrc ? esc(it.ctrc) + ' · ' : '') + (it.num ? 'Nº ' + esc(it.num) : esc(it.sub || '')) + '</div>' +
+              (it.fotos.length ? '<div class="fotos">' + it.fotos.map(fotoHtml).join('') + '</div>' : '') + '</div>';
+          }).join('') +
+          (p.extras.length ? '<div class="it"><div class="cab"><b>Fotos a mais desta parada</b></div><div class="fotos">' + p.extras.map(function (e) { return fotoHtml(e, e.rotulo); }).join('') + '</div></div>' : '') +
+          '</div>';
+      }).join('');
+      Array.prototype.forEach.call($('gavCorpo').querySelectorAll('[data-desc]'), function (b) {
+        b.addEventListener('click', function () {
+          var box = b.parentElement.parentElement.querySelector('.descarte');
+          if (box.hidden) { box.hidden = false; box.querySelector('input').focus(); return; }
+        });
+      });
+      Array.prototype.forEach.call($('gavCorpo').querySelectorAll('[data-conf]'), function (b) {
+        b.addEventListener('click', function () { descartar(b.dataset.conf, b.parentElement.querySelector('input')); });
+      });
+    });
+  }
+  function fotoHtml(f, rot) {
+    return '<div class="foto">' + imgFoto(f.uid) + '<div class="q"><span>' + (rot ? esc(rot) + ' · ' : '') + 'chegou ' + esc(f.quando || '') +
+      (f.molde ? ' · molde ' + esc(f.molde) : '') + '</span><button class="btn-sm perigo" data-desc="1">Descartar</button></div>' +
+      '<div class="descarte" hidden><input placeholder="Motivo (ex.: foto de outra NF)"><button class="btn-sm perigo" data-conf="' + f.uid + '">Confirmar</button></div></div>';
+  }
+  function fecharGaveta() { $('gaveta').hidden = true; S.aberta = null; }
+  $('gavFechar').addEventListener('click', fecharGaveta);
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') fecharGaveta(); });
+
+  $('btnLink').addEventListener('click', function () {
+    var link = (S.d && S.d.link) || (location.origin + '/motorista/');
+    var feito = function () { toast('Link copiado: ' + link); };
+    if (navigator.clipboard) navigator.clipboard.writeText(link).then(feito, function () { window.prompt('Link do app do motorista', link); });
+    else window.prompt('Link do app do motorista', link);
+  });
+  $('btnColetar').addEventListener('click', function () {
+    var b = this; b.disabled = true; b.textContent = '↻ Atualizando…';
+    postJson('/api/canhotos/coletar').then(function (j) {
+      b.disabled = false; b.textContent = '↻ Atualizar do BI';
+      if (!j.ok) { toast(j.error || 'Falhou.', true); return; }
+      toast(j.viagens + ' viagens e ' + j.ctes + ' CT-e desde ' + dm(j.desde) + '.'); carregar();
+    });
+  });
+  carregar();
+  setInterval(function () { if (!document.hidden && $('gaveta').hidden) carregar(); }, 120000);
+})();
+</script>
+</body>
+</html>

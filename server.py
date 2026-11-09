@@ -177,7 +177,7 @@ def admin_required(f):
 PAGINAS_VALIDAS = {'auditoria', 'tarifas', 'embarques', 'reuniao', 'dre',
                    'despesas', 'conhecimentos', 'faturamento', 'contratos', 'veiculos',
                    'pgr', 'contabil', 'verda', 'jornada', 'ciot', 'projecao', 'crm_documentos', 'cte_nestle',
-                   'contas_receber', 'comissoes'}
+                   'contas_receber', 'comissoes', 'canhotos'}
 # O de-para aba → rota e a ordem de preferência viviam aqui para escolher em qual
 # aba o usuário caía no login. Não existem mais: quem escolhe é ele, na /inicio.
 # As rotas de cada aba são declaradas uma vez só, no `ABAS` do nav-perms.js.
@@ -1942,6 +1942,323 @@ def api_comissao_xlsx(fid):
     nome = f"Comissão - {f['responsavel']} - {cm.rotulo_mes(f['mes']).replace('/', '-')}.xlsx"
     return send_file(io.BytesIO(conteudo), as_attachment=True, download_name=nome,
                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
+# ── Canhotos — o motorista fotografa o canhoto da NF e o do CT-e pelo celular (09/11/2026) ──
+#
+# Duas portas. `/motorista/` é o app do motorista (PWA): entra só com o CPF, NÃO usa a sessão do sistema
+# (cookie próprio, assinado, com caminho /motorista/ — não abre tela nenhuma daqui) e só existe com
+# `CANHOTO_APP=true`; desligada, responde 404. `/canhotos` é a aba do escritório (aba `canhotos`).
+# A lógica mora em canhoto.py; aqui ficam a sessão, o banco e o BI. Ver "Módulo Canhotos" no README.
+_CANHOTO_COOKIE = 'rz_motorista'
+_CANHOTO_DIAS = 120
+_CANHOTO_FALHAS = {}
+_CANHOTO_TRAVA = threading.Lock()
+_CANHOTO_ARQ = {'icone-192.png': 'image/png', 'icone-512.png': 'image/png'}
+
+
+def _canhoto_db(fn):
+    """Abre o banco, garante as tabelas (1× por processo), roda fn(conn) e confirma."""
+    import canhoto
+    conn = get_db()
+    try:
+        canhoto.garantir(conn)
+        r = fn(conn)
+        conn.commit()
+        return r
+    finally:
+        conn.close()
+
+
+def _canhoto_assinador():
+    from itsdangerous import URLSafeTimedSerializer
+    return URLSafeTimedSerializer(app.secret_key, salt='canhoto-motorista-v1')
+
+
+def _canhoto_cpf():
+    """O CPF do cookie do motorista, ou None. O cookie é assinado com a SECRET_KEY: não dá para forjar
+    outro CPF trocando o texto."""
+    v = request.cookies.get(_CANHOTO_COOKIE)
+    if not v:
+        return None
+    try:
+        d = _canhoto_assinador().loads(v, max_age=_CANHOTO_DIAS * 86400)
+    except Exception:
+        return None
+    return d.get('cpf') if isinstance(d, dict) else None
+
+
+def _canhoto_ip():
+    return (request.headers.get('X-Forwarded-For', '').split(',')[0].strip() or request.remote_addr or '')
+
+
+def _canhoto_bloqueado(ip):
+    """10 CPFs errados em 15 min no mesmo IP travam a entrada: só o CPF abre o app, então tentar CPF ao
+    acaso tem de custar caro. Em memória: o app roda num processo só."""
+    agora = time.time()
+    with _CANHOTO_TRAVA:
+        lista = [t for t in _CANHOTO_FALHAS.get(ip, []) if agora - t < 900]
+        if lista:
+            _CANHOTO_FALHAS[ip] = lista
+        else:
+            _CANHOTO_FALHAS.pop(ip, None)
+        return len(lista) >= 10
+
+
+def _canhoto_falhou(ip):
+    with _CANHOTO_TRAVA:
+        _CANHOTO_FALHAS.setdefault(ip, []).append(time.time())
+
+
+def _canhoto_me(m):
+    """O que o app guarda do motorista. Em vez do CPF, uma marca que só serve para separar a fila de
+    fotos de dois motoristas no mesmo celular."""
+    import hashlib
+    marca = hashlib.sha256((app.secret_key + '|' + m['cpf']).encode()).hexdigest()[:16]
+    return {'id': marca, 'nome': m.get('nome') or ''}
+
+
+def _canhoto_link():
+    proto = request.headers.get('X-Forwarded-Proto') or request.scheme
+    return f"{proto}://{request.host}/motorista/"
+
+
+def _canhoto_motorista(f):
+    @functools.wraps(f)
+    def inner(*args, **kwargs):
+        import canhoto
+        if not canhoto.ligado():
+            return ('', 404)
+        return f(*args, **kwargs)
+    return inner
+
+
+def _canhoto_dados(conn, cpf):
+    import canhoto
+    cur = conn.cursor()
+    m = canhoto.motorista(cur, cpf)
+    return m, (canhoto.viagens_do_motorista(cur, cpf) if m else [])
+
+
+@app.route('/motorista/')
+@_canhoto_motorista
+def motorista_app():
+    resp = send_from_directory('motorista', 'app.html')
+    resp.headers['Cache-Control'] = 'no-cache'
+    return resp
+
+
+@app.route('/motorista/sw.js')
+@_canhoto_motorista
+def motorista_sw():
+    resp = send_from_directory('motorista', 'sw.js', mimetype='application/javascript')
+    resp.headers['Cache-Control'] = 'no-cache'
+    resp.headers['Service-Worker-Allowed'] = '/motorista/'
+    return resp
+
+
+@app.route('/motorista/manifest.webmanifest')
+@_canhoto_motorista
+def motorista_manifest():
+    # Gerado aqui, e não num .json: o .gitignore barra *.json e o deploy é `git pull`.
+    m = {'name': 'Canhotos Rizza', 'short_name': 'Canhotos', 'lang': 'pt-BR',
+         'description': 'Foto do canhoto da NF e do CT-e logo depois da entrega.',
+         'start_url': '/motorista/', 'scope': '/motorista/', 'display': 'standalone',
+         'background_color': '#f4f6f9', 'theme_color': '#0f1724',
+         'icons': [{'src': '/motorista/icone-192.png', 'sizes': '192x192', 'type': 'image/png', 'purpose': 'any maskable'},
+                   {'src': '/motorista/icone-512.png', 'sizes': '512x512', 'type': 'image/png', 'purpose': 'any maskable'}]}
+    return Response(json.dumps(m, ensure_ascii=False), mimetype='application/manifest+json',
+                    headers={'Cache-Control': 'no-cache'})
+
+
+@app.route('/motorista/<nome>')
+@_canhoto_motorista
+def motorista_arquivo(nome):
+    if nome not in _CANHOTO_ARQ:
+        return ('', 404)
+    resp = send_from_directory('motorista', nome, mimetype=_CANHOTO_ARQ[nome])
+    resp.headers['Cache-Control'] = 'public, max-age=86400'
+    return resp
+
+
+@app.route('/motorista/api/entrar', methods=['POST'])
+@_canhoto_motorista
+def motorista_entrar():
+    import canhoto
+    ip = _canhoto_ip()
+    if _canhoto_bloqueado(ip):
+        return jsonify({'ok': False, 'error': 'Muitas tentativas. Espere 15 minutos e tente de novo.'}), 429
+    cpf = canhoto.cpf_norm((request.get_json(silent=True) or {}).get('cpf'))
+    if not canhoto.cpf_valido(cpf):
+        _canhoto_falhou(ip)
+        return jsonify({'ok': False, 'error': 'CPF inválido. Confira os números.'}), 400
+    try:
+        m, vs = _canhoto_db(lambda conn: _canhoto_dados(conn, cpf))
+    except Exception as e:
+        print(f'⚠️  Canhotos: entrada falhou: {e}')
+        return jsonify({'ok': False, 'error': 'O sistema não respondeu. Tente de novo em instantes.'}), 500
+    if not m:
+        _canhoto_falhou(ip)
+        return jsonify({'ok': False, 'error': 'Não achamos este CPF no cadastro de motoristas. Fale com o escritório.'}), 404
+    liberadas = canhoto.relacoes_liberadas()
+    if liberadas and (m.get('relacao') or '') not in liberadas:
+        return jsonify({'ok': False, 'error': 'O envio pelo celular ainda não foi liberado para você. Fale com o escritório.'}), 403
+    resp = jsonify({'ok': True, 'motorista': _canhoto_me(m), 'viagens': vs})
+    seguro = request.is_secure or request.headers.get('X-Forwarded-Proto', '') == 'https'
+    resp.set_cookie(_CANHOTO_COOKIE, _canhoto_assinador().dumps({'cpf': cpf}), max_age=_CANHOTO_DIAS * 86400,
+                    path='/motorista/', httponly=True, secure=seguro, samesite='Lax')
+    return resp
+
+
+@app.route('/motorista/api/viagens')
+@_canhoto_motorista
+def motorista_viagens():
+    cpf = _canhoto_cpf()
+    if not cpf:
+        return jsonify({'ok': False, 'error': 'Entre com o seu CPF.'}), 401
+    try:
+        m, vs = _canhoto_db(lambda conn: _canhoto_dados(conn, cpf))
+    except Exception as e:
+        print(f'⚠️  Canhotos: lista falhou: {e}')
+        return jsonify({'ok': False, 'error': 'O sistema não respondeu. Tente de novo em instantes.'}), 500
+    if not m:
+        return jsonify({'ok': False, 'error': 'Entre com o seu CPF.'}), 401
+    return jsonify({'ok': True, 'motorista': _canhoto_me(m), 'viagens': vs})
+
+
+@app.route('/motorista/api/sair', methods=['POST'])
+@_canhoto_motorista
+def motorista_sair():
+    resp = jsonify({'ok': True})
+    resp.delete_cookie(_CANHOTO_COOKIE, path='/motorista/')
+    return resp
+
+
+@app.route('/motorista/api/foto', methods=['POST'])
+@_canhoto_motorista
+def motorista_foto():
+    import canhoto
+    from werkzeug.exceptions import RequestEntityTooLarge
+    cpf = _canhoto_cpf()
+    if not cpf:
+        return jsonify({'ok': False, 'error': 'Entre com o seu CPF.'}), 401
+    limite = canhoto.max_bytes()
+    # Rota pública: o tamanho é conferido ANTES de ler o corpo. Sem Content-Length (corpo em pedaços) não
+    # dá para saber o tamanho antes — e o app sempre manda, porque envia FormData. O MAX_CONTENT_LENGTH
+    # global não serve: a Reunião sobe áudio grande.
+    if not request.content_length:
+        return jsonify({'ok': False, 'error': 'O envio chegou incompleto.'}), 411
+    if request.content_length > limite + 65536:
+        return jsonify({'ok': False, 'error': 'A foto ficou grande demais.'}), 413
+    try:
+        meta = json.loads(request.form.get('meta') or '{}')
+        arq = request.files.get('foto')
+        if not isinstance(meta, dict) or arq is None:
+            return jsonify({'ok': False, 'error': 'Faltou a foto.'}), 400
+        dados = arq.read(limite + 1)
+        if len(dados) > limite:
+            return jsonify({'ok': False, 'error': 'A foto ficou grande demais.'}), 413
+        ip, agente = _canhoto_ip(), request.headers.get('User-Agent', '')
+
+        def _grava(conn):
+            m = canhoto.motorista(conn.cursor(), cpf) or {}
+            return canhoto.registrar_foto(conn, cpf, m.get('nome'), meta, dados, ip, agente)
+        r = _canhoto_db(_grava)
+    except canhoto.Recusa as e:
+        return jsonify({'ok': False, 'error': str(e)}), e.http
+    except RequestEntityTooLarge:
+        return jsonify({'ok': False, 'error': 'A foto ficou grande demais.'}), 413
+    except (ValueError, TypeError):
+        return jsonify({'ok': False, 'error': 'O envio chegou incompleto.'}), 400
+    except Exception as e:
+        print(f'⚠️  Canhotos: foto não gravada: {e}')
+        return jsonify({'ok': False, 'error': 'Não deu para guardar a foto agora.'}), 500
+    return jsonify({'ok': True, **r})
+
+
+@app.route('/canhotos')
+@page_required('canhotos')
+def canhotos_page():
+    resp = send_from_directory('.', 'canhotos.html')
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+@app.route('/api/canhotos')
+@page_required('canhotos')
+def api_canhotos():
+    import canhoto
+    try:
+        d = _canhoto_db(lambda conn: canhoto.painel(conn.cursor()))
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+    d.update(ok=True, ligado=canhoto.ligado(), link=_canhoto_link(), admin=session.get('role') == 'admin',
+             pasta_definida=bool(os.getenv('CANHOTO_DIR')))
+    return jsonify(d)
+
+
+@app.route('/api/canhotos/viagem/<manifesto>')
+@page_required('canhotos')
+def api_canhotos_viagem(manifesto):
+    import canhoto
+    try:
+        d = _canhoto_db(lambda conn: canhoto.detalhe(conn.cursor(), manifesto))
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+    if not d:
+        return jsonify({'ok': False, 'error': 'Viagem fora da janela do app.'}), 404
+    return jsonify({'ok': True, 'viagem': d})
+
+
+@app.route('/api/canhotos/foto/<uid>')
+@page_required('canhotos')
+def api_canhotos_foto(uid):
+    import canhoto
+    caminho = _canhoto_db(lambda conn: canhoto.caminho_foto(conn.cursor(), uid))
+    if not caminho:
+        return jsonify({'ok': False, 'error': 'Foto não encontrada.'}), 404
+    if request.args.get('mini'):
+        return Response(canhoto.miniatura(caminho), mimetype='image/jpeg',
+                        headers={'Cache-Control': 'private, max-age=86400'})
+    resp = send_file(caminho, mimetype='image/jpeg')
+    resp.headers['Cache-Control'] = 'private, max-age=86400'
+    return resp
+
+
+@app.route('/api/canhotos/foto/<uid>/descartar', methods=['POST'])
+@page_required('canhotos')
+def api_canhotos_descartar(uid):
+    import canhoto
+    motivo = (request.get_json(silent=True) or {}).get('motivo') or ''
+    n = _canhoto_db(lambda conn: canhoto.descartar(conn, uid, session.get('nome'), motivo))
+    if not n:
+        return jsonify({'ok': False, 'error': 'A foto já tinha sido descartada.'}), 409
+    return jsonify({'ok': True})
+
+
+@app.route('/api/canhotos/foto/<uid>/ligar', methods=['POST'])
+@page_required('canhotos')
+def api_canhotos_ligar(uid):
+    import canhoto
+    corpo = request.get_json(silent=True) or {}
+    try:
+        r = _canhoto_db(lambda conn: canhoto.ligar(conn, uid, corpo.get('ctrc'), corpo.get('tipo'), session.get('nome')))
+    except canhoto.Recusa as e:
+        return jsonify({'ok': False, 'error': str(e)}), e.http
+    return jsonify({'ok': True, **r})
+
+
+@app.route('/api/canhotos/coletar', methods=['POST'])
+@admin_required
+def api_canhotos_coletar():
+    """Refaz a lista do app agora, sem esperar o próximo refresh do BI (lançamento, conferência)."""
+    import canhoto
+    try:
+        tok = get_token()
+        r = _canhoto_db(lambda conn: canhoto.rodada(conn, lambda q: embarques_auto._dax(tok, q)))
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+    return jsonify({'ok': True, 'viagens': r['viagens'], 'ctes': r['ctes'], 'desde': r['desde'].isoformat()})
 
 
 # ── Arquivo Nestlé — o TXT da planilha CNH a partir do XML do CT-e (28/10/2026) ──
@@ -11524,6 +11841,19 @@ if __name__ == '__main__':
               f"{os.getenv('EMBARQUES_FITA_RETENCAO_DIAS', '21')} d)")
     else:
         print("ℹ️  Fita documental desligada (EMBARQUES_FITA)")
+
+    # Canhotos pelo celular (09/11/2026): a coleta das viagens que o app do motorista mostra. Só lê o BI e
+    # grava as tabelas canhoto_*. Nasce desligada (`CANHOTO_APP`); desligada, o app do motorista responde 404.
+    import canhoto as _canhoto
+    if _canhoto.ligado():
+        import threading as _th_cn
+        _th_cn.Thread(target=_canhoto.loop, daemon=True, name='Canhotos').start()
+        print(f"✅ Canhotos LIGADO (coleta após cada refresh do BI; janela {_canhoto.janela_dias()} d; "
+              f"fotos em {_canhoto.pasta()})")
+        if not os.getenv('CANHOTO_DIR'):
+            print("⚠️  Canhotos: CANHOTO_DIR não definido — as fotos ficam dentro do container e somem no próximo deploy")
+    else:
+        print("ℹ️  Canhotos desligado (CANHOTO_APP)")
 
     # Coleta da Insignia GR — a gerenciadora de risco: SMs (inclusive TERCEIROS, que a 3S não vê),
     # posição/odômetro do cavalo, paradas, macros do motorista, rota planejada e locais. Só LÊ a
