@@ -115,7 +115,8 @@ CARTEIRAS = {
             _E('AG. AUTORIZAR', 'Aguardando autorizar', 'cinza', 'Aguardando autorizar'),
             _E('SUBMETIDO', 'Submetido no portal, aguardando aprovação da Nestlé', 'indigo', 'Submetido'),
             _E('REJEITADO', 'Rejeitado pela Nestlé no portal', 'magenta', 'Rejeitado'),
-            _E('PIPEFY', 'Pendência a ser tratada pela Nestlé (Pipefy)', 'rosa', 'Pendência no Pipefy'),
+            # na tela só "Pendência" (pedido dela, 11/11/2026); o código gravado/importado/exportado segue PIPEFY
+            _E('PIPEFY', 'Pendência a ser tratada pela Nestlé', 'rosa', 'Pendência'),
             _E('NBS', 'Aguardando liberação Nestlé', 'laranja', 'Liberação Nestlé (NBS)'),
             _E('PQD', 'Parqueado: aguardando a Nestlé criar o pedido', 'amarelo', 'Parqueado (PQD)'),
             _E('RZA', 'Pendência aguardando ação Rizza', 'vermelho', 'Pendência Rizza (RZA)'),
