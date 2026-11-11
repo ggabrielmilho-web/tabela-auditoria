@@ -255,7 +255,10 @@ def janela(mes):
 _COLS_OSS = (f'"ctrb", {_OSS}[ctrb], "emissao", {_OSS}[emissao], "motorista", {_OSS}[motorista], '
              f'"origem", {_OSS}[cidade_uf_origem], "destino", {_OSS}[cidade_uf_destino], '
              f'"vap", {_OSS}[valor_a_pagar], "vped", {_OSS}[vale_pedagio], "dvped", {_OSS}[despesa_vale_pedagio], '
-             f'"manifesto", {_OSS}[manifesto], "obs", {_OSS}[observacao]')
+             f'"manifesto", {_OSS}[manifesto], "obs", {_OSS}[observacao], "sit", {_OSS}[situacao]')
+# `situacao` entrou no modelo em 11/11/2026 (robô "073 Cancelados"). Sem ela (um .pbix antigo
+# republicado), a conferência segue como antes: o cancelado conta como CTRB vivo.
+_COLS_OSS_SEM_SIT = _COLS_OSS.rsplit(', "sit"', 1)[0]
 _COLS_AR = (f'"ctrb", {_AR}[CTRB], "tipo", {_AR}[Tipo Operacao], "data", {_AR}[data_ref_ctrc], "ctrc", {_AR}[CTRC], '
             f'"rec", {_AR}[receita_rateada], "vfsi", {_AR}[valor_frete_sem_icms], "fmt", {_AR}[frete_motorista_total], '
             f'"vped", {_AR}[vale_pedagio], "motorista", {_AR}[motorista], "cliente", {_AR}[cliente_pagador], '
@@ -272,10 +275,18 @@ def buscar_ssw(dax, mes, ctrbs_planilha=()):
     """Tudo o que a conferência de um mês precisa, em ~6 consultas: os CTRBs (ctrbs_oss), o Auditoria
     Receita, os CT-e e os lançamentos do 477 que citam CTRB. `dax` levanta erro se o BI cortar."""
     ini, fim = janela(mes)
-    oss = dax(f'EVALUATE SELECTCOLUMNS(FILTER({_OSS}, {_OSS}[emissao] >= {_d(ini)} && {_OSS}[emissao] < {_d(fim)}), {_COLS_OSS})')
+    filtro = f'{_OSS}[emissao] >= {_d(ini)} && {_OSS}[emissao] < {_d(fim)}'
+    cols_oss = _COLS_OSS
+    try:
+        oss = dax(f'EVALUATE SELECTCOLUMNS(FILTER({_OSS}, {filtro}), {cols_oss})')
+    except Exception:
+        # O BI responde 400 sem dizer a coluna: se a leitura sem `situacao` também falhar, o erro é
+        # outro e sobe daqui.
+        cols_oss = _COLS_OSS_SEM_SIT
+        oss = dax(f'EVALUATE SELECTCOLUMNS(FILTER({_OSS}, {filtro}), {cols_oss})')
     vistos = {chave_ctrb(r.get('ctrb')) for r in oss}
     for f in _fatias([k for k in ctrbs_planilha if k not in vistos]):
-        oss += dax(f'EVALUATE SELECTCOLUMNS(FILTER({_OSS}, {_OSS}[ctrb] IN {_lista(f)}), {_COLS_OSS})')
+        oss += dax(f'EVALUATE SELECTCOLUMNS(FILTER({_OSS}, {_OSS}[ctrb] IN {_lista(f)}), {cols_oss})')
     ar = dax(f'EVALUATE SELECTCOLUMNS(FILTER({_AR}, {_AR}[data_ref_ctrc] >= {_d(ini)} && {_AR}[data_ref_ctrc] < {_d(fim)}), {_COLS_AR})')
     vistos = {chave_ctrb(r.get('ctrb')) for r in ar}
     for f in _fatias([k for k in ctrbs_planilha if k not in vistos]):
@@ -340,6 +351,10 @@ class _Base:
     def emissao(self, k):
         r = self.oss.get(k) or {}
         return _iso(r.get('emissao')) or _iso((self.ar.get(k) or {}).get('data'))
+
+    def cancelado(self, k):
+        """Cancelado no SSW: fica no ctrbs_oss como lastro, mas saiu do Auditoria Receita."""
+        return str((self.oss.get(k) or {}).get('sit') or '').strip().upper() == 'CANCELADO'
 
     def motorista(self, k):
         return nome_norm((self.oss.get(k) or {}).get('motorista') or (self.ar.get(k) or {}).get('motorista'))
@@ -429,7 +444,7 @@ def _substituto(base, k):
     irmaos = set(base.irmaos(k))
     cands = []
     for c, r in base.oss.items():
-        if c == k or base.motorista(c) != mot or not base.pag.get(c):
+        if c == k or base.motorista(c) != mot or not base.pag.get(c) or base.cancelado(c):
             continue
         ec = base.emissao(c)
         if not ec or not em or not (0 <= (date.fromisoformat(ec) - date.fromisoformat(em)).days <= DIAS_SUBSTITUTO):
@@ -449,7 +464,7 @@ def _candidato_sem_ctrb(base, l, usados):
         return None
     cands = []
     for c, r in base.oss.items():
-        if c in usados or base.motorista(c) != mot:
+        if c in usados or base.motorista(c) != mot or base.cancelado(c):
             continue
         d = _dias(base.emissao(c) or '', data)
         if d > DIAS_SEM_CTRB:
@@ -525,6 +540,19 @@ def conferir(linhas, responsavel, mes, ssw, comissionados=None):
             alertas.append({'tipo': 'nao_achado', 'texto': 'CTRB não existe no SSW',
                             'detalhe': f'"{l.get("ctrb")}" não aparece no SSW — provável erro de digitação.'})
             usado = None
+        elif base.cancelado(k):
+            # Antes do 11/11/2026 o cancelado tinha receita no BI e a conta saía em cima dele.
+            sub = _substituto(base, k)
+            if sub:
+                alertas.append({'tipo': 'cancelado', 'texto': f'CTRB cancelado — refeito no {sub}',
+                                'detalhe': f'{k} foi cancelado no SSW; {sub} é do mesmo motorista, emitido em '
+                                           f'{_ddmm(base.emissao(sub))}, e foi lançado. A conta usa o {sub}.'})
+                usado = sub
+            else:
+                alertas.append({'tipo': 'cancelado', 'texto': 'CTRB cancelado no SSW',
+                                'detalhe': f'{k} foi cancelado no SSW e não achei o CTRB que o refez (mesmo '
+                                           f'motorista, até {DIAS_SUBSTITUTO} dias depois, lançado no 477). '
+                                           f'Fica fora da comissão, a não ser que você inclua.'})
         elif not base.pag.get(k):
             sub = _substituto(base, k)
             if sub:
@@ -553,7 +581,7 @@ def conferir(linhas, responsavel, mes, ssw, comissionados=None):
                             'detalhe': f'Este CTRB já está na comissão aprovada de {ja}.'})
         if c is None:
             status, motivos = 'sem_base', []
-            if usado and not any(a['tipo'] in ('sem_ctrb', 'nao_achado') for a in alertas):
+            if usado and not any(a['tipo'] in ('sem_ctrb', 'nao_achado', 'cancelado') for a in alertas):
                 alertas.append({'tipo': 'sem_receita', 'texto': 'Sem CT-e no BI',
                                 'detalhe': f'{usado} não tem CT-e ligado no Auditoria Receita (diária, ou CT-e '
                                            f'ainda não emitido): vale o valor da planilha.'})
@@ -561,7 +589,8 @@ def conferir(linhas, responsavel, mes, ssw, comissionados=None):
             status, motivos = 'confere', []
         else:
             status, motivos = 'diverge', _motivos(l, c)
-        if any(a['tipo'] in ('outro_mes', 'ja_comissionado') for a in alertas):
+        if any(a['tipo'] in ('outro_mes', 'ja_comissionado') for a in alertas) \
+                or (usado and base.cancelado(usado)):
             padrao = 'fora'
         elif c is None:
             padrao = 'planilha'

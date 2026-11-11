@@ -222,6 +222,12 @@ def _tipo_op(r):
     return (r.get('Tipo Operação') or r.get('propriedade') or '').strip().title()
 
 
+def cancelado(r):
+    """CTRB cancelado no SSW (robô "073 Cancelados", 11/11/2026). Fica no BI como lastro da
+    substituição — o manifesto antigo ainda aponta para ele —, mas não deve CIOT nem manifesto."""
+    return str((r or {}).get('situacao') or '').strip().upper() == 'CANCELADO'
+
+
 def conferir(ctrbs, manifestos, desde):
     """Aplica os três cruzamentos. Devolve (pendencias, resumo).
 
@@ -264,7 +270,7 @@ def conferir(ctrbs, manifestos, desde):
         """
         s = substituto(r.get('observacao'))
         n = por_ctrb.get(s)
-        if n and _viagem(n) == _viagem(r):
+        if n and not cancelado(n) and _viagem(n) == _viagem(r):
             h = _horas(r, n)
             if h is not None and 0 <= h <= REEMISSAO_H:
                 return s
@@ -273,7 +279,8 @@ def conferir(ctrbs, manifestos, desde):
         irmaos = []
         for x in mesma_viagem.get(_viagem(r), ()):
             h = _horas(r, x)
-            if x is not r and h is not None and 0 < h <= REEMISSAO_H and ciot_valido(x.get('ciot')):
+            if x is not r and not cancelado(x) and h is not None and 0 < h <= REEMISSAO_H \
+                    and ciot_valido(x.get('ciot')):
                 irmaos.append((h, x['ctrb']))
         return min(irmaos)[1] if irmaos else ''
 
@@ -327,7 +334,7 @@ def conferir(ctrbs, manifestos, desde):
         for p in {_placa(m.get('cav')), _placa(m.get('car'))} - {''}:
             for r in ctrb_por_placa.get(p, []):
                 dr = _dia(r.get('emissao'))
-                if d and dr and abs((dr - d).days) <= JANELA_ORFAO_DIAS \
+                if d and dr and abs((dr - d).days) <= JANELA_ORFAO_DIAS and not cancelado(r) \
                         and not declarado.get(r['ctrb']) and not reemitido_em(r):
                     achados[r['ctrb']] = r
         return sorted(achados)
@@ -359,6 +366,11 @@ def conferir(ctrbs, manifestos, desde):
             continue
         resumo['ctrbs'] += 1
         c = r['ctrb']
+        if cancelado(r):
+            # Cancelado não deve CIOT nem manifesto; os manifestos dele passam ao substituto
+            # (reemitido_em/final) ou acusam do lado do manifesto, abaixo.
+            resumo['cancelados'] += 1
+            continue
         if reemitido_em(r):
             resumo['reemitidos'] += 1
             continue
@@ -428,6 +440,15 @@ def conferir(ctrbs, manifestos, desde):
         mf = m['mf']
         diretos = set(mf_para_ctrb.get(mf, ()))
         ligados = {final(c) for c in diretos}
+        cancelados = sorted(c for c in ligados if cancelado(por_ctrb.get(c)))
+        ligados -= set(cancelados)
+        if not ligados and cancelados:
+            sug = sugerir_ctrb(m)
+            add('manifesto_sem_ctrb', mf, None, m,
+                detalhe=f"o CTRB {', '.join(cancelados)} foi cancelado no SSW e nenhum outro o refez"
+                        + (f"; provável: {', '.join(sug)} (mesma placa, ±{JANELA_ORFAO_DIAS} dias)"
+                           if sug else ''))
+            continue
         if not ligados:
             sug = sugerir_ctrb(m)
             detalhe = 'sem CTRB, logo sem CIOT'
@@ -464,9 +485,20 @@ def coletar(token, dax_rows, desde):
     ini = _dax_date(desde - timedelta(days=MARGEM_DIAS))
     cols = ['ctrb', 'emissao', 'Tipo Operação', 'propriedade', 'ciot', 'tabela_antt',
             'placa_cavalo', 'placa_carreta', 'cpf_motorista', 'motorista', 'manifesto',
-            'observacao', 'cidade_uf_origem', 'cidade_uf_destino']
-    sel = ','.join(f'"{c}",{C}[{c}]' for c in cols)
-    ctrbs = dax_rows(token, f"EVALUATE CALCULATETABLE(SELECTCOLUMNS({C},{sel}), {C}[emissao] >= {ini})")
+            'observacao', 'cidade_uf_origem', 'cidade_uf_destino', 'situacao']
+
+    def _ler(cs):
+        sel = ','.join(f'"{c}",{C}[{c}]' for c in cs)
+        return dax_rows(token, f"EVALUATE CALCULATETABLE(SELECTCOLUMNS({C},{sel}), {C}[emissao] >= {ini})")
+    try:
+        ctrbs = _ler(cols)
+    except Exception as e:
+        # `situacao` entrou no modelo em 11/11/2026. Se um .pbix antigo for republicado sem ela,
+        # a conferência segue como antes (cancelado conta como CTRB vivo) em vez de parar. O BI
+        # responde 400 sem dizer a coluna: se a leitura sem ela também falhar, o erro é outro e sobe.
+        ctrbs = _ler(cols[:-1])
+        print(f'[ciot] AVISO: leitura com ctrbs_oss[situacao] falhou ({str(e)[:120]}); '
+              'seguindo sem ela — CTRB cancelado volta a ser cobrado')
     manifestos = dax_rows(token, (
         f"EVALUATE CALCULATETABLE(SELECTCOLUMNS({M},"
         f"\"mf\",{M}[CHAVE_MANIFESTO],\"d\",{M}[data_emissao],\"kc\",{M}[CHAVE_CTRB],"
