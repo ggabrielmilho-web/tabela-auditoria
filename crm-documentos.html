@@ -572,7 +572,9 @@
     var cc = campoCustos();
     if (!cc) return '';
     var defs = cc.tipos.map(function (t) { return { id: 'custo:' + t, t: rotTipo(t), cor: 'laranja', d: 'custos extras do tipo ' + rotTipo(t) }; })
-      .concat(cc.status.map(function (s) { return { id: 'custost:' + s, t: rotTipo(s), cor: COR_STATUS[s] || 'cinza', d: 'custos extras com o status ' + rotTipo(s) }; }))
+      // sem o cartão "Em andamento" (pedido de 11/11/2026): repetia a soma dos cartões de tipo. O status segue na janela.
+      .concat(cc.status.filter(function (s) { return s !== 'EM ANDAMENTO'; })
+        .map(function (s) { return { id: 'custost:' + s, t: rotTipo(s), cor: COR_STATUS[s] || 'cinza', d: 'custos extras com o status ' + rotTipo(s) }; }))
       .concat([{ id: 'custo_sem_compl', t: 'Concluído sem CT-e compl.', cor: 'indigo', d: 'ticket concluído e o CT-e complementar ainda não preenchido' }]);
     return '<div class="cards-sep">Custo extra</div>' + defs.map(function (c) {
       var n = 0, v = 0, ctes = 0;
