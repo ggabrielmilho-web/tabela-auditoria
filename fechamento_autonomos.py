@@ -190,8 +190,10 @@ CREATE TABLE IF NOT EXISTS fech_aut_base_pis (
     nome          TEXT,
     pis           TEXT,
     nascimento    DATE,
+    nome_mae      TEXT,
     importado_em  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE fech_aut_base_pis ADD COLUMN IF NOT EXISTS nome_mae TEXT;
 CREATE TABLE IF NOT EXISTS fech_aut_pis (
     doc           TEXT PRIMARY KEY,           -- CPF como vem do SSW (14 dígitos)
     pis           TEXT NOT NULL,
@@ -267,8 +269,9 @@ def ler_bases(arquivo):
             p = dig(r[1] if len(r) > 1 else '')
             nasc = r[2] if len(r) > 2 else None
             nasc = nasc.date() if isinstance(nasc, datetime) else (nasc if isinstance(nasc, date) else None)
-            if n and (p or nasc):
-                pessoas[n] = (str(r[0]).strip(), p.zfill(11) if p else None, nasc)
+            mae = _mae_ok(r[3] if len(r) > 3 else None)
+            if n and (p or nasc or mae):
+                pessoas[n] = (str(r[0]).strip(), p.zfill(11) if p else None, nasc, mae)
     wb.close()
     return cnaes, pessoas
 
@@ -291,9 +294,9 @@ def importar_bases(cur, arquivo, por):
         novos += 1 if r and r[0] else 0
     if pessoas:
         cur.execute('DELETE FROM fech_aut_base_pis')
-        for n, (nome, p, nasc) in pessoas.items():
-            cur.execute('INSERT INTO fech_aut_base_pis (nome_norm, nome, pis, nascimento) VALUES (%s,%s,%s,%s)',
-                        (n, nome, p, nasc))
+        for n, (nome, p, nasc, mae) in pessoas.items():
+            cur.execute('INSERT INTO fech_aut_base_pis (nome_norm, nome, pis, nascimento, nome_mae) '
+                        'VALUES (%s,%s,%s,%s,%s)', (n, nome, p, nasc, mae))
     return {'cnae': len(cnaes), 'cnae_novos': novos, 'pis': len(pessoas)}
 
 
@@ -304,8 +307,9 @@ def _carregar_bases(cur, docs_pj):
                     'WHERE doc = ANY(%s)', (f,))
         for d, cn, o, s, rz, em in cur.fetchall():
             cnae[d] = {'cnae': cn, 'origem': o, 'situacao': s, 'razao': rz, 'em': em}
-    cur.execute('SELECT nome_norm, pis, nascimento FROM fech_aut_base_pis')
-    base_pis = {n: {'pis': p, 'nasc': nasc.isoformat() if nasc else None} for n, p, nasc in cur.fetchall()}
+    cur.execute('SELECT nome_norm, pis, nascimento, nome_mae FROM fech_aut_base_pis')
+    base_pis = {n: {'pis': p, 'nasc': nasc.isoformat() if nasc else None, 'mae': mae}
+                for n, p, nasc, mae in cur.fetchall()}
     cur.execute('SELECT doc, pis, origem, por, em FROM fech_aut_pis')
     escolha = {d: {'pis': p, 'origem': o, 'por': por, 'em': em} for d, p, o, por, em in cur.fetchall()}
     return cnae, base_pis, escolha
@@ -427,7 +431,7 @@ def buscar_bi(dax_op, dax_dre, mes):
         tem_situacao = False
     docs = {dig(r.get('doc')) for r in ctrbs}
     p46 = dax_op(f'EVALUATE SELECTCOLUMNS({_P46}, "doc", {_P46}[cnpj_cpf], "nome", {_P46}[nome_contratado], '
-                 f'"pis", {_P46}[pis_pasep], "nasc", {_P46}[nascimento])')
+                 f'"pis", {_P46}[pis_pasep], "nasc", {_P46}[nascimento], "mae", {_P46}[nome_mae])')
     competencia = f'{mes[5:7]}/{mes[2:4]}'
     rpa = dax_dre(f'EVALUATE SELECTCOLUMNS(FILTER({_DZ}, {_DZ}[evento] = "{EVENTO_RPA}" && '
                   f'{_DZ}[mes_competencia] = "{competencia}"), "numlancto", {_DZ}[numlancto], '
@@ -473,7 +477,7 @@ ABAS = [
     {'id': 'fisico', 'rot': 'Físico', 'xlsx': 'FISICO', 'valor': 'vap', 'cols': [
         ('ctrb', 'CTRB', 'txt'), ('emissao', 'EMISSAO', 'dt'), ('doc', 'CNPJ/CPF PROPRIETARIO', 'doc'),
         ('nome', 'PROPRIETARIO', 'txt'), ('vap', 'VALOR A PAGAR', 'r$'), ('pis', 'PIS/PASEP/NIT', 'pis'),
-        ('nasc', 'NASCIMENTO', 'd')]},
+        ('nasc', 'NASCIMENTO', 'd'), ('mae', 'NOME DA MAE', 'txt')]},
     {'id': 'juridico', 'rot': 'Jurídico', 'xlsx': 'JURIDICO', 'valor': 'vap', 'cols': [
         ('ctrb', 'CTRB', 'txt'), ('emissao', 'EMISSAO', 'dt'), ('doc', 'CNPJ/CPF PROPRIETARIO', 'doc'),
         ('nome', 'PROPRIETARIO', 'txt'), ('vap', 'VALOR A PAGAR', 'r$'), ('cnae', 'TIPO EMPRESA', 'txt')]},
@@ -489,6 +493,17 @@ ABAS = [
         ('vlr_parcela', 'VLR PARCELA', 'r$'), ('descontos', 'DESCONTOS', 'r$'), ('vlr_final', 'VLR FINAL', 'r$'),
         ('emissao', 'EMISSAO', 'd'), ('sit', 'SIT DES', 'txt'), ('nasc', 'DATA NASCIMENTO', 'd'), ('pis', 'PIS', 'pis')]},
 ]
+
+
+def _mae_ok(v):
+    v = re.sub(r'\s+', ' ', str(v or '')).strip()
+    return v if v and nome_norm(v) not in ('NAO CONSTA', 'NAO INFORMADO', 'IGNORADO', '-', '0') else None
+
+
+def _mae_da_pessoa(doc, nome, p46, base_pis):
+    """Nome da mãe: o do 046 (out/26: 85 de 85 PF); a BASE PIS dela só quando o 046 não tem."""
+    m = p46.get(dig(doc)) or {}
+    return _mae_ok(m.get('mae')) or _mae_ok((base_pis.get(nome_norm(nome)) or {}).get('mae'))
 
 
 def _pis_da_pessoa(doc, nome, p46, base_pis, escolha):
@@ -542,7 +557,7 @@ def montar(bi, cnae, base_pis, escolha, ultimo=None):
                 'vap': num(r.get('vap')), 'tipo': tipo, 'novo': d in novos and tipo != 'PF'}
         if tipo == 'PF':
             pis, nasc, origem, a = _pis_da_pessoa(d, base['nome'], p46, base_pis, escolha)
-            linha = dict(base, pis=pis, nasc=nasc, pis_origem=origem)
+            linha = dict(base, pis=pis, nasc=nasc, pis_origem=origem, mae=_mae_da_pessoa(d, base['nome'], p46, base_pis))
             fisico.append(linha)
             if a:
                 alerta(f'{a["tipo"]}:{d}', doc=d, nome=base['nome'], **a)['ctrbs'].append(r['ctrb'])
@@ -657,7 +672,7 @@ def exportar_xlsx(f):
     azul = PatternFill('solid', fgColor='1F4E78')
     larg = {'txt': 16, 'dt': 17, 'd': 12, 'doc': 20, 'r$': 14, 'pis': 15}
     largura_col = {'PROPRIETARIO': 42, 'NOME FORNECEDOR': 36, 'TIPO EMPRESA': 70, 'TIPO EMPRESA (cnae principal)': 70,
-                   'HISTORICO DA DESPESA': 26, 'ESPECIALIDADE': 28}
+                   'HISTORICO DA DESPESA': 26, 'ESPECIALIDADE': 28, 'NOME DA MAE': 40}
     for a in ABAS:
         ws = wb.create_sheet(a['xlsx'])
         for j, (_, rot, _t) in enumerate(a['cols'], start=1):

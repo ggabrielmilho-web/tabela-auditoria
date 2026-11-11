@@ -525,6 +525,7 @@
       if (!v) return '<td class="falta">falta</td>';
       return '<td class="cnae" title="' + esc(v) + '">' + esc(v) + (r.cnae_origem === 'receita' ? '<span class="tag novo" title="Consultado na Receita">RECEITA</span>' : r.cnae_origem === 'manual' ? '<span class="tag manual">DIGITADO</span>' : '') + '</td>';
     }
+    if (c.k === 'mae') return v ? '<td class="largo" title="' + esc(v) + '">' + esc(v) + '</td>' : '<td class="falta">falta</td>';
     if (c.k === 'nome') return '<td class="largo" title="' + esc(v) + '">' + esc(v) + (r.novo ? '<span class="tag novo" title="Primeiro CTRB desta empresa e CNAE fora da sua base">NOVO</span>' : '') + '</td>';
     return '<td' + (c.k === 'ctrb' ? ' class="m"' : '') + '>' + esc(v) + '</td>';
   }
