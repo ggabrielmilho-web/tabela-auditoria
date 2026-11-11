@@ -177,7 +177,7 @@ def admin_required(f):
 PAGINAS_VALIDAS = {'auditoria', 'tarifas', 'embarques', 'reuniao', 'dre',
                    'despesas', 'conhecimentos', 'faturamento', 'contratos', 'veiculos',
                    'pgr', 'contabil', 'verda', 'jornada', 'ciot', 'projecao', 'crm_documentos', 'cte_nestle',
-                   'contas_receber', 'comissoes', 'canhotos'}
+                   'contas_receber', 'comissoes', 'canhotos', 'fechamento_autonomos'}
 # O de-para aba → rota e a ordem de preferência viviam aqui para escolher em qual
 # aba o usuário caía no login. Não existem mais: quem escolhe é ele, na /inicio.
 # As rotas de cada aba são declaradas uma vez só, no `ABAS` do nav-perms.js.
@@ -1989,6 +1989,148 @@ def api_comissao_xlsx(fid):
         return jsonify({'ok': False, 'error': str(e)}), 500
     nome = f"Comissão - {f['responsavel']} - {cm.rotulo_mes(f['mes']).replace('/', '-')}.xlsx"
     return send_file(io.BytesIO(conteudo), as_attachment=True, download_name=nome,
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
+# ── Fechamento dos autônomos — a planilha mensal do RH para a MED Contadores (11/11/2026) ──
+#
+# Era montada à mão: 073 + 046 + 477 no Excel, PROCV do PIS pelo nome e o CNAE das empresas novas buscado
+# um a um. Agora sai do BI; a tela só pede o CNAE que a Receita não achou e o PIS que diverge. A lógica
+# mora em fechamento_autonomos.py; aqui ficam a sessão, o banco e o BI.
+_FA_TABELAS = {'ok': False}
+
+
+def _fa_db(fn):
+    import fechamento_autonomos as fa
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            if not _FA_TABELAS['ok']:
+                fa.garantir_tabelas(cur)
+                _FA_TABELAS['ok'] = True
+            r = fn(cur)
+        conn.commit()
+        return r
+    finally:
+        conn.close()
+
+
+def _fa_mes(v):
+    import fechamento_autonomos as fa
+    v = (v or '').strip()
+    if not re.fullmatch(r'20\d\d-(0[1-9]|1[0-2])', v):
+        return fa.mes_padrao()
+    return v
+
+
+def _fa_fechamento(mes, forcar=False):
+    """Lê o BI, consulta na Receita o CNPJ que falta CNAE e monta. Devolve (fechamento, bases)."""
+    import fechamento_autonomos as fa
+    bi = fa.dados_bi(_crm_dax_op, _crm_dax_dre, mes, forcar=forcar)
+
+    def montar(cur):
+        bases = fa.situacao_bases(cur)
+        docs_pj = {fa.dig(r.get('doc')) for r in bi['ctrbs'] if fa.pessoa(r.get('doc')) == 'PJ'}
+        cnae, base_pis, escolha = fa._carregar_bases(cur, docs_pj)
+        if not bases['vazia']:
+            falta = fa.cnpjs_sem_cnae(bi, cnae)
+            if falta and fa.consultar_faltantes(cur, falta):
+                cnae, base_pis, escolha = fa._carregar_bases(cur, docs_pj)
+        return fa.montar(bi, cnae, base_pis, escolha, fa.ultimo_download(cur, mes)), bases
+    return _fa_db(montar)
+
+
+@app.route('/fechamento-autonomos')
+@page_required('fechamento_autonomos')
+def fechamento_autonomos_page():
+    resp = send_from_directory('.', 'fechamento-autonomos.html')
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+@app.route('/api/fechamento-autonomos')
+@page_required('fechamento_autonomos')
+def api_fechamento_autonomos():
+    import fechamento_autonomos as fa
+    mes = _fa_mes(request.args.get('mes'))
+    try:
+        f, bases = _fa_fechamento(mes, forcar=request.args.get('forcar') == '1')
+    except Exception as e:
+        return jsonify({'ok': False, 'error': f'Não consegui ler o Power BI: {e}'}), 502
+    hoje = _dtm.datetime.now(fa.BRT).date().replace(day=1)
+    meses = []
+    for i in range(1, 13):
+        a, m = hoje.year, hoje.month - i
+        while m < 1:
+            a, m = a - 1, m + 12
+        meses.append({'mes': f'{a:04d}-{m:02d}', 'rot': fa.rotulo_mes(f'{a:04d}-{m:02d}', True)})
+    return jsonify({'ok': True, 'fechamento': f, 'bases': bases, 'meses': meses,
+                    'consulta_cnae': fa.CONSULTA_CNAE})
+
+
+@app.route('/api/fechamento-autonomos/bases', methods=['POST'])
+@page_required('fechamento_autonomos')
+def api_fechamento_autonomos_bases():
+    import fechamento_autonomos as fa
+    arq = request.files.get('arquivo')
+    if not arq or not arq.filename.lower().endswith(('.xlsx', '.xlsm')):
+        return jsonify({'ok': False, 'error': 'Envie a planilha de fechamento (.xlsx).'}), 400
+    try:
+        dados = io.BytesIO(arq.read())
+        r = _fa_db(lambda cur: fa.importar_bases(cur, dados, session.get('nome') or 'usuário'))
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'ok': False, 'error': f'Não consegui ler a planilha: {e}'}), 500
+    return jsonify({'ok': True, **r})
+
+
+@app.route('/api/fechamento-autonomos/cnae', methods=['POST'])
+@page_required('fechamento_autonomos')
+def api_fechamento_autonomos_cnae():
+    import fechamento_autonomos as fa
+    d = request.get_json(silent=True) or {}
+    por = session.get('nome') or 'usuário'
+    try:
+        if d.get('consultar'):
+            doc = fa.dig(d.get('doc'))
+            n = _fa_db(lambda cur: fa.consultar_faltantes(cur, [doc], por=por, limite=1))
+            if not n:
+                return jsonify({'ok': False, 'error': 'A consulta pública não respondeu agora. Tente de novo em '
+                                                      'alguns minutos ou digite o CNAE.'}), 502
+            return jsonify({'ok': True})
+        cn = _fa_db(lambda cur: fa.salvar_cnae(cur, d.get('doc'), d.get('cnae'), por))
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    return jsonify({'ok': True, 'cnae': cn})
+
+
+@app.route('/api/fechamento-autonomos/pis', methods=['POST'])
+@page_required('fechamento_autonomos')
+def api_fechamento_autonomos_pis():
+    import fechamento_autonomos as fa
+    d = request.get_json(silent=True) or {}
+    try:
+        p = _fa_db(lambda cur: fa.salvar_pis(cur, d.get('doc'), d.get('pis'), d.get('origem') or 'manual',
+                                             session.get('nome') or 'usuário'))
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    return jsonify({'ok': True, 'pis': p})
+
+
+@app.route('/api/fechamento-autonomos/xlsx')
+@page_required('fechamento_autonomos')
+def api_fechamento_autonomos_xlsx():
+    import fechamento_autonomos as fa
+    mes = _fa_mes(request.args.get('mes'))
+    try:
+        f, _ = _fa_fechamento(mes)
+        conteudo = fa.exportar_xlsx(f)
+        _fa_db(lambda cur: fa.registrar_download(cur, mes, [l['ctrb'] for l in f['abas']['contrato']],
+                                                 f['pendencias'], session.get('nome') or 'usuário'))
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+    return send_file(io.BytesIO(conteudo), as_attachment=True, download_name=fa.nome_arquivo(mes),
                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 

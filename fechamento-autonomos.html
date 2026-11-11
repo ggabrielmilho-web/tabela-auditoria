@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fechamento Autônomos — Rizza Log</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%2338bdf8'/%3E%3Ctext x='50' y='72' font-family='Arial,sans-serif' font-size='68' font-weight='900' text-anchor='middle' fill='%230a0e17'%3ER%3C/text%3E%3C/svg%3E">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0e17; --surface: #111827; --surface2: #1a2235; --border: #1e293b;
+    --text: #e2e8f0; --text-dim: #94a3b8; --accent: #38bdf8; --accent2: #818cf8;
+    --green: #34d399; --red: #f87171; --orange: #fb923c; --yellow: #fbbf24;
+    --c-vermelho: #f87171; --c-laranja: #fb923c; --c-amarelo: #fbbf24; --c-verde: #34d399;
+    --c-azul: #38bdf8; --c-roxo: #a78bfa; --c-cinza: #94a3b8; --c-indigo: #818cf8;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes entra { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  .mono { font-family: 'JetBrains Mono', monospace; }
+  .dim { color: var(--text-dim); }
+
+  .dashboard { padding: 22px; max-width: 1320px; margin: 0 auto; }
+  .top-bar { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; flex-wrap: wrap; gap: 12px; }
+  .top-bar h1 { font-size: 1.4rem; font-weight: 700; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .meta { font-size: 0.74rem; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; margin-top: 4px; line-height: 1.5; }
+  .acoes-topo { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .btn-sm { padding: 7px 14px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); font-weight: 500; font-size: 0.8rem; border-radius: 8px; cursor: pointer; transition: all 0.15s; font-family: 'DM Sans', sans-serif; white-space: nowrap; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+  .btn-sm:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-sm.primary { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 700; }
+  .btn-sm.primary:hover { color: var(--bg); filter: brightness(1.1); }
+  .btn-sm.grande { padding: 10px 18px; font-size: 0.88rem; }
+  .btn-sm:disabled { opacity: .5; cursor: default; filter: none; }
+  .btn-sm .spin { width: 12px; height: 12px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; }
+  select.mes { padding: 7px 30px 7px 12px; background: var(--surface2) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2394a3b8'/%3E%3C/svg%3E") no-repeat right 11px center; border: 1px solid var(--border); color: var(--text); border-radius: 8px; font-family: 'DM Sans', sans-serif; font-size: 0.82rem; font-weight: 600; cursor: pointer; appearance: none; color-scheme: dark; }
+  select.mes:hover, select.mes:focus { border-color: var(--accent); outline: none; }
+
+  .erro { padding: 12px 14px; border-radius: 10px; font-size: 0.82rem; margin-bottom: 14px; background: rgba(248,113,113,0.08); border: 1px solid rgba(248,113,113,0.28); color: #fecaca; white-space: pre-wrap; }
+  .carregando { display: flex; flex-direction: column; gap: 14px; align-items: center; padding: 80px 20px; justify-content: center; color: var(--text-dim); text-align: center; line-height: 1.6; font-size: 0.86rem; }
+  .spinner { width: 30px; height: 30px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; }
+  .faixa { display: flex; gap: 10px; align-items: center; padding: 10px 14px; border-radius: 10px; font-size: 0.82rem; margin-bottom: 14px; line-height: 1.5; }
+  .faixa.ok { background: rgba(52,211,153,.08); border: 1px solid rgba(52,211,153,.3); color: #a7f3d0; }
+  .faixa.info { background: rgba(56,189,248,.07); border: 1px solid rgba(56,189,248,.25); color: #bae6fd; }
+  .faixa.alerta { background: rgba(251,146,60,.08); border: 1px solid rgba(251,146,60,.3); color: #fed7aa; }
+
+  /* primeiro uso */
+  .boas-vindas { max-width: 720px; margin: 30px auto 0; animation: entra .25s ease; }
+  .boas-vindas h2 { font-size: 1.25rem; margin-bottom: 8px; }
+  .boas-vindas p { font-size: 0.88rem; color: var(--text-dim); line-height: 1.65; }
+  .passos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 18px 0 20px; }
+  .passo { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; font-size: 0.8rem; line-height: 1.5; color: var(--text-dim); }
+  .passo b { display: block; color: var(--text); font-size: 0.86rem; margin-bottom: 2px; }
+  .passo .n { font-family: 'JetBrains Mono', monospace; color: var(--accent); font-size: 0.72rem; }
+  .soltar-grande { border: 2px dashed #26324a; border-radius: 16px; padding: 40px 24px; text-align: center; cursor: pointer; transition: all .15s; background: linear-gradient(180deg, rgba(56,189,248,.04), transparent); }
+  .soltar-grande:hover, .soltar-grande.sobre { border-color: var(--accent); background: rgba(56,189,248,.06); }
+  .soltar-grande .ic { font-size: 2.1rem; }
+  .soltar-grande .t { font-size: 1.05rem; font-weight: 700; margin-top: 8px; }
+  .soltar-grande .s { font-size: 0.8rem; color: var(--text-dim); margin-top: 6px; line-height: 1.6; }
+
+  /* resumo do mês */
+  .hero { background: linear-gradient(135deg, rgba(56,189,248,.07), rgba(129,140,248,.04) 60%, transparent), var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 18px 20px; margin-bottom: 16px; animation: entra .25s ease; }
+  .hero-cab { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; flex-wrap: wrap; }
+  .hero-cab .t { font-size: 1.3rem; font-weight: 700; text-transform: capitalize; }
+  .hero-cab .s { font-size: 0.8rem; color: var(--text-dim); margin-top: 4px; line-height: 1.5; }
+  .estado { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+  .estado .bx { font-size: 0.76rem; color: var(--text-dim); text-align: right; line-height: 1.45; }
+  .estado .bx b { color: var(--text); font-weight: 600; }
+  .kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-top: 16px; }
+  .kpi { background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 11px 13px; cursor: pointer; transition: all .15s; text-align: left; font-family: 'DM Sans', sans-serif; color: var(--text); position: relative; }
+  .kpi:hover { border-color: #33415a; background: #0d1422; }
+  .kpi.on { border-color: var(--accent); background: rgba(56,189,248,.07); }
+  .kpi .l { font-size: 0.64rem; text-transform: uppercase; letter-spacing: .08em; color: var(--text-dim); font-weight: 700; display: flex; justify-content: space-between; gap: 6px; }
+  .kpi .q { font-family: 'JetBrains Mono', monospace; font-size: 1.45rem; font-weight: 600; margin-top: 3px; }
+  .kpi .v { font-family: 'JetBrains Mono', monospace; font-size: 0.74rem; color: var(--text-dim); margin-top: 1px; white-space: nowrap; }
+  .kpi.zero .q { color: #475569; }
+  .kpi .marca { position: absolute; top: 9px; right: 10px; width: 7px; height: 7px; border-radius: 50%; background: var(--orange); box-shadow: 0 0 0 3px rgba(251,146,60,.18); }
+
+  /* conferir */
+  .sec-titulo { font-size: 0.7rem; text-transform: uppercase; letter-spacing: .08em; color: var(--text-dim); font-weight: 700; margin: 20px 0 10px; display: flex; align-items: center; gap: 10px; }
+  .sec-titulo .n { font-family: 'JetBrains Mono', monospace; color: var(--text); background: var(--surface2); border-radius: 999px; padding: 1px 8px; letter-spacing: 0; }
+  .sec-titulo .n.laranja { background: rgba(251,146,60,.16); color: var(--orange); }
+  .sec-titulo .lin { flex: 1; height: 1px; background: var(--border); }
+  .al { background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--cor); border-radius: 12px; padding: 13px 16px; margin-bottom: 9px; display: grid; grid-template-columns: 1fr auto; gap: 10px 20px; align-items: center; animation: entra .2s ease; transition: opacity .2s; }
+  .al.feito { opacity: .45; pointer-events: none; }
+  .al .cab { font-size: 0.88rem; font-weight: 600; display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; }
+  .al .cab .doc { font-family: 'JetBrains Mono', monospace; color: var(--text-dim); font-weight: 400; font-size: 0.76rem; }
+  .al .txt { font-size: 0.8rem; color: var(--text-dim); margin-top: 5px; line-height: 1.55; }
+  .al .txt b { color: var(--text); font-weight: 600; }
+  .al .chips { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 7px; }
+  .chip { font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; padding: 2px 7px; border-radius: 6px; background: var(--bg); border: 1px solid var(--border); color: var(--accent); cursor: pointer; }
+  .chip:hover { border-color: var(--accent); }
+  .chip.sem { color: var(--text-dim); cursor: default; }
+  .al .lado { display: flex; flex-direction: column; align-items: flex-end; gap: 7px; min-width: 260px; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 5px; font-size: 0.66rem; font-weight: 700; white-space: nowrap; color: var(--cor); background: color-mix(in srgb, var(--cor) 15%, transparent); letter-spacing: .02em; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 9px; overflow: hidden; background: var(--bg); }
+  .seg button { padding: 7px 12px; font-size: 0.74rem; background: transparent; border: none; color: var(--text-dim); cursor: pointer; font-family: 'DM Sans', sans-serif; border-right: 1px solid var(--border); text-align: center; line-height: 1.3; }
+  .seg button:last-child { border-right: none; }
+  .seg button small { display: block; font-family: 'JetBrains Mono', monospace; font-size: 0.76rem; color: var(--text); margin-top: 1px; }
+  .seg button:hover:not(:disabled) { background: rgba(56,189,248,.1); color: var(--accent); }
+  .seg button:hover:not(:disabled) small { color: var(--accent); }
+  .entrada { display: flex; gap: 6px; width: 100%; }
+  .entrada input { flex: 1; min-width: 0; padding: 7px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; }
+  .entrada input:focus { outline: none; border-color: var(--accent); }
+  .entrada input.ruim { border-color: var(--red); }
+  .linkzinho { font-size: 0.72rem; color: var(--text-dim); background: none; border: none; cursor: pointer; font-family: 'DM Sans', sans-serif; text-decoration: underline; text-underline-offset: 2px; padding: 0; }
+  .linkzinho:hover { color: var(--accent); }
+  .mini-acoes { display: flex; gap: 12px; align-items: center; }
+  details.resolvidos { margin-top: 4px; }
+  details.resolvidos > summary { list-style: none; cursor: pointer; font-size: 0.78rem; color: var(--text-dim); padding: 6px 2px; display: inline-flex; gap: 7px; align-items: center; }
+  details.resolvidos > summary::-webkit-details-marker { display: none; }
+  details.resolvidos > summary:hover { color: var(--text); }
+  details.resolvidos > summary .seta { display: inline-block; transition: transform .15s; font-size: .7rem; }
+  details.resolvidos[open] > summary .seta { transform: rotate(90deg); }
+  details.resolvidos .al { padding: 10px 14px; }
+
+  /* tabela */
+  .barra { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 9px; }
+  .abas { display: inline-flex; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--surface); flex-wrap: wrap; }
+  .abas button { padding: 7px 13px; font-size: 0.78rem; background: transparent; border: none; border-right: 1px solid var(--border); color: var(--text-dim); cursor: pointer; font-family: 'DM Sans', sans-serif; display: inline-flex; gap: 7px; align-items: center; }
+  .abas button:last-child { border-right: none; }
+  .abas button:hover { color: var(--text); background: var(--surface2); }
+  .abas button.on { background: rgba(56,189,248,.14); color: var(--accent); font-weight: 700; }
+  .abas button .c { font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; opacity: .8; }
+  .busca { padding: 7px 10px 7px 30px; background: var(--surface2) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='13' height='13' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Ccircle cx='5.5' cy='5.5' r='4.5'/%3E%3Cpath d='M9 9l3.5 3.5'/%3E%3C/svg%3E") no-repeat 10px center; border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 0.8rem; min-width: 260px; margin-left: auto; }
+  .busca:focus { outline: none; border-color: var(--accent); }
+  .tabela-box { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: auto; max-height: 68vh; }
+  table.dados { width: 100%; border-collapse: collapse; font-size: 0.77rem; }
+  table.dados thead th { position: sticky; top: 0; z-index: 2; background: #0f1625; text-align: left; padding: 8px 10px; font-size: 0.63rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); font-weight: 700; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  table.dados tbody td { padding: 6px 10px; border-bottom: 1px solid rgba(30,41,59,0.6); white-space: nowrap; }
+  table.dados tbody tr:hover td { background: rgba(26,34,53,.55); }
+  table.dados tbody tr.marcada td { background: rgba(56,189,248,.08); }
+  table.dados tfoot td { padding: 8px 10px; font-weight: 700; border-top: 1px solid var(--border); background: #0f1625; position: sticky; bottom: 0; }
+  td.num, th.num { text-align: right; font-family: 'JetBrains Mono', monospace; }
+  td.m { font-family: 'JetBrains Mono', monospace; }
+  td.largo { max-width: 300px; overflow: hidden; text-overflow: ellipsis; }
+  td.cnae { max-width: 330px; overflow: hidden; text-overflow: ellipsis; }
+  .falta { color: var(--orange); font-weight: 600; }
+  .tag { font-size: 0.6rem; font-weight: 700; padding: 1px 5px; border-radius: 4px; margin-left: 6px; vertical-align: 1px; letter-spacing: .03em; }
+  .tag.novo { color: var(--green); background: rgba(52,211,153,.14); }
+  .tag.base { color: var(--c-roxo); background: rgba(167,139,250,.14); }
+  .tag.manual { color: var(--yellow); background: rgba(251,191,36,.14); }
+  .vazio { padding: 40px 20px; text-align: center; color: var(--text-dim); font-size: 0.84rem; }
+
+  .regra { margin-top: 22px; padding: 14px 16px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface); font-size: 0.78rem; line-height: 1.75; color: var(--text-dim); display: grid; grid-template-columns: 1fr 1fr; gap: 4px 28px; }
+  .regra b { color: var(--text); }
+  .rodape { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 12px; font-size: 0.74rem; color: var(--text-dim); }
+
+  /* modal */
+  .modal { position: fixed; inset: 0; background: rgba(2,6,15,.65); z-index: 960; display: flex; align-items: flex-start; justify-content: center; padding: 10vh 16px 16px; }
+  .modal .caixa { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 20px; width: min(540px, 100%); animation: entra .18s ease; }
+  .modal h3 { font-size: 1.05rem; margin-bottom: 6px; }
+  .modal .nota { font-size: 0.82rem; color: var(--text-dim); line-height: 1.6; }
+  .modal .nota ul { margin: 8px 0 0 18px; }
+  .modal .acoes { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; margin-top: 16px; }
+  .soltar { border: 2px dashed var(--border); border-radius: 10px; padding: 22px; text-align: center; color: var(--text-dim); font-size: 0.82rem; margin: 12px 0 0; cursor: pointer; transition: all .15s; }
+  .soltar:hover, .soltar.sobre { border-color: var(--accent); color: var(--accent); background: rgba(56,189,248,.05); }
+
+  .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: #0f1a2e; border: 1px solid var(--accent); color: var(--text); padding: 9px 16px; border-radius: 9px; font-size: 0.8rem; z-index: 999; box-shadow: 0 8px 24px rgba(0,0,0,.4); max-width: calc(100vw - 32px); }
+  .toast.erro { border-color: var(--red); }
+
+  @media (max-width: 1100px) { .kpis { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 760px) {
+    .dashboard { padding: 14px 16px; }
+    .kpis { grid-template-columns: repeat(2, 1fr); }
+    .al { grid-template-columns: 1fr; }
+    .al .lado { align-items: stretch; min-width: 0; }
+    .busca { min-width: 0; flex: 1 1 100%; margin-left: 0; }
+    .regra, .passos { grid-template-columns: 1fr; }
+    .estado { justify-content: flex-start; }
+    .estado .bx { text-align: left; }
+  }
+</style>
+</head>
+<body>
+<div class="dashboard">
+  <div class="top-bar">
+    <div>
+      <h1>Fechamento Autônomos</h1>
+      <div class="meta" id="meta">A planilha mensal dos autônomos PF e PJ para a contabilidade</div>
+    </div>
+    <div class="acoes-topo">
+      <select class="mes" id="selMes" title="Mês do fechamento" hidden></select>
+      <button class="btn-sm" id="btnAtualizar" title="Ler o Power BI de novo" hidden>↻ Atualizar</button>
+      <button class="btn-sm primary" id="btnBaixar" hidden>⬇ Baixar planilha</button>
+      <span data-nav-menu data-nav-style="btn-anchor" data-nav-active="fechamento_autonomos"></span>
+    </div>
+  </div>
+  <div id="erro" class="erro" hidden></div>
+  <div id="vista"><div class="carregando"><div class="spinner"></div>Lendo o 073, o 046 e o 477 no Power BI…</div></div>
+</div>
+
+<div class="modal" id="modalBases" hidden>
+  <div class="caixa">
+    <h3>Atualizar as bases</h3>
+    <div class="nota">Anexe uma planilha de fechamento antiga, do jeito que foi para a contabilidade. Eu leio só duas abas:
+      <ul>
+        <li><b>BASE TIPO EMPRESA</b> — o CNAE de cada CNPJ. O que já foi consultado na Receita ou digitado aqui continua valendo.</li>
+        <li><b>BASE PIS</b> — PIS e nascimento por nome, para quem não está certo no 046 (e para as RPA).</li>
+      </ul></div>
+    <div class="soltar" id="soltarModal">Arraste a planilha aqui ou clique para escolher</div>
+    <div class="acoes"><button class="btn-sm" id="btnFecharBases">Fechar</button></div>
+  </div>
+</div>
+
+<div class="modal" id="modalBaixar" hidden>
+  <div class="caixa">
+    <h3 id="baixarTitulo"></h3>
+    <div class="nota" id="baixarNota"></div>
+    <div class="acoes">
+      <button class="btn-sm" id="btnVoltarResolver">Voltar e resolver</button>
+      <button class="btn-sm primary" id="btnBaixarMesmo">Baixar assim mesmo</button>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="arq" accept=".xlsx,.xlsm" hidden>
+<div class="toast" id="toast" hidden></div>
+
+<script src="/nav-perms.js"></script>
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var S = { mes: null, f: null, bases: null, meses: [], aba: 'contrato', busca: '', marcado: null, carregando: false };
+
+  var NIVEL = {
+    acao:    { cor: 'laranja', rot: 'Resolver' },
+    atencao: { cor: 'vermelho', rot: 'Atenção' },
+    info:    { cor: 'azul', rot: 'Resolvido sozinho' }
+  };
+
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function n2(v) { return (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+  function brl(v) { return 'R$ ' + n2(v); }
+  function brlCurto(v) {
+    v = Number(v) || 0;
+    if (v >= 1e6) return 'R$ ' + (v / 1e6).toLocaleString('pt-BR', { maximumFractionDigits: 2 }) + ' mi';
+    if (v >= 1e4) return 'R$ ' + (v / 1e3).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' mil';
+    return brl(v);
+  }
+  function inteiro(v) { return (Number(v) || 0).toLocaleString('pt-BR'); }
+  function dmy(iso) { return iso ? iso.slice(8, 10) + '/' + iso.slice(5, 7) + '/' + iso.slice(0, 4) : ''; }
+  function dmyh(iso) { return iso ? dmy(iso) + (iso.length > 10 ? ' ' + iso.slice(11, 16) : '') : ''; }
+  function plural(n, um, varios) { return inteiro(n) + ' ' + (n === 1 ? um : varios); }
+  function cor(c) { return 'var(--c-' + c + ')'; }
+  function soDig(s) { return String(s || '').replace(/\D/g, ''); }
+  function cpfOk(s) {
+    if (s.length !== 11 || /^(\d)\1+$/.test(s)) return false;
+    for (var n = 9; n <= 10; n++) {
+      var t = 0; for (var i = 0; i < n; i++) t += (+s[i]) * (n + 1 - i);
+      if (((t * 10) % 11) % 10 !== +s[n]) return false;
+    }
+    return true;
+  }
+  function docFmt(d) {
+    d = soDig(d);
+    var c = d.slice(-11);
+    if (/^0*$/.test(d.slice(0, -11)) && cpfOk(c)) return c.slice(0, 3) + '.' + c.slice(3, 6) + '.' + c.slice(6, 9) + '-' + c.slice(9);
+    if (d.length === 14) return d.slice(0, 2) + '.' + d.slice(2, 5) + '.' + d.slice(5, 8) + '/' + d.slice(8, 12) + '-' + d.slice(12);
+    return d;
+  }
+  function pisFmt(p) { p = soDig(p); return p.length === 11 ? p.slice(0, 3) + '.' + p.slice(3, 8) + '.' + p.slice(8, 10) + '-' + p.slice(10) : p; }
+  function pisOk(p) {
+    p = soDig(p);
+    if (p.length !== 11 || /^(\d)\1+$/.test(p) || p === '12345678900') return false;
+    var w = [3, 2, 9, 8, 7, 6, 5, 4, 3, 2], t = 0;
+    for (var i = 0; i < 10; i++) t += (+p[i]) * w[i];
+    var d = 11 - t % 11; if (d >= 10) d = 0;
+    return d === +p[10];
+  }
+  function toast(msg, ruim) {
+    var t = $('toast'); t.textContent = msg; t.className = 'toast' + (ruim ? ' erro' : ''); t.hidden = false;
+    clearTimeout(toast._t); toast._t = setTimeout(function () { t.hidden = true; }, ruim ? 7000 : 2800);
+  }
+  function erro(msg) { $('erro').textContent = msg || ''; $('erro').hidden = !msg; }
+  function api(url, opt) {
+    return fetch(url, Object.assign({ credentials: 'same-origin' }, opt || {})).then(function (r) {
+      return r.json().catch(function () { return { ok: false, error: 'HTTP ' + r.status }; });
+    });
+  }
+  function postJson(url, corpo) {
+    return api(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo || {}) });
+  }
+  function guardar(k, v) { try { localStorage.setItem('rizza.fechaut.' + k, v); } catch (e) {} }
+  function lembrar(k) { try { return localStorage.getItem('rizza.fechaut.' + k); } catch (e) { return null; } }
+
+  // ── carga ──
+  function carregar(forcar, silencioso) {
+    if (S.carregando) return;
+    S.carregando = true;
+    erro('');
+    if (!silencioso) {
+      $('vista').innerHTML = '<div class="carregando"><div class="spinner"></div>Lendo o 073, o 046 e o 477 no Power BI…' +
+        '<span style="font-size:.76rem">Na primeira vez do mês, os CNPJs novos são consultados na Receita — leva alguns segundos.</span></div>';
+    }
+    $('btnAtualizar').disabled = true;
+    var url = '/api/fechamento-autonomos?mes=' + encodeURIComponent(S.mes || '') + (forcar ? '&forcar=1' : '');
+    return api(url).then(function (r) {
+      S.carregando = false;
+      $('btnAtualizar').disabled = false;
+      if (!r.ok) { erro(r.error || 'Falha ao carregar.'); if (!silencioso) $('vista').innerHTML = ''; return; }
+      S.f = r.fechamento; S.bases = r.bases; S.meses = r.meses; S.mes = r.fechamento.mes;
+      montarMeses();
+      render();
+    }).catch(function (e) {
+      S.carregando = false; $('btnAtualizar').disabled = false;
+      erro('Sem conexão com o servidor: ' + e);
+    });
+  }
+
+  function montarMeses() {
+    var sel = $('selMes');
+    sel.innerHTML = S.meses.map(function (m) {
+      return '<option value="' + m.mes + '"' + (m.mes === S.mes ? ' selected' : '') + '>' + esc(m.rot.charAt(0).toUpperCase() + m.rot.slice(1)) + '</option>';
+    }).join('');
+    if (!S.meses.some(function (m) { return m.mes === S.mes; })) {
+      sel.insertAdjacentHTML('afterbegin', '<option value="' + S.mes + '" selected>' + esc(S.f.mes_rotulo) + '</option>');
+    }
+  }
+
+  // ── tela ──
+  function render() {
+    var f = S.f, b = S.bases;
+    var pronta = !b.vazia;
+    $('selMes').hidden = !pronta; $('btnAtualizar').hidden = !pronta; $('btnBaixar').hidden = !pronta;
+    if (!pronta) { renderBoasVindas(); return; }
+    if (!f.abas[S.aba]) S.aba = 'contrato';
+    $('meta').textContent = 'Do Power BI (073 · 046 · 477), lido às ' + f.lido_em.slice(11) + ' de ' + f.lido_em.slice(0, 10);
+    var acao = f.alertas.filter(function (a) { return a.nivel === 'acao'; }).length;
+    $('btnBaixar').innerHTML = '⬇ Baixar planilha' + (acao ? ' <span class="mono" style="opacity:.75">· ' + acao + ' pendente' + (acao > 1 ? 's' : '') + '</span>' : '');
+
+    var h = '';
+    if (!f.tem_situacao) h += '<div class="faixa alerta">⚠ O Power BI está sem a coluna de situação do CTRB: os <b>cancelados</b> entraram na lista. Avise o Gabriel antes de enviar.</div>';
+    h += renderHero();
+    h += renderConferir();
+    h += '<div class="sec-titulo">O que vai na planilha<span class="lin"></span></div>';
+    h += '<div class="barra"><div class="abas" id="abas">' + f.colunas.map(function (c) {
+      return '<button data-aba="' + c.id + '" class="' + (c.id === S.aba ? 'on' : '') + '">' + esc(c.rot) +
+        ' <span class="c">' + inteiro(f.totais[c.id].n) + '</span></button>';
+    }).join('') + '</div><input class="busca" id="busca" placeholder="Buscar nome, CTRB, CPF/CNPJ…  ( / )" value="' + esc(S.busca) + '"></div>';
+    h += '<div class="tabela-box" id="tabela"></div>';
+    h += renderRegra();
+    h += '<div class="rodape"><span>Bases: <b class="mono">' + inteiro(b.cnae) + '</b> CNPJs com CNAE · <b class="mono">' + inteiro(b.pis) +
+      '</b> pessoas na BASE PIS' + (b.importado_em ? ' · planilha importada em ' + esc(b.importado_em) : '') + '</span>' +
+      '<button class="linkzinho" id="btnBases">Atualizar as bases com outra planilha</button></div>';
+    $('vista').innerHTML = h;
+    renderTabela();
+    ligar();
+  }
+
+  function renderBoasVindas() {
+    $('meta').textContent = 'A planilha mensal dos autônomos PF e PJ para a contabilidade';
+    $('vista').innerHTML =
+      '<div class="boas-vindas"><h2>Antes do primeiro fechamento</h2>' +
+      '<p>A planilha passa a sair pronta do sistema: contratos do 073, PIS e nascimento do 046, pedágio e RPA do 477. ' +
+      'O que o SSW não tem — o <b>CNAE</b> de cada empresa e o PIS de quem não está certo no 046 — eu aprendo uma vez ' +
+      'com a planilha que você já usa.</p>' +
+      '<div class="passos">' +
+      '<div class="passo"><span class="n">1</span><b>Anexe a planilha de outubro</b>A de fechamento, do jeito que foi para a contabilidade.</div>' +
+      '<div class="passo"><span class="n">2</span><b>Confira o mês</b>Eu mostro tudo antes, aba por aba, e só peço o que falta.</div>' +
+      '<div class="passo"><span class="n">3</span><b>Baixe e envie</b>O .xlsx sai com as mesmas abas de sempre, já preenchido.</div>' +
+      '</div>' +
+      '<div class="soltar-grande" id="soltarGrande"><div class="ic">📑</div><div class="t">Arraste a planilha de fechamento aqui</div>' +
+      '<div class="s">ou clique para escolher · uso só as abas BASE TIPO EMPRESA e BASE PIS, uma vez</div></div></div>';
+    zonaSoltar($('soltarGrande'));
+  }
+
+  function renderHero() {
+    var f = S.f, t = f.totais;
+    var ini = f.mes + '-01';
+    var ult = new Date(+f.mes.slice(0, 4), +f.mes.slice(5, 7), 0).getDate();
+    var bx;
+    if (f.mudancas) {
+      var m = f.mudancas, mud = m.cancelados.length + m.entraram.length + m.sumiram.length;
+      bx = '<div class="bx">Baixada por <b>' + esc(m.por) + '</b><br>em ' + esc(m.em) +
+        (mud ? '<br><span style="color:var(--orange)">mudou desde então</span>' : '<br>nada mudou desde então') + '</div>';
+    } else {
+      bx = '<div class="bx">Ainda não baixada<br>neste mês</div>';
+    }
+    var temAlerta = {};
+    f.alertas.forEach(function (a) {
+      if (a.nivel !== 'acao') return;
+      if (/^pis/.test(a.tipo)) temAlerta[a.rpa ? 'rpa' : 'fisico'] = 1;
+      if (/^cnae/.test(a.tipo)) temAlerta.juridico = 1;
+    });
+    var kp = f.colunas.map(function (c) {
+      var x = t[c.id];
+      return '<button class="kpi' + (c.id === S.aba ? ' on' : '') + (x.n ? '' : ' zero') + '" data-aba="' + c.id + '">' +
+        (temAlerta[c.id] ? '<span class="marca" title="Tem pendência"></span>' : '') +
+        '<div class="l">' + esc(c.rot) + '</div><div class="q">' + inteiro(x.n) + '</div>' +
+        '<div class="v">' + (x.n ? brlCurto(x.valor) : '—') + '</div></button>';
+    }).join('');
+    return '<div class="hero"><div class="hero-cab"><div><div class="t">' + esc(f.mes_rotulo) + '</div>' +
+      '<div class="s">' + plural(t.contrato.n, 'contrato', 'contratos') + ' de carreteiro emitidos de ' + dmy(ini).slice(0, 5) +
+      ' a ' + String(ult).padStart(2, '0') + '/' + f.mes.slice(5, 7) +
+      (f.cancelados_no_mes.length ? ' · ' + plural(f.cancelados_no_mes.length, 'cancelado ficou fora', 'cancelados ficaram fora') : '') +
+      '</div></div><div class="estado">' + bx + '</div></div><div class="kpis">' + kp + '</div></div>';
+  }
+
+  function renderConferir() {
+    var f = S.f;
+    var acao = f.alertas.filter(function (a) { return a.nivel !== 'info'; });
+    var info = f.alertas.filter(function (a) { return a.nivel === 'info' && a.tipo !== 'entrou_depois'; });
+    var entrou = f.alertas.filter(function (a) { return a.tipo === 'entrou_depois'; });
+    var nAcao = acao.filter(function (a) { return a.nivel === 'acao'; }).length;
+    var h = '<div class="sec-titulo">Conferir antes de enviar <span class="n' + (nAcao ? ' laranja' : '') + '">' + acao.length + '</span><span class="lin"></span></div>';
+    if (!acao.length) {
+      h += '<div class="faixa ok">✓ Nada pendente — os PIS e os CNAE estão todos preenchidos. Pode baixar e enviar.</div>';
+    }
+    h += acao.map(cartao).join('');
+    if (entrou.length) h += cartaoEntrou(entrou);
+    if (info.length) {
+      h += '<details class="resolvidos"' + (lembrar('resolvidos') === '1' ? ' open' : '') + ' id="detResolvidos"><summary><span class="seta">▶</span>' +
+        plural(info.length, 'caso resolvido sozinho', 'casos resolvidos sozinhos') + ' — só para você saber</summary>' + info.map(cartao).join('') + '</details>';
+    }
+    return h;
+  }
+
+  function chips(a) {
+    var l = (a.ctrbs && a.ctrbs.length) ? a.ctrbs : (a.ctrb ? [a.ctrb] : []);
+    if (!l.length) return '';
+    return '<div class="chips">' + l.slice(0, 12).map(function (c) {
+      return /^RPA/.test(c) ? '<span class="chip sem">' + esc(c) + '</span>'
+        : '<span class="chip" data-ir="' + esc(c) + '" title="Ver na tabela">' + esc(c) + '</span>';
+    }).join('') + (l.length > 12 ? '<span class="chip sem">+' + (l.length - 12) + '</span>' : '') + '</div>';
+  }
+
+  function cartao(a) {
+    var nv = NIVEL[a.nivel], quem = '', txt = '', lado = '';
+    if (a.doc) quem = esc(a.nome || '') + ' <span class="doc">' + esc(docFmt(a.doc)) + '</span>';
+    var k = esc(a.doc || a.ctrb || '');
+    switch (a.tipo) {
+      case 'pis_divergente':
+        txt = 'O PIS no cadastro do SSW (046) não bate com o da sua base. Escolha o certo — fica guardado para os próximos meses.';
+        lado = '<div class="seg">' +
+          '<button data-pis="' + esc(a.p046) + '" data-origem="046" data-doc="' + k + '">SSW (046)<small>' + esc(pisFmt(a.p046)) + '</small></button>' +
+          '<button data-pis="' + esc(a.pbase) + '" data-origem="base" data-doc="' + k + '">Sua base<small>' + esc(pisFmt(a.pbase)) + '</small></button></div>' +
+          '<button class="linkzinho" data-outro-pis="' + k + '">nenhum dos dois — digitar</button>' +
+          '<div class="entrada" data-entrada-pis="' + k + '" hidden><input placeholder="PIS (11 dígitos)" inputmode="numeric" maxlength="14"><button class="btn-sm" data-salvar-pis="' + k + '">Salvar</button></div>';
+        break;
+      case 'pis_falta':
+        txt = 'Sem PIS válido no 046' + (a.p046 ? ' (está <b class="mono">' + esc(a.p046) + '</b>)' : '') + ' e sem PIS na sua base. Digite o do cadastro (027) — fica guardado.';
+        lado = '<div class="entrada" data-entrada-pis="' + k + '"><input placeholder="PIS (11 dígitos)" inputmode="numeric" maxlength="14"><button class="btn-sm primary" data-salvar-pis="' + k + '">Salvar</button></div>';
+        break;
+      case 'cnae_falta':
+        txt = (a.nao_encontrado ? 'A consulta pública da Receita não trouxe o CNAE deste CNPJ.' : 'Este CNPJ ainda não tem CNAE na base.') +
+          (a.na_base ? ' A sua base antiga dizia <b>"' + esc(a.na_base) + '"</b>, que não é um CNAE.' : '') + ' Digite o CNAE principal — fica guardado.';
+        lado = '<div class="entrada" data-entrada-cnae="' + k + '"><input placeholder="49.30-2-02 - Transporte rodoviário de carga…"><button class="btn-sm primary" data-salvar-cnae="' + k + '">Salvar</button></div>' +
+          '<div class="mini-acoes"><button class="linkzinho" data-consultar="' + k + '">consultar na Receita de novo</button>' +
+          '<button class="linkzinho" data-copiar="' + esc(soDig(a.doc)) + '">copiar CNPJ</button></div>';
+        break;
+      case 'cnae_situacao':
+        txt = 'Na Receita, este CNPJ está <b>' + esc(a.situacao) + '</b>. O CNAE vai na planilha (' + esc(a.cnae) + '), mas vale avisar a contabilidade.';
+        break;
+      case 'cancelado_depois':
+        quem = '<span class="mono">' + esc(a.ctrb) + '</span>';
+        txt = 'Foi na planilha baixada em ' + esc(a.em) + ' e depois foi <b>cancelado no SSW</b>. Ele já saiu daqui — avise a contabilidade se a planilha já foi enviada.';
+        break;
+      case 'documento':
+        txt = 'O documento do proprietário não é um CPF nem um CNPJ válido. Ele foi para o Jurídico; confira o cadastro no 027.';
+        break;
+      case 'pis_046_invalido':
+        txt = 'O PIS do 046 ' + (a.p046 ? 'é inválido (<b class="mono">' + esc(a.p046) + '</b>)' : 'está vazio') + ' — usei o da sua base, <b class="mono">' + esc(pisFmt(a.pbase)) + '</b>. Vale corrigir o cadastro no 027.';
+        break;
+    }
+    return '<div class="al" style="--cor:' + cor(nv.cor) + '" data-alerta="' + esc(a.tipo + ':' + (a.doc || a.ctrb)) + '"><div>' +
+      '<div class="cab"><span class="pill">' + esc(nv.rot) + '</span>' + quem + (a.rpa ? ' <span class="pill" style="--cor:var(--c-roxo)">RPA</span>' : '') + '</div>' +
+      '<div class="txt">' + txt + '</div>' + chips(a) + '</div>' + (lado ? '<div class="lado">' + lado + '</div>' : '') + '</div>';
+  }
+
+  function cartaoEntrou(l) {
+    var tot = l.reduce(function (s, a) { return s + (a.vap || 0); }, 0);
+    return '<div class="al" style="--cor:' + cor('azul') + '"><div><div class="cab"><span class="pill">Novidade</span>' +
+      plural(l.length, 'CTRB entrou', 'CTRBs entraram') + ' depois do último download <span class="doc">' + brl(tot) + '</span></div>' +
+      '<div class="txt">Emitidos ou carregados depois de ' + esc(l[0].em) + '. Se a planilha já foi enviada, mande a nova.</div>' +
+      chips({ ctrbs: l.map(function (a) { return a.ctrb; }) }) + '</div></div>';
+  }
+
+  function renderRegra() {
+    return '<div class="regra">' +
+      '<div><b>Contratos</b> · CTRB de carreteiro emitido no mês (073), sem cancelado e sem CTRB da própria Rizza.</div>' +
+      '<div><b>Físico × Jurídico</b> · pelo documento: CPF vai para o Físico, CNPJ para o Jurídico.</div>' +
+      '<div><b>PIS e nascimento</b> · do cadastro do proprietário (046); a sua base cobre o que o 046 não tem.</div>' +
+      '<div><b>CNAE</b> · da sua base; CNPJ novo é consultado na Receita (BrasilAPI) — só o CNPJ sai daqui.</div>' +
+      '<div><b>Pedágio</b> · pedágio + vale-pedágio do CTRB. <b>Outros</b> · o campo "outros" do CTRB.</div>' +
+      '<div><b>RPA</b> · evento 5511 do 477 com a competência do mês; a emissão é a data do pagamento.</div></div>';
+  }
+
+  function linhasFiltradas() {
+    var l = S.f.abas[S.aba] || [], q = S.busca.trim().toUpperCase(), qd = soDig(q);
+    if (!q) return l;
+    return l.filter(function (r) {
+      return String(r.nome || '').toUpperCase().indexOf(q) >= 0 || String(r.ctrb || r.numlancto || '').toUpperCase().indexOf(q) >= 0 ||
+        (qd.length >= 4 && soDig(r.doc).indexOf(qd) >= 0) || String(r.cnae || '').toUpperCase().indexOf(q) >= 0;
+    });
+  }
+
+  function celula(r, c) {
+    var v = r[c.k];
+    switch (c.tipo) {
+      case 'r$': return '<td class="num">' + (v == null ? '' : n2(v)) + '</td>';
+      case 'dt': return '<td class="m">' + esc(dmyh(v)) + '</td>';
+      case 'd': return '<td class="m">' + (v ? esc(dmy(v)) : '<span class="dim">—</span>') + '</td>';
+      case 'doc': return '<td class="m">' + esc(docFmt(v)) + '</td>';
+      case 'pis':
+        if (!v) return '<td class="falta">falta</td>';
+        var o = r.pis_origem;
+        return '<td class="m">' + esc(pisFmt(v)) + (o === 'base' ? '<span class="tag base" title="Da sua base (o 046 não tinha um válido)">BASE</span>'
+          : o === 'manual' ? '<span class="tag manual" title="Digitado aqui">DIGITADO</span>' : '') + '</td>';
+    }
+    if (c.k === 'cnae') {
+      if (r.tipo === 'PF') return '<td class="dim">—</td>';
+      if (!v) return '<td class="falta">falta</td>';
+      return '<td class="cnae" title="' + esc(v) + '">' + esc(v) + (r.cnae_origem === 'receita' ? '<span class="tag novo" title="Consultado na Receita">RECEITA</span>' : r.cnae_origem === 'manual' ? '<span class="tag manual">DIGITADO</span>' : '') + '</td>';
+    }
+    if (c.k === 'nome') return '<td class="largo" title="' + esc(v) + '">' + esc(v) + (r.novo ? '<span class="tag novo" title="Primeiro CTRB desta empresa e CNAE fora da sua base">NOVO</span>' : '') + '</td>';
+    return '<td' + (c.k === 'ctrb' ? ' class="m"' : '') + '>' + esc(v) + '</td>';
+  }
+
+  function renderTabela() {
+    var spec = S.f.colunas.filter(function (c) { return c.id === S.aba; })[0];
+    var l = linhasFiltradas(), box = $('tabela');
+    if (!(S.f.abas[S.aba] || []).length) { box.innerHTML = '<div class="vazio">Nada nesta aba em ' + esc(S.f.mes_rotulo) + '.</div>'; return; }
+    if (!l.length) { box.innerHTML = '<div class="vazio">Nenhuma linha com "' + esc(S.busca) + '".</div>'; return; }
+    var h = '<table class="dados"><thead><tr>' + spec.cols.map(function (c) {
+      // O cabeçalho é o da planilha que vai para a contabilidade; na tela, o "(cnae principal)" só alarga a coluna.
+      return '<th class="' + (c.tipo === 'r$' ? 'num' : '') + '" title="' + esc(c.rot) + '">' + esc(c.rot.replace(/\s*\(cnae principal\)/i, '')) + '</th>';
+    }).join('') + '</tr></thead><tbody>';
+    h += l.map(function (r) {
+      var id = r.ctrb || ('RPA ' + r.numlancto);
+      return '<tr data-id="' + esc(id) + '"' + (S.marcado === id ? ' class="marcada"' : '') + '>' + spec.cols.map(function (c) { return celula(r, c); }).join('') + '</tr>';
+    }).join('');
+    h += '</tbody><tfoot><tr>' + spec.cols.map(function (c, i) {
+      if (i === 0) return '<td>' + plural(l.length, 'linha', 'linhas') + '</td>';
+      if (c.tipo === 'r$') return '<td class="num">' + n2(l.reduce(function (s, r) { return s + (r[c.k] || 0); }, 0)) + '</td>';
+      return '<td></td>';
+    }).join('') + '</tr></tfoot></table>';
+    box.innerHTML = h;
+    if (S.marcado) {
+      var tr = box.querySelector('tr.marcada');
+      if (tr) tr.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+  }
+
+  function trocarAba(id) {
+    S.aba = id; guardar('aba', id);
+    document.querySelectorAll('[data-aba]').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-aba') === id); });
+    renderTabela();
+  }
+
+  function irPara(ctrb) {
+    var achou = null;
+    ['fisico', 'juridico', 'contrato'].some(function (a) {
+      if ((S.f.abas[a] || []).some(function (r) { return r.ctrb === ctrb; })) { achou = a; return true; }
+    });
+    if (!achou) { toast(ctrb + ' não está na planilha deste mês.'); return; }
+    S.marcado = ctrb; S.busca = ''; $('busca').value = '';
+    trocarAba(achou);
+    $('tabela').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  // ── ações ──
+  function feito(el, msg) {
+    var c = el.closest('.al'); if (c) c.classList.add('feito');
+    toast(msg);
+    carregar(false, true);
+  }
+  function salvarPis(doc, pis, origem, el) {
+    if (!pisOk(pis)) { toast('Esse PIS não confere (dígito verificador).', true); return; }
+    el.disabled = true;
+    postJson('/api/fechamento-autonomos/pis', { doc: doc, pis: soDig(pis), origem: origem }).then(function (r) {
+      el.disabled = false;
+      if (!r.ok) { toast(r.error || 'Não salvou.', true); return; }
+      feito(el, 'PIS ' + pisFmt(r.pis) + ' guardado.');
+    });
+  }
+  function salvarCnae(doc, cnae, el) {
+    if (!/^\s*\d{2}\.?\d{2}-?\d-?\d{2}/.test(cnae)) { toast('Informe o CNAE como 49.30-2-02 (a descrição é opcional).', true); return; }
+    el.disabled = true;
+    postJson('/api/fechamento-autonomos/cnae', { doc: doc, cnae: cnae }).then(function (r) {
+      el.disabled = false;
+      if (!r.ok) { toast(r.error || 'Não salvou.', true); return; }
+      feito(el, 'CNAE guardado.');
+    });
+  }
+
+  function ligar() {
+    $('vista').onclick = function (ev) {
+      var t = ev.target.closest('button, .chip, [data-aba]');
+      if (!t) return;
+      if (t.hasAttribute('data-aba')) { trocarAba(t.getAttribute('data-aba')); if (t.classList.contains('kpi')) $('tabela').scrollIntoView({ behavior: 'smooth', block: 'nearest' }); return; }
+      if (t.hasAttribute('data-ir')) { irPara(t.getAttribute('data-ir')); return; }
+      if (t.hasAttribute('data-pis')) { salvarPis(t.getAttribute('data-doc'), t.getAttribute('data-pis'), t.getAttribute('data-origem'), t); return; }
+      if (t.hasAttribute('data-outro-pis')) {
+        var e = document.querySelector('[data-entrada-pis="' + t.getAttribute('data-outro-pis') + '"]');
+        e.hidden = false; e.querySelector('input').focus(); t.hidden = true; return;
+      }
+      if (t.hasAttribute('data-salvar-pis')) {
+        var doc = t.getAttribute('data-salvar-pis');
+        salvarPis(doc, document.querySelector('[data-entrada-pis="' + doc + '"] input').value, 'manual', t); return;
+      }
+      if (t.hasAttribute('data-salvar-cnae')) {
+        var d2 = t.getAttribute('data-salvar-cnae');
+        salvarCnae(d2, document.querySelector('[data-entrada-cnae="' + d2 + '"] input').value, t); return;
+      }
+      if (t.hasAttribute('data-consultar')) {
+        var d3 = t.getAttribute('data-consultar');
+        t.disabled = true; t.textContent = 'consultando…';
+        postJson('/api/fechamento-autonomos/cnae', { doc: d3, consultar: true }).then(function (r) {
+          if (!r.ok) { t.disabled = false; t.textContent = 'consultar na Receita de novo'; toast(r.error, true); return; }
+          carregar(false, true).then(function () {
+            var ainda = S.f.alertas.some(function (a) { return a.tipo === 'cnae_falta' && a.doc === d3; });
+            toast(ainda ? 'A Receita respondeu, mas sem CNAE para esse CNPJ. Digite o CNAE.' : 'CNAE encontrado na Receita.', ainda);
+          });
+        });
+        return;
+      }
+      if (t.hasAttribute('data-copiar')) {
+        var v = t.getAttribute('data-copiar');
+        (navigator.clipboard ? navigator.clipboard.writeText(v) : Promise.reject()).then(function () { toast('CNPJ ' + v + ' copiado.'); },
+          function () { toast('CNPJ: ' + v); });
+        return;
+      }
+      if (t.id === 'btnBases') { $('modalBases').hidden = false; }
+    };
+    $('vista').onkeydown = function (ev) {
+      if (ev.key !== 'Enter' || ev.target.tagName !== 'INPUT') return;
+      var b = ev.target.parentNode.querySelector('button'); if (b) b.click();
+    };
+    $('busca').oninput = function () { S.busca = this.value; S.marcado = null; renderTabela(); };
+    var det = $('detResolvidos');
+    if (det) det.ontoggle = function () { guardar('resolvidos', det.open ? '1' : '0'); };
+  }
+
+  // ── bases ──
+  function zonaSoltar(el) {
+    el.onclick = function () { $('arq').click(); };
+    el.ondragover = function (e) { e.preventDefault(); el.classList.add('sobre'); };
+    el.ondragleave = function () { el.classList.remove('sobre'); };
+    el.ondrop = function (e) { e.preventDefault(); el.classList.remove('sobre'); if (e.dataTransfer.files[0]) enviarBases(e.dataTransfer.files[0], el); };
+  }
+  function enviarBases(arq, el) {
+    var antes = el.innerHTML;
+    el.innerHTML = '<div class="carregando" style="padding:10px"><div class="spinner"></div>Lendo ' + esc(arq.name) + '…</div>';
+    var fd = new FormData(); fd.append('arquivo', arq);
+    api('/api/fechamento-autonomos/bases', { method: 'POST', body: fd }).then(function (r) {
+      el.innerHTML = antes;
+      if (!r.ok) { toast(r.error || 'Não consegui ler a planilha.', true); return; }
+      $('modalBases').hidden = true;
+      toast('Bases importadas: ' + inteiro(r.cnae) + ' CNPJs e ' + inteiro(r.pis) + ' pessoas.');
+      carregar(false, false);
+    });
+  }
+  $('arq').onchange = function () {
+    var a = this.files[0]; this.value = '';
+    if (a) enviarBases(a, $('modalBases').hidden ? ($('soltarGrande') || $('soltarModal')) : $('soltarModal'));
+  };
+  zonaSoltar($('soltarModal'));
+  $('btnFecharBases').onclick = function () { $('modalBases').hidden = true; };
+
+  // ── download ──
+  function baixar() {
+    $('modalBaixar').hidden = true;
+    var b = $('btnBaixar'), rot = b.innerHTML;
+    b.disabled = true; b.innerHTML = '<span class="spin"></span> Gerando…';
+    fetch('/api/fechamento-autonomos/xlsx?mes=' + encodeURIComponent(S.mes), { credentials: 'same-origin' }).then(function (r) {
+      var tipo = r.headers.get('Content-Type') || '';
+      if (!r.ok || tipo.indexOf('json') >= 0) return r.json().then(function (j) { throw new Error(j.error || ('HTTP ' + r.status)); });
+      var nome = (r.headers.get('Content-Disposition') || '').match(/filename\*?=(?:UTF-8'')?"?([^";]+)/i);
+      return r.blob().then(function (bl) { return { bl: bl, nome: nome ? decodeURIComponent(nome[1]) : 'fechamento.xlsx' }; });
+    }).then(function (x) {
+      var a = document.createElement('a'); a.href = URL.createObjectURL(x.bl); a.download = x.nome;
+      document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+      b.disabled = false; b.innerHTML = rot;
+      toast('Planilha baixada: ' + x.nome);
+      carregar(false, true);
+    }).catch(function (e) { b.disabled = false; b.innerHTML = rot; toast('Não gerou a planilha: ' + e.message, true); });
+  }
+  $('btnBaixar').onclick = function () {
+    var acao = S.f.alertas.filter(function (a) { return a.nivel === 'acao'; });
+    if (!acao.length) { baixar(); return; }
+    $('baixarTitulo').textContent = 'Ainda há ' + plural(acao.length, 'pendência', 'pendências');
+    $('baixarNota').innerHTML = 'Elas vão listadas na aba <b>CONFERIR</b> da planilha, e as células ficam em branco:<ul>' +
+      acao.slice(0, 6).map(function (a) { return '<li>' + esc(a.nome || a.ctrb) + ' — ' + (/^pis/.test(a.tipo) ? 'PIS' : 'CNAE') + '</li>'; }).join('') +
+      (acao.length > 6 ? '<li>e mais ' + (acao.length - 6) + '</li>' : '') + '</ul>';
+    $('modalBaixar').hidden = false;
+  };
+  $('btnBaixarMesmo').onclick = baixar;
+  $('btnVoltarResolver').onclick = function () {
+    $('modalBaixar').hidden = true;
+    var c = document.querySelector('.al'); if (c) c.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+
+  $('selMes').onchange = function () { S.mes = this.value; S.marcado = null; S.busca = ''; carregar(false, false); };
+  $('btnAtualizar').onclick = function () { carregar(true, false); };
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { $('modalBases').hidden = true; $('modalBaixar').hidden = true; }
+    if (e.key === '/' && document.activeElement.tagName !== 'INPUT' && $('busca')) { e.preventDefault(); $('busca').focus(); }
+  });
+  document.querySelectorAll('.modal').forEach(function (m) { m.onclick = function (e) { if (e.target === m) m.hidden = true; }; });
+
+  S.aba = lembrar('aba') || 'contrato';
+  carregar(false, false);
+})();
+</script>
+</body>
+</html>
