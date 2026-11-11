@@ -314,7 +314,8 @@
   function montarMeses() {
     var sel = $('selMes');
     sel.innerHTML = S.meses.map(function (m) {
-      return '<option value="' + m.mes + '"' + (m.mes === S.mes ? ' selected' : '') + '>' + esc(m.rot.charAt(0).toUpperCase() + m.rot.slice(1)) + '</option>';
+      return '<option value="' + m.mes + '"' + (m.mes === S.mes ? ' selected' : '') + '>' + esc(m.rot.charAt(0).toUpperCase() + m.rot.slice(1)) +
+        (m.andamento ? ' · em andamento' : '') + '</option>';
     }).join('');
     if (!S.meses.some(function (m) { return m.mes === S.mes; })) {
       sel.insertAdjacentHTML('afterbegin', '<option value="' + S.mes + '" selected>' + esc(S.f.mes_rotulo) + '</option>');
@@ -333,7 +334,11 @@
     $('btnBaixar').innerHTML = '⬇ Baixar planilha' + (acao ? ' <span class="mono" style="opacity:.75">· ' + acao + ' pendente' + (acao > 1 ? 's' : '') + '</span>' : '');
 
     var h = '';
-    if (!f.tem_situacao) h += '<div class="faixa alerta">⚠ O Power BI está sem a coluna de situação do CTRB: os <b>cancelados</b> entraram na lista. Avise o Gabriel antes de enviar.</div>';
+    if (emAndamento()) {
+      h += '<div class="faixa info">⏳ <span><b>Mês em andamento.</b> Os números mudam até o mês fechar — dá para ir resolvendo os CNAE e os PIS que aparecerem. ' +
+        'A planilha para a contabilidade sai depois do dia ' + ultimoDia() + '.</span></div>';
+    }
+    if (!f.tem_situacao) h +='<div class="faixa alerta">⚠ O Power BI está sem a coluna de situação do CTRB: os <b>cancelados</b> entraram na lista. Avise o Gabriel antes de enviar.</div>';
     h += renderHero();
     h += renderConferir();
     h += '<div class="sec-titulo">O que vai na planilha<span class="lin"></span></div>';
@@ -350,6 +355,9 @@
     renderTabela();
     ligar();
   }
+
+  function emAndamento() { return S.meses.some(function (m) { return m.andamento && m.mes === S.mes; }); }
+  function ultimoDia() { return String(new Date(+S.mes.slice(0, 4), +S.mes.slice(5, 7), 0).getDate()).padStart(2, '0') + '/' + S.mes.slice(5, 7); }
 
   function renderBoasVindas() {
     $('meta').textContent = 'A planilha mensal dos autônomos PF e PJ para a contabilidade';
@@ -395,7 +403,7 @@
     }).join('');
     return '<div class="hero"><div class="hero-cab"><div><div class="t">' + esc(f.mes_rotulo) + '</div>' +
       '<div class="s">' + plural(t.contrato.n, 'contrato', 'contratos') + ' de carreteiro emitidos de ' + dmy(ini).slice(0, 5) +
-      ' a ' + String(ult).padStart(2, '0') + '/' + f.mes.slice(5, 7) +
+      (emAndamento() ? ' até hoje' : ' a ' + String(ult).padStart(2, '0') + '/' + f.mes.slice(5, 7)) +
       (f.cancelados_no_mes.length ? ' · ' + plural(f.cancelados_no_mes.length, 'cancelado ficou fora', 'cancelados ficaram fora') : '') +
       '</div></div><div class="estado">' + bx + '</div></div><div class="kpis">' + kp + '</div></div>';
   }
@@ -408,7 +416,8 @@
     var nAcao = acao.filter(function (a) { return a.nivel === 'acao'; }).length;
     var h = '<div class="sec-titulo">Conferir antes de enviar <span class="n' + (nAcao ? ' laranja' : '') + '">' + acao.length + '</span><span class="lin"></span></div>';
     if (!acao.length) {
-      h += '<div class="faixa ok">✓ Nada pendente — os PIS e os CNAE estão todos preenchidos. Pode baixar e enviar.</div>';
+      h += '<div class="faixa ok">✓ ' + (emAndamento() ? 'Nada pendente até agora — os PIS e os CNAE do mês estão preenchidos.'
+        : 'Nada pendente — os PIS e os CNAE estão todos preenchidos. Pode baixar e enviar.') + '</div>';
     }
     h += acao.map(cartao).join('');
     if (entrou.length) h += cartaoEntrou(entrou);

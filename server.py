@@ -2058,12 +2058,14 @@ def api_fechamento_autonomos():
     except Exception as e:
         return jsonify({'ok': False, 'error': f'Não consegui ler o Power BI: {e}'}), 502
     hoje = _dtm.datetime.now(fa.BRT).date().replace(day=1)
+    # O mês corrente entra como "em andamento" (para ir resolvendo CNAE e PIS durante o mês); o padrão
+    # continua sendo o último mês fechado.
     meses = []
-    for i in range(1, 13):
+    for i in range(0, 13):
         a, m = hoje.year, hoje.month - i
         while m < 1:
             a, m = a - 1, m + 12
-        meses.append({'mes': f'{a:04d}-{m:02d}', 'rot': fa.rotulo_mes(f'{a:04d}-{m:02d}', True)})
+        meses.append({'mes': f'{a:04d}-{m:02d}', 'rot': fa.rotulo_mes(f'{a:04d}-{m:02d}', True), 'andamento': i == 0})
     return jsonify({'ok': True, 'fechamento': f, 'bases': bases, 'meses': meses,
                     'consulta_cnae': fa.CONSULTA_CNAE})
 
