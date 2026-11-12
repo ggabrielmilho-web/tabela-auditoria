@@ -1284,7 +1284,9 @@
     $('loteAplicar').disabled = true;
     marcar(Array.from(S.sel), campo, valor).then(function (ok) {
       $('loteAplicar').disabled = false;
-      if (ok) { S.sel = new Set(); rf.refresh(); renderLote(); montarValorLote(); }
+      // a seleção fica depois de aplicar (pedido de 12/11/2026: mudar a etapa e seguir no mesmo grupo).
+      // Linha que saiu da tela com a mudança (cartão/filtro da etapa antiga) sai da seleção no onView.
+      if (ok) { rf.refresh(); renderLote(); montarValorLote(); }
     });
   });
   $('loteLimpar').addEventListener('click', function () { S.sel = new Set(); rf.refresh(); renderLote(); });
