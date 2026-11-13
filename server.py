@@ -10568,6 +10568,13 @@ def api_rastreamento_posicoes():
         ) ca ON true
     """
 
+    # Placa que só a Insignia rastreia (terceiro) entra só enquanto está numa carga ativa (13/11/26).
+    # A regra de escopo do fontes_gps aceita todo cavalo que UM DIA puxou carga Terceiro, e ele nunca
+    # saía do mapa: em produção eram 145 placas da Insignia, 84 delas mudas há mais de 7 dias, inflando
+    # o total para 239. Só aqui no mapa — worker, robô e torre continuam lendo `atuais()` inteiro.
+    # `to_jsonb` porque a coluna `fonte` só existe com a Insignia ligada.
+    where.append("(to_jsonb(p)->>'fonte' IS DISTINCT FROM 'insignia' OR ca.id IS NOT NULL)")
+
     if carregado == '1':
         where.append("ca.id IS NOT NULL")
     elif carregado == '0':
