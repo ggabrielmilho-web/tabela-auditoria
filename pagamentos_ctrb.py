@@ -56,6 +56,7 @@ TIPOS_CASO = {
     'mesma_perna': 'Mesma perna em dois CTRBs',
     'reemissao': 'Reemissão com os dois pagos',
     'mesmo_ciot': 'Mesmo CIOT em dois CTRBs',
+    'dois_caminhoes': 'Mesmo CT-e em dois caminhões',
 }
 EXPLICA_CASO = {
     'trecho_hub': 'A carreta trocou de cavalo no caminho, mas o primeiro CTRB foi pago até o destino final — '
@@ -64,14 +65,16 @@ EXPLICA_CASO = {
     'mesma_perna': 'A mesma carga, na mesma rota, aparece em dois CTRBs pagos.',
     'reemissao': 'O CTRB foi refeito (mesma placa e rota) e os dois receberam.',
     'mesmo_ciot': 'Dois CTRBs com o mesmo CIOT — é o mesmo contrato de frete.',
+    'dois_caminhoes': 'Conjuntos diferentes fizeram a mesma rota com o mesmo CT-e, e um deles não tem carga própria no '
+                      'manifesto — confira se a carga foi mesmo dividida ou se o CT-e só foi manifestado duas vezes.',
 }
-PRIORIDADE_TIPO = ['mesmo_ciot', 'reemissao', 'sobre_frota', 'trecho_hub', 'mesma_perna']
+PRIORIDADE_TIPO = ['mesmo_ciot', 'reemissao', 'sobre_frota', 'trecho_hub', 'mesma_perna', 'dois_caminhoes']
 STATUS_CASO = {
     'pendente': 'Dá para segurar',
     'pago_2x': 'Pago duas vezes',
     'conferir': 'Conferir',
     'recuperado': 'Voltou',
-    'explicado': 'Explicado pelo GPS',
+    'explicado': 'Explicado',
     'um_recebeu': 'Só um recebeu',
 }
 ORDEM_STATUS = {'pendente': 0, 'pago_2x': 1, 'conferir': 2, 'recuperado': 3, 'explicado': 4, 'um_recebeu': 5}
@@ -220,7 +223,7 @@ def coletar(dax_op, dax_cont, desde=None, hoje=None, log=print):
         tarefas.append(('manifestos', dax_op, f"EVALUATE SELECTCOLUMNS(FILTER({M}, {M}[data_emissao] >= {i} && {M}[data_emissao] < {f}), "
                                               f"{_sel(M, [('man', 'CHAVE_MANIFESTO'), ('ctrb', 'CHAVE_CTRB'), ('os', 'numero_ctrb_os'), ('em', 'data_emissao')])})"))
         tarefas.append(('ponte', dax_op, f"EVALUATE SELECTCOLUMNS(FILTER({MC}, RELATED({M}[data_emissao]) >= {i} && RELATED({M}[data_emissao]) < {f}), "
-                                         f"{_sel(MC, [('man', 'CHAVE_MANIFESTO'), ('cte', 'CHAVE_CTRC')])})"))
+                                         f"{_sel(MC, [('man', 'CHAVE_MANIFESTO'), ('cte', 'CHAVE_CTRC'), ('peso', 'peso')])})"))
     for a, m in _meses(desde - timedelta(days=45), fim):
         i, f = _intervalo(a, m)
         tarefas.append(('ctes', dax_op, f"EVALUATE SELECTCOLUMNS(FILTER({CE}, {CE}[data_emissao] >= {i} && {CE}[data_emissao] < {f}), "
@@ -228,7 +231,8 @@ def coletar(dax_op, dax_cont, desde=None, hoje=None, log=print):
                                                     ('o_cid', 'cidade_origem_prestacao'), ('o_uf', 'uf_origem_prestacao'),
                                                     ('e_cid', 'cidade_entrega'), ('e_uf', 'uf_entrega'),
                                                     ('d_cid', 'cidade_destinatario'), ('d_uf', 'uf_destinatario'),
-                                                    ('fs', 'valor_frete_sem_icms'), ('pag', 'cliente_pagador')]) + ')'))
+                                                    ('fs', 'valor_frete_sem_icms'), ('pag', 'cliente_pagador'),
+                                                    ('pm', 'primeiro_manifesto'), ('peso', 'peso_real_kg')]) + ')'))
     for a, m in _meses(desde - timedelta(days=31), fim):
         tarefas.append(('p477', dax_op, f"EVALUATE SELECTCOLUMNS(FILTER({DZ}, {DZ}[evento] IN {{\"5101\",\"5102\"}} && {DZ}[mes_competencia] = \"{m:02d}/{a % 100:02d}\"), "
                                         + _sel(DZ, [('uni', 'uni'), ('lanc', 'numlancto'), ('parc', 'parcela'), ('ev', 'evento'),
@@ -364,8 +368,10 @@ def analisar(raw, emb=None, hoje=None, desde=None):
         for sig, num in _RE_MAN073.findall(str(c.get('man') or '')):
             man_do[k].add(doc(sig + num))
     ctes_do_man = defaultdict(set)
+    peso_no_man = {}
     for p in raw.get('ponte', []):
         ctes_do_man[doc(p['man'])].add(doc(p['cte']))
+        peso_no_man[(doc(p['man']), doc(p['cte']))] = n(p.get('peso'))
     cte = {doc(e['cte']): e for e in raw.get('ctes', []) if e.get('cte')}
     ctes_do = {k: {ce for m in man_do.get(k, ()) for ce in ctes_do_man.get(m, ())} for k in ctrb}
     ctrbs_do_cte = defaultdict(set)
@@ -444,11 +450,27 @@ def analisar(raw, emb=None, hoje=None, desde=None):
     # ── casos ────────────────────────────────────────────────────────────────────────────────────────
     casos = {}
 
-    def caso(ks, tipo, evid, cte_k=None):
+    def mesmo_conjunto(a, b):
+        """O mesmo caminhão: cavalo ou carreta em comum. Conjuntos diferentes são duas viagens de verdade."""
+        return (placa(a.get('cav')) and placa(a.get('cav')) == placa(b.get('cav'))) or \
+               (placa(a.get('car')) and placa(a.get('car')) == placa(b.get('car')))
+
+    def carga_propria(k):
+        """Os CT-e que são deste CTRB: os que nasceram num manifesto dele (o CT-e conta na viagem do manifesto em
+        que nasceu — a mesma regra da Ficha da viagem) ou que só ele leva. Um CT-e manifestado de novo noutro
+        caminhão (medido em 16/11/2026: UDI-FEC com o CT-e de outra carreta, peso cheio nos dois) não é carga."""
+        mans = man_do.get(k, set())
+        return {ce for ce in ctes_do.get(k, set())
+                if doc((cte.get(ce) or {}).get('pm')) in mans or ctrbs_do_cte.get(ce) == {k}}
+
+    def caso(ks, tipo, evid, cte_k=None, forte=True, nivel=None):
+        """nivel 2 = prova de pagamento em dobro; 1 = conferir; 0 = explicado (fica visível, sem alerta)."""
         ks = tuple(sorted(set(ks)))
         if len(ks) < 2:
             return
-        c = casos.setdefault('|'.join(ks), {'ctrbs': ks, 'tipos': set(), 'evid': [], 'ctes': set()})
+        nv = nivel if nivel is not None else (2 if forte else 1)
+        c = casos.setdefault('|'.join(ks), {'ctrbs': ks, 'tipos': set(), 'evid': [], 'ctes': set(), 'nivel': -1})
+        c['nivel'] = max(c['nivel'], nv)
         c['tipos'].add(tipo)
         for e in evid:
             if e and e not in c['evid']:
@@ -471,9 +493,31 @@ def analisar(raw, emb=None, hoje=None, desde=None):
             fr = [c for c in lst if c['_tipo'] == 'FROTA']
             if lg[0] == lg[1]:      # perna local (entrega/coleta na cidade): só conta com a mesma placa
                 pg = [c for c in pg if sum(1 for x in pg if placa(x.get('cav')) == placa(c.get('cav'))) >= 2]
-            if len(pg) >= 2:
-                caso([c['ctrb'] for c in pg], 'mesma_perna',
-                     [f"{len(pg)} CTRBs pagos na mesma rota {rot(pg[0])} para o CT-e {ce}"], ce)
+            # o mesmo caminhão pago duas vezes na mesma rota = pago em dobro; caminhões diferentes são duas viagens
+            # de verdade — só vira caso (para conferir) se um deles não tem carga própria no manifesto
+            for i, a in enumerate(pg):
+                for b in pg[i + 1:]:
+                    if mesmo_conjunto(a, b):
+                        caso([a['ctrb'], b['ctrb']], 'mesma_perna',
+                             [f"O mesmo conjunto ({a.get('cav')}/{a.get('car') or '—'}) pago duas vezes em {rot(a)} "
+                              f"para o CT-e {ce}"], ce)
+                    elif not carga_propria(a['ctrb']) or not carga_propria(b['ctrb']):
+                        sem = [x for x in (a, b) if not carga_propria(x['ctrb'])]
+                        pesos = ', '.join(f"{x.get('cav')}: {peso_no_man.get((m, ce), 0):,.0f} kg".replace(',', '.')
+                                          for x in (a, b) for m in sorted(man_do.get(x['ctrb'], ())) if (m, ce) in peso_no_man)
+                        caso([a['ctrb'], b['ctrb']], 'dois_caminhoes',
+                             [f"O CT-e {ce} está no manifesto de dois conjuntos diferentes em {rot(a)} ({pesos})",
+                              f"{', '.join(x['ctrb'] for x in sem)} não leva CT-e próprio: só este, que nasceu no "
+                              f"manifesto do outro"], ce, forte=False)
+                    else:
+                        # cada caminhão leva a própria carga: duas viagens de verdade, o CT-e só foi manifestado
+                        # duas vezes — fica visível como "explicado", com o contexto, sem alerta
+                        dono = next((x for x in (a, b) if doc((cte.get(ce) or {}).get('pm')) in man_do.get(x['ctrb'], ())), None)
+                        caso([a['ctrb'], b['ctrb']], 'dois_caminhoes',
+                             [f"O CT-e {ce} aparece no manifesto de dois conjuntos diferentes em {rot(a)}",
+                              (f"Ele nasceu no manifesto de {dono['ctrb']} ({dono.get('cav')}); " if dono else '')
+                              + 'cada caminhão leva a própria carga — é documento repetido, não viagem paga duas vezes'],
+                             ce, nivel=0)
             if pg and fr and lg[0] != lg[1]:
                 caso([c['ctrb'] for c in pg + fr], 'sobre_frota',
                      [f"O CT-e {ce} já estava no CTRB da frota {fr[0]['ctrb']} ({fr[0].get('cav')}) em {rot(fr[0])}"], ce)
@@ -506,9 +550,14 @@ def analisar(raw, emb=None, hoje=None, desde=None):
                     continue        # A foi pago só até o ponto de troca: está certo
                 decl = (f"{a['ctrb']} declarou {kd:,.0f} km carregado (até o destino final)".replace(',', '.')
                         if kd else f"{a['ctrb']} não declara o km na observação; o CTRB vai até o destino final")
+                # com a mesma carreta é a troca de cavalo no hub (o GPS mostra o desengate); com carretas e cavalos
+                # diferentes pode ser transbordo de parte da carga — fica para conferir
+                junto = mesmo_conjunto(a, b)
                 caso([a['ctrb'], b['ctrb']], 'trecho_hub',
                      [f"{a['ctrb']} paga {rot(a)} ({ka:,.0f} km)".replace(',', '.'), decl,
-                      f"{b['ctrb']} paga de novo {rot(b)} ({kb:,.0f} km)".replace(',', '.')], ce)
+                      f"{b['ctrb']} paga de novo {rot(b)} ({kb:,.0f} km)".replace(',', '.')]
+                     + ([] if junto else ['Os dois são de conjuntos diferentes (nem cavalo nem carreta em comum) — '
+                                          'pode ser transbordo de parte da carga']), ce, forte=junto)
 
     # mesma placa + mesma rota em pouco tempo (reemissão), mesmo sem o CT-e ligado
     por_cav = defaultdict(list)
@@ -612,6 +661,34 @@ def analisar(raw, emb=None, hoje=None, desde=None):
                     sob.append([a, b])
         return {'origem': O, 'destino': D, 'km_total': round(total), 'pernas': out, 'sobreposto': sob}
 
+    def contexto(ks):
+        """O quadro que decide o caso: CTRB → manifestos → CT-e, com o peso no manifesto, onde o CT-e nasceu e em
+        que outro CTRB do caso ele também está. É o que separa carga dividida de documento repetido."""
+        out = []
+        for k in ks:
+            c = ctrb[k]
+            proprios = carga_propria(k)
+            mans = []
+            for m in sorted(man_do.get(k, ())):
+                todos = sorted(ctes_do_man.get(m, ()))
+                itens = []
+                for ce in todos[:12]:
+                    e = cte.get(ce) or {}
+                    itens.append({'cte': ce, 'peso': _r2(peso_no_man.get((m, ce))), 'fs': _r2(e.get('fs')),
+                                  'nasceu_aqui': doc(e.get('pm')) == m, 'proprio': ce in proprios,
+                                  'pm': e.get('pm'), 'tambem_em': sorted(x for x in ctrbs_do_cte.get(ce, ()) if x != k and x in ks)})
+                mans.append({'man': m, 'ctes': itens, 'n': len(todos),
+                             'peso': _r2(sum(peso_no_man.get((m, ce), 0) for ce in todos))})
+            vistos, peso_prop = set(), 0.0
+            for m in man_do.get(k, ()):
+                for ce in ctes_do_man.get(m, ()):
+                    if ce in proprios and ce not in vistos:
+                        vistos.add(ce)
+                        peso_prop += peso_no_man.get((m, ce), 0)
+            out.append({'ctrb': k, 'cav': c.get('cav'), 'car': c.get('car'), 'tipo': c['_tipo'], 'manifestos': mans,
+                        'n_proprio': len(proprios), 'peso_proprio': _r2(peso_prop)})
+        return out
+
     lista_casos = []
     for chave, c in casos.items():
         ks = list(c['ctrbs'])
@@ -633,6 +710,8 @@ def analisar(raw, emb=None, hoje=None, desde=None):
         liquidos = [k for k in ks if por[k]['liquido'] > 1]
         vai_pagar = [k for k in ks if por[k]['liquido'] + por[k]['programado'] > 1]
         so_frota = c['tipos'] == {'sobre_frota'}
+        fraco = c['nivel'] == 1 and not so_frota
+        explicado = c['nivel'] == 0 and not so_frota
         frota_passou = any(ctrb[k]['_tipo'] == 'FROTA' and (emb.get(ctrb[k]['_base']) or {}).get('continua')
                            for k in ks)
         pago_terc = sum(por[k]['liquido'] + por[k]['programado'] for k in ks if ctrb[k]['_tipo'] != 'FROTA')
@@ -645,6 +724,12 @@ def analisar(raw, emb=None, hoje=None, desde=None):
                 status, excesso = 'conferir', pago_terc
             else:
                 status, excesso = 'um_recebeu', 0.0
+        elif explicado:
+            status, excesso = 'explicado', 0.0
+        elif fraco:
+            # só evidência fraca (caminhões diferentes): não é "pago em dobro" — é conferir, com o valor em jogo
+            status, excesso = (('conferir', min(por[k]['liquido'] + por[k]['programado'] for k in vai_pagar))
+                               if len(vai_pagar) >= 2 else ('um_recebeu', 0.0))
         elif any(por[k]['programado'] > 1 for k in ks) and len(vai_pagar) >= 2:
             status = 'pendente'
             excesso = min(por[k]['liquido'] + por[k]['programado'] for k in vai_pagar)
@@ -670,14 +755,22 @@ def analisar(raw, emb=None, hoje=None, desde=None):
                     txt += f" e seguiu na {ev['continua']}"
                 evid.append(txt)
         datas = [ctrb[k]['_em'] for k in ks if ctrb[k]['_em']]
+        explica = EXPLICA_CASO[tipo]
+        rg = regua(ks, ce)
+        if status == 'explicado':
+            rg['sobreposto'] = []          # não há trecho pago duas vezes para pintar
+            explica = ('A frota levou a carreta até o ponto de troca e o agregado/terceiro seguiu com ela até o destino — '
+                       'o GPS mostra a troca. Não é pagamento em dobro.' if tipo == 'sobre_frota' else
+                       'Os dois caminhões fizeram a viagem, cada um com a própria carga; o CT-e de um deles só foi '
+                       'manifestado também no outro. Não é pagamento em dobro — veja o quadro manifesto × CTRB × CT-e.')
         lista_casos.append({
-            'chave': chave, 'tipo': tipo, 'tipo_texto': TIPOS_CASO[tipo], 'explica': EXPLICA_CASO[tipo],
+            'chave': chave, 'tipo': tipo, 'tipo_texto': TIPOS_CASO[tipo], 'explica': explica,
             'tipos': sorted(c['tipos'], key=PRIORIDADE_TIPO.index), 'status': status, 'status_texto': STATUS_CASO[status],
             'excesso': _r2(excesso), 'ctrbs': ks, 'cte': ce, 'por_ctrb': por, 'evidencias': list(dict.fromkeys(evid))[:8],
             'voltou': _r2(max(excesso_bruto - (excesso if status == 'pago_2x' else 0.0), 0.0))
             if status in ('pago_2x', 'recuperado') else 0.0,
             'emissao': min(datas).isoformat() if datas else None,
-            'regua': regua(ks, ce),
+            'regua': rg, 'contexto': contexto(ks),
         })
     lista_casos.sort(key=lambda x: (ORDEM_STATUS[x['status']], -(x['excesso'] or 0), x['emissao'] or ''))
     casos_do = defaultdict(list)
@@ -839,8 +932,10 @@ def _sinal_final(k, pacote, decis):
             motivos.insert(0, {'nivel': 'amarelo', 'cod': cs['tipo'], 'caso': ch,
                                'texto': f"{cs['tipo_texto']} ({outros}) — confira se fez a viagem"})
         elif cs['status'] == 'explicado':
-            motivos.append({'nivel': 'info', 'cod': cs['tipo'], 'caso': ch,
-                            'texto': f"A frota passou a carreta para este CTRB no caminho ({outros}) — o GPS mostra a troca"})
+            txt = (f"A frota passou a carreta para este CTRB no caminho ({outros}) — o GPS mostra a troca"
+                   if cs['tipo'] == 'sobre_frota' else
+                   f"O CT-e também está no manifesto de {outros}, mas cada caminhão leva a própria carga — documento repetido")
+            motivos.append({'nivel': 'info', 'cod': cs['tipo'], 'caso': ch, 'texto': txt})
         elif cs['status'] == 'recuperado':
             motivos.append({'nivel': 'info', 'cod': cs['tipo'], 'caso': ch,
                             'texto': f"{cs['tipo_texto']} com {outros} — o valor voltou"})
