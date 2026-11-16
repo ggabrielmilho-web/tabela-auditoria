@@ -48,6 +48,7 @@ RODADAS_GUARDADAS = 5
 JANELA_DUPLICADO_H = 36           # mesma placa + mesma rota em até 36 h = o mesmo serviço
 FOLGA_CAMINHO = 1.2               # B está no caminho de A quando km(A.origem→B.origem) + km(B) ≤ 1,2 × km(A)
 DIAS_DESCONTO = 120               # desconto em conta corrente procurado até 120 dias depois
+VERSAO_PACOTE = 3                 # sobe a cada mudança de regra: rodada de versão anterior é recalculada sozinha
 BRT = timedelta(hours=3)
 
 TIPOS_CASO = {
@@ -142,6 +143,7 @@ def ciot12(v):
 _RE_CTRB = re.compile(r'CTRB\s+([A-Z]{3})\s+0*(\d+)-(\d)')
 _RE_REEMITIDO = re.compile(r'BAIXADO PELA EMISSAO DE NOVO CTRB:\s*([A-Z]{3})\s*0*(\d+)-(\d)')
 _RE_DESC = re.compile(r'DESC\.?\s*(?:DE\s*)?R\$\s*([\d.]+,\d{2})')
+_RE_DESC_REF = re.compile(r'DESC(?:ONTO)?\.?\s*(?:DE\s*)?R\$\s*[\d.]+,\d{2}\s*(REF\.?\s*(?:A\s+)?(?:[A-Z]+ ?){1,6})?')
 _RE_MAN073 = re.compile(r'([A-Z]{3})(?:-[A-Z]{3})?\s+(\d{6}-\d)')
 
 
@@ -333,14 +335,8 @@ def coletar(dax_op, dax_cont, desde=None, hoje=None, log=print):
         futuros = [(nome, ex.submit(com_retentativa, fn, q)) for nome, fn, q in tarefas]
         for nome, fu in futuros:
             raw[nome].extend(fu.result())
-    # CTRB emitido antes da janela que ainda tem pagamento programado (saldo segurado há meses): o 477 o traz,
-    # o 073 da janela não — busca pelo número para a fila não mostrar "fora do BI" o que está no BI
-    tem = {c.get('ctrb') for c in raw['ctrbs']}
-    faltam = sorted({k for k in (ctrb_do_texto(p.get('h')) for p in raw['p477'] if (p.get('sit') or '').upper() != 'LIQU')
-                     if k and k not in tem})
-    for i in range(0, len(faltam), 150):
-        lista = ', '.join(f'"{k}"' for k in faltam[i:i + 150])
-        raw['ctrbs'].extend(com_retentativa(dax_op, f"EVALUATE SELECTCOLUMNS(FILTER({OS}, {OS}[ctrb] IN {{{lista}}}), {_sel(OS, cols_os)})"))
+    # CTRB emitido antes de DESDE não entra no painel (pedido do usuário em 16/11/2026: "o painel é de janeiro até
+    # hoje") — por isso não se busca mais o 073 dos CTRBs antigos que o 477 ainda traz com saldo segurado
     log(f'pagamentos_ctrb: lido do BI — ' + ', '.join(f'{k} {len(v)}' for k, v in raw.items()))
     return dict(raw)
 
@@ -470,6 +466,7 @@ def analisar(raw, emb=None, hoje=None, desde=None):
 
     # 477: os pagamentos de cada CTRB
     pag = defaultdict(list)
+    incluido = {}       # 1ª inclusão no 477 por CTRB: a "emissão" de quem não está no 073
     for p in raw.get('p477', []):
         k = ctrb_do_texto(p.get('h'))
         if not k:
@@ -495,11 +492,21 @@ def analisar(raw, emb=None, hoje=None, desde=None):
         adiado_d = dias_adiado(venc, data_d, situ, hoje, aprov) if tp == 'saldo' else 0
         # o lote é a data que o financeiro marcou, quando ainda está por vir; data vencida e não remarcada = parado
         lote = data_d.isoformat() if (tp == 'saldo' and situ == 'programado' and data_d and data_d >= hoje) else None
+        inc = dia(p.get('inc'))
+        if inc and (k not in incluido or inc < incluido[k]):
+            incluido[k] = inc
         pag[k].append({'tipo': tp, 'valor': _r2(p.get('v')), 'situacao': situ,
                        'data': pg, 'venc': str(p.get('venc') or '')[:10], 'aprov': aprov.isoformat() if aprov else None,
                        'adiado': adiado, 'adiado_dias': adiado_d, 'lote': lote, 'quem': p.get('usu'),
                        'favorecido': (p.get('forn') or '').strip(), 'forma': p.get('forma'),
                        'lanc': f"{p.get('uni')}{p.get('lanc')}-{p.get('parc')}", 'banco': banco})
+
+    def no_periodo(k):
+        """O painel é dos CTRBs emitidos de DESDE até hoje. Fora do 073, vale a 1ª inclusão do pagamento no 477;
+        sem data nenhuma, fica de fora."""
+        c = ctrb.get(k)
+        d = (c['_em'].date() if c and c['_em'] else None) or incluido.get(k)
+        return d is not None and d >= desde
 
     def pago_477(k):
         return sum(x['valor'] for x in pag.get(k, []) if x['situacao'] == 'pago')
@@ -528,9 +535,13 @@ def analisar(raw, emb=None, hoje=None, desde=None):
         c['_compl'] = 'COMPLEMENT' in obs_up
         c['_ciot_erro'] = ciot_com_erro(c.get('ciot'))
         c['_ciot_ok'] = bool(ciot12(c.get('ciot'))) and not c['_ciot_erro']
-        c['_valor'] = n(c.get('liq')) or n(c.get('vp'))      # o que UMA viagem deste CTRB vale (líquido)
-        # CTRB de centavos (R$ 0,01) só formaliza a troca de cavalo — "pagamento feito no primeiro contrato"
-        c['_elegivel'] = (c['_ativo'] and c['_pago'] and c['_valor'] >= 50 and not c['_diaria'] and not c['_compl'])
+        # o que UMA viagem deste CTRB vale: o líquido ANTES do desconto em conta corrente (o desconto é dinheiro
+        # voltando de outra conta do proprietário, não é o valor do frete)
+        c['_valor'] = (n(c.get('liq')) + max(0.0, -n(c.get('ccf')))) if n(c.get('liq')) > 0 else n(c.get('vp'))
+        # CTRB de centavos (R$ 0,01) só formaliza a troca de cavalo — "pagamento feito no primeiro contrato"; e CTRB
+        # todo abatido na conta corrente não tem pagamento a repetir (o líquido decide se entra; o devido usa o bruto)
+        c['_elegivel'] = (c['_ativo'] and c['_pago'] and (n(c.get('liq')) or n(c.get('vp'))) >= 50
+                          and not c['_diaria'] and not c['_compl'])
 
     def mesmo_conjunto(a, b):
         """O mesmo caminhão: cavalo ou carreta em comum. Conjuntos diferentes são duas viagens de verdade."""
@@ -590,9 +601,16 @@ def analisar(raw, emb=None, hoje=None, desde=None):
             for i, a in enumerate(pg):
                 for b in pg[i + 1:]:
                     if mesmo_conjunto(a, b):
+                        # a mesma carreta com cavalos E donos diferentes: o sistema não diz qual cavalo levou —
+                        # é conferir com a operação (caso real de 16/11/2026), não cobrar de alguém
+                        outro_dono = (placa(a.get('cav')) != placa(b.get('cav')) and doc(a.get('prop_doc'))
+                                      and doc(b.get('prop_doc')) and doc(a.get('prop_doc')) != doc(b.get('prop_doc')))
                         caso([a['ctrb'], b['ctrb']], 'mesma_perna',
                              [f"O mesmo caminhão ({a.get('cav')}/{a.get('car') or '—'}) leva o CT-e {ce} em dois CTRBs "
-                              f"na rota {rot(a)}"], ce)
+                              f"na rota {rot(a)}" if not outro_dono else
+                              f"A mesma carreta ({a.get('car')}) leva o CT-e {ce} em dois CTRBs na rota {rot(a)}, com "
+                              f"cavalos e proprietários diferentes"], ce, forte=not outro_dono,
+                             meta={'outro_dono': True} if outro_dono else None)
                     elif not carga_propria(a['ctrb']) or not carga_propria(b['ctrb']):
                         sem = [x for x in (a, b) if not carga_propria(x['ctrb'])]
                         pesos = ', '.join(f"{x.get('cav')}: {peso_no_man.get((m, ce), 0):,.0f} kg".replace(',', '.')
@@ -711,10 +729,12 @@ def analisar(raw, emb=None, hoje=None, desde=None):
         if doc(c.get('prop_doc')) and c['_em']:
             por_prop[doc(c['prop_doc'])].append(c)
 
-    def desconto_provavel(k, valor):
+    def desconto_provavel(k, valor, excluir=()):
+        """Desconto do MESMO proprietário de k, num CTRB seguinte, com o valor parecido. `excluir`: os CTRBs do
+        próprio caso e os descontos já usados noutro caso (um desconto só acerta um caso)."""
         c = ctrb[k]
         for x in sorted(por_prop.get(doc(c.get('prop_doc')), []), key=lambda x: x['_em']):
-            if x['_em'] <= c['_em'] or (x['_em'] - c['_em']).days > DIAS_DESCONTO:
+            if x['ctrb'] in excluir or x['_em'] <= c['_em'] or (x['_em'] - c['_em']).days > DIAS_DESCONTO:
                 continue
             d = -n(x.get('ccf'))
             mm = _RE_DESC.search((x.get('obs') or '').upper())
@@ -794,30 +814,59 @@ def analisar(raw, emb=None, hoje=None, desde=None):
                         'n_proprio': len(proprios), 'peso_proprio': _r2(peso_prop)})
         return out
 
-    def programados_txt(k):
-        """'saldo R$ 500,00 (para 19/11) e adiantamento R$ 2.000,00 (parado desde 30/05)' — o que está no 477 sem sair."""
-        itens = []
-        for p in pag.get(k, []):
-            if p['situacao'] != 'programado':
-                continue
-            d = p.get('lote') or p.get('data')
-            quando = ((f"para {d[8:10]}/{d[5:7]}" if d >= hoje.isoformat() else f"parado desde {d[8:10]}/{d[5:7]}")
-                      if d else '')
-            itens.append(f"{p['tipo']} {brl(p['valor'])}" + (f" ({quando})" if quando else ''))
-        return ' e '.join(itens)
+    def quando_txt(p):
+        d = p.get('lote') or p.get('data')
+        if not d:
+            return ''
+        return f"para {d[8:10]}/{d[5:7]}" if d >= hoje.isoformat() else f"parado desde {d[8:10]}/{d[5:7]}"
 
-    def distribuir(ordem, total, por):
-        """Quanto segurar em cada CTRB: na ordem dada, até somar o total."""
-        hold, resta = {}, total
-        for k in ordem:
-            h = min(por[k]['programado'], resta)
-            if h > 0.5:
-                hold[k] = _r2(h)
-                resta -= h
-        return hold
+    def parcela(k, p):
+        """Uma parcela programada no 477, com tudo o que o financeiro precisa para achá-la."""
+        return {'ctrb': k, 'lanc': p['lanc'], 'tipo': p['tipo'], 'valor': p['valor'], 'quando': quando_txt(p),
+                'data': p.get('data'), 'aprovada': p.get('aprov'), 'dono': ctrb[k].get('prop')}
 
-    def narrar(tipo, status, ks, por, conta, meta, forte, hold, ce):
-        """'O que aconteceu' (frases curtas, só fatos) e 'O que fazer' (a ação, com CTRB e valor)."""
+    def parcela_txt(x):
+        return (f"{x['lanc']} ({x['tipo']} {brl(x['valor'])} do {x['ctrb']}" + (f", {x['quando']}" if x['quando'] else '')
+                + (f" — JÁ APROVADA em {x['aprovada'][8:10]}/{x['aprovada'][5:7]}" if x['aprovada'] else '')
+                + (f"; {x['nota']}" if x.get('nota') else '') + ')')
+
+    def o_que_vale(tipo, ks, meta):
+        """O CTRB certo pelo documento, e por quê: o refeito é o novo; na mesma viagem lançada duas vezes, o que tem a
+        carga (o manifesto onde o CT-e nasceu); empate → o GPS do Embarques (entregue × cancelada) → quem já recebeu."""
+        if meta.get('velho') and meta.get('novo') and tipo in ('ciot_substituido', 'reemissao'):
+            v, nv = meta['velho'], meta['novo']
+            return nv, (f"o {v} saiu com erro no CIOT e foi refeito como {nv}" if tipo == 'ciot_substituido' else
+                        f"o SSW diz que o {v} foi baixado pela emissão do {nv}")
+        if tipo in ('trecho_hub', 'sobre_frota', 'dois_caminhoes') or len(ks) != 2:
+            return None, ''
+        x, y = ks
+        cx, cy = bool(carga_propria(x)), bool(carga_propria(y))
+        if cx != cy:
+            vale, outro = (x, y) if cx else (y, x)
+            return vale, (f"a carga é dele — o CT-e nasceu no manifesto do {vale}; o {outro} só repetiu o CT-e"
+                          if man_do.get(outro) else f"é ele que tem o manifesto com a carga; o {outro} não tem manifesto")
+        gx, gy = ((emb.get(ctrb[k]['_base']) or {}).get('status') for k in (x, y))
+        if (gx == 'Entregue') != (gy == 'Entregue') and 'Cancelada' in (gx, gy):
+            vale = x if gx == 'Entregue' else y
+            return vale, f"no Embarques a carga do {vale} foi entregue e a do outro foi cancelada"
+        return None, ''
+
+    def escolher_cancelamento(cand, fixas, pago, devido, preferir):
+        """Quais parcelas inteiras cancelar para a viagem não passar do devido, cancelando o mínimo: entre as
+        combinações que cabem no devido, a que deixa sair mais; empate → a que cancela as do CTRB que não vale."""
+        alvo = devido - pago - sum(x['valor'] for x in fixas) + 1.0
+        melhor = None
+        for msk in range(1 << len(cand)):
+            canc = [cand[i] for i in range(len(cand)) if msk >> i & 1]
+            fica = sum(x['valor'] for x in cand) - sum(x['valor'] for x in canc)
+            cabe = fica <= alvo
+            chave = (cabe, fica if cabe else -fica, sum(1 for x in canc if x['ctrb'] in preferir), -len(canc))
+            if melhor is None or chave > melhor[0]:
+                melhor = (chave, canc)
+        return melhor[1] if melhor else []
+
+    def narrar(tipo, status, ks, por, conta, meta, forte, ce, plano):
+        """'O que aconteceu' (frases curtas, só fatos) e 'O que fazer' (a ação, com a parcela do 477 e o valor)."""
         nf = [k for k in ks if ctrb[k]['_tipo'] != 'FROTA']
         conj = lambda k: f"{ctrb[k].get('cav') or '—'}" + (f"/{ctrb[k].get('car')}" if ctrb[k].get('car') else '')
         gap = horas(ks[0], ks[-1])
@@ -847,6 +896,12 @@ def analisar(raw, emb=None, hoje=None, desde=None):
             fatos.append('É a mesma carreta: ela trocou de cavalo em ' + cidade_bonita(meta.get('meio')) +
                          ', mas o primeiro CTRB foi feito até o fim.' if forte else
                          'São conjuntos diferentes: pode ter havido transbordo de parte da carga.')
+        elif tipo == 'mesma_perna' and meta.get('outro_dono'):
+            fatos.append(f"A mesma carreta ({ctrb[ks[0]].get('car')}) está em {len(ks)} CTRBs na rota {rot(ctrb[ks[0]])}"
+                         + (f", com {gap_txt} de diferença" if gap_txt else '')
+                         + (f" e o mesmo CT-e {ce}" if ce else '') + ', mas com cavalos e proprietários diferentes: '
+                         + ' e '.join(f"{ctrb[k].get('cav')} ({ctrb[k].get('prop') or '—'}, {k})" for k in ks) + '.')
+            fatos.append('O sistema não diz qual cavalo levou a carga.')
         elif tipo == 'mesma_perna':
             fatos.append(f"O mesmo caminhão ({conj(ks[0])}) está em {len(ks)} CTRBs na rota {rot(ctrb[ks[0]])}"
                          + (f", com {gap_txt} de diferença" if gap_txt else '')
@@ -871,8 +926,21 @@ def analisar(raw, emb=None, hoje=None, desde=None):
             fatos.append(f"Os CTRBs {', '.join(ks)} de carreteiro têm o mesmo CIOT — o CIOT de carreteiro é de uma "
                          f"viagem só.")
         elif tipo == 'diaria_repetida':
-            fatos.append(f"A mesma diária (referente ao faturamento {meta.get('ref') or '—'}) foi lançada em {len(ks)} CTRBs, "
-                         f"para o mesmo motorista e com o mesmo valor.")
+            fatos.append(f"A mesma diária (referente ao faturamento {meta.get('ref') or '—'}) foi lançada em {len(ks)} "
+                         f"CTRBs, para o mesmo motorista e com o mesmo valor.")
+        vale = plano.get('vale')
+        if vale and len(ks) == 2:
+            outro = next(k for k in ks if k != vale)
+            gv, go = ((emb.get(ctrb[k]['_base']) or {}).get('status') for k in (vale, outro))
+            if gv == 'Cancelada' and go == 'Entregue':
+                fatos.append(f"No Embarques, a carga do {vale} foi cancelada e seguiu na do {outro}, que foi entregue — "
+                             f"na operação, o refeito foi o {outro}"
+                             + (f"; o dinheiro, porém, saiu todo pelo {vale}." if por[vale]['liquido'] >= (conta.get('devido') or 0) - 50 else '.'))
+        for k in nf:      # desconto em conta corrente já feito no próprio CTRB do caso
+            if n(ctrb[k].get('ccf')) < -1:
+                m = _RE_DESC_REF.search((ctrb[k].get('obs') or '').upper())
+                fatos.append(f"O {k} já teve {brl(-n(ctrb[k].get('ccf')))} descontados na conta corrente"
+                             + (f" (\"{m.group(1).strip().lower()}\")" if m and m.group(1) else '') + '.')
         fatos.append('Dinheiro: ' + ' · '.join(f"{k}: {estado_dinheiro(por[k], ctrb[k]['_tipo'] == 'FROTA')}"
                                                for k in ks) + '.')
         if conta.get('devido') is not None and status != 'um_recebeu':
@@ -886,60 +954,56 @@ def analisar(raw, emb=None, hoje=None, desde=None):
                              f"proporcional ao km)")
                 fatos.append(f"Devido: {parte} + o {b} {brl(ctrb[b]['_valor'])} = {brl(conta['devido'])}.")
             else:
-                fatos.append(f"Devido: {'uma diária' if tipo == 'diaria_repetida' else 'uma viagem'}, {brl(conta['devido'])}"
-                             + (f" — o valor do {novo}, o CTRB que vale" if tipo == 'ciot_substituido' else '') + '.')
+                fatos.append(f"Devido: {'uma diária' if tipo == 'diaria_repetida' else 'uma viagem'}, "
+                             f"{brl(conta['devido'])}.")
 
         # ── o que fazer ──
+        vale = plano.get('vale')
+        cancelar, liberar = plano.get('cancelar') or [], plano.get('liberar') or []
         quem = conta.get('quem')
         dono = (ctrb[quem].get('prop') if quem else None) or 'o proprietário'
-        liberar = {k: _r2(por[k]['programado'] - hold.get(k, 0)) for k in nf if por[k]['programado'] - hold.get(k, 0) > 1}
-
-        def lista_hold():
-            return '; '.join((f"{k} — {programados_txt(k)}" if h >= por[k]['programado'] - 1 else
-                              f"{k} — {brl(h)} de {programados_txt(k)}") for k, h in hold.items())
-
-        def lista_liberar():
-            return '; '.join(f"{k} {brl(v)}" for k, v in liberar.items())
-
         pagos_nf = [k for k in nf if por[k]['liquido'] > 1]
-        if status == 'pendente':
-            if conta['pago'] >= conta['devido'] - 50:
-                lead = (f"A viagem ({brl(conta['devido'])}) já saiu inteira"
-                        + (' somando os CTRBs' if len(pagos_nf) >= 2 else (f" pelo {pagos_nf[0]}" if pagos_nf else ''))
-                        + '. ')
+        lead = ''
+        if plano.get('vale_txt'):
+            lead = plano['vale_txt'] + ' '
+        elif tipo == 'trecho_hub' and a:
+            lead = (f"Os dois valem, cada um no seu trecho — o {a} só até {cidade_bonita(meta.get('meio'))}, mas foi "
+                    f"lançado até o fim. ")
+        if status in ('pendente', 'pago_2x'):
+            if conta['pago'] >= (conta['devido'] or 0) - 50:
+                lead += (f"A viagem ({brl(conta['devido'])}) já saiu inteira"
+                         + (' somando os CTRBs' if len(pagos_nf) >= 2 else (f" pelo {pagos_nf[0]}" if pagos_nf else ''))
+                         + '. ')
             else:
-                lead = f"Já saiu {brl(conta['pago'])} de {brl(conta['devido'])}. "
-            if velho and velho in hold:
-                lead += f"O {velho} não vale: foi refeito como {novo}. "
-            elif tipo == 'trecho_hub' and a:
-                lead += f"O {a} foi lançado até o fim, mas a carga trocou de cavalo em {cidade_bonita(meta.get('meio'))}. "
-            verbo = 'Cancelar' if (velho in hold and len(hold) == 1) else 'Segurar'
-            fazer = lead + f"{verbo} no 477: {lista_hold()}."
-            if tipo == 'trecho_hub' and b in hold:
-                fazer += f" O {b} é devido, mas é o mesmo proprietário: segurar desconta o que ele já recebeu a mais."
+                lead += f"Já saiu {brl(conta['pago'])} de {brl(conta['devido'])}. "
+        if status == 'pendente':
+            fazer = (lead + f"Cancelar no 477 {'a parcela' if len(cancelar) == 1 else 'as parcelas'}: "
+                     + '; '.join(parcela_txt(x) for x in cancelar) + '.')
             if liberar:
-                fazer += f" Pode sair (é devido): {lista_liberar()}."
+                fazer += (' Pode sair: ' + '; '.join(parcela_txt(x) for x in liberar)
+                          + (' — é do trecho dele.' if tipo == 'trecho_hub' else f" — {plano.get('sufixo')}."))
             if conta['cobrar'] > 50:
                 fazer += f" Mesmo assim ficam {brl(conta['cobrar'])} pagos a mais — cobrar ou descontar de {dono}."
         elif status == 'pago_2x':
-            fazer = f"Saíram {brl(conta['cobrar'])} a mais. Cobrar ou descontar de {dono} (próximo CTRB ou conta corrente)."
-            if tipo == 'trecho_hub' and a:
-                fazer += (f" O {a} foi pago pelo trajeto inteiro, mas a carga trocou de cavalo em "
-                          f"{cidade_bonita(meta.get('meio'))}.")
+            fazer = lead + f"Saíram {brl(conta['cobrar'])} a mais: cobrar ou descontar de {dono} (próximo CTRB ou conta corrente)."
             if liberar:
-                fazer += f" O que ainda está programado é devido: {lista_liberar()}."
+                fazer += ' O que ainda está programado é devido: ' + '; '.join(parcela_txt(x) for x in liberar) + '.'
         elif status == 'conferir':
-            o_que = {'trecho_hub': f"se houve transbordo de parte da carga em {cidade_bonita(meta.get('meio'))}",
-                     'dois_caminhoes': 'se os dois caminhões levaram carga',
-                     'sobre_frota': 'se o agregado/terceiro fez mesmo a viagem',
-                     'reemissao': 'se foram duas viagens',
-                     }.get(tipo, 'se foram duas viagens de verdade')
-            acoes = []
-            if hold:
-                acoes.append(f"segurar no 477: {lista_hold()}")
-            if conta['cobrar'] > 50:
-                acoes.append(f"cobrar {brl(conta['cobrar'])} de {dono}")
-            fazer = f"Confirmar com o operacional {o_que}." + (f" Se não, {' e '.join(acoes)}." if acoes else '')
+            if tipo == 'mesma_perna' and meta.get('outro_dono'):
+                fazer = (f"Confirmar com a operação qual cavalo levou a carga. O CTRB do outro não vale: cancelar as "
+                         f"parcelas programadas dele e cobrar o que ele já recebeu.")
+            else:
+                o_que = {'trecho_hub': f"se houve transbordo de parte da carga em {cidade_bonita(meta.get('meio'))}",
+                         'dois_caminhoes': 'se os dois caminhões levaram carga',
+                         'sobre_frota': 'se o agregado/terceiro fez mesmo a viagem',
+                         'reemissao': 'se foram duas viagens',
+                         }.get(tipo, 'se foram duas viagens de verdade')
+                acoes = []
+                if cancelar:
+                    acoes.append('cancelar no 477 ' + '; '.join(parcela_txt(x) for x in cancelar))
+                if conta['cobrar'] > 50:
+                    acoes.append(f"cobrar {brl(conta['cobrar'])} de {dono}")
+                fazer = f"Confirmar com a operação {o_que}." + (f" Se não, {' e '.join(acoes)}." if acoes else '')
         elif status == 'recuperado':
             fazer = f"Nada a fazer: {brl(conta['voltou'])} já voltou (estorno no banco ou desconto na conta corrente)."
         elif status == 'um_recebeu':
@@ -959,10 +1023,14 @@ def analisar(raw, emb=None, hoje=None, desde=None):
                      '(por exemplo, o adiantamento por um e o saldo pelo outro).')
         else:
             fazer = 'Nada a fazer: não é pagamento em dobro.'
-        return fatos, fazer
+        return fatos, fazer, lead.strip()
 
     lista_casos = []
-    for chave, c in casos.items():
+    descontos_usados = set()     # um desconto em conta corrente só acerta UM caso
+    ordem_casos = sorted(casos.items(), key=lambda it: min((ctrb[k]['_em'] or datetime.max) for k in it[1]['ctrbs']))
+    for chave, c in ordem_casos:
+        if not any(no_periodo(k) for k in c['ctrbs']):
+            continue
         ks = sorted(c['ctrbs'], key=lambda k: (ctrb[k]['_em'] or datetime.min, k))
         por = {}
         for k in ks:
@@ -978,77 +1046,115 @@ def analisar(raw, emb=None, hoje=None, desde=None):
         a, b = meta.get('a'), meta.get('b')
         velho = meta.get('velho') if tipo in ('ciot_substituido', 'reemissao') else None
         hub = bool(tipo == 'trecho_hub' and a in com_din and b in com_din and n(ctrb[a].get('km')))
+        vale, porque = o_que_vale(tipo, ks, meta)
+        nao_vale = [k for k in nf if vale and k != vale]
         # o DEVIDO: uma viagem (o maior valor); no hub, a parte de A até o ponto de troca (proporcional ao km) + B;
-        # no CTRB refeito por erro de CIOT, o valor do novo (o antigo nunca vale)
+        # no CTRB refeito, o valor do novo (o antigo nunca vale). O valor do CTRB é ANTES do desconto em conta
+        # corrente — o desconto já é dinheiro voltando (16/11/2026: "DESCONTO REF A QUEBRA DE CONTRATO")
         if hub:
             meta['parte_a'] = _r2(ctrb[a]['_valor'] * min(meta['k1'] / n(ctrb[a].get('km')), 1))
             devido = meta['parte_a'] + ctrb[b]['_valor']
         elif velho and meta.get('novo') in ctrb:
-            devido = ctrb[meta['novo']]['_valor']       # refeito: só o novo vale
+            devido = ctrb[meta['novo']]['_valor']
         else:
             devido = max((ctrb[k]['_valor'] for k in com_din), default=0.0)
+        # quem recebeu a mais: no hub, o A; no refeito, o antigo; na mesma viagem, o que não vale
+        quem = (a if hub else velho if velho and por[velho]['liquido'] > 1 else
+                (nao_vale[0] if nao_vale else (max(nf, key=lambda k: por[k]['liquido']) if nf else None)))
         pago = sum(por[k]['liquido'] for k in nf)
-        if pago - devido > 50 and len(com_din) >= 2:      # desconto em conta corrente que bate com o valor a mais
-            for k in sorted(nf, key=lambda k: por[k]['liquido']):
-                dsc = desconto_provavel(k, pago - devido)
-                if dsc:
-                    por[k]['desconto'] = dsc
-                    por[k]['liquido'] = _r2(por[k]['liquido'] - dsc['valor'])
-                    pago -= dsc['valor']
-                    break
+        if pago - devido > 50 and len(com_din) >= 2 and quem:
+            # desconto em conta corrente que bate com o valor a mais — do DONO de quem recebeu a mais, fora do caso
+            dsc = desconto_provavel(quem, pago - devido, excluir=set(ks) | descontos_usados)
+            if dsc:
+                descontos_usados.add(dsc['ctrb'])
+                por[quem]['desconto'] = dsc
+                por[quem]['liquido'] = _r2(por[quem]['liquido'] - dsc['valor'])
+                pago -= dsc['valor']
         bruto = sum(por[k]['liquidado'] - por[k]['ajuste'] for k in nf)
         prog = sum(por[k]['programado'] for k in nf)
-        vai_passar = pago + prog - devido
-        segurar = max(0.0, min(prog, vai_passar - max(pago - devido, 0.0)))
-        # QUEM segurar: o antigo refeito primeiro; no hub, o que foi lançado até o fim (o B fez o trecho dele —
-        # só entra se for o mesmo proprietário); senão, o que recebeu menos (o lançamento que completa a viagem sai)
+        # AS PARCELAS: o refeito que não vale cancela tudo; o resto escolhe parcelas INTEIRAS para não passar do
+        # devido. No hub, o B fez o trecho dele: as parcelas dele só entram se for o mesmo proprietário
+        programadas = [(k, p) for k in nf for p in pag.get(k, []) if p['situacao'] == 'programado']
+        forcadas = [parcela(k, p) for k, p in programadas if k == velho and (forte or tipo == 'ciot_substituido')]
         if hub:
             pa, pb = doc(ctrb[a].get('prop_doc')), doc(ctrb[b].get('prop_doc'))
-            ordem = [a] + ([b] if pa and pa == pb else [])
+            pode = {a} | ({b} if pa and pa == pb else set())
         else:
-            resto = sorted(reversed([k for k in nf if k != velho]), key=lambda k: por[k]['liquido'])
-            ordem = ([velho] if velho in nf else []) + resto
-        hold = distribuir(ordem, segurar, por)
-        if velho in nf and por[velho]['programado'] > 1 and (forte or tipo == 'ciot_substituido'):
-            hold[velho] = por[velho]['programado']      # o CTRB refeito não vale: cancela tudo o que tem programado
-        seg_tot = sum(hold.values())
+            pode = set(nf)
+        cand = [parcela(k, p) for k, p in programadas if k in pode and k != (velho if forcadas else None)]
+        fixas = [parcela(k, p) for k, p in programadas if k not in pode]
+        if len(cand) > 10:          # nunca visto; combinação grande demais — cancela tudo o que pode
+            canc = cand
+        else:
+            canc = escolher_cancelamento(cand, fixas, pago, devido,
+                                         set(nao_vale) | ({a} if hub else set()) | ({velho} if velho else set()))
+        cancelar = forcadas + canc
+        lancs = {x['lanc'] for x in cancelar}
+        liberar = [parcela(k, p) for k, p in programadas if p['lanc'] not in lancs]
+        # por que cancelar a parcela de quem VALE: aquele pagamento já saiu pelo outro CTRB
+        pagos_tipo = defaultdict(list)
+        for k in nf:
+            for p in pag.get(k, []):
+                if p['situacao'] == 'pago':
+                    pagos_tipo[p['tipo']].append(k)
+        for x in cancelar:
+            if hub and x['ctrb'] == b:
+                x['nota'] = 'é do trecho dele, mas é o mesmo proprietário: desconta o que ele recebeu a mais'
+            elif x['ctrb'] != velho and x['ctrb'] not in nao_vale and not (hub and x['ctrb'] == a):
+                outros = [k for k in pagos_tipo.get(x['tipo'], []) if k != x['ctrb']]
+                if outros:
+                    x['nota'] = f"o {x['tipo']} desta viagem já saiu pelo {outros[0]}"
+        vale_txt, sufixo = (f"Vale o {vale}: {porque}." if vale else ''), 'é do CTRB que vale'
+        if vale and not hub and any(x['ctrb'] == vale for x in cancelar) and any(x['ctrb'] != vale for x in liberar):
+            # a conta fecha cancelando a parcela do CTRB com a carga e deixando sair a do outro, por onde o
+            # pagamento já está correndo (caso real de 16/11/2026, os dois com o mesmo CIOT)
+            outro = next(x['ctrb'] for x in liberar if x['ctrb'] != vale)
+            vale_txt = (f"O pagamento desta viagem está correndo pelo {outro} — {brl(por[outro]['liquido'])} já saíram "
+                        f"por ele. O CT-e nasceu no {vale}, mas é cancelando a parcela do {vale} que a conta fecha "
+                        f"sem mexer em valor.")
+            sufixo = 'completa a viagem'
+        seg_tot = sum(x['valor'] for x in cancelar)
         cobrar = max(0.0, pago + prog - seg_tot - devido)
         voltou = max(0.0, min(bruto - devido, bruto - pago))
-        quem = a if hub else (velho if velho and por[velho]['liquido'] > 1 else
-                              max(nf, key=lambda k: por[k]['liquido']) if nf else None)
         so_frota = c['tipos'] == {'sobre_frota'}
         if so_frota:
             # O CTRB da frota não gera pagamento: o que se confere é se o agregado/terceiro fez mesmo a viagem —
             # e o GPS responde quando a frota largou a carreta para ele seguir.
             frota_passou = any(ctrb[k]['_tipo'] == 'FROTA' and (emb.get(ctrb[k]['_base']) or {}).get('continua')
                                for k in ks)
-            hold = {k: por[k]['programado'] for k in nf if por[k]['programado'] > 1}
-            seg_tot, cobrar = sum(hold.values()), sum(max(por[k]['liquido'], 0) for k in nf)
+            cancelar = [parcela(k, p) for k, p in programadas]
+            liberar = []
+            seg_tot, cobrar = sum(x['valor'] for x in cancelar), sum(max(por[k]['liquido'], 0) for k in nf)
             devido, quem = 0.0, (nf[0] if nf else None)
             if frota_passou or seg_tot + cobrar <= 1:
-                status, excesso, hold, seg_tot, cobrar = 'explicado', 0.0, {}, 0.0, 0.0
+                status, excesso = 'explicado', 0.0
             else:
                 status, excesso = 'conferir', seg_tot + cobrar
         elif len(com_din) < 2:
-            status, excesso, hold, seg_tot, cobrar = 'um_recebeu', 0.0, {}, 0.0, 0.0
+            status, excesso = 'um_recebeu', 0.0
         elif c['nivel'] == 0:
-            status, excesso, hold, seg_tot, cobrar = 'explicado', 0.0, {}, 0.0, 0.0
+            status, excesso = 'explicado', 0.0
         elif seg_tot > 50:
             status, excesso = ('pendente' if forte else 'conferir'), seg_tot
-        elif cobrar > 50:
+        elif cobrar > (max(50.0, 0.03 * devido) if hub else 50.0):
+            # no hub a parte do A é estimada pelo km: resto até 3% do devido é margem da estimativa, não cobrança
             status, excesso = ('pago_2x' if forte else 'conferir'), cobrar
         elif voltou > 50:
             status, excesso = 'recuperado', 0.0
         else:
             status, excesso = 'explicado', 0.0
+        if status in ('explicado', 'um_recebeu', 'recuperado'):
+            cancelar, liberar, seg_tot = [], [], 0.0
+            cobrar = 0.0 if status != 'recuperado' else cobrar
         if status == 'pendente':
-            for k, h in hold.items():
-                por[k]['segurar'] = h
+            for x in cancelar:
+                por[x['ctrb']]['segurar'] = _r2(por[x['ctrb']]['segurar'] + x['valor'])
         conta = {'devido': _r2(devido), 'pago': _r2(pago), 'programado': _r2(prog), 'pago_a_mais': _r2(pago - devido),
-                 'vai_passar': _r2(vai_passar), 'segurar': _r2(seg_tot), 'cobrar': _r2(cobrar), 'voltou': _r2(voltou),
-                 'quem': quem, 'motivo': 'soma_ok' if (status == 'explicado' and c['nivel'] != 0 and not so_frota) else None}
+                 'vai_passar': _r2(pago + prog - devido), 'segurar': _r2(seg_tot), 'cobrar': _r2(cobrar),
+                 'voltou': _r2(voltou), 'quem': quem, 'quem_prop': (ctrb[quem].get('prop') if quem else None),
+                 'motivo': 'soma_ok' if (status == 'explicado' and c['nivel'] != 0 and not so_frota) else None}
         if so_frota or (status == 'explicado' and c['nivel'] == 0):
-            conta.update(devido=None, pago_a_mais=None, vai_passar=None)   # cada um tem a sua viagem: não há "uma viagem" 
+            conta.update(devido=None, pago_a_mais=None, vai_passar=None)   # cada um tem a sua viagem
         ce = (sorted(c['ctes'])[0] if c['ctes'] else
               next(iter(sorted(set().union(*[ctes_do.get(k, set()) for k in ks]))), None))
         evid = list(c['evid'])
@@ -1061,7 +1167,9 @@ def analisar(raw, emb=None, hoje=None, desde=None):
                 if ev.get('continua'):
                     txt += f" e seguiu na {ev['continua']}"
                 evid.append(txt)
-        fatos, fazer = narrar(tipo, status, ks, por, conta, meta, forte, hold, ce)
+        plano = {'vale': vale, 'porque': porque, 'cancelar': cancelar, 'liberar': liberar, 'vale_txt': vale_txt,
+                 'sufixo': sufixo}
+        fatos, fazer, lead = narrar(tipo, status, ks, por, conta, meta, forte, ce, plano)
         datas = [ctrb[k]['_em'] for k in ks if ctrb[k]['_em']]
         rg = regua(ks, ce)
         if status in ('explicado', 'recuperado', 'um_recebeu'):
@@ -1070,7 +1178,10 @@ def analisar(raw, emb=None, hoje=None, desde=None):
             'chave': '|'.join(sorted(ks)), 'tipo': tipo, 'tipo_texto': TIPOS_CASO[tipo], 'explica': EXPLICA_CASO[tipo],
             'tipos': sorted(c['tipos'], key=PRIORIDADE_TIPO.index), 'status': status,
             'status_texto': STATUS_CASO[status], 'excesso': _r2(excesso), 'conta': conta, 'aconteceu': fatos,
-            'fazer': fazer, 'forte': forte, 'ctrbs': list(ks), 'cte': ce, 'por_ctrb': por,
+            'fazer': fazer, 'fazer_lead': lead, 'vale': vale, 'vale_porque': porque,
+            'cancelar': cancelar if status == 'pendente' or (status == 'conferir' and not meta.get('outro_dono')) else [],
+            'liberar': liberar if status in ('pendente', 'pago_2x') else [],
+            'forte': forte, 'ctrbs': list(ks), 'cte': ce, 'por_ctrb': por,
             'evidencias': list(dict.fromkeys(evid))[:8], 'meta': meta,
             'voltou': conta['voltou'] if status in ('pago_2x', 'recuperado', 'pendente') else 0.0,
             'emissao': min(datas).isoformat() if datas else None,
@@ -1113,6 +1224,8 @@ def analisar(raw, emb=None, hoje=None, desde=None):
     # ── fila de pagamento (o que está programado no 477) ─────────────────────────────────────────────
     fila = []
     for k, ps in pag.items():
+        if not no_periodo(k):
+            continue
         for p in ps:
             if p['situacao'] != 'programado':
                 continue
@@ -1129,6 +1242,8 @@ def analisar(raw, emb=None, hoje=None, desde=None):
     # ── estornos (456) ───────────────────────────────────────────────────────────────────────────────
     lista_est = []
     for k, es in estornos.items():
+        if not no_periodo(k):
+            continue
         favs = Counter(p['favorecido'] for p in pag.get(k, []) if p['favorecido'])
         for e in es:
             lista_est.append({**e, 'ctrb': k, 'favorecido': favs.most_common(1)[0][0] if favs else
@@ -1198,7 +1313,7 @@ def analisar(raw, emb=None, hoje=None, desde=None):
             if p['tipo'] == 'saldo' and p['situacao'] == 'pago' and p['venc']:
                 adi_pagos[faixa(p['adiado'])] += 1
     return {
-        'versao': 1, 'desde': desde.isoformat(), 'hoje': hoje.isoformat(),
+        'versao': VERSAO_PACOTE, 'desde': desde.isoformat(), 'hoje': hoje.isoformat(),
         'inicio_073': min((c['_em'] for c in ctrb.values() if c['_em']), default=None) and
                       min(c['_em'] for c in ctrb.values() if c['_em']).date().isoformat(),
         'casos': lista_casos, 'fila': fila, 'estornos': lista_est,
@@ -1214,9 +1329,7 @@ def analisar(raw, emb=None, hoje=None, desde=None):
 def _sinal_final(k, pacote, decis):
     c = pacote['ctrbs'].get(k)
     if not c:
-        ini = pacote.get('inicio_073')
-        txt = (f"CTRB anterior ao 073 do BI (que começa em {ini[8:10]}/{ini[5:7]}/{ini[2:4]}) — saldo segurado há meses; confira no SSW"
-               if ini else 'CTRB não encontrado no 073 do BI — confira no SSW')
+        txt = 'CTRB não está no 073 do BI (faltou na extração) — confira no SSW'
         return 'cinza', [{'nivel': 'cinza', 'cod': 'fora_bi', 'texto': txt}]
     motivos = list(c['sinais'])
     casos = {cs['chave']: cs for cs in pacote['casos']}
@@ -1234,15 +1347,29 @@ def _sinal_final(k, pacote, decis):
             motivos.insert(0, {'nivel': 'ok', 'cod': 'decidido', 'caso': ch,
                                'texto': f"{cs['tipo_texto']} com {outros} — {DECISOES[d].lower()} por {decis[ch]['usuario']}"})
         elif cs['status'] == 'pendente' and seg > 1:
+            meus = [x for x in cs.get('cancelar') or [] if x['ctrb'] == k]
             motivos.insert(0, {'nivel': 'vermelho', 'cod': cs['tipo'], 'caso': ch, 'segurar': seg,
-                               'texto': f"{cs['tipo_texto']} — segurar {brl(seg)} deste CTRB · {com_estado or outros}"})
+                               'texto': f"Cancelar no 477: " + '; '.join(f"parcela {x['lanc']} ({x['tipo']} {brl(x['valor'])})"
+                                                                     for x in meus)
+                                        + f" — {cs['tipo_texto']} com {outros}"})
         elif cs['status'] == 'pendente':
-            motivos.append({'nivel': 'info', 'cod': cs['tipo'], 'caso': ch,
-                            'texto': f"{cs['tipo_texto']} com {outros} — o programado deste CTRB é devido (o que segura é o outro)"})
+            # este CTRB não tem parcela a cancelar: ou já foi pago (a viagem saiu por ele) ou a parcela dele é a que
+            # completa a viagem — nunca "pague o outro"
+            dos_outros = [x for x in cs.get('cancelar') or [] if x['ctrb'] != k]
+            minhas = [x for x in cs.get('liberar') or [] if x['ctrb'] == k]
+            canc_txt = '; '.join(f"{x['lanc']} do {x['ctrb']}" for x in dos_outros)
+            if minhas:
+                txt = (f"A parcela deste CTRB pode sair ({'; '.join(x['lanc'] for x in minhas)}). No caso com {outros}, "
+                       f"cancelar: {canc_txt}")
+            else:
+                txt = (f"Pago — a viagem saiu por este CTRB. No caso com {outros}, cancelar no 477: {canc_txt}"
+                       if (cs['por_ctrb'].get(k) or {}).get('liquido', 0) > 1 else
+                       f"{cs['tipo_texto']} com {outros} — cancelar no 477: {canc_txt}")
+            motivos.insert(0, {'nivel': 'caso', 'cod': cs['tipo'], 'caso': ch, 'texto': txt})
         elif cs['status'] == 'pago_2x':
             quem = (cs.get('conta') or {}).get('quem')
             mesmo = bool(quem) and doc((pacote['ctrbs'].get(quem) or {}).get('prop_doc')) == doc(c.get('prop_doc'))
-            motivos.insert(0, {'nivel': 'amarelo' if mesmo else 'info', 'cod': cs['tipo'], 'caso': ch,
+            motivos.insert(0, {'nivel': 'amarelo' if mesmo else 'caso', 'cod': cs['tipo'], 'caso': ch,
                                'texto': f"Pago a mais no caso com {outros}: {brl(cs['excesso'])}"
                                         + (' — é o mesmo proprietário: dá para descontar daqui' if mesmo else '')})
         elif cs['status'] == 'conferir':
@@ -1251,7 +1378,7 @@ def _sinal_final(k, pacote, decis):
         elif cs['status'] in ('explicado', 'recuperado', 'um_recebeu'):
             motivos.append({'nivel': 'info', 'cod': cs['tipo'], 'caso': ch,
                             'texto': f"{cs['tipo_texto']} com {outros} — {cs['status_texto'].lower()}: {cs.get('fazer') or ''}"[:220]})
-    ordem = ['vermelho', 'amarelo']
+    ordem = ['vermelho', 'amarelo', 'caso']
     nivel = next((o for o in ordem if any(m['nivel'] == o for m in motivos)), 'verde')
     return nivel, motivos
 
@@ -1265,24 +1392,22 @@ def ler_painel(pacote, decis, mudancas=None):
     fila = []
     # quanto segurar de cada CTRB (casos "dá para segurar" sem decisão): reparte pelos lançamentos, o próximo lote
     # primeiro; o que sobra do CTRB é devido e não fica vermelho
-    resta = defaultdict(float)
+    # as parcelas a cancelar (casos "dá para segurar" sem decisão): o vermelho vai na PARCELA, pelo lançamento do 477
+    cancelar = {}
     for cs in pacote['casos']:
         if cs['status'] == 'pendente' and (decis.get(cs['chave']) or {}).get('status') not in ('ok', 'resolvido'):
-            for k, p in cs['por_ctrb'].items():
-                resta[k] = max(resta[k], p.get('segurar') or 0)
-    for f in sorted(pacote['fila'], key=lambda f: (f.get('lote') is None, f['data'] or '9999')):
+            for x in cs.get('cancelar') or []:
+                cancelar[x['lanc']] = x
+    for f in pacote['fila']:
         nivel, motivos = _sinal_final(f['ctrb'], pacote, decis)
-        seg = 0.0
-        if any(m['cod'] == 'cancelado' for m in motivos):
-            seg = f['valor']
-        elif resta[f['ctrb']] > 1:
-            seg = min(f['valor'], resta[f['ctrb']])
-            resta[f['ctrb']] -= seg
+        seg = f['valor'] if (f['lanc'] in cancelar or any(m['cod'] == 'cancelado' for m in motivos)) else 0.0
         if nivel == 'vermelho' and seg < 1:
-            nivel = 'amarelo' if any(m['nivel'] == 'amarelo' for m in motivos) else 'verde'
+            nivel = 'amarelo' if any(m['nivel'] == 'amarelo' for m in motivos) else 'caso'
             motivos = [m for m in motivos if m['nivel'] != 'vermelho'] + [
                 {'nivel': 'info', 'cod': 'devido',
-                 'texto': 'Este lançamento é devido: o valor a segurar deste CTRB já está em outro lançamento'}]
+                 'texto': 'Esta parcela pode sair: a que se cancela deste CTRB é outra'}]
+        if nivel == 'caso':
+            nivel = 'verde'         # na fila a parcela pode sair; o texto do caso continua no motivo
         fila.append({**f, 'sinal': nivel, 'motivos': motivos, 'segurar': _r2(seg)})
     fila.sort(key=lambda f: (f['data'] or '9999', -f['valor']))
     casos = []
@@ -1567,9 +1692,14 @@ def ultima_rodada_id(cur):
 
 
 def carregar_pacote(cur, rid):
+    """A rodada gravada — None se foi calculada com regras anteriores (VERSAO_PACOTE): a tela então dispara uma
+    rodada nova sozinha, em vez de mostrar zeros e frases trocadas depois de um deploy."""
     cur.execute("SELECT pacote FROM pag_ctrb_rodadas WHERE id = %s", (rid,))
     r = cur.fetchone()
-    return json.loads(gzip.decompress(bytes(r[0])).decode('utf-8')) if r else None
+    if not r:
+        return None
+    pacote = json.loads(gzip.decompress(bytes(r[0])).decode('utf-8'))
+    return pacote if (pacote.get('versao') or 0) >= VERSAO_PACOTE else None
 
 
 def decisoes(cur):

@@ -116,6 +116,18 @@
   .sinal.cinza { color: var(--text-dim); background: rgba(148,163,184,.07); border-color: var(--border2); }
   .sinal.cinza::before { background: none; border: 2px solid currentColor; width: 6px; height: 6px; }
   .sinal.info { color: #c7d2fe; background: rgba(129,140,248,.08); border-color: rgba(129,140,248,.35); }
+  .sinal.caso-ab { color: #fdba74; background: rgba(251,146,60,.08); border-color: rgba(251,146,60,.38); }
+  .sinal.caso-ab::before { border-radius: 2px; }
+  .parcelas { list-style: none; display: grid; gap: 5px; margin-top: 4px; }
+  .parcelas li { font-size: .78rem; line-height: 1.4; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; padding: 6px 8px; border-radius: 8px; background: rgba(10,14,23,.35); border: 1px solid var(--border); }
+  .parcelas li .l { font-family: 'JetBrains Mono', monospace; font-weight: 700; color: var(--text); }
+  .parcelas li .v { font-family: 'JetBrains Mono', monospace; }
+  .parcelas li small { flex-basis: 100%; color: var(--text-faint); font-size: .7rem; }
+  .parcelas.cancelar li { border-color: rgba(248,113,113,.35); }
+  .parcelas.cancelar li .l { color: #fca5a5; }
+  .parcelas.liberar li .l { color: #a7f3d0; }
+  .fazer .sub { font-size: .62rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--text-faint); margin-top: 8px; }
+  .fazer .cobra { margin-top: 8px; font-size: .8rem; color: #fdba74; }
   @keyframes pulsa { 50% { opacity: .35; } }
   .chip { font-size: .64rem; font-weight: 700; border-radius: 6px; padding: 2px 7px; border: 1px solid var(--border2); color: var(--text-dim); background: var(--surface2); white-space: nowrap; letter-spacing: .02em; }
   .chip.FROTA { color: #7dd3fc; border-color: rgba(56,189,248,.35); }
@@ -269,6 +281,7 @@
   .motivo.amarelo { color: #fde68a; background: rgba(251,191,36,.06); border-color: rgba(251,191,36,.28); }
   .motivo.ok, .motivo.verde { color: #a7f3d0; background: rgba(52,211,153,.06); border-color: rgba(52,211,153,.28); }
   .motivo.info, .motivo.cinza { color: #c7d2fe; background: rgba(129,140,248,.06); border-color: rgba(129,140,248,.25); }
+  .motivo.caso-ab { color: #fed7aa; background: rgba(251,146,60,.06); border-color: rgba(251,146,60,.3); }
   .motivo a { color: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; margin-left: auto; white-space: nowrap; font-size: .72rem; }
   .kv { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 14px; font-size: .8rem; }
   .kv dt { color: var(--text-faint); white-space: nowrap; }
@@ -448,8 +461,9 @@ function cidade(s) {
 const rota = (o, d) => `${esc(cidade(o))} → ${esc(cidade(d))}`;
 const tipoChip = t => t ? `<span class="chip ${esc(t)}">${esc(t === 'CARRETEIRO' ? 'Terceiro' : t.charAt(0) + t.slice(1).toLowerCase())}</span>` : '';
 const corTipo = t => t === 'FROTA' ? 'var(--c-frota)' : (t === 'AGREGADO' ? 'var(--c-agregado)' : 'var(--c-carreteiro)');
-const SINAL = { vermelho: 'Segurar', amarelo: 'Conferir', verde: 'Ok', cinza: 'Sem CTRB', info: 'Info', ok: 'Ok' };
-const sinalHtml = n => `<span class="sinal ${n}">${SINAL[n] || n}</span>`;
+const SINAL = { vermelho: 'Segurar', amarelo: 'Conferir', verde: 'Ok', cinza: 'Sem CTRB', info: 'Info', ok: 'Ok', caso: 'Caso aberto' };
+const CLS = n => (n === 'caso' ? 'caso-ab' : n);     // a classe .caso é do cartão de caso
+const sinalHtml = n => `<span class="sinal ${CLS(n)}">${SINAL[n] || n}</span>`;
 const placas = (cav, car) => `${esc(cav || '—')}${car ? ' / ' + esc(car) : ''}`;
 function toast(t) { const el = $('#toast'); el.textContent = t; el.classList.add('on'); clearTimeout(toast._t); toast._t = setTimeout(() => el.classList.remove('on'), 2600); }
 
@@ -666,10 +680,22 @@ function contextoHtml(ctx) {
 }
 
 // ── casos ────────────────────────────────────────────────────────────────
+function parcelaHtml(p) {
+  return `<li><span class="l">${esc(p.lanc)}</span><span>${esc(p.tipo)}</span><span class="v">${brlT(p.valor)}</span><span class="dim">${esc(p.ctrb)}</span>${p.quando ? `<span class="faint">${esc(p.quando)}</span>` : ''}${p.aprovada ? `<span class="neg">já aprovada ${dia(p.aprovada)}</span>` : ''}${p.nota ? `<small>${esc(p.nota)}</small>` : ''}</li>`;
+}
+function fazerHtml(x) {
+  const canc = x.cancelar || [], lib = x.liberar || [];
+  if (!['pendente', 'pago_2x'].includes(x.status) || (!canc.length && !lib.length && x.status !== 'pago_2x')) return `<p>${esc(x.fazer)}</p>`;
+  const ct = x.conta || {};
+  return `${x.fazer_lead ? `<p>${esc(x.fazer_lead)}</p>` : ''}
+    ${canc.length ? `<div class="sub">Cancelar no 477</div><ul class="parcelas cancelar">${canc.map(parcelaHtml).join('')}</ul>` : ''}
+    ${lib.length ? `<div class="sub">${x.status === 'pago_2x' ? 'Programado e devido' : 'Pode sair'}</div><ul class="parcelas liberar">${lib.map(parcelaHtml).join('')}</ul>` : ''}
+    ${ct.cobrar > 50 ? `<div class="cobra">${x.status === 'pendente' ? 'Mesmo cancelando, ficam' : 'Saíram'} <b>${brlT(ct.cobrar)}</b> a mais — cobrar ou descontar de ${esc(ct.quem_prop || 'o proprietário')}.</div>` : ''}`;
+}
 function aconteceuHtml(x) {
   const fatos = (x.aconteceu || []).map(f => `<li>${esc(f)}</li>`).join('');
   return `${fatos ? `<div class="aconteceu"><b>O que aconteceu</b><ul>${fatos}</ul></div>` : ''}
-    ${x.fazer ? `<div class="fazer f-${esc(x.status)}"><b>O que fazer</b><p>${esc(x.fazer)}</p></div>` : ''}`;
+    ${x.fazer ? `<div class="fazer f-${esc(x.status)}"><b>O que fazer</b>${fazerHtml(x)}</div>` : ''}`;
 }
 const ROT_VALOR = { pendente: 'a segurar', pago_2x: 'a cobrar', conferir: 'em jogo', recuperado: 'voltou', explicado: '', um_recebeu: '' };
 function casosFiltrados() {
@@ -729,7 +755,7 @@ function renderEstornos() {
       <p class="resumo-linha" style="margin-top:8px"><b>${lista.length}</b> lançamentos · <b>${brlT(tot, 0)}</b></p>
       <div class="tabela-wrap"><table class="t"><thead><tr><th>Data</th><th>Tipo</th><th>CTRB</th><th>Favorecido</th><th>Conta</th><th class="n">Voltou</th><th class="n" title="O que o 477 mostra como liquidado para este CTRB — não desconta o estorno">477 mostra liquidado</th></tr></thead><tbody>
         ${lista.slice(0, e.limite).map(x => `<tr data-ctrb="${esc(x.ctrb)}"><td class="mono">${diaAno(x.data)}</td><td>${esc(x.tipo)}<small>de ${esc(x.de)}</small></td>
-          <td class="mono">${esc(x.ctrb)}${x.casos.length ? ' <span class="tag programado">caso</span>' : ''}${x.no_bi ? '' : '<small>fora da janela</small>'}</td><td>${esc(x.favorecido || '—')}</td><td><small style="margin:0">${esc(x.conta || '')}</small></td>
+          <td class="mono">${esc(x.ctrb)}${x.casos.length ? ' <span class="tag programado">caso</span>' : ''}${x.no_bi ? '' : '<small>fora do 073 do BI</small>'}</td><td>${esc(x.favorecido || '—')}</td><td><small style="margin:0">${esc(x.conta || '')}</small></td>
           <td class="n pos">${brlT(x.valor)}</td><td class="n">${brlT(x.pago_477)}</td></tr>`).join('')}
       </tbody></table></div>
       ${lista.length > e.limite ? `<button class="btn-sm ver-mais" data-mais="est">Mostrar mais</button>` : ''}
@@ -760,7 +786,7 @@ function renderControles() {
       </div>
       <h3 class="dim" style="font-size:.66rem;text-transform:uppercase;letter-spacing:.1em;margin:16px 0 8px">Parados ou adiados há 3 quintas ou mais · ${(ad.segurados || []).length}</h3>
       ${(ad.segurados || []).length ? `<div class="tabela-wrap"><table class="t"><thead><tr><th>CTRB</th><th>Favorecido</th><th>Rota</th><th>Venceu</th><th class="n">Semanas</th><th class="n">Valor</th><th>Sinal</th></tr></thead><tbody>
-        ${ad.segurados.slice(0, 80).map(r => `<tr data-ctrb="${esc(r.ctrb)}"><td class="mono">${esc(r.ctrb)} ${tipoChip(r.tipo)}</td><td>${esc(r.favorecido || '—')}</td><td>${r.o ? rota(r.o, r.d) : '<small style="margin:0">anterior ao 073 do BI</small>'}</td><td class="mono">qui ${diaAno(r.venc)}<small>${r.lote ? 'remarcado ' + diaSem(r.lote) : 'parado'}</small></td><td class="n">${r.adiado}</td><td class="n">${brlT(r.valor)}</td><td>${sinalHtml(r.sinal)}</td></tr>`).join('')}
+        ${ad.segurados.slice(0, 80).map(r => `<tr data-ctrb="${esc(r.ctrb)}"><td class="mono">${esc(r.ctrb)} ${tipoChip(r.tipo)}</td><td>${esc(r.favorecido || '—')}</td><td>${r.o ? rota(r.o, r.d) : '<small style="margin:0">fora do 073 do BI</small>'}</td><td class="mono">qui ${diaAno(r.venc)}<small>${r.lote ? 'remarcado ' + diaSem(r.lote) : 'parado'}</small></td><td class="n">${r.adiado}</td><td class="n">${brlT(r.valor)}</td><td>${sinalHtml(r.sinal)}</td></tr>`).join('')}
       </tbody></table></div>` : '<div class="vazio-v">Nenhum saldo programado com 3+ semanas.</div>'}
       <h3 class="dim" style="font-size:.66rem;text-transform:uppercase;letter-spacing:.1em;margin:16px 0 8px">Mudanças na programação · últimos 8 dias${Object.keys(mr).length ? ' · ' + Object.entries(mr).map(([k, v]) => `${v} ${k}`).join(' · ') : ''}</h3>
       ${mud.length ? `<div class="tabela-wrap"><table class="t"><thead><tr><th>Visto em</th><th>CTRB</th><th>Pagamento</th><th>O que mudou</th><th class="n">Valor</th></tr></thead><tbody>
@@ -807,7 +833,7 @@ function renderDossie(c) {
   const motivos = (c.motivos || []);
   $('#gCab').innerHTML = `<h2>${esc(c.ctrb)} ${tipoChip(c.tipo)} ${sinalHtml(c.sinal)}</h2>
     <div class="sub">Emitido ${c.emissao ? `${dia(c.emissao)}/${c.emissao.slice(2, 4)} às ${hora(c.emissao)}` : '—'}${c.usu ? ` por <b>${esc(c.usu)}</b>` : ''}${c.situacao ? ` · SSW: ${esc(c.situacao.toLowerCase())}` : ''}${c.ativo ? '' : ' · <span class="neg">cancelado</span>'}</div>`;
-  const motHtml = motivos.length ? motivos.map(m => `<div class="motivo ${m.nivel}"><span>${esc(m.texto)}</span>${m.caso ? `<a data-caso="${esc(m.caso)}">ver caso</a>` : ''}</div>`).join('')
+  const motHtml = motivos.length ? motivos.map(m => `<div class="motivo ${CLS(m.nivel)}"><span>${esc(m.texto)}</span>${m.caso ? `<a data-caso="${esc(m.caso)}">ver caso</a>` : ''}</div>`).join('')
     : `<div class="motivo verde">Nada encontrado: nenhum outro CTRB cobre este trecho, a receita existe e o valor confere.</div>`;
   const pags = c.pagamentos.map(p => {
     const bk = p.banco ? (p.banco.como === 'individual' ? `saiu de ${esc(p.banco.conta || '')} em ${dia(p.banco.data)}` : (p.banco.como === 'lote' ? 'PIX no lote diário da Sicoob (sem detalhe)' : 'saída não encontrada no 456')) : 'ainda não saiu';
