@@ -172,6 +172,23 @@
   .st-pill.recuperado, .st-pill.explicado { color: #a7f3d0; background: rgba(52,211,153,.07); border-color: rgba(52,211,153,.3); }
   .st-pill.um_recebeu { color: var(--text-dim); background: rgba(148,163,184,.07); border-color: var(--border2); }
   .caso .exp { font-size: .76rem; color: var(--text-dim); line-height: 1.45; }
+  .aconteceu b, .fazer b { display: block; font-size: .62rem; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; color: var(--text-faint); margin-bottom: 5px; }
+  .aconteceu ul { list-style: none; display: grid; gap: 4px; font-size: .78rem; color: var(--text-dim); line-height: 1.45; }
+  .aconteceu li { padding-left: 12px; position: relative; }
+  .aconteceu li::before { content: '•'; position: absolute; left: 0; color: var(--text-faint); }
+  .fazer { border-radius: 10px; padding: 9px 11px; border: 1px solid var(--border2); background: rgba(148,163,184,.05); }
+  .fazer p { font-size: .82rem; line-height: 1.5; color: var(--text); }
+  .fazer.f-pendente { border-color: rgba(248,113,113,.4); background: rgba(248,113,113,.07); }
+  .fazer.f-pendente b { color: #fca5a5; }
+  .fazer.f-pago_2x { border-color: rgba(251,146,60,.4); background: rgba(251,146,60,.07); }
+  .fazer.f-pago_2x b { color: #fdba74; }
+  .fazer.f-conferir { border-color: rgba(251,191,36,.35); background: rgba(251,191,36,.05); }
+  .fazer.f-conferir b { color: #fde68a; }
+  .fazer.f-explicado, .fazer.f-recuperado, .fazer.f-um_recebeu { border-color: rgba(52,211,153,.25); background: rgba(52,211,153,.04); }
+  .fazer.f-explicado p, .fazer.f-recuperado p, .fazer.f-um_recebeu p { color: var(--text-dim); }
+  .det-caso { display: grid; gap: 10px; }
+  .det-caso[open] > summary { margin-bottom: 10px; }
+  .t tfoot td { border-top: 1px solid var(--border2); font-weight: 700; }
   .evid { list-style: none; display: grid; gap: 4px; font-size: .74rem; color: var(--text-dim); }
   .evid li { display: flex; gap: 8px; line-height: 1.4; }
   .evid li::before { content: '›'; color: var(--text-faint); font-weight: 700; }
@@ -242,8 +259,8 @@
   .gaveta-cab .x { background: var(--surface2); border: 1px solid var(--border); color: var(--text-dim); border-radius: 8px; width: 32px; height: 32px; cursor: pointer; font-size: 1rem; flex: none; }
   .gaveta-cab .x:hover { color: var(--text); border-color: var(--accent); }
   .gaveta-nav { display: flex; gap: 6px; padding: 8px 20px 0; flex-wrap: wrap; }
-  .gaveta-corpo { overflow: auto; padding: 14px 20px 40px; display: grid; gap: 12px; align-content: start; }
-  .sec { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; }
+  .gaveta-corpo { overflow: auto; padding: 14px 20px 40px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-content: start; }
+  .sec { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; min-width: 0; }
   .sec h4 { font-size: .62rem; text-transform: uppercase; letter-spacing: .1em; color: var(--text-faint); font-weight: 800; margin-bottom: 10px; display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
   .sec h4 .fonte { text-transform: none; letter-spacing: 0; font-weight: 500; }
   .motivo { display: flex; gap: 10px; align-items: flex-start; font-size: .8rem; border-radius: 10px; padding: 9px 11px; border: 1px solid; line-height: 1.4; }
@@ -498,9 +515,9 @@ function renderKpis() {
     card(k.quinta.alerta_n ? '' : 'ok', `Saldo da semana · até ${diaSem(k.quinta.data)}`, brl(k.quinta.valor, 0),
          `${k.quinta.n} saldos · ${k.quinta.adiados} de semanas anteriores${k.quinta.alerta_n ? ` · <span class="neg">${k.quinta.alerta_n} para segurar</span>` : ''}${k.quinta.parados_n ? `<br>+ ${k.quinta.parados_n} parados (${brlT(k.quinta.parados_valor, 0)})` : ''}`, 'fila-quinta'),
     card(k.segurar.n ? 'alerta' : 'ok', 'Segurar antes de pagar', brl(k.segurar.valor, 0),
-         k.segurar.n ? `${k.segurar.n} pagamentos programados em ${k.segurar.casos} casos em que o trecho já está em outro CTRB` : 'Nada programado repetindo trecho de outro CTRB', 'fila-vermelho'),
-    card(k.pago_2x.n ? 'alerta' : 'ok', `Pago duas vezes · ${esc(k.pago_2x.ano)}`, brl(k.pago_2x.valor, 0),
-         `${k.pago_2x.n} casos sem volta no banco nem desconto — sem decisão`, 'casos-pago'),
+         k.segurar.n ? `${k.segurar.n} lançamentos em ${k.segurar.casos} casos: a viagem já saiu (ou vai passar do devido) por outro CTRB` : 'Nada programado que passe do devido', 'fila-vermelho'),
+    card(k.pago_2x.n ? 'alerta' : 'ok', `Pago a mais · ${esc(k.pago_2x.ano)}`, brl(k.pago_2x.valor, 0),
+         `${k.pago_2x.n} casos: saiu além do devido e não voltou — cobrar ou descontar`, 'casos-pago'),
     card('ok', 'Voltou', brl(k.voltou.valor, 0), `${k.voltou.n} casos acertados: estorno no banco ou desconto na conta corrente`, 'casos-voltou'),
     card('', 'Estornos no banco (456)', brl(k.estornos.valor, 0), `${k.estornos.n} estornos em ${k.estornos.ctrbs} CTRBs — o 477 ainda mostra como liquidado`, 'estornos'),
   ].join('');
@@ -603,7 +620,7 @@ function linhaFila(x) {
     <span class="pg"><b>${x.tipo_pag === 'saldo' ? 'Saldo' : (x.tipo_pag === 'adiantamento' ? 'Adiantamento' : 'Pagamento')}</b><small>${x.tipo_pag === 'saldo' ? (x.lote ? `venc ${dia(x.venc)} → ${diaSem(x.lote)}` : `venc ${dia(x.venc)} · marcado ${dia(x.data)}`) : `${dia(x.data)}${x.venc && x.venc !== x.data ? ` · venc ${dia(x.venc)}` : ''}`}</small>${(x.adiado || x.aprov) ? `<span class="tags">${adiadoHtml(x)}</span>` : ''}</span>
     <span class="ct"><span class="n">${esc(x.ctrb)} ${tipoChip(x.tipo)}</span><span class="f">${esc(x.favorecido || '—')}</span></span>
     <span class="rt"><div class="r">${x.no_bi ? rota(x.o, x.d) : '<span class="faint">CTRB ainda fora do BI</span>'}</div><div class="p">${x.no_bi ? placas(x.cav, x.car) : esc(x.lanc)}${x.emissao ? ` · emitido ${dia(x.emissao)}` : ''}</div></span>
-    <span class="vl">${brl(x.valor)}</span>
+    <span class="vl">${brl(x.valor)}${x.segurar > 1 && x.segurar < x.valor - 1 ? `<small class="neg" style="display:block;font-size:.66rem">segurar ${brlT(x.segurar)}</small>` : ''}</span>
     <span class="mt"><span class="m1">${txtM}</span>${m.length > 1 ? `<span class="mais">+${m.length - 1} sinal(is)</span>` : ''}</span>
   </button>`;
 }
@@ -649,7 +666,12 @@ function contextoHtml(ctx) {
 }
 
 // ── casos ────────────────────────────────────────────────────────────────
-const ROT_VALOR = { pendente: 'vai sair em dobro', pago_2x: 'pago em dobro', conferir: 'a conferir', recuperado: 'voltou', explicado: '', um_recebeu: '' };
+function aconteceuHtml(x) {
+  const fatos = (x.aconteceu || []).map(f => `<li>${esc(f)}</li>`).join('');
+  return `${fatos ? `<div class="aconteceu"><b>O que aconteceu</b><ul>${fatos}</ul></div>` : ''}
+    ${x.fazer ? `<div class="fazer f-${esc(x.status)}"><b>O que fazer</b><p>${esc(x.fazer)}</p></div>` : ''}`;
+}
+const ROT_VALOR = { pendente: 'a segurar', pago_2x: 'a cobrar', conferir: 'em jogo', recuperado: 'voltou', explicado: '', um_recebeu: '' };
 function casosFiltrados() {
   const c = S.casos;
   return S.painel.casos.filter(x => c.st.has(x.status)
@@ -658,8 +680,8 @@ function casosFiltrados() {
 function renderCasos() {
   const p = S.painel, c = S.casos;
   const stCount = s => p.casos.filter(x => x.status === s).length;
-  const ST = [['pendente', 'Dá para segurar'], ['pago_2x', 'Pago duas vezes'], ['conferir', 'Conferir'], ['recuperado', 'Voltou'], ['explicado', 'Explicado'], ['um_recebeu', 'Só um recebeu']];
-  const TP = [['todos', 'Todos'], ['trecho_hub', 'Mesmo trecho (hub)'], ['mesma_perna', 'Mesma perna'], ['reemissao', 'Reemissão'], ['sobre_frota', 'Em cima da frota'], ['mesmo_ciot', 'Mesmo CIOT'], ['dois_caminhoes', 'Dois caminhões']];
+  const ST = [['pendente', 'Dá para segurar'], ['pago_2x', 'Pago a mais'], ['conferir', 'Conferir'], ['recuperado', 'Voltou'], ['explicado', 'Explicado'], ['um_recebeu', 'Só um recebeu']];
+  const TP = [['todos', 'Todos'], ['trecho_hub', 'Mesmo trecho (hub)'], ['mesma_perna', 'Mesma perna'], ['reemissao', 'Reemissão'], ['ciot_substituido', 'Erro no CIOT'], ['sobre_frota', 'Em cima da frota'], ['mesmo_ciot', 'Mesmo CIOT'], ['diaria_repetida', 'Diária repetida'], ['dois_caminhoes', 'Dois caminhões']];
   const DC = [['todas', 'Todas'], ['sem', 'Sem decisão'], ['segurar', 'Segurado'], ['cobrar', 'Em cobrança'], ['ok', 'Conferido'], ['resolvido', 'Resolvido']];
   const lista = casosFiltrados();
   const soma = lista.reduce((s, x) => s + (x.status === 'recuperado' ? 0 : x.excesso), 0);
@@ -675,16 +697,18 @@ function renderCasos() {
 function cardCaso(x, i) {
   const dec = x.decisao ? `<span class="d ${esc(x.decisao)}">${esc(x.decisao_texto)}</span><span>${esc(x.decisao_por || '')} · ${quandoUtc(x.decisao_em)}</span>` : '<span class="faint">Sem decisão</span>';
   const v = x.status === 'recuperado' ? x.voltou : x.excesso;
-  const ev = x.evidencias.slice(0, 3).map(e => `<li class="${e.startsWith('GPS') ? 'gps' : ''}">${esc(e)}</li>`).join('');
-  const pend = x.resumo_ctrbs.filter(r => r.programado > 1);
+  const ev = x.evidencias.map(e => `<li class="${e.startsWith('GPS') ? 'gps' : ''}">${esc(e)}</li>`).join('');
+  const cobra = x.status === 'pendente' && (x.conta || {}).cobrar > 50 ? `<small class="neg" style="display:block;margin-top:2px">+ ${brlT(x.conta.cobrar)} a cobrar</small>` : '';
   return `<article class="caso st-${x.status} ${['ok', 'resolvido'].includes(x.decisao) ? 'decidido' : ''} reveal" style="--d:${Math.min(i, 8)}">
     <div class="caso-h"><div class="t"><span class="st-pill ${x.status}">${esc(x.status_texto)}</span><h3>${esc(x.tipo_texto)}</h3>
       <div class="q">${x.ctrbs.map(esc).join(' · ')}${x.cte ? ` · CT-e ${esc(x.cte)}` : ''} · ${diaAno(x.emissao)}</div></div>
-      ${v > 1 ? `<div class="vv"><div class="g ${x.status === 'recuperado' ? 'pos' : ''}">${brl(v)}</div><small>${ROT_VALOR[x.status]}</small></div>` : ''}</div>
-    ${pend.length && x.status === 'pendente' ? `<div class="motivo vermelho">Programado no 477: ${pend.map(r => `${esc(r.ctrb)} ${brlT(r.programado)}`).join(' · ')} — ainda dá para segurar</div>` : ''}
-    ${reguaHtml(x.regua, x.por_ctrb)}
-    <ul class="evid">${ev}</ul>
-    ${x.contexto && x.contexto.length ? `<details class="ctx-d"><summary>Manifesto × CTRB × CT-e</summary>${contextoHtml(x.contexto)}</details>` : ''}
+      ${v > 1 ? `<div class="vv"><div class="g ${x.status === 'recuperado' ? 'pos' : ''}">${brl(v)}</div><small>${ROT_VALOR[x.status]}</small>${cobra}</div>` : ''}</div>
+    ${aconteceuHtml(x)}
+    <details class="ctx-d det-caso"><summary>Ver a rota, as evidências e o manifesto × CTRB × CT-e</summary>
+      ${reguaHtml(x.regua, x.por_ctrb)}
+      <ul class="evid">${ev}</ul>
+      ${x.contexto && x.contexto.length ? contextoHtml(x.contexto) : ''}
+    </details>
     <div class="caso-f"><div class="decisao-b">${dec}</div><div class="acoes"><button class="btn-sm" data-caso="${esc(x.chave)}">Abrir e decidir</button></div></div>
   </article>`;
 }
@@ -836,14 +860,22 @@ function ciotHtml(v) {
 }
 function blocoCaso(x, hist) {
   const ops = ['segurar', 'cobrar', 'ok', 'resolvido'].filter(k => S.decisoes[k]).map(k => [k, S.decisoes[k]]);
+  const ct = x.conta || {};
+  const pe = k => x.por_ctrb[k] || {};
+  const tot = campo => x.ctrbs.reduce((s, k) => s + (pe(k)[campo] || 0), 0);
+  const rodape = ct.devido != null ? `<tfoot><tr style="cursor:default"><td>Devido ${brlT(ct.devido)}</td><td class="n">${brlT(tot('liquidado'))}</td><td class="n">${brlT(tot('programado'))}</td><td class="n pos">${brlT(tot('estornado') + x.ctrbs.reduce((s, k) => s + ((pe(k).desconto || {}).valor || 0), 0))}</td><td class="n">${brlT(ct.pago)}</td><td class="n neg">${ct.segurar ? brlT(ct.segurar) : '—'}</td></tr>
+      ${ct.cobrar > 50 && ['pendente', 'pago_2x', 'conferir'].includes(x.status) ? `<tr style="cursor:default"><td colspan="6" class="neg" style="text-align:right">Pago a mais (a cobrar ou descontar): ${brlT(ct.cobrar)}</td></tr>` : ''}</tfoot>` : '';
   return `<div class="sec" style="border-color:${x.status === 'pendente' ? 'rgba(248,113,113,.4)' : 'var(--border)'}"><h4>Caso · ${esc(x.tipo_texto)} <span class="st-pill ${x.status}">${esc(x.status_texto)}</span></h4>
-    <p class="dim" style="font-size:.78rem;margin-bottom:10px">${esc(x.explica)}</p>
-    ${reguaHtml(x.regua, x.por_ctrb)}
-    <ul class="evid" style="margin-top:10px">${x.evidencias.map(e => `<li class="${e.startsWith('GPS') ? 'gps' : ''}">${esc(e)}</li>`).join('')}</ul>
-    ${x.contexto && x.contexto.length ? `<h4 style="margin:14px 0 8px">Manifesto × CTRB × CT-e <span class="fonte">073 · 916 · manifestos_ctrc · 455</span></h4>${contextoHtml(x.contexto)}` : ''}
-    <div class="tabela-wrap" style="margin-top:10px"><table class="t"><thead><tr><th>CTRB</th><th class="n" title="Liquidado no 477: o dinheiro saiu">Pago (saiu)</th><th class="n" title="Lançado no 477 e ainda não pago">Programado</th><th class="n" title="Estorno no extrato do banco (456) ou desconto na conta corrente do motorista">Voltou</th><th class="n" title="Pago menos o que voltou: o que saiu e não voltou (não inclui o programado)">Saiu e não voltou</th></tr></thead><tbody>
-      ${x.ctrbs.map(k => { const p = x.por_ctrb[k]; return `<tr data-ctrb="${esc(k)}"><td class="mono">${esc(k)}</td><td class="n">${brlT(p.liquidado)}</td><td class="n">${p.programado ? brlT(p.programado) : '—'}</td><td class="n pos">${p.estornado || p.desconto ? brlT((p.estornado || 0) + ((p.desconto || {}).valor || 0)) : '—'}${p.desconto ? `<small>${esc(p.desconto.como)} em ${esc(p.desconto.ctrb)} (provável)</small>` : ''}</td><td class="n">${brlT(p.liquido)}</td></tr>`; }).join('')}
-    </tbody></table></div>
+    <div style="display:grid;grid-template-columns:minmax(0,1fr);gap:10px;margin-bottom:10px">${aconteceuHtml(x)}</div>
+    <div class="tabela-wrap"><table class="t"><thead><tr><th>CTRB</th><th class="n" title="Liquidado no 477: o dinheiro saiu">Pago (saiu)</th><th class="n" title="Lançado no 477 e ainda não pago">Programado</th><th class="n" title="Estorno no extrato do banco (456) ou desconto na conta corrente do motorista">Voltou</th><th class="n" title="Pago menos o que voltou e menos ajuste de menor pagamento: o que saiu de fato (não inclui o programado)">Saiu e não voltou</th><th class="n" title="O que segurar no 477 para não passar do devido">Segurar</th></tr></thead><tbody>
+      ${x.ctrbs.map(k => { const p = pe(k); return `<tr data-ctrb="${esc(k)}"><td class="mono">${esc(k)}</td><td class="n">${brlT(p.liquidado)}</td><td class="n">${p.programado ? brlT(p.programado) : '—'}</td><td class="n pos">${p.estornado || p.desconto ? brlT((p.estornado || 0) + ((p.desconto || {}).valor || 0)) : '—'}${p.desconto ? `<small>${esc(p.desconto.como)} em ${esc(p.desconto.ctrb)} (provável)</small>` : ''}</td><td class="n">${brlT(p.liquido)}${p.ajuste ? `<small>${brlT(p.ajuste)} a menos (ajuste)</small>` : ''}</td><td class="n neg">${p.segurar ? brlT(p.segurar) : '—'}</td></tr>`; }).join('')}
+    </tbody>${rodape}</table></div>
+    <details class="ctx-d det-caso" style="margin-top:10px"><summary>Ver a rota, as evidências e o manifesto × CTRB × CT-e</summary>
+      <p class="dim" style="font-size:.76rem">${esc(x.explica)}</p>
+      ${reguaHtml(x.regua, x.por_ctrb)}
+      <ul class="evid">${x.evidencias.map(e => `<li class="${e.startsWith('GPS') ? 'gps' : ''}">${esc(e)}</li>`).join('')}</ul>
+      ${x.contexto && x.contexto.length ? `<h4 style="margin:4px 0 0">Manifesto × CTRB × CT-e <span class="fonte">073 · 916 · manifestos_ctrc · 455</span></h4>${contextoHtml(x.contexto)}` : ''}
+    </details>
     <div class="form-dec" data-chave="${esc(x.chave)}">
       <div class="ops">${ops.map(([k, t]) => `<button type="button" data-op="${k}" class="${x.decisao === k ? 'on' : ''}">${esc(t)}</button>`).join('')}</div>
       <textarea placeholder="Uma linha: o que foi conferido, com quem, o que foi feito (fica no histórico)">${''}</textarea>
@@ -906,7 +938,7 @@ document.addEventListener('click', ev => {
     const a = kpi.dataset.acao;
     if (a === 'fila-quinta') { S.fila.quando = 'quinta'; S.fila.sinal = 'todos'; S.fila.pag = 'todos'; trocarVista('fila'); }
     else if (a === 'fila-vermelho') { S.fila.quando = 'tudo'; S.fila.sinal = 'vermelho'; trocarVista('fila'); }
-    else if (a === 'casos-pago') { S.casos.st = new Set(['pago_2x']); S.casos.dec = 'sem'; trocarVista('casos'); }
+    else if (a === 'casos-pago') { S.casos.st = new Set(['pago_2x', 'pendente']); S.casos.dec = 'sem'; trocarVista('casos'); }
     else if (a === 'casos-voltou') { S.casos.st = new Set(['recuperado', 'pago_2x']); S.casos.dec = 'todas'; trocarVista('casos'); }
     else if (a === 'estornos') trocarVista('estornos');
     return;
