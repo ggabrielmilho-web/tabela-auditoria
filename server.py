@@ -177,7 +177,7 @@ def admin_required(f):
 PAGINAS_VALIDAS = {'auditoria', 'tarifas', 'embarques', 'reuniao', 'dre',
                    'despesas', 'conhecimentos', 'faturamento', 'contratos', 'veiculos',
                    'pgr', 'contabil', 'verda', 'jornada', 'ciot', 'projecao', 'crm_documentos', 'cte_nestle',
-                   'contas_receber', 'comissoes', 'canhotos', 'fechamento_autonomos'}
+                   'contas_receber', 'comissoes', 'canhotos', 'fechamento_autonomos', 'pagamentos_ctrb'}
 # O de-para aba → rota e a ordem de preferência viviam aqui para escolher em qual
 # aba o usuário caía no login. Não existem mais: quem escolhe é ele, na /inicio.
 # As rotas de cada aba são declaradas uma vez só, no `ABAS` do nav-perms.js.
@@ -2134,6 +2134,161 @@ def api_fechamento_autonomos_xlsx():
         return jsonify({'ok': False, 'error': str(e)}), 500
     return send_file(io.BytesIO(conteudo), as_attachment=True, download_name=fa.nome_arquivo(mes),
                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
+# ── Pagamentos de CTRB — a conferência antes de pagar (16/11/2026, pedido do diretor) ──
+#
+# O CTRB não tem trava nem vínculo com a receita: a tela cruza o 073, o 916, o 455, o 477, o 456 e o GPS do
+# Embarques e diz, antes do pagamento, se aquele trecho já foi pago. O cruzamento é pesado (~1 min de BI):
+# roda em segundo plano (após cada refresh, com PAGAMENTOS_CTRB_AUTO, ou pelo botão) e fica gravado em
+# `pag_ctrb_rodadas`; a tela lê a última rodada. As decisões do financeiro (`pag_ctrb_decisoes`) entram na
+# leitura, sem recalcular. A lógica mora em pagamentos_ctrb.py.
+_PAG_CTRB = {'id': None, 'pacote': None, 'meta': None, 'tabelas': False}
+_PAG_CTRB_TRAVA = threading.Lock()
+
+
+def _pag_ctrb_db(fn):
+    import pagamentos_ctrb as pc
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            if not _PAG_CTRB['tabelas']:
+                pc.garantir(cur)
+                _PAG_CTRB['tabelas'] = True
+            r = fn(cur)
+        conn.commit()
+        return r
+    finally:
+        conn.close()
+
+
+def _pag_ctrb_pacote():
+    """(meta da última rodada, pacote) — o pacote fica em memória até sair uma rodada nova."""
+    import pagamentos_ctrb as pc
+    meta = _pag_ctrb_db(pc.ultima_rodada_id)
+    if not meta:
+        return None, None
+    with _PAG_CTRB_TRAVA:
+        if _PAG_CTRB['id'] != meta['id']:
+            _PAG_CTRB['pacote'] = _pag_ctrb_db(lambda cur: pc.carregar_pacote(cur, meta['id']))
+            _PAG_CTRB['id'] = meta['id']
+        _PAG_CTRB['meta'] = meta
+        return meta, _PAG_CTRB['pacote']
+
+
+def _pag_ctrb_rodar_em_fundo():
+    import pagamentos_ctrb as pc
+    if pc.ESTADO['rodando']:
+        return False
+    import ciot_conferencia
+    try:
+        bi_ref = ciot_conferencia.ultimo_refresh(get_token(), CONFIG['group_id'], CONFIG['dataset_id'])
+    except Exception:
+        bi_ref = None
+    threading.Thread(target=pc.executar, args=(_crm_dax_op, contabil_dax, get_db), kwargs={'bi_refresh': bi_ref},
+                     daemon=True, name='PagamentosCtrbManual').start()
+    return True
+
+
+def _pag_ctrb_estado(meta=None):
+    import pagamentos_ctrb as pc
+    return {**pc.ESTADO, 'rodada': meta or _PAG_CTRB.get('meta')}
+
+
+@app.route('/pagamentos-ctrb')
+@page_required('pagamentos_ctrb')
+def pagamentos_ctrb_page():
+    resp = send_from_directory('.', 'pagamentos-ctrb.html')
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+@app.route('/api/pagamentos-ctrb')
+@page_required('pagamentos_ctrb')
+def api_pagamentos_ctrb():
+    import pagamentos_ctrb as pc
+    try:
+        meta, pacote = _pag_ctrb_pacote()
+    except Exception as e:
+        return jsonify({'ok': False, 'error': f'Não consegui ler a última conferência: {e}'}), 500
+    if not pacote:
+        _pag_ctrb_rodar_em_fundo()        # primeira vez: dispara sozinho
+        return jsonify({'ok': True, 'vazio': True, 'estado': _pag_ctrb_estado()})
+    decis = _pag_ctrb_db(pc.decisoes)
+    mud = _pag_ctrb_db(pc.mudancas_recentes)
+    return jsonify({'ok': True, 'painel': pc.ler_painel(pacote, decis, mud), 'estado': _pag_ctrb_estado(meta),
+                    'decisoes': pc.DECISOES, 'usuario': session.get('nome')})
+
+
+@app.route('/api/pagamentos-ctrb/ctrb/<ctrb>')
+@page_required('pagamentos_ctrb')
+def api_pagamentos_ctrb_doc(ctrb):
+    import pagamentos_ctrb as pc
+    _, pacote = _pag_ctrb_pacote()
+    if not pacote:
+        return jsonify({'ok': False, 'error': 'A conferência ainda não rodou.'}), 404
+    k = (ctrb or '').strip().upper()
+    if k not in pacote['ctrbs']:
+        d = pc.doc(k)
+        k = next((x for x in pacote['ctrbs'] if pc.doc(x) == d or pc.base_ctrb(x) == d), k)
+    decis = _pag_ctrb_db(pc.decisoes)
+    d = pc.dossie(pacote, k, decis)
+    if not d:
+        return jsonify({'ok': False, 'error': f'CTRB {ctrb} não está na conferência (emitido antes de '
+                                              f'{pacote["desde"][8:10]}/{pacote["desde"][5:7]} ou ainda fora do BI).'}), 404
+    d['historico'] = {ch: _pag_ctrb_db(lambda cur, ch=ch: pc.historico_decisoes(cur, ch)) for ch in d['casos']}
+    d['agenda_hist'] = _pag_ctrb_db(lambda cur: pc.historico_agenda(cur, k))
+    return jsonify({'ok': True, 'ctrb': d})
+
+
+@app.route('/api/pagamentos-ctrb/busca')
+@page_required('pagamentos_ctrb')
+def api_pagamentos_ctrb_busca():
+    import pagamentos_ctrb as pc
+    _, pacote = _pag_ctrb_pacote()
+    if not pacote:
+        return jsonify({'ok': True, 'itens': []})
+    return jsonify({'ok': True, 'itens': pc.buscar(pacote, request.args.get('q'))})
+
+
+@app.route('/api/pagamentos-ctrb/decisao', methods=['POST'])
+@page_required('pagamentos_ctrb')
+def api_pagamentos_ctrb_decisao():
+    import pagamentos_ctrb as pc
+    d = request.get_json(silent=True) or {}
+    chave = (d.get('chave') or '').strip().upper()
+    try:
+        _pag_ctrb_db(lambda cur: pc.decidir(cur, chave, d.get('status') or '', d.get('obs'),
+                                            session.get('nome') or 'usuário'))
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    hist = _pag_ctrb_db(lambda cur: pc.historico_decisoes(cur, chave))
+    return jsonify({'ok': True, 'historico': hist})
+
+
+@app.route('/api/pagamentos-ctrb/atualizar', methods=['POST'])
+@page_required('pagamentos_ctrb')
+def api_pagamentos_ctrb_atualizar():
+    import pagamentos_ctrb as pc
+    meta = _PAG_CTRB.get('meta') or {}
+    if meta.get('gerado_em') and not pc.ESTADO['rodando']:
+        try:
+            ult = _dtm.datetime.fromisoformat(meta['gerado_em'])
+            if _dtm.datetime.now(ult.tzinfo) - ult < _dtm.timedelta(minutes=pc.INTERVALO_MANUAL_MIN):
+                return jsonify({'ok': True, 'iniciado': False, 'motivo': 'A conferência acabou de rodar.',
+                                'estado': _pag_ctrb_estado()})
+        except Exception:
+            pass
+    ini = _pag_ctrb_rodar_em_fundo()
+    return jsonify({'ok': True, 'iniciado': ini, 'estado': _pag_ctrb_estado()})
+
+
+@app.route('/api/pagamentos-ctrb/estado')
+@page_required('pagamentos_ctrb')
+def api_pagamentos_ctrb_estado():
+    import pagamentos_ctrb as pc
+    meta = _pag_ctrb_db(pc.ultima_rodada_id)
+    return jsonify({'ok': True, 'estado': _pag_ctrb_estado(meta)})
 
 
 # ── Canhotos — o motorista fotografa o canhoto da NF e o do CT-e pelo celular (09/11/2026) ──
@@ -12014,6 +12169,16 @@ if __name__ == '__main__':
               f"envio {'ligado para ' + str(len(ciot_conferencia._numeros())) + ' número(s)' + _bat if ciot_conferencia.ENVIO_ATIVO else 'desligado'})")
     else:
         print("ℹ️  Conferência CIOT desligada (CIOT_CONFERENCIA)")
+
+    # Pagamentos de CTRB: o cruzamento que diz se o trecho já foi pago. Com a chave, recalcula sozinho
+    # depois de cada refresh do BI; sem ela, a tela roda na primeira visita e pelo botão "Atualizar".
+    import pagamentos_ctrb as _pag_ctrb
+    if _pag_ctrb.AUTO:
+        threading.Thread(target=_pag_ctrb.loop, args=(_crm_dax_op, contabil_dax, get_db),
+                         daemon=True, name='PagamentosCtrb').start()
+        print(f"✅ Pagamentos de CTRB: conferência após cada refresh do BI (desde {_pag_ctrb.DESDE})")
+    else:
+        print("ℹ️  Pagamentos de CTRB: conferência só pela tela (PAGAMENTOS_CTRB_AUTO desligada)")
 
     # Relatório semanal do evento 5100 (carga e descarga c/ terceiros) por e-mail,
     # segunda-feira de manhã, com a semana que fechou. Mora aqui pelo mesmo motivo
