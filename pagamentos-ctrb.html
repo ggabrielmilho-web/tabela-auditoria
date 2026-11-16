@@ -498,11 +498,11 @@ function renderKpis() {
     card(k.quinta.alerta_n ? '' : 'ok', `Saldo da semana · até ${diaSem(k.quinta.data)}`, brl(k.quinta.valor, 0),
          `${k.quinta.n} saldos · ${k.quinta.adiados} de semanas anteriores${k.quinta.alerta_n ? ` · <span class="neg">${k.quinta.alerta_n} para segurar</span>` : ''}${k.quinta.parados_n ? `<br>+ ${k.quinta.parados_n} parados (${brlT(k.quinta.parados_valor, 0)})` : ''}`, 'fila-quinta'),
     card(k.segurar.n ? 'alerta' : 'ok', 'Segurar antes de pagar', brl(k.segurar.valor, 0),
-         k.segurar.n ? `${k.segurar.n} pagamentos programados em ${k.segurar.casos} casos de trecho já pago` : 'Nada programado com trecho já pago', 'fila-vermelho'),
+         k.segurar.n ? `${k.segurar.n} pagamentos programados em ${k.segurar.casos} casos em que o trecho já está em outro CTRB` : 'Nada programado repetindo trecho de outro CTRB', 'fila-vermelho'),
     card(k.pago_2x.n ? 'alerta' : 'ok', `Pago duas vezes · ${esc(k.pago_2x.ano)}`, brl(k.pago_2x.valor, 0),
          `${k.pago_2x.n} casos sem volta no banco nem desconto — sem decisão`, 'casos-pago'),
     card('ok', 'Voltou', brl(k.voltou.valor, 0), `${k.voltou.n} casos acertados: estorno no banco ou desconto na conta corrente`, 'casos-voltou'),
-    card('', 'Estornos no banco (456)', brl(k.estornos.valor, 0), `${k.estornos.n} estornos em ${k.estornos.ctrbs} CTRBs — o 477 ainda mostra como pago`, 'estornos'),
+    card('', 'Estornos no banco (456)', brl(k.estornos.valor, 0), `${k.estornos.n} estornos em ${k.estornos.ctrbs} CTRBs — o 477 ainda mostra como liquidado`, 'estornos'),
   ].join('');
   document.querySelectorAll('#kpis .kpi').forEach((el, i) => { el.classList.add('reveal'); el.style.setProperty('--d', i); });
 }
@@ -624,7 +624,7 @@ function reguaHtml(rg, porCtrb) {
     labs.push(`<div class="rg-lab"><span class="k">${esc(p.ctrb)}</span><span class="w">${esc(rotasIguais ? lab2 : rot)}</span>${rotasIguais ? '' : `<span class="w">${esc(lab2)}</span>`}</div>`);
     tracks.push(`<div class="rg-tr"><div class="rg-track"><div class="rg-bar ${p.pago || p.tipo === 'FROTA' ? '' : 'nao-pago'}" style="--cor:${corTipo(p.tipo)};left:${(p.ini * 100).toFixed(2)}%;width:${w.toFixed(2)}%" title="${esc(cidade(p.o))} → ${esc(cidade(p.d))} · ${num(p.km, 0)} km"></div></div></div>`);
   });
-  const over = (rg.sobreposto || []).map(([a, b]) => `<div class="rg-over" style="left:${(a * 100).toFixed(2)}%;width:${((b - a) * 100).toFixed(2)}%"><b>pago 2×</b></div>`).join('');
+  const over = (rg.sobreposto || []).map(([a, b]) => `<div class="rg-over" style="left:${(a * 100).toFixed(2)}%;width:${((b - a) * 100).toFixed(2)}%"><b>trecho em 2 CTRBs</b></div>`).join('');
   return `<div class="regua"><div class="rg-body"><div class="rg-ends"><span>${esc(cidade(rg.origem))}</span><span>${esc(cidade(rg.destino || ''))} · ${num(rg.km_total, 0)} km</span></div>
     <div class="rg-labs">${labs.join('')}</div><div class="rg-tracks">${tracks.join('')}${over}</div></div>
     <div class="rg-leg"><span><i style="background:var(--c-agregado)"></i>agregado</span><span><i style="background:var(--c-carreteiro)"></i>terceiro</span><span><i style="background:var(--c-frota)"></i>frota</span>${(rg.sobreposto || []).length ? '<span><i style="background:repeating-linear-gradient(135deg, rgba(248,113,113,.5) 0 3px, transparent 3px 6px);border:1px solid rgba(248,113,113,.7)"></i>trecho em mais de um CTRB</span>' : ''}</div></div>`;
@@ -659,7 +659,7 @@ function renderCasos() {
   const p = S.painel, c = S.casos;
   const stCount = s => p.casos.filter(x => x.status === s).length;
   const ST = [['pendente', 'Dá para segurar'], ['pago_2x', 'Pago duas vezes'], ['conferir', 'Conferir'], ['recuperado', 'Voltou'], ['explicado', 'Explicado'], ['um_recebeu', 'Só um recebeu']];
-  const TP = [['todos', 'Todos'], ['trecho_hub', 'Trecho pago 2×'], ['mesma_perna', 'Mesma perna'], ['reemissao', 'Reemissão'], ['sobre_frota', 'Em cima da frota'], ['mesmo_ciot', 'Mesmo CIOT'], ['dois_caminhoes', 'Dois caminhões']];
+  const TP = [['todos', 'Todos'], ['trecho_hub', 'Mesmo trecho (hub)'], ['mesma_perna', 'Mesma perna'], ['reemissao', 'Reemissão'], ['sobre_frota', 'Em cima da frota'], ['mesmo_ciot', 'Mesmo CIOT'], ['dois_caminhoes', 'Dois caminhões']];
   const DC = [['todas', 'Todas'], ['sem', 'Sem decisão'], ['segurar', 'Segurado'], ['cobrar', 'Em cobrança'], ['ok', 'Conferido'], ['resolvido', 'Resolvido']];
   const lista = casosFiltrados();
   const soma = lista.reduce((s, x) => s + (x.status === 'recuperado' ? 0 : x.excesso), 0);
@@ -703,7 +703,7 @@ function renderEstornos() {
         ${Object.entries(tipos).sort((a, b) => b[1].v - a[1].v).map(([t, v]) => `<button class="fchip ${e.tipo === t ? 'on' : ''}" data-et="${esc(t)}">${esc(t)} <span class="q">${v.n} · ${brlT(v.v, 0)}</span></button>`).join('')}</div>
       <div class="mini-barras">${meses.map(m => `<div title="${brlT(porMes[m])}"><i style="height:${Math.round(62 * porMes[m] / max)}px"></i><span>${MESES[+m.slice(5) - 1]}</span></div>`).join('')}</div>
       <p class="resumo-linha" style="margin-top:8px"><b>${lista.length}</b> lançamentos · <b>${brlT(tot, 0)}</b></p>
-      <div class="tabela-wrap"><table class="t"><thead><tr><th>Data</th><th>Tipo</th><th>CTRB</th><th>Favorecido</th><th>Conta</th><th class="n">Voltou</th><th class="n">477 mostra pago</th></tr></thead><tbody>
+      <div class="tabela-wrap"><table class="t"><thead><tr><th>Data</th><th>Tipo</th><th>CTRB</th><th>Favorecido</th><th>Conta</th><th class="n">Voltou</th><th class="n" title="O que o 477 mostra como liquidado para este CTRB — não desconta o estorno">477 mostra liquidado</th></tr></thead><tbody>
         ${lista.slice(0, e.limite).map(x => `<tr data-ctrb="${esc(x.ctrb)}"><td class="mono">${diaAno(x.data)}</td><td>${esc(x.tipo)}<small>de ${esc(x.de)}</small></td>
           <td class="mono">${esc(x.ctrb)}${x.casos.length ? ' <span class="tag programado">caso</span>' : ''}${x.no_bi ? '' : '<small>fora da janela</small>'}</td><td>${esc(x.favorecido || '—')}</td><td><small style="margin:0">${esc(x.conta || '')}</small></td>
           <td class="n pos">${brlT(x.valor)}</td><td class="n">${brlT(x.pago_477)}</td></tr>`).join('')}
@@ -715,7 +715,7 @@ function renderEstornos() {
 // ── controles ────────────────────────────────────────────────────────────
 function renderControles() {
   const c = S.painel.controles, k = S.painel.kpis.segregacao;
-  const tabMini = (lst, vazio) => lst.length ? `<div class="tabela-wrap"><table class="t"><thead><tr><th>CTRB</th><th>Emissão</th><th>Rota</th><th>Proprietário</th><th class="n">Pago</th><th>Por que</th></tr></thead><tbody>
+  const tabMini = (lst, vazio) => lst.length ? `<div class="tabela-wrap"><table class="t"><thead><tr><th>CTRB</th><th>Emissão</th><th>Rota</th><th>Proprietário</th><th class="n" title="Liquidado no 477 (o dinheiro saiu)">Pago</th><th>Por que</th></tr></thead><tbody>
     ${lst.slice(0, 150).map(r => `<tr data-ctrb="${esc(r.ctrb)}"><td class="mono">${esc(r.ctrb)} ${tipoChip(r.tipo)}</td><td class="mono">${diaAno(r.emissao)}<small>${esc(r.usu || '')}</small></td><td>${rota(r.o, r.d)}<small>${placas(r.cav, r.car)}</small></td><td>${esc(r.prop || '—')}</td><td class="n">${brlT(r.pago)}</td><td><small style="margin:0">${esc(r.texto)}</small></td></tr>`).join('')}
     </tbody></table></div>` : `<div class="vazio-v">${vazio}</div>`;
   const porProp = {}; c.frota_paga.forEach(r => { porProp[r.prop || '—'] = (porProp[r.prop || '—'] || 0) + r.pago; });
@@ -749,9 +749,9 @@ function renderControles() {
       <div class="tabela-wrap"><table class="t"><thead><tr><th>Emitido por</th><th class="n">CTRBs</th><th class="n">Adiantamentos pagos</th><th class="n">Liberados pelo próprio</th><th class="n">Valor</th><th></th></tr></thead><tbody>
         ${c.segregacao.map(r => { const pct = r.adiant ? 100 * r.adiant_proprio / r.adiant : 0; return `<tr style="cursor:default"><td>${esc(r.usuario)}</td><td class="n">${r.ctrbs}</td><td class="n">${r.adiant}</td><td class="n">${r.adiant_proprio} <small style="display:inline">(${num(pct, 0)}%)</small></td><td class="n">${brlT(r.valor_proprio, 0)}</td><td style="width:120px"><div class="barra-pct"><i style="width:${pct.toFixed(1)}%"></i></div></td></tr>`; }).join('')}
       </tbody></table></div></div></div>
-    <div class="bloco"><div class="bloco-h"><h2>CTRB pago sem receita · ${c.sem_receita.length}</h2><span class="nota">O pagamento não se liga a CT-e nenhum: sem manifesto, ou manifesto sem CT-e. Diárias (sem tabela ANTT e origem = destino) ficam fora. Complemento de frete e reemissão também caem aqui — por isso é "conferir", não "segurar".</span></div>
-      ${tabMini(c.sem_receita, 'Nenhum CTRB pago sem receita.')}</div>
-    <div class="bloco"><div class="bloco-h"><h2>Frota paga como agregado/terceiro · ${c.frota_paga.length}</h2><span class="nota">Cavalo e carreta são da Rizza no cadastro (045), mas o CTRB paga como agregado ou terceiro. Pode ser acordo conhecido (veículo de sócio) — aí o cadastro ou o tipo do CTRB está errado. ${Object.entries(porProp).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([p, v]) => `${esc(p)}: ${brlT(v, 0)}`).join(' · ')}</span></div>
+    <div class="bloco"><div class="bloco-h"><h2>CTRB sem receita · ${c.sem_receita.length}</h2><span class="nota">O CTRB não se liga a CT-e nenhum: sem manifesto, ou manifesto sem CT-e. Diárias (sem tabela ANTT e origem = destino) ficam fora. Complemento de frete e reemissão também caem aqui — por isso é "conferir", não "segurar".</span></div>
+      ${tabMini(c.sem_receita, 'Nenhum CTRB sem receita.')}</div>
+    <div class="bloco"><div class="bloco-h"><h2>Frota lançada como agregado/terceiro · ${c.frota_paga.length}</h2><span class="nota">Cavalo e carreta são da Rizza no cadastro (045), mas o CTRB é de agregado ou terceiro. Pode ser acordo conhecido (veículo de sócio) — aí o cadastro ou o tipo do CTRB está errado. ${Object.entries(porProp).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([p, v]) => `${esc(p)}: ${brlT(v, 0)}`).join(' · ')}</span></div>
       ${tabMini(c.frota_paga, 'Nenhum.')}</div>`;
 }
 
@@ -784,7 +784,7 @@ function renderDossie(c) {
   $('#gCab').innerHTML = `<h2>${esc(c.ctrb)} ${tipoChip(c.tipo)} ${sinalHtml(c.sinal)}</h2>
     <div class="sub">Emitido ${c.emissao ? `${dia(c.emissao)}/${c.emissao.slice(2, 4)} às ${hora(c.emissao)}` : '—'}${c.usu ? ` por <b>${esc(c.usu)}</b>` : ''}${c.situacao ? ` · SSW: ${esc(c.situacao.toLowerCase())}` : ''}${c.ativo ? '' : ' · <span class="neg">cancelado</span>'}</div>`;
   const motHtml = motivos.length ? motivos.map(m => `<div class="motivo ${m.nivel}"><span>${esc(m.texto)}</span>${m.caso ? `<a data-caso="${esc(m.caso)}">ver caso</a>` : ''}</div>`).join('')
-    : `<div class="motivo verde">Nada encontrado: nenhum outro CTRB paga este trecho, a receita existe e o pagamento confere.</div>`;
+    : `<div class="motivo verde">Nada encontrado: nenhum outro CTRB cobre este trecho, a receita existe e o valor confere.</div>`;
   const pags = c.pagamentos.map(p => {
     const bk = p.banco ? (p.banco.como === 'individual' ? `saiu de ${esc(p.banco.conta || '')} em ${dia(p.banco.data)}` : (p.banco.como === 'lote' ? 'PIX no lote diário da Sicoob (sem detalhe)' : 'saída não encontrada no 456')) : 'ainda não saiu';
     const prog = p.tipo === 'saldo' ? (p.situacao === 'pago' ? `venceu qui ${dia(p.venc)}${p.adiado ? ` · saiu ${p.adiado} sem. depois` : ''}` : (p.lote ? `venc. qui ${dia(p.venc)} → ${diaSem(p.lote)}` : `venc. qui ${dia(p.venc)} · data ${dia(p.data)} passou sem remarcar`)) : '';
@@ -797,7 +797,7 @@ function renderDossie(c) {
     : `<div class="motivo amarelo">Nenhum CT-e ligado a este CTRB${c.manifestos.length ? ' (o manifesto não tem CT-e)' : ' (sem manifesto)'} — o pagamento não tem receita por trás.</div>`;
   const viz = c.vizinhos.length ? c.vizinhos.map(v => `<button class="viz ${v.ativo ? '' : 'inativo'}" data-ctrb="${esc(v.ctrb)}"><span class="mono">${esc(v.ctrb)}<br>${tipoChip(v.tipo)}</span>
       <span class="r">${rota(v.o, v.d)} <span class="faint">· ${num(v.km, 0)} km</span><br><span class="faint mono" style="font-size:.68rem">${placas(v.cav, v.car)} · ${dia(v.emissao)}${v.ativo ? '' : ' · cancelado'}</span></span>
-      <span style="text-align:right" class="mono">${v.tipo === 'FROTA' ? '<span class="faint">frota</span>' : brlT(v.pago)}${v.estornado ? `<br><small class="pos">voltou ${brlT(v.estornado)}</small>` : ''}</span></button>`).join('')
+      <span style="text-align:right" class="mono">${v.tipo === 'FROTA' ? '<span class="faint">frota</span>' : `${v.pago ? `pago ${brlT(v.pago)}` : '<span class="faint">nada pago</span>'}${v.programado ? `<br><small style="color:#fde68a">programado ${brlT(v.programado)}</small>` : ''}`}${v.estornado ? `<br><small class="pos">voltou ${brlT(v.estornado)}</small>` : ''}</span></button>`).join('')
     : '<p class="faint" style="font-size:.78rem">Nenhum outro CTRB leva os CT-e deste.</p>';
   const casos = c.casos_det.map(x => blocoCaso(x, c.historico ? c.historico[x.chave] : [])).join('');
   $('#gCorpo').innerHTML = `
@@ -841,7 +841,7 @@ function blocoCaso(x, hist) {
     ${reguaHtml(x.regua, x.por_ctrb)}
     <ul class="evid" style="margin-top:10px">${x.evidencias.map(e => `<li class="${e.startsWith('GPS') ? 'gps' : ''}">${esc(e)}</li>`).join('')}</ul>
     ${x.contexto && x.contexto.length ? `<h4 style="margin:14px 0 8px">Manifesto × CTRB × CT-e <span class="fonte">073 · 916 · manifestos_ctrc · 455</span></h4>${contextoHtml(x.contexto)}` : ''}
-    <div class="tabela-wrap" style="margin-top:10px"><table class="t"><thead><tr><th>CTRB</th><th class="n">Pago (477)</th><th class="n">Programado</th><th class="n">Voltou</th><th class="n">Ficou</th></tr></thead><tbody>
+    <div class="tabela-wrap" style="margin-top:10px"><table class="t"><thead><tr><th>CTRB</th><th class="n" title="Liquidado no 477: o dinheiro saiu">Pago (saiu)</th><th class="n" title="Lançado no 477 e ainda não pago">Programado</th><th class="n" title="Estorno no extrato do banco (456) ou desconto na conta corrente do motorista">Voltou</th><th class="n" title="Pago menos o que voltou: o que saiu e não voltou (não inclui o programado)">Saiu e não voltou</th></tr></thead><tbody>
       ${x.ctrbs.map(k => { const p = x.por_ctrb[k]; return `<tr data-ctrb="${esc(k)}"><td class="mono">${esc(k)}</td><td class="n">${brlT(p.liquidado)}</td><td class="n">${p.programado ? brlT(p.programado) : '—'}</td><td class="n pos">${p.estornado || p.desconto ? brlT((p.estornado || 0) + ((p.desconto || {}).valor || 0)) : '—'}${p.desconto ? `<small>${esc(p.desconto.como)} em ${esc(p.desconto.ctrb)} (provável)</small>` : ''}</td><td class="n">${brlT(p.liquido)}</td></tr>`; }).join('')}
     </tbody></table></div>
     <div class="form-dec" data-chave="${esc(x.chave)}">
