@@ -2238,6 +2238,13 @@ def api_pagamentos_ctrb_doc(ctrb):
                                               f'{pacote["desde"][8:10]}/{pacote["desde"][5:7]} ou ainda fora do BI).'}), 404
     d['historico'] = {ch: _pag_ctrb_db(lambda cur, ch=ch: pc.historico_decisoes(cur, ch)) for ch in d['casos']}
     d['agenda_hist'] = _pag_ctrb_db(lambda cur: pc.historico_agenda(cur, k))
+    try:        # a seção do comprovante não derruba o dossiê
+        import comprovantes as cp
+        regs, leit = _comprov_db(lambda cur: (cp.regras(cur), cp.leituras(cur, d.get('ctes') or [])))
+        d['comprovante'] = cp.situacao(k, pacote, regs, leit, GRUPOS_ECONOMICOS)
+    except Exception as e:
+        print(f'⚠️  comprovantes: dossiê {k}: {e}')
+        d['comprovante'] = None
     return jsonify({'ok': True, 'ctrb': d})
 
 
@@ -2291,81 +2298,6 @@ def api_pagamentos_ctrb_estado():
     return jsonify({'ok': True, 'estado': _pag_ctrb_estado(meta)})
 
 
-# ── Canhotos — o motorista fotografa o canhoto da NF e o do CT-e pelo celular (09/11/2026) ──
-#
-# Duas portas. `/motorista/` é o app do motorista (PWA): entra só com o CPF, NÃO usa a sessão do sistema
-# (cookie próprio, assinado, com caminho /motorista/ — não abre tela nenhuma daqui) e só existe com
-# `CANHOTO_APP=true`; desligada, responde 404. `/canhotos` é a aba do escritório (aba `canhotos`).
-# A lógica mora em canhoto.py; aqui ficam a sessão, o banco e o BI. Ver "Módulo Canhotos" no README.
-_CANHOTO_COOKIE = 'rz_motorista'
-_CANHOTO_DIAS = 120
-_CANHOTO_FALHAS = {}
-_CANHOTO_TRAVA = threading.Lock()
-_CANHOTO_ARQ = {'icone-192.png': 'image/png', 'icone-512.png': 'image/png'}
-
-
-def _canhoto_db(fn):
-    """Abre o banco, garante as tabelas (1× por processo), roda fn(conn) e confirma."""
-    try:        # a seção do comprovante não derruba o dossiê
-        import comprovantes as cp
-        regs, leit = _comprov_db(lambda cur: (cp.regras(cur), cp.leituras(cur, d.get('ctes') or [])))
-        d['comprovante'] = cp.situacao(k, pacote, regs, leit, GRUPOS_ECONOMICOS)
-    except Exception as e:
-        print(f'⚠️  comprovantes: dossiê {k}: {e}')
-        d['comprovante'] = None
-    import canhoto
-    conn = get_db()
-    try:
-        canhoto.garantir(conn)
-        r = fn(conn)
-        conn.commit()
-        return r
-    finally:
-        conn.close()
-
-
-def _canhoto_assinador():
-    from itsdangerous import URLSafeTimedSerializer
-    return URLSafeTimedSerializer(app.secret_key, salt='canhoto-motorista-v1')
-
-
-def _canhoto_cpf():
-    """O CPF do cookie do motorista, ou None. O cookie é assinado com a SECRET_KEY: não dá para forjar
-    outro CPF trocando o texto."""
-    v = request.cookies.get(_CANHOTO_COOKIE)
-    if not v:
-        return None
-    try:
-        d = _canhoto_assinador().loads(v, max_age=_CANHOTO_DIAS * 86400)
-    except Exception:
-        return None
-    return d.get('cpf') if isinstance(d, dict) else None
-
-
-def _canhoto_ip():
-    return (request.headers.get('X-Forwarded-For', '').split(',')[0].strip() or request.remote_addr or '')
-
-
-def _canhoto_bloqueado(ip):
-    """10 CPFs errados em 15 min no mesmo IP travam a entrada: só o CPF abre o app, então tentar CPF ao
-    acaso tem de custar caro. Em memória: o app roda num processo só."""
-    agora = time.time()
-    with _CANHOTO_TRAVA:
-        lista = [t for t in _CANHOTO_FALHAS.get(ip, []) if agora - t < 900]
-        if lista:
-            _CANHOTO_FALHAS[ip] = lista
-        else:
-            _CANHOTO_FALHAS.pop(ip, None)
-        return len(lista) >= 10
-
-
-def _canhoto_falhou(ip):
-    with _CANHOTO_TRAVA:
-        _CANHOTO_FALHAS.setdefault(ip, []).append(time.time())
-
-
-def _canhoto_me(m):
-    """O que o app guarda do motorista. Em vez do CPF, uma marca que só serve para separar a fila de
 # ── Comprovantes de entrega — o saldo só sai com o comprovante de todos os CT-e (17/11/2026) ──
 #
 # Etapa 1: a regra de cada cliente (canhoto da NF + DACTE / só o canhoto / não exige) e a aba Comprovantes do
@@ -2427,6 +2359,74 @@ def api_pagamentos_ctrb_comprovantes_regra():
     return jsonify({'ok': True, 'mudou': mudou, 'historico': _comprov_db(lambda cur: cp.historico(cur, raiz))})
 
 
+# ── Canhotos — o motorista fotografa o canhoto da NF e o do CT-e pelo celular (09/11/2026) ──
+#
+# Duas portas. `/motorista/` é o app do motorista (PWA): entra só com o CPF, NÃO usa a sessão do sistema
+# (cookie próprio, assinado, com caminho /motorista/ — não abre tela nenhuma daqui) e só existe com
+# `CANHOTO_APP=true`; desligada, responde 404. `/canhotos` é a aba do escritório (aba `canhotos`).
+# A lógica mora em canhoto.py; aqui ficam a sessão, o banco e o BI. Ver "Módulo Canhotos" no README.
+_CANHOTO_COOKIE = 'rz_motorista'
+_CANHOTO_DIAS = 120
+_CANHOTO_FALHAS = {}
+_CANHOTO_TRAVA = threading.Lock()
+_CANHOTO_ARQ = {'icone-192.png': 'image/png', 'icone-512.png': 'image/png'}
+
+
+def _canhoto_db(fn):
+    """Abre o banco, garante as tabelas (1× por processo), roda fn(conn) e confirma."""
+    import canhoto
+    conn = get_db()
+    try:
+        canhoto.garantir(conn)
+        r = fn(conn)
+        conn.commit()
+        return r
+    finally:
+        conn.close()
+
+
+def _canhoto_assinador():
+    from itsdangerous import URLSafeTimedSerializer
+    return URLSafeTimedSerializer(app.secret_key, salt='canhoto-motorista-v1')
+
+
+def _canhoto_cpf():
+    """O CPF do cookie do motorista, ou None. O cookie é assinado com a SECRET_KEY: não dá para forjar
+    outro CPF trocando o texto."""
+    v = request.cookies.get(_CANHOTO_COOKIE)
+    if not v:
+        return None
+    try:
+        d = _canhoto_assinador().loads(v, max_age=_CANHOTO_DIAS * 86400)
+    except Exception:
+        return None
+    return d.get('cpf') if isinstance(d, dict) else None
+
+
+def _canhoto_ip():
+    return (request.headers.get('X-Forwarded-For', '').split(',')[0].strip() or request.remote_addr or '')
+
+
+def _canhoto_bloqueado(ip):
+    """10 CPFs errados em 15 min no mesmo IP travam a entrada: só o CPF abre o app, então tentar CPF ao
+    acaso tem de custar caro. Em memória: o app roda num processo só."""
+    agora = time.time()
+    with _CANHOTO_TRAVA:
+        lista = [t for t in _CANHOTO_FALHAS.get(ip, []) if agora - t < 900]
+        if lista:
+            _CANHOTO_FALHAS[ip] = lista
+        else:
+            _CANHOTO_FALHAS.pop(ip, None)
+        return len(lista) >= 10
+
+
+def _canhoto_falhou(ip):
+    with _CANHOTO_TRAVA:
+        _CANHOTO_FALHAS.setdefault(ip, []).append(time.time())
+
+
+def _canhoto_me(m):
+    """O que o app guarda do motorista. Em vez do CPF, uma marca que só serve para separar a fila de
     fotos de dois motoristas no mesmo celular."""
     import hashlib
     marca = hashlib.sha256((app.secret_key + '|' + m['cpf']).encode()).hexdigest()[:16]
