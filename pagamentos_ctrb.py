@@ -48,7 +48,7 @@ RODADAS_GUARDADAS = 5
 JANELA_DUPLICADO_H = 36           # mesma placa + mesma rota em até 36 h = o mesmo serviço
 FOLGA_CAMINHO = 1.2               # B está no caminho de A quando km(A.origem→B.origem) + km(B) ≤ 1,2 × km(A)
 DIAS_DESCONTO = 120               # desconto em conta corrente procurado até 120 dias depois
-VERSAO_PACOTE = 3                 # sobe a cada mudança de regra: rodada de versão anterior é recalculada sozinha
+VERSAO_PACOTE = 4                 # sobe a cada mudança de regra: rodada de versão anterior é recalculada sozinha
 BRT = timedelta(hours=3)
 
 TIPOS_CASO = {
@@ -187,6 +187,20 @@ def cidade_bonita(s):
     return f"{nome[:1].upper()}{nome[1:]}" + (f"/{uf.upper()}" if uf else '')
 
 
+def _serie_num(chave):
+    """Chave do CT-e (44 dígitos) → a série e o número impressos no DACTE."""
+    d = re.sub(r'\D', '', str(chave or ''))
+    return {'serie': str(int(d[22:25])), 'num': str(int(d[25:34]))} if len(d) == 44 else {'serie': None, 'num': None}
+
+
+def _nf(v):
+    """numero_nota_fiscal do BI (vem número) → '123456'; vazio → None."""
+    if isinstance(v, float) and v.is_integer():
+        v = int(v)
+    s = str(v if v is not None else '').strip().lstrip('0')
+    return s if s.isdigit() else None
+
+
 def _r2(v):
     return round(n(v), 2)
 
@@ -297,7 +311,9 @@ def coletar(dax_op, dax_cont, desde=None, hoje=None, log=print):
                                                     ('e_cid', 'cidade_entrega'), ('e_uf', 'uf_entrega'),
                                                     ('d_cid', 'cidade_destinatario'), ('d_uf', 'uf_destinatario'),
                                                     ('fs', 'valor_frete_sem_icms'), ('pag', 'cliente_pagador'),
-                                                    ('pm', 'primeiro_manifesto'), ('peso', 'peso_real_kg')]) + ')'))
+                                                    ('pm', 'primeiro_manifesto'), ('peso', 'peso_real_kg'),
+                                                    ('cnpj', 'cnpj_pagador'), ('nf', 'numero_nota_fiscal'),
+                                                    ('chave', 'chave_cte')]) + ')'))
     for a, m in _meses(desde - timedelta(days=31), fim):
         tarefas.append(('p477', dax_op, f"EVALUATE SELECTCOLUMNS(FILTER({DZ}, {DZ}[evento] IN {{\"5101\",\"5102\"}} && {DZ}[mes_competencia] = \"{m:02d}/{a % 100:02d}\"), "
                                         + _sel(DZ, [('uni', 'uni'), ('lanc', 'numlancto'), ('parc', 'parcela'), ('ev', 'evento'),
@@ -1284,7 +1300,7 @@ def analisar(raw, emb=None, hoje=None, desde=None):
             'mot': c.get('mot'), 'valor_a_pagar': _r2(c.get('vp')), 'liquido': _r2(c.get('liq')),
             'pedagio': _r2(c.get('ped')), 'vale_pedagio': _r2(c.get('vped')), 'ccf': _r2(c.get('ccf')),
             'ciot': c.get('ciot'), 'obs': (c.get('obs') or '')[:400], 'usu': c.get('usu'),
-            'manifestos': sorted(man_do.get(k, set())), 'ctes': ces[:60], 'n_ctes': len(ces),
+            'manifestos': sorted(man_do.get(k, set())), 'ctes': ces, 'n_ctes': len(ces),
             'pagamentos': pag.get(k, []), 'estornos': estornos.get(k, []),
             'casos': casos_do.get(k, []), 'sinais': sinais.get(k, []), 'gps': emb.get(c['_base']),
             'mesmo_cte': sorted({x for ce in ces for x in ctrbs_do_cte.get(ce, ()) if x != k})[:20],
@@ -1297,7 +1313,12 @@ def analisar(raw, emb=None, hoje=None, desde=None):
                             'o': f"{e.get('o_cid')}/{e.get('o_uf')}" if e.get('o_cid') else None,
                             'd': (f"{e.get('e_cid')}/{e.get('e_uf')}" if e.get('e_cid') else
                                   (f"{e.get('d_cid')}/{e.get('d_uf')}" if e.get('d_cid') else None)),
-                            'fs': _r2(e.get('fs')), 'pag': e.get('pag'), 'n_ctrbs': len(ctrbs_do_cte.get(ce, ()))}
+                            'fs': _r2(e.get('fs')), 'pag': e.get('pag'), 'n_ctrbs': len(ctrbs_do_cte.get(ce, ())),
+                            # para o comprovante de entrega (comprovantes.py): o cliente pela raiz do CNPJ, a NF e o
+                            # nº/série impressos no DACTE (da chave de 44 dígitos)
+                            'cnpj': re.sub(r'\D', '', str(e.get('cnpj') or '')) or None,
+                            'nf': _nf(e.get('nf')),
+                            **_serie_num(e.get('chave'))}
 
     adiant_tot = sum(v['adiant'] for v in emissor.values())
     adiant_prop = sum(v['adiant_proprio'] for v in emissor.values())

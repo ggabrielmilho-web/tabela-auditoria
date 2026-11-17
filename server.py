@@ -2306,6 +2306,13 @@ _CANHOTO_ARQ = {'icone-192.png': 'image/png', 'icone-512.png': 'image/png'}
 
 def _canhoto_db(fn):
     """Abre o banco, garante as tabelas (1× por processo), roda fn(conn) e confirma."""
+    try:        # a seção do comprovante não derruba o dossiê
+        import comprovantes as cp
+        regs, leit = _comprov_db(lambda cur: (cp.regras(cur), cp.leituras(cur, d.get('ctes') or [])))
+        d['comprovante'] = cp.situacao(k, pacote, regs, leit, GRUPOS_ECONOMICOS)
+    except Exception as e:
+        print(f'⚠️  comprovantes: dossiê {k}: {e}')
+        d['comprovante'] = None
     import canhoto
     conn = get_db()
     try:
@@ -2359,6 +2366,67 @@ def _canhoto_falhou(ip):
 
 def _canhoto_me(m):
     """O que o app guarda do motorista. Em vez do CPF, uma marca que só serve para separar a fila de
+# ── Comprovantes de entrega — o saldo só sai com o comprovante de todos os CT-e (17/11/2026) ──
+#
+# Etapa 1: a regra de cada cliente (canhoto da NF + DACTE / só o canhoto / não exige) e a aba Comprovantes do
+# Pagamentos CTRB. O cliente é o do Faturamento (raiz do CNPJ no grupo econômico: GRUPOS_ECONOMICOS); cliente
+# novo entra sozinho com a regra padrão. A leitura do SSW (etapa 2) e a da imagem (etapa 3) gravam em
+# `comprov_cte`. A lógica mora em comprovantes.py.
+_COMPROV = {'tabelas': False}
+
+
+def _comprov_db(fn):
+    import comprovantes as cp
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            if not _COMPROV['tabelas']:
+                cp.garantir(cur)
+                _COMPROV['tabelas'] = True
+            r = fn(cur)
+        conn.commit()
+        return r
+    finally:
+        conn.close()
+
+
+@app.route('/api/pagamentos-ctrb/comprovantes')
+@page_required('pagamentos_ctrb')
+def api_pagamentos_ctrb_comprovantes():
+    import comprovantes as cp
+    import pagamentos_ctrb as pc
+    _, pacote = _pag_ctrb_pacote()
+    if not pacote:
+        return jsonify({'ok': False, 'error': 'A conferência ainda não rodou.'}), 404
+    clientes = cp.clientes(pacote, GRUPOS_ECONOMICOS)
+    ctrcs = {ce for f in pacote['fila'] if f['tipo_pag'] == 'saldo'
+             for ce in (pacote['ctrbs'].get(f['ctrb']) or {}).get('ctes', [])}
+
+    def ler(cur):
+        regs = cp.regras(cur)
+        if cp.sincronizar(cur, clientes, regs):
+            regs = cp.regras(cur)
+        return regs, cp.leituras(cur, ctrcs), cp.historico(cur)
+    regs, leit, hist = _comprov_db(ler)
+    hoje = (_dtm.datetime.utcnow() - pc.BRT).date()
+    return jsonify({'ok': True, 'comprovantes': cp.painel(pacote, regs, leit, hist, GRUPOS_ECONOMICOS, hoje.isoformat(),
+                                                          pc.proxima_quinta(hoje).isoformat(), cl=clientes)})
+
+
+@app.route('/api/pagamentos-ctrb/comprovantes/regra', methods=['POST'])
+@page_required('pagamentos_ctrb')
+def api_pagamentos_ctrb_comprovantes_regra():
+    import comprovantes as cp
+    d = request.get_json(silent=True) or {}
+    raiz = str(d.get('raiz') or '').strip()
+    try:
+        mudou = _comprov_db(lambda cur: cp.definir(cur, raiz, d.get('exige') or '', d.get('obs'),
+                                                   session.get('nome') or 'usuário', d.get('nome')))
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    return jsonify({'ok': True, 'mudou': mudou, 'historico': _comprov_db(lambda cur: cp.historico(cur, raiz))})
+
+
     fotos de dois motoristas no mesmo celular."""
     import hashlib
     marca = hashlib.sha256((app.secret_key + '|' + m['cpf']).encode()).hexdigest()[:16]

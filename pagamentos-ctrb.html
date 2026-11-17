@@ -337,10 +337,51 @@
   .hist li { border-left: 2px solid var(--border2); padding-left: 10px; }
   .hist li b { color: var(--text); }
   .erro-f { color: var(--red); font-size: .76rem; }
+  /* comprovantes */
+  .cps { display: inline-flex; align-items: center; gap: 6px; font-size: .7rem; font-weight: 700; border-radius: 999px; padding: 2px 9px 2px 7px; border: 1px solid; white-space: nowrap; }
+  .cps::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: none; }
+  .cps.vermelho { color: #fca5a5; background: rgba(248,113,113,.1); border-color: rgba(248,113,113,.4); }
+  .cps.amarelo { color: #fde68a; background: rgba(251,191,36,.08); border-color: rgba(251,191,36,.38); }
+  .cps.verde { color: #a7f3d0; background: rgba(52,211,153,.07); border-color: rgba(52,211,153,.3); }
+  .cps.cinza { color: var(--text-dim); background: rgba(148,163,184,.07); border-color: var(--border2); }
+  .cps.cinza::before { background: none; border: 2px solid currentColor; width: 5px; height: 5px; }
+  .cps.info { color: #c7d2fe; background: rgba(129,140,248,.08); border-color: rgba(129,140,248,.35); }
+  .rg-chip { font-size: .64rem; font-weight: 700; border-radius: 6px; padding: 2px 7px; border: 1px solid var(--border2); white-space: nowrap; color: var(--text-dim); }
+  .rg-chip.nf_cte { color: #7dd3fc; border-color: rgba(56,189,248,.35); }
+  .rg-chip.nf { color: #c7d2fe; border-color: rgba(129,140,248,.35); }
+  .seg { display: inline-flex; border: 1px solid var(--border2); border-radius: 9px; overflow: hidden; }
+  .seg button { background: var(--surface2); border: 0; border-right: 1px solid var(--border); color: var(--text-faint); font: 600 .7rem 'DM Sans'; padding: 6px 10px; cursor: pointer; white-space: nowrap; }
+  .seg button:last-child { border-right: 0; }
+  .seg button:hover { color: var(--text); }
+  .seg button.on.nf_cte { background: rgba(56,189,248,.14); color: #7dd3fc; }
+  .seg button.on.nf { background: rgba(129,140,248,.16); color: #c7d2fe; }
+  .seg button.on.nenhum { background: rgba(148,163,184,.16); color: var(--text); }
+  .cp-res { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
+  .cp-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 11px; padding: 9px 11px; text-align: left; color: var(--text); cursor: pointer; min-width: 0; transition: border-color .15s; }
+  .cp-card:hover { border-color: var(--border2); }
+  .cp-card.on { border-color: var(--accent); }
+  .cp-card.alerta { border-color: rgba(248,113,113,.45); background: linear-gradient(160deg, rgba(248,113,113,.1), var(--surface2) 70%); }
+  .cp-card b { display: block; font-size: .58rem; text-transform: uppercase; letter-spacing: .08em; color: var(--text-faint); margin-bottom: 4px; }
+  .cp-card .v { font-family: 'JetBrains Mono', monospace; font-size: 1.05rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cp-card .s { font-size: .68rem; color: var(--text-dim); margin-top: 2px; line-height: 1.35; }
+  .aviso-etapa { display: flex; gap: 10px; align-items: flex-start; font-size: .78rem; line-height: 1.45; color: #c7d2fe; background: rgba(129,140,248,.06); border: 1px solid rgba(129,140,248,.25); border-radius: 10px; padding: 9px 12px; margin-bottom: 12px; }
+  .cp-busca { display: flex; gap: 10px 16px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+  .cp-busca input { background: var(--surface2); border: 1px solid var(--border); border-radius: 9px; color: var(--text); font: .8rem 'DM Sans'; padding: 7px 11px; width: 300px; max-width: 100%; outline: 0; }
+  .cp-busca input:focus { border-color: var(--accent); }
+  .rg-quem { font-size: .7rem; color: var(--text-faint); line-height: 1.4; }
+  .rg-quem b { color: var(--text-dim); font-weight: 600; }
+  tr.rg-edit td { background: rgba(56,189,248,.04); }
+  .rg-form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: .78rem; }
+  .rg-form input { flex: 1 1 260px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font: .78rem 'DM Sans'; padding: 7px 10px; outline: 0; }
+  .rg-form input:focus { border-color: var(--accent); }
+  table.t tr.sem-clique td { cursor: default; }
+  table.t tr.sem-clique:hover td { background: none; }
+
   .toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px); background: #0d1320; border: 1px solid var(--border2); color: var(--text); border-radius: 12px; padding: 10px 16px; font-size: .82rem; box-shadow: 0 18px 40px rgba(0,0,0,.5); opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; z-index: 990; }
   .toast.on { opacity: 1; transform: translate(-50%, 0); }
 
   @media (max-width: 1180px) {
+    .cp-res { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     .lf { grid-template-columns: 104px 86px minmax(0, 1fr) 110px; }
     .lf .rt, .lf .mt { grid-column: span 2; }
@@ -352,6 +393,20 @@
     .frescor { text-align: left; }
     .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .kpis .kpi:last-child { grid-column: 1 / -1; }
+    .cp-res { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .cp-res .cp-card:last-child { grid-column: 1 / -1; }
+    /* as tabelas da aba Comprovantes viram cartões: a regra e o saldo ficam à vista sem rolar de lado */
+    table.t-cli thead, table.t-cps thead { display: none; }
+    table.t-cli tr, table.t-cps tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 10px; padding: 10px 2px; border-bottom: 1px solid var(--border); }
+    table.t-cli td, table.t-cps td { border: 0; padding: 0; }
+    table.t-cli td:nth-child(3) { display: none; }
+    table.t-cli td:nth-child(4), table.t-cli td:nth-child(5) { grid-column: 1 / -1; }
+    table.t-cli tr.rg-edit td { grid-column: 1 / -1; }
+    table.t-cps td:nth-child(1) { grid-column: 1; grid-row: 1; }
+    table.t-cps td:nth-child(6) { grid-column: 2; grid-row: 1; }
+    table.t-cps td:nth-child(2), table.t-cps td:nth-child(3) { grid-column: 1 / -1; }
+    table.t-cps td:nth-child(4) { grid-column: 1; }
+    table.t-cps td:nth-child(5) { grid-column: 2; }
     .kpi .v { font-size: 1.1rem; }
     .lf { grid-template-columns: minmax(0, 1fr) auto; gap: 8px 10px; }
     .lf .pg, .lf .rt, .lf .mt, .lf .ct { grid-column: 1 / -1; }
@@ -402,12 +457,14 @@
   <nav class="abas" id="abas" role="tablist">
     <button data-v="fila" class="on" role="tab">Fila de pagamento <span id="nFila">·</span></button>
     <button data-v="casos" role="tab">Casos <span id="nCasos">·</span></button>
+    <button data-v="comprov" role="tab">Comprovantes <span id="nComp">·</span></button>
     <button data-v="estornos" role="tab">Estornos no banco <span id="nEst">·</span></button>
     <button data-v="controles" role="tab">Controles</button>
   </nav>
 
   <section class="vista on" id="v-fila"></section>
   <section class="vista" id="v-casos"></section>
+  <section class="vista" id="v-comprov"></section>
   <section class="vista" id="v-estornos"></section>
   <section class="vista" id="v-controles"></section>
 </div>
@@ -426,7 +483,8 @@ const $ = s => document.querySelector(s);
 const S = { painel: null, estado: null, decisoes: {}, usuario: '', v: 'fila',
             fila: { sinal: 'todos', quando: '7d', tipo: 'todos', pag: 'todos', limite: 200 },
             casos: { st: new Set(['pendente', 'pago_2x', 'conferir']), dec: 'todas', tipo: 'todos' },
-            est: { tipo: 'todos', limite: 120 }, pilha: [] };
+            est: { tipo: 'todos', limite: 120 },
+            comp: { dados: null, lote: 'quinta', sit: 'todas', exige: 'todas', q: '', lim: 40, edit: null }, pilha: [] };
 
 // ── formatação ───────────────────────────────────────────────────────────
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -480,7 +538,9 @@ async function carregar(silencioso) {
     S.estado = j.estado;
     if (j.vazio) { mostrarEstado(); agendarPoll(); return; }
     S.painel = j.painel; S.decisoes = j.decisoes || {}; S.usuario = j.usuario || '';
+    S.comp.dados = null;          // rodada nova: a aba Comprovantes relê
     mostrarEstado(); renderTudo();
+    carregarComprov().catch(() => { });
     if (S.estado && S.estado.rodando) agendarPoll();
   } catch (e) {
     if (!silencioso) { $('#faixa').className = 'faixa on erro'; $('#faixaTxt').textContent = `Não consegui abrir a conferência: ${e.message}`; $('.faixa .roda').style.display = 'none'; }
@@ -555,7 +615,7 @@ function trocarVista(v) {
 }
 function renderVista() {
   if (!S.painel) return;
-  ({ fila: renderFila, casos: renderCasos, estornos: renderEstornos, controles: renderControles })[S.v]();
+  ({ fila: renderFila, casos: renderCasos, comprov: renderComprov, estornos: renderEstornos, controles: renderControles })[S.v]();
 }
 
 // ── fila ─────────────────────────────────────────────────────────────────
@@ -739,6 +799,128 @@ function cardCaso(x, i) {
   </article>`;
 }
 
+// ── comprovantes ─────────────────────────────────────────────────────────
+const RG_CURTO = { nf_cte: 'NF + DACTE', nf: 'Só NF', nenhum: 'Não exige' };
+const cpsHtml = (nivel, txt) => `<span class="cps ${esc(nivel)}">${esc(txt)}</span>`;
+const semAcento = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
+function carregarComprov(forcar) {
+  if (S.comp.dados && !forcar) return Promise.resolve(S.comp.dados);
+  if (S.comp._p && !forcar) return S.comp._p;
+  S.comp._p = api('/api/pagamentos-ctrb/comprovantes')
+    .then(j => { S.comp.dados = j.comprovantes; S.comp._p = null; contadorComprov(); return S.comp.dados; })
+    .catch(e => { S.comp._p = null; throw e; });
+  return S.comp._p;
+}
+function contadorComprov() {
+  const d = S.comp.dados, el = $('#nComp');
+  if (!d) { el.textContent = '·'; el.className = ''; return; }
+  el.textContent = d.resumo.lote.n; el.className = d.resumo.falta.n ? 'quente' : '';
+}
+async function renderComprov() {
+  const box = $('#v-comprov');
+  if (!S.comp.dados) {
+    box.innerHTML = `<div class="bloco"><span class="sk" style="width:100%;height:160px"></span></div>`;
+    try { await carregarComprov(); } catch (e) { box.innerHTML = `<div class="vazio-v">Não consegui abrir os comprovantes: ${esc(e.message)}</div>`; return; }
+    if (S.v !== 'comprov') return;
+  }
+  const d = S.comp.dados, F = S.comp, hoje = S.painel.hoje, qui = S.painel.quinta, r = d.resumo;
+  const naQuinta = s => !!s.lote && s.lote >= hoje && s.lote <= qui;
+  const doLote = s => F.lote === 'todos' || (F.lote === 'quinta' ? naQuinta(s) : (F.lote === 'parados' ? !s.lote : (!!s.lote && s.lote > qui)));
+  const base = d.saldos.filter(doLote);
+  const EXIGEM = ['falta', 'divergente', 'aguardando', 'completo'];
+  const lista = base.filter(s => F.sit === 'todas' || s.geral === F.sit || (F.sit === 'exigem' && EXIGEM.includes(s.geral)));
+  const cnt = g => base.filter(s => g === 'todas' || s.geral === g).length;
+  const chip = (attr, grp, val, txt, q, cls = '') => `<button class="fchip ${cls} ${F[grp] === val ? 'on' : ''}" data-${attr}="${val}">${txt}${q !== undefined ? ` <span class="q">${q}</span>` : ''}</button>`;
+  const exigem = r.lote.n - r.nao_exige.n - r.sem_cte.n - r.fora_bi.n;
+  const card = (cls, rot, v, s, sit) => `<button class="cp-card ${cls} ${F.lote === 'quinta' && F.sit === sit ? 'on' : ''}" data-cpc="${sit}"><b>${rot}</b><div class="v">${v}</div><div class="s">${s}</div></button>`;
+  const geralTxt = g => (d.geral[g] || {}).texto || g;
+  const linha = s => `<tr data-ctrb="${esc(s.ctrb)}">
+      <td>${cpsHtml(s.nivel, geralTxt(s.geral))}<small>${esc(s.texto)}</small></td>
+      <td class="mono">${esc(s.ctrb)} ${tipoChip(s.tipo)}<small style="font-family:'DM Sans'">${esc(s.favorecido || '—')}</small></td>
+      <td>${s.clientes.length ? s.clientes.map(esc).join('<br>') : '<span class="faint">—</span>'}${s.n_clientes > 3 ? `<small>+${s.n_clientes - 3} cliente(s)</small>` : ''}</td>
+      <td>${s.regras.length ? s.regras.map(x => `<span class="rg-chip ${x}">${RG_CURTO[x]}</span>`).join(' ') : '<span class="faint">—</span>'}</td>
+      <td class="n">${s.exigidos}<small>${s.n !== s.exigidos ? `de ${s.n} CT-e` : 'CT-e'}</small></td>
+      <td class="n">${brlT(s.valor)}<small>${s.lote ? diaSem(s.lote) : `parado · venc ${dia(s.venc)}`}</small></td></tr>`;
+  const SITS = ['falta', 'divergente', 'aguardando', 'completo', 'nao_exige', 'sem_cte', 'fora_bi'];
+  box.innerHTML = `
+    <div class="bloco"><div class="bloco-h"><h2>O saldo e o comprovante de entrega</h2><span class="nota">O saldo só sai com o comprovante de todos os CT-e do CTRB, conforme a regra de cada cliente (abaixo). Um CTRB com CT-e de vários clientes segue a regra de cada um; complemento de frete não tem entrega e não conta.</span></div>
+      ${d.robo_ligado ? '' : `<div class="aviso-etapa"><span>ⓘ</span><span>O robô que lê o comprovante no SSW ainda não está ligado. Por enquanto a tela mostra <b>o que cada saldo vai exigir</b>, pela regra de cada cliente; quando ele rodar, cada CT-e passa a mostrar se o comprovante está lá e se bate com o CT-e e a NF.</span></div>`}
+      <div class="cp-res">
+        ${card('', `Saldo da quinta · ${diaSem(qui)}`, brlT(r.lote.valor, 0), `${r.lote.n} saldos`, 'todas')}
+        ${card('', 'Exigem comprovante', exigem, `CTRBs · ${r.lote.ctes_exigidos} CT-e a conferir`, 'exigem')}
+        ${card(r.falta.n ? 'alerta' : '', 'Falta comprovante', r.falta.n, r.falta.n ? `${brlT(r.falta.valor, 0)} a segurar` : 'nenhum, até agora', 'falta')}
+        ${card('', 'Completos', r.completo.n, r.completo.n ? brlT(r.completo.valor, 0) : 'aparece quando o robô ler', 'completo')}
+        ${card('', 'Não exigem', r.nao_exige.n, r.nao_exige.n ? `${brlT(r.nao_exige.valor, 0)} · cliente sem exigência` : 'nenhum', 'nao_exige')}
+      </div>
+      <div class="filtros">
+        <div class="filtro-g"><b>Saldo</b>${chip('cpl', 'lote', 'quinta', `Esta quinta (${dia(qui)})`)}${chip('cpl', 'lote', 'prox', 'Próximas quintas')}${chip('cpl', 'lote', 'parados', 'Parados')}${chip('cpl', 'lote', 'todos', 'Todos programados')}</div>
+        <div class="filtro-g"><b>Comprovante</b>${chip('cps', 'sit', 'todas', 'Todos', cnt('todas'))}${SITS.filter(g => cnt(g)).map(g => chip('cps', 'sit', g, geralTxt(g), cnt(g), g === 'falta' ? 's-vermelho' : (g === 'completo' || g === 'nao_exige' ? 's-verde' : (g === 'divergente' ? 's-amarelo' : '')))).join('')}</div>
+      </div>
+      <p class="resumo-linha"><b>${lista.length}</b> saldos · <b>${brlT(lista.reduce((t, s) => t + s.valor, 0), 0)}</b> · clique numa linha para ver os CT-e do CTRB</p>
+      ${lista.length ? `<div class="tabela-wrap"><table class="t t-cps"><thead><tr><th>Comprovante</th><th>CTRB</th><th>Clientes</th><th>Regra</th><th class="n" title="CT-e que exigem comprovante, pela regra do cliente">Exigem</th><th class="n">Saldo</th></tr></thead><tbody>${lista.slice(0, 300).map(linha).join('')}</tbody></table></div>${lista.length > 300 ? `<p class="faint" style="font-size:.72rem;margin-top:6px">+${lista.length - 300} saldos — use os filtros</p>` : ''}`
+        : '<div class="vazio-v">Nenhum saldo com esse filtro.</div>'}
+    </div>
+    <div class="bloco"><div class="bloco-h"><h2>Regra de cada cliente · ${d.clientes.length}</h2><span class="nota">A lista do Faturamento (raiz do CNPJ, grupos econômicos juntos) — os clientes que aparecem nos CTRBs de agregado e terceiro desde ${diaAno(S.painel.desde)}. Cliente novo entra sozinho exigindo <b>${esc(d.exige[d.padrao])}</b>; mude aqui se precisar — fica registrado quem mudou e quando.</span></div>
+      <div class="cp-busca"><input id="cpQ" placeholder="Buscar cliente ou CNPJ" value="${esc(F.q)}" autocomplete="off">
+        <div class="filtro-g"><b>Regra</b>${chip('cpe', 'exige', 'todas', 'Todas', d.clientes.length)}${Object.keys(d.exige).map(k => chip('cpe', 'exige', k, d.exige[k], d.clientes.filter(c => c.exige === k).length)).join('')}</div></div>
+      <div id="cpCli"></div>
+    </div>`;
+  renderClientes();
+}
+function renderClientes() {
+  const d = S.comp.dados, F = S.comp, ed = F.edit;
+  const q = semAcento(F.q.trim()), qd = F.q.replace(/\D/g, ''), porCnpj = qd.length >= 2 && /^[\d.\-\/\s]+$/.test(F.q.trim());
+  const lista = d.clientes.filter(c => (F.exige === 'todas' || c.exige === F.exige)
+    && (!q || (porCnpj ? c.raiz.startsWith(qd.slice(0, 8)) : semAcento(c.nome).includes(q))));
+  const quem = c => {
+    const u = c.ultima;
+    if (u) return `<span class="rg-quem"><b>${esc(u.usuario || '')}</b> · ${quandoUtc(u.em)}${u.de ? `<br>era ${esc(RG_CURTO[u.de] || u.de)}` : ''}${u.obs ? `<br>${esc(u.obs)}` : ''}</span>`;
+    if (c.criado_por === 'implantação') return `<span class="rg-quem">definido na implantação${c.obs ? `<br>${esc(c.obs)}` : ''}</span>`;
+    if (c.criado_em) return `<span class="rg-quem">padrão · entrou ${diaAno(c.criado_em)}</span>`;
+    return '<span class="rg-quem">padrão</span>';
+  };
+  const editor = c => `<tr class="rg-edit sem-clique"><td colspan="5"><div class="rg-form">
+      <span>Mudar <b>${esc(c.nome)}</b> de <b>${esc(d.exige[c.exige])}</b> para <b>${esc(d.exige[ed.exige])}</b>?</span>
+      <input id="rgObs" maxlength="400" placeholder="${ed.exige === 'nenhum' ? 'Por que não precisa de comprovante? (obrigatório)' : 'Observação (opcional)'}">
+      <button class="btn-pri" data-rg-salvar>Salvar</button><button class="btn-sm" data-rg-cancelar>Cancelar</button><span class="erro-f" id="rgErro"></span></div></td></tr>`;
+  const linha = c => `<tr class="sem-clique">
+      <td>${esc(c.nome)}<small class="mono">${esc(c.raiz_fmt)}</small></td>
+      <td class="n">${c.ctes || '—'}${c.ctes ? `<small>${num(c.pct, 1)}% · acum. ${num(c.pct_acum, 0)}%</small>` : '<small>fora dos CTRBs do período</small>'}</td>
+      <td class="n">${c.saldos || '—'}${c.saldos ? `<small>${brlT(c.saldos_valor, 0)}</small>` : ''}</td>
+      <td><div class="seg" role="radiogroup" aria-label="Regra de ${esc(c.nome)}">${Object.keys(RG_CURTO).map(k => `<button type="button" role="radio" aria-checked="${(ed && ed.raiz === c.raiz ? ed.exige : c.exige) === k}" data-rg="${k}" data-raiz="${esc(c.raiz)}" class="${k} ${(ed && ed.raiz === c.raiz ? ed.exige : c.exige) === k ? 'on' : ''}" title="${esc(d.exige[k])}">${RG_CURTO[k]}</button>`).join('')}</div></td>
+      <td>${quem(c)}</td></tr>${ed && ed.raiz === c.raiz ? editor(c) : ''}`;
+  $('#cpCli').innerHTML = lista.length ? `<div class="tabela-wrap"><table class="t t-cli"><thead><tr><th>Cliente</th><th class="n" title="CT-e deste cliente nos CTRBs de agregado/terceiro do período, e a fatia no total">CT-e em CTRB</th><th class="n" title="Saldos programados agora com CT-e deste cliente">Saldos agora</th><th>Exige</th><th>Última mudança</th></tr></thead><tbody>
+      ${lista.slice(0, F.lim).map(linha).join('')}</tbody></table></div>
+      ${lista.length > F.lim ? `<button class="btn-sm ver-mais" data-cp-mais>Mostrar todos (${lista.length})</button>` : ''}`
+    : `<div class="vazio-v">Nenhum cliente com esse filtro.</div>`;
+}
+async function salvarRegra() {
+  const ed = S.comp.edit; if (!ed) return;
+  const c = S.comp.dados.clientes.find(x => x.raiz === ed.raiz);
+  const bt = document.querySelector('[data-rg-salvar]'), err = $('#rgErro');
+  bt.disabled = true; err.textContent = '';
+  try {
+    await api('/api/pagamentos-ctrb/comprovantes/regra', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ raiz: ed.raiz, exige: ed.exige, obs: $('#rgObs').value, nome: c ? c.nome : null }) });
+    toast(`${c ? c.nome : 'Cliente'}: ${S.comp.dados.exige[ed.exige]}`);
+    S.comp.edit = null;
+    await carregarComprov(true);
+    renderComprov();
+  } catch (e) { err.textContent = e.message; bt.disabled = false; }
+}
+function comprovDossie(cp) {
+  if (!cp) return '';
+  const linha = i => {
+    const l = i.leitura || {};
+    return `<tr class="sem-clique"><td class="mono">${esc(i.ctrc)}<small>${i.num ? `DACTE ${esc(i.serie)}/${esc(i.num)}` : ''}${i.n_ctrbs > 1 ? ` · em ${i.n_ctrbs} CTRBs` : ''}</small></td>
+      <td class="mono">${esc(i.nf || '—')}</td><td>${esc(i.cliente || '—')}<small>${esc(i.exige_texto)}</small></td>
+      <td>${cpsHtml(i.nivel, i.status_texto)}${l.entrega_em ? `<small>baixa ${diaAno(l.entrega_em)}</small>` : ''}${l.motivo ? `<small>${esc(l.motivo)}</small>` : ''}</td></tr>`;
+  };
+  return `<div class="sec"><h4>Entrega e comprovante <span class="fonte">regra do cliente · SSW</span></h4>
+    <div class="motivo ${CLS(cp.nivel)}" style="margin-bottom:${cp.ctes.length ? 10 : 0}px">${esc(cp.texto)}</div>
+    ${cp.ctes.length ? `<div class="tabela-wrap"><table class="t"><thead><tr><th>CT-e</th><th>NF</th><th>Cliente · exige</th><th>Comprovante</th></tr></thead><tbody>${cp.ctes.slice(0, 40).map(linha).join('')}</tbody></table></div>${cp.ctes.length > 40 ? `<p class="faint" style="font-size:.72rem;margin-top:6px">+${cp.ctes.length - 40} CT-e</p>` : ''}` : ''}</div>`;
+}
+
 // ── estornos ─────────────────────────────────────────────────────────────
 function renderEstornos() {
   const p = S.painel, e = S.est;
@@ -872,6 +1054,7 @@ function renderDossie(c) {
     <div class="sec"><h4>O dinheiro <span class="fonte">477 · extrato 456</span></h4>
       <div class="tres-v"><div><b>Pago</b><span>${brlT(c.pago)}</span></div><div><b>Programado</b><span class="${c.programado ? '' : 'faint'}">${brlT(c.programado)}</span></div><div><b>Voltou pelo banco</b><span class="${c.estornado ? 'pos' : 'faint'}">${brlT(c.estornado)}</span></div></div>
       ${pags || '<p class="faint" style="font-size:.78rem">Nenhum pagamento no 477.</p>'}</div>
+    ${comprovDossie(c.comprovante)}
     <div class="sec"><h4>A programação do pagamento <span class="fonte">o que mudou de uma atualização do BI para outra</span></h4>
       ${(c.agenda_hist || []).length ? `<ul class="hist" style="margin-top:0">${c.agenda_hist.map(h => `<li><span class="ev-ag ${esc(h.evento)}">${esc(h.evento_texto)}</span> · ${esc(h.tipo || '')} ${h.de || h.para ? `<span class="mono">${h.de ? dia(h.de) : '—'} → ${h.para ? dia(h.para) : '—'}</span>` : ''} <span class="faint">· visto ${quandoUtc(h.visto_em)}</span></li>`).join('')}</ul>`
         : '<p class="faint" style="font-size:.76rem">Nenhuma mudança registrada. O 477 só guarda o estado atual (vencimento, aprovação e data); cada adiamento de quinta para quinta passa a ficar aqui a partir de quando a conferência começa a rodar.</p>'}</div>
@@ -934,7 +1117,7 @@ async function salvarDecisao(box) {
 }
 function abrirDoHash() {
   const h = new URLSearchParams(location.hash.slice(1));
-  const v = h.get('aba'); if (v && v !== S.v && ['fila', 'casos', 'estornos', 'controles'].includes(v)) trocarVista(v);
+  const v = h.get('aba'); if (v && v !== S.v && ['fila', 'casos', 'comprov', 'estornos', 'controles'].includes(v)) trocarVista(v);
   if (h.get('caso') && !$('#gaveta').classList.contains('on')) abrirCaso(h.get('caso'));
   else if (h.get('ctrb') && !$('#gaveta').classList.contains('on')) abrirCtrb(h.get('ctrb'));
 }
@@ -974,6 +1157,19 @@ document.addEventListener('click', ev => {
   const ctp = t.closest('[data-ctp]'); if (ctp) { S.casos.tipo = ctp.dataset.ctp; renderCasos(); return; }
   const cdc = t.closest('[data-cdc]'); if (cdc) { S.casos.dec = cdc.dataset.cdc; renderCasos(); return; }
   const et = t.closest('[data-et]'); if (et) { S.est.tipo = et.dataset.et; S.est.limite = 120; renderEstornos(); return; }
+  const cpl = t.closest('[data-cpl]'); if (cpl) { S.comp.lote = cpl.dataset.cpl; renderComprov(); return; }
+  const cpsel = t.closest('[data-cps]'); if (cpsel) { S.comp.sit = cpsel.dataset.cps; renderComprov(); return; }
+  const cpc = t.closest('[data-cpc]'); if (cpc) { S.comp.lote = 'quinta'; S.comp.sit = cpc.dataset.cpc; renderComprov(); return; }
+  const cpe = t.closest('[data-cpe]'); if (cpe) { S.comp.exige = cpe.dataset.cpe; S.comp.lim = 40; renderComprov(); return; }
+  if (t.closest('[data-cp-mais]')) { S.comp.lim = 100000; renderClientes(); return; }
+  const rg = t.closest('[data-rg]');
+  if (rg) {
+    const c = S.comp.dados.clientes.find(x => x.raiz === rg.dataset.raiz);
+    S.comp.edit = (c && c.exige === rg.dataset.rg) ? null : { raiz: rg.dataset.raiz, exige: rg.dataset.rg };
+    renderClientes(); const i = $('#rgObs'); if (i) i.focus(); return;
+  }
+  if (t.closest('[data-rg-cancelar]')) { S.comp.edit = null; renderClientes(); return; }
+  if (t.closest('[data-rg-salvar]')) { salvarRegra(); return; }
   const mais = t.closest('[data-mais]'); if (mais) { if (mais.dataset.mais === 'fila') { S.fila.limite += 200; renderFila(); } else { S.est.limite += 200; renderEstornos(); } return; }
   const op = t.closest('.form-dec .ops button'); if (op) { op.parentNode.querySelectorAll('button').forEach(b => b.classList.toggle('on', b === op)); return; }
   const sv = t.closest('[data-salvar]'); if (sv) { salvarDecisao(sv.closest('.form-dec')); return; }
@@ -989,6 +1185,8 @@ document.addEventListener('click', ev => {
   if (!t.closest('.ctrl')) $('#buscaRes').classList.remove('on');
 });
 $('#q').addEventListener('input', e => { clearTimeout(_bt); _bt = setTimeout(() => buscar(e.target.value), 250); });
+document.addEventListener('input', e => { if (e.target.id === 'cpQ') { S.comp.q = e.target.value; S.comp.lim = 40; renderClientes(); } });
+document.addEventListener('keydown', e => { if (e.target.id === 'rgObs' && e.key === 'Enter') { e.preventDefault(); salvarRegra(); } });
 $('#q').addEventListener('keydown', e => {
   const itens = [...document.querySelectorAll('#buscaRes button')];
   if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); if (!itens.length) return; _bIdx = (_bIdx + (e.key === 'ArrowDown' ? 1 : -1) + itens.length) % itens.length; itens.forEach((b, i) => b.classList.toggle('foco', i === _bIdx)); itens[_bIdx].scrollIntoView({ block: 'nearest' }); }
