@@ -17,8 +17,13 @@ vez que aparece num CTRB, e o financeiro muda se precisar (com histórico de que
 
 Puro onde dá: `painel`/`situacao` recebem o que foi lido e devolvem o que a tela mostra.
 """
+import base64
+import hashlib
+import hmac
+import os
 import re
 from collections import Counter, defaultdict
+from datetime import date, datetime, timedelta, timezone
 
 EXIGE = {
     'nf_cte': 'Canhoto da NF + DACTE',
@@ -32,7 +37,9 @@ SEM_ENTREGA = {'COMPLEMENTAR FRETE'}          # complemento de frete não tem en
 
 # situação de cada CT-e: (nível do sinal, texto)
 STATUS = {
-    'sem_comprovante': ('vermelho', 'Sem comprovante no SSW'),
+    'sem_comprovante': ('vermelho', 'Entregue no SSW, sem comprovante'),
+    'nao_entregue': ('vermelho', 'Não entregue no SSW'),
+    'erro_leitura': ('cinza', 'O robô não conseguiu ler no SSW'),
     'divergente': ('amarelo', 'O comprovante não bate com o CT-e'),
     'ilegivel': ('amarelo', 'Imagem ilegível — conferir à mão'),
     'sem_leitura': ('cinza', 'Ainda não lido no SSW'),
@@ -118,7 +125,151 @@ CREATE TABLE IF NOT EXISTS comprov_cte (
     motivo          TEXT,
     conferido_em    TIMESTAMPTZ
 );
+-- etapa 2 (17/11/2026): o que a tela 101 diz da entrega. O teste de 20 CTRBs mostrou que quem não tem
+-- comprovante quase sempre nem foi entregue no SSW ("82-SAIDA DE UNIDADE") — a tela separa os dois casos
+ALTER TABLE comprov_cte ADD COLUMN IF NOT EXISTS situacao_atual TEXT;   -- '1-MERCADORIA ENTREGUE', '82-SAIDA DE UNIDADE'
+ALTER TABLE comprov_cte ADD COLUMN IF NOT EXISTS situacao_em DATE;
+ALTER TABLE comprov_cte ADD COLUMN IF NOT EXISTS baixa_tipo TEXT;       -- scan (SSWScan) | manual (opção 038)
+ALTER TABLE comprov_cte ADD COLUMN IF NOT EXISTS recebido_por TEXT;     -- da baixa manual ("CARIMBO", "RUBRICA", nome)
+ALTER TABLE comprov_cte ADD COLUMN IF NOT EXISTS erro TEXT;             -- o robô não achou o CT-e ou a tela não abriu
+-- cada imagem uma vez só (o mesmo carimbo pode valer para vários CT-e); o arquivo fica em pasta_imagens()
+CREATE TABLE IF NOT EXISTS comprov_imagem (
+    sha256      TEXT PRIMARY KEY,
+    bytes       INTEGER NOT NULL,
+    arquivo     TEXT NOT NULL,                  -- relativo a pasta_imagens(): ab/abcdef….jpg
+    recebida_em TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    leitura     JSONB,                          -- o que a IA leu, às cegas (etapa 3)
+    modelo      TEXT,
+    lida_em     TIMESTAMPTZ
+);
 """
+
+
+# ── o robô (etapa 2) ─────────────────────────────────────────────────────────────────────────────────
+RELER_HORAS = 6                 # CT-e sem comprovante é relido no máximo a cada 6 h
+MAX_IMAGEM = 5 * 1024 * 1024    # a do SSW tem ~70 KB (600×850); 5 MB é folga para scan colorido
+
+
+def pasta_imagens():
+    """COMPROV_DIR; senão uma subpasta do volume dos canhotos (já montado em produção); senão ao lado do código."""
+    if os.getenv('COMPROV_DIR'):
+        return os.getenv('COMPROV_DIR')
+    if os.getenv('CANHOTO_DIR'):
+        return os.path.join(os.getenv('CANHOTO_DIR'), 'ssw')
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), 'comprovantes_ssw')
+
+
+def chave_robo_ok(recebida):
+    """O robô se identifica pelo cabeçalho X-Robo-Chave = COMPROV_ROBO_CHAVE. Sem a variável, ninguém entra."""
+    esperada = os.getenv('COMPROV_ROBO_CHAVE') or ''
+    return len(esperada) >= 32 and hmac.compare_digest(str(recebida or ''), esperada)
+
+
+def _data_br(s):
+    m = re.fullmatch(r'(\d{2})/(\d{2})/(\d{2,4})', str(s or '').strip())
+    if not m:
+        return None
+    a = int(m.group(3))
+    try:
+        return date(a + 2000 if a < 100 else a, int(m.group(2)), int(m.group(1)))
+    except ValueError:
+        return None
+
+
+def pendentes(pacote, regs, leit, grupos=None, quinta=None, agora=None):
+    """O que o robô tem de ler: os CTRBs com saldo programado e os CT-e deles que exigem comprovante e ainda não
+    têm imagem. Primeiro os da quinta (e os parados), depois os das próximas. CT-e sem comprovante é relido a cada
+    RELER_HORAS; com imagem guardada, nunca mais."""
+    agora = agora or datetime.now(timezone.utc)
+    lista, vistos = [], set()
+    for f in sorted((f for f in pacote['fila'] if f['tipo_pag'] == 'saldo'),
+                    key=lambda f: (0 if (not f.get('lote') or not quinta or f['lote'] <= quinta) else 1,
+                                   f.get('lote') or f.get('venc') or '')):
+        k = f['ctrb']
+        c = pacote['ctrbs'].get(k)
+        if k in vistos or not c:
+            continue
+        vistos.add(k)
+        ler = []
+        for ce in c.get('ctes') or []:
+            e = pacote['ctes'].get(ce) or {}
+            if status_cte(e, _exige_de(chave_cliente(e.get('cnpj'), e.get('pag'), grupos), regs), None) != 'sem_leitura':
+                continue                        # não exige ou não tem entrega
+            lt = leit.get(_doc(e.get('cte') or ce))
+            if lt and lt.get('tem_comprovante') and lt.get('n_imagens'):
+                continue
+            if lt and lt.get('lido_em') and not lt.get('erro'):   # o que o robô não conseguiu ler volta na hora
+                if agora - datetime.fromisoformat(lt['lido_em']) < timedelta(hours=RELER_HORAS):
+                    continue
+            ler.append(e.get('cte') or ce)
+        if ler:
+            lista.append({'ctrb': k, 'ctrcs': ler, 'n_ctes': len(c.get('ctes') or []), 'lote': f.get('lote')})
+    return lista
+
+
+def gravar_leitura(cur, d, pasta=None):
+    """Grava o que o robô leu de UM CT-e. As imagens chegam em base64; o sha256 é recalculado aqui (o nome do
+    arquivo é o próprio hash: a mesma imagem em dois CT-e é guardada uma vez). Imagem nova ou trocada zera a
+    conferência da IA, que roda de novo."""
+    ctrc = _doc(d.get('ctrc'))
+    if not re.fullmatch(r'[A-Z]{3}\d{7}', ctrc):
+        raise ValueError('CT-e inválido.')
+    ctrb = (d.get('ctrb') or '').strip().upper()[:12] or None
+    pasta = pasta or pasta_imagens()
+    shas = []
+    for im in d.get('imagens') or []:
+        try:
+            b = base64.b64decode(im.get('b64') or '', validate=True)
+        except Exception:
+            raise ValueError('Imagem em base64 inválida.')
+        if not b.startswith(b'\xff\xd8') or len(b) > MAX_IMAGEM:
+            raise ValueError('A imagem não é um JPEG ou passou de 5 MB.')
+        sha = hashlib.sha256(b).hexdigest()
+        if im.get('sha') and im['sha'] != sha:
+            raise ValueError('O hash da imagem não confere (chegou corrompida).')
+        rel = f'{sha[:2]}/{sha}.jpg'
+        destino = os.path.join(pasta, rel)
+        if not os.path.exists(destino):
+            os.makedirs(os.path.dirname(destino), exist_ok=True)
+            tmp = destino + '.tmp'
+            with open(tmp, 'wb') as fh:
+                fh.write(b)
+            os.replace(tmp, destino)
+        cur.execute("""INSERT INTO comprov_imagem (sha256, bytes, arquivo) VALUES (%s, %s, %s)
+                       ON CONFLICT (sha256) DO NOTHING""", (sha, len(b), rel))
+        if sha not in shas:
+            shas.append(sha)
+    tem = bool(d.get('tem_comprovante'))
+    erro = (d.get('erro') or '').strip()[:300] or None
+    if tem and not shas and not erro:
+        erro = 'o link do comprovante está ativo, mas a imagem não veio'
+    baixa = d.get('baixa_tipo') if d.get('baixa_tipo') in ('scan', 'manual') else None
+    cur.execute("""
+        INSERT INTO comprov_cte (ctrc, ctrb, tem_comprovante, entrega_em, baixa_texto, imagens, lido_em,
+                                 situacao_atual, situacao_em, baixa_tipo, recebido_por, erro)
+        VALUES (%s, %s, %s, %s, %s, %s, NOW(), %s, %s, %s, %s, %s)
+        ON CONFLICT (ctrc) DO UPDATE SET
+            ctrb = EXCLUDED.ctrb, tem_comprovante = EXCLUDED.tem_comprovante, entrega_em = EXCLUDED.entrega_em,
+            baixa_texto = EXCLUDED.baixa_texto, lido_em = NOW(), situacao_atual = EXCLUDED.situacao_atual,
+            situacao_em = EXCLUDED.situacao_em, baixa_tipo = EXCLUDED.baixa_tipo, recebido_por = EXCLUDED.recebido_por,
+            erro = EXCLUDED.erro,
+            veredito = CASE WHEN comprov_cte.imagens = EXCLUDED.imagens THEN comprov_cte.veredito END,
+            motivo = CASE WHEN comprov_cte.imagens = EXCLUDED.imagens THEN comprov_cte.motivo END,
+            conferido_em = CASE WHEN comprov_cte.imagens = EXCLUDED.imagens THEN comprov_cte.conferido_em END,
+            imagens = EXCLUDED.imagens""",
+                (ctrc, ctrb, tem, _data_br(d.get('entrega_em')), (d.get('baixa_texto') or '')[:400] or None, shas,
+                 (d.get('situacao_atual') or '').strip()[:60] or None, _data_br(d.get('situacao_em')), baixa,
+                 (d.get('recebido_por') or '').strip()[:80] or None, erro))
+    return {'ctrc': ctrc, 'imagens': len(shas), 'tem_comprovante': tem}
+
+
+def arquivo_imagem(cur, sha):
+    """Caminho do arquivo da imagem (para a tela), ou None."""
+    if not re.fullmatch(r'[0-9a-f]{64}', sha or ''):
+        return None
+    cur.execute("SELECT arquivo FROM comprov_imagem WHERE sha256 = %s", (sha,))
+    r = cur.fetchone()
+    return os.path.join(pasta_imagens(), r[0]) if r else None
 
 
 def garantir(cur):
@@ -195,11 +346,14 @@ def leituras(cur, ctrcs):
     if not ks:
         return {}
     cur.execute("""SELECT ctrc, ctrb, tem_comprovante, entrega_em, baixa_texto, cardinality(imagens), lido_em,
-                          veredito, motivo, conferido_em
+                          veredito, motivo, conferido_em, situacao_atual, situacao_em, baixa_tipo, recebido_por,
+                          erro, imagens
                      FROM comprov_cte WHERE ctrc = ANY(%s)""", (ks,))
     return {r[0]: {'ctrb': r[1], 'tem_comprovante': r[2], 'entrega_em': r[3].isoformat() if r[3] else None,
                    'baixa_texto': r[4], 'n_imagens': r[5], 'lido_em': r[6].isoformat() if r[6] else None,
-                   'veredito': r[7], 'motivo': r[8], 'conferido_em': r[9].isoformat() if r[9] else None}
+                   'veredito': r[7], 'motivo': r[8], 'conferido_em': r[9].isoformat() if r[9] else None,
+                   'situacao_atual': r[10], 'situacao_em': r[11].isoformat() if r[11] else None,
+                   'baixa_tipo': r[12], 'recebido_por': r[13], 'erro': r[14], 'imagens': list(r[15] or [])}
             for r in cur.fetchall()}
 
 
@@ -207,6 +361,13 @@ def leituras(cur, ctrcs):
 def _exige_de(chave, regs):
     r = regs.get(chave)
     return r['exige'] if r and r.get('exige') in EXIGE else PADRAO
+
+
+def entregue(leitura):
+    """Baixado como entregue no SSW: a última ocorrência é "1-MERCADORIA ENTREGUE" ou a 101 traz a frase da baixa
+    (a última ocorrência pode ser outra depois da entrega, ex. "6-INFORMACAO COMPLEMENTAR")."""
+    return ((leitura.get('situacao_atual') or '').startswith('1-') or bool(leitura.get('baixa_tipo'))
+            or bool(leitura.get('entrega_em')))
 
 
 def status_cte(info, exige, leitura):
@@ -218,7 +379,11 @@ def status_cte(info, exige, leitura):
     if not leitura:
         return 'sem_leitura'
     if not leitura.get('tem_comprovante'):
-        return 'sem_comprovante'
+        if leitura.get('erro') and not leitura.get('situacao_atual'):
+            return 'erro_leitura'
+        return 'sem_comprovante' if entregue(leitura) else 'nao_entregue'
+    if leitura.get('erro') and not leitura.get('n_imagens'):
+        return 'erro_leitura'
     v = leitura.get('veredito')
     if v in ('ok', 'divergente', 'ilegivel'):
         return v
@@ -245,7 +410,7 @@ def situacao(ctrb, pacote, regs, leit, grupos=None):
                       'n_ctrbs': e.get('n_ctrbs') or 1})
     exig = [i for i in itens if i['status'] not in ('nao_exige', 'sem_entrega')]
     cnt = Counter(i['status'] for i in exig)
-    falta = cnt['sem_comprovante']
+    falta = cnt['sem_comprovante'] + cnt['nao_entregue']
     ok = cnt['ok']
     if not itens:
         g, txt = 'sem_cte', 'Sem CT-e no manifesto (diária ou sem manifesto) — não há comprovante a cobrar'
@@ -253,15 +418,25 @@ def situacao(ctrb, pacote, regs, leit, grupos=None):
         g, txt = 'nao_exige', ('O cliente não exige comprovante' if len({i['raiz'] for i in itens}) == 1
                                else 'Nenhum cliente deste CTRB exige comprovante')
     elif falta:
-        g, txt = 'falta', f'Falta comprovante em {falta} de {len(exig)} CT-e'
+        ne = cnt['nao_entregue']
+        g, txt = 'falta', (f'Falta comprovante em {falta} de {len(exig)} CT-e'
+                           + (f" ({ne} nem {'entregues' if ne > 1 else 'entregue'} no SSW)" if ne else ''))
     elif cnt['divergente'] or cnt['ilegivel']:
         nd = cnt['divergente'] + cnt['ilegivel']
         g, txt = 'divergente', f"{nd} de {len(exig)} comprovantes não {'batem' if nd > 1 else 'bate'} com o CT-e — conferir"
-    elif cnt['sem_leitura'] or cnt['aguardando_ia']:
-        lidos = len(exig) - cnt['sem_leitura']
+    elif cnt['sem_leitura'] or cnt['aguardando_ia'] or cnt['erro_leitura']:
         g = 'aguardando'
-        txt = (f"{len(exig)} CT-e {'exigem' if len(exig) > 1 else 'exige'} comprovante — o SSW ainda não foi lido"
-               if not lidos else f"{lidos} de {len(exig)} CT-e lidos no SSW · {ok} {'conferidos' if ok != 1 else 'conferido'}")
+        if cnt['sem_leitura'] == len(exig):
+            txt = f"{len(exig)} CT-e {'exigem' if len(exig) > 1 else 'exige'} comprovante — o SSW ainda não foi lido"
+        else:
+            partes = [f"{cnt['aguardando_ia'] + ok} de {len(exig)} CT-e com comprovante no SSW"]
+            if cnt['aguardando_ia']:
+                partes.append('falta conferir a imagem')
+            if cnt['sem_leitura']:
+                partes.append(f"{cnt['sem_leitura']} ainda não lido{'s' if cnt['sem_leitura'] > 1 else ''}")
+            if cnt['erro_leitura']:
+                partes.append(f"{cnt['erro_leitura']} o robô não conseguiu ler")
+            txt = ' · '.join(partes)
     else:
         g, txt = 'completo', f'{ok} de {len(exig)} CT-e com comprovante conferido'
     return {'geral': g, 'nivel': GERAL[g][0], 'texto': txt, 'ctes': itens, 'n': len(itens), 'exigidos': len(exig),
@@ -353,4 +528,5 @@ def painel(pacote, regs, leit, hist, grupos=None, hoje=None, quinta=None, cl=Non
     return {'saldos': saldos, 'clientes': lista, 'resumo': resumo, 'exige': EXIGE, 'padrao': PADRAO,
             'status': {k: {'nivel': v[0], 'texto': v[1]} for k, v in STATUS.items()},
             'geral': {k: {'nivel': v[0], 'texto': v[1]} for k, v in GERAL.items()},
-            'leituras': len(leit), 'robo_ligado': bool(leit)}
+            'leituras': len(leit), 'robo_ligado': bool(leit),
+            'ultima_leitura': max((l['lido_em'] for l in leit.values() if l.get('lido_em')), default=None)}

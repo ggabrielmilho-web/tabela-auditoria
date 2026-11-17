@@ -2359,6 +2359,68 @@ def api_pagamentos_ctrb_comprovantes_regra():
     return jsonify({'ok': True, 'mudou': mudou, 'historico': _comprov_db(lambda cur: cp.historico(cur, raiz))})
 
 
+@app.route('/api/pagamentos-ctrb/comprovantes/imagem/<sha>')
+@page_required('pagamentos_ctrb')
+def api_pagamentos_ctrb_comprovante_imagem(sha):
+    import comprovantes as cp
+    caminho = _comprov_db(lambda cur: cp.arquivo_imagem(cur, (sha or '').lower()))
+    if not caminho or not os.path.exists(caminho):
+        return jsonify({'ok': False, 'error': 'Imagem não encontrada.'}), 404
+    resp = send_file(caminho, mimetype='image/jpeg', max_age=86400)
+    resp.headers['Cache-Control'] = 'private, max-age=86400'
+    return resp
+
+
+# O robô do SLTBL-10 (ssw_relatorio comprovantes.py) não tem sessão: entra pelo cabeçalho X-Robo-Chave, que tem
+# de bater com COMPROV_ROBO_CHAVE (sem a variável, as duas rotas respondem 503 e ninguém entra).
+def _comprov_robo_autorizado():
+    import comprovantes as cp
+    if not os.getenv('COMPROV_ROBO_CHAVE'):
+        return jsonify({'ok': False, 'error': 'Robô dos comprovantes não configurado (COMPROV_ROBO_CHAVE).'}), 503
+    if not cp.chave_robo_ok(request.headers.get('X-Robo-Chave')):
+        return jsonify({'ok': False, 'error': 'Chave do robô inválida.'}), 401
+    return None
+
+
+@app.route('/api/comprovantes/robo/pendentes')
+def api_comprovantes_robo_pendentes():
+    import comprovantes as cp
+    import pagamentos_ctrb as pc
+    neg = _comprov_robo_autorizado()
+    if neg:
+        return neg
+    _, pacote = _pag_ctrb_pacote()
+    if not pacote:
+        return jsonify({'ok': False, 'error': 'A conferência do Pagamentos CTRB ainda não rodou.'}), 503
+    ctrcs = {ce for f in pacote['fila'] if f['tipo_pag'] == 'saldo'
+             for ce in (pacote['ctrbs'].get(f['ctrb']) or {}).get('ctes', [])}
+    regs, leit = _comprov_db(lambda cur: (cp.regras(cur), cp.leituras(cur, ctrcs)))
+    hoje = (_dtm.datetime.utcnow() - pc.BRT).date()
+    lista = cp.pendentes(pacote, regs, leit, GRUPOS_ECONOMICOS, pc.proxima_quinta(hoje).isoformat())
+    return jsonify({'ok': True, 'ctrbs': lista, 'n_ctes': sum(len(x['ctrcs']) for x in lista)})
+
+
+@app.route('/api/comprovantes/robo/leitura', methods=['POST'])
+def api_comprovantes_robo_leitura():
+    import comprovantes as cp
+    neg = _comprov_robo_autorizado()
+    if neg:
+        return neg
+    # o tamanho é conferido antes de ler o corpo (rota sem sessão; o MAX_CONTENT_LENGTH global não serve)
+    if not request.content_length:
+        return jsonify({'ok': False, 'error': 'Sem Content-Length.'}), 411
+    if request.content_length > 4 * cp.MAX_IMAGEM:
+        return jsonify({'ok': False, 'error': 'Leitura grande demais.'}), 413
+    d = request.get_json(silent=True)
+    if not isinstance(d, dict):
+        return jsonify({'ok': False, 'error': 'JSON inválido.'}), 400
+    try:
+        r = _comprov_db(lambda cur: cp.gravar_leitura(cur, d))
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    return jsonify({'ok': True, **r})
+
+
 # ── Canhotos — o motorista fotografa o canhoto da NF e o do CT-e pelo celular (09/11/2026) ──
 #
 # Duas portas. `/motorista/` é o app do motorista (PWA): entra só com o CPF, NÃO usa a sessão do sistema

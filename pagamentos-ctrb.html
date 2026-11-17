@@ -848,7 +848,8 @@ async function renderComprov() {
   const SITS = ['falta', 'divergente', 'aguardando', 'completo', 'nao_exige', 'sem_cte', 'fora_bi'];
   box.innerHTML = `
     <div class="bloco"><div class="bloco-h"><h2>O saldo e o comprovante de entrega</h2><span class="nota">O saldo só sai com o comprovante de todos os CT-e do CTRB, conforme a <a data-ir="regras">regra de cada cliente</a>. Um CTRB com CT-e de vários clientes segue a regra de cada um; complemento de frete não tem entrega e não conta.</span></div>
-      ${d.robo_ligado ? '' : `<div class="aviso-etapa"><span>ⓘ</span><span>O robô que lê o comprovante no SSW ainda não está ligado. Por enquanto a tela mostra <b>o que cada saldo vai exigir</b>, pela regra de cada cliente; quando ele rodar, cada CT-e passa a mostrar se o comprovante está lá e se bate com o CT-e e a NF.</span></div>`}
+      ${d.robo_ligado ? `<p class="resumo-linha" style="margin:0 2px 10px">O robô leu o SSW pela última vez em <b>${quandoUtc(d.ultima_leitura)}</b> (${ha(d.ultima_leitura)}) · ${d.leituras} CT-e lidos. A conferência de cada imagem (canhoto da NF e DACTE) é a próxima etapa: até lá, quem tem foto aparece como "falta conferir a imagem".</p>`
+        : `<div class="aviso-etapa"><span>ⓘ</span><span>O robô que lê o comprovante no SSW ainda não está ligado. Por enquanto a tela mostra <b>o que cada saldo vai exigir</b>, pela regra de cada cliente; quando ele rodar, cada CT-e passa a mostrar se o comprovante está lá e se bate com o CT-e e a NF.</span></div>`}
       <div class="cp-res">
         ${card('', `Saldo da quinta · ${diaSem(qui)}`, brlT(r.lote.valor, 0), `${r.lote.n} saldos`, 'todas')}
         ${card('', 'Exigem comprovante', exigem, `CTRBs · ${r.lote.ctes_exigidos} CT-e a conferir`, 'exigem')}
@@ -926,10 +927,17 @@ async function salvarRegra() {
 function comprovDossie(cp) {
   if (!cp) return '';
   const linha = i => {
-    const l = i.leitura || {};
+    const l = i.leitura || {}, det = [];
+    const entregue = (l.situacao_atual || '').startsWith('1-') || !!l.baixa_tipo || !!l.entrega_em;
+    if (l.situacao_atual && !entregue) det.push(esc(l.situacao_atual.replace(/^\d+-/, '').toLowerCase()) + (l.situacao_em ? ` em ${diaAno(l.situacao_em)}` : ''));
+    if (l.entrega_em) det.push(`entregue ${diaAno(l.entrega_em)}`);
+    if (l.baixa_tipo) det.push(l.baixa_tipo === 'manual' ? `baixa manual${l.recebido_por ? ` · recebido por ${esc(l.recebido_por)}` : ''}` : 'baixa pelo scan');
+    if (entregue && l.situacao_em && l.situacao_em !== l.entrega_em) det.push(`baixa lançada ${diaAno(l.situacao_em)}`);
+    if (l.erro) det.push(esc(l.erro));
+    const fotos = (l.imagens || []).map((s, n) => `<a href="/api/pagamentos-ctrb/comprovantes/imagem/${esc(s)}" target="_blank" rel="noopener">ver foto${l.imagens.length > 1 ? ' ' + (n + 1) : ''}</a>`).join(' · ');
     return `<tr class="sem-clique"><td class="mono">${esc(i.ctrc)}<small>${i.num ? `DACTE ${esc(i.serie)}/${esc(i.num)}` : ''}${i.n_ctrbs > 1 ? ` · em ${i.n_ctrbs} CTRBs` : ''}</small></td>
       <td class="mono">${esc(i.nf || '—')}</td><td>${esc(i.cliente || '—')}<small>${esc(i.exige_texto)}</small></td>
-      <td>${cpsHtml(i.nivel, i.status_texto)}${l.entrega_em ? `<small>baixa ${diaAno(l.entrega_em)}</small>` : ''}${l.motivo ? `<small>${esc(l.motivo)}</small>` : ''}</td></tr>`;
+      <td>${cpsHtml(i.nivel, i.status_texto)}${det.length ? `<small>${det.join(' · ')}</small>` : ''}${fotos ? `<small>${fotos}</small>` : ''}${l.lido_em ? `<small class="faint">lido no SSW ${quandoUtc(l.lido_em)}</small>` : ''}${l.motivo ? `<small>${esc(l.motivo)}</small>` : ''}</td></tr>`;
   };
   return `<div class="sec"><h4>Entrega e comprovante <span class="fonte">regra do cliente · SSW</span></h4>
     <div class="motivo ${CLS(cp.nivel)}" style="margin-bottom:${cp.ctes.length ? 10 : 0}px">${esc(cp.texto)}</div>

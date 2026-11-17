@@ -40,6 +40,7 @@ eventos.json
 # Fotos de canhoto (assinatura, nome e RG de quem recebeu). Em produção ficam no volume de
 # CANHOTO_DIR; esta pasta é o padrão fora do servidor (teste local).
 canhotos_fotos/
+comprovantes_ssw/
 
 # Exportações com dado da contabilidade (nomes de clientes/fornecedores, contratos).
 # O repositório é PÚBLICO — levar ao servidor por docker cp, nunca pelo git.
