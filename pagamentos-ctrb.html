@@ -374,6 +374,7 @@
   .rg-form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: .78rem; }
   .rg-form input { flex: 1 1 260px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font: .78rem 'DM Sans'; padding: 7px 10px; outline: 0; }
   .rg-form input:focus { border-color: var(--accent); }
+  a[data-ir] { cursor: pointer; }
   table.t tr.sem-clique td { cursor: default; }
   table.t tr.sem-clique:hover td { background: none; }
 
@@ -458,6 +459,7 @@
     <button data-v="fila" class="on" role="tab">Fila de pagamento <span id="nFila">·</span></button>
     <button data-v="casos" role="tab">Casos <span id="nCasos">·</span></button>
     <button data-v="comprov" role="tab">Comprovantes <span id="nComp">·</span></button>
+    <button data-v="regras" role="tab">Regras de cliente <span id="nRegras">·</span></button>
     <button data-v="estornos" role="tab">Estornos no banco <span id="nEst">·</span></button>
     <button data-v="controles" role="tab">Controles</button>
   </nav>
@@ -465,6 +467,7 @@
   <section class="vista on" id="v-fila"></section>
   <section class="vista" id="v-casos"></section>
   <section class="vista" id="v-comprov"></section>
+  <section class="vista" id="v-regras"></section>
   <section class="vista" id="v-estornos"></section>
   <section class="vista" id="v-controles"></section>
 </div>
@@ -615,7 +618,7 @@ function trocarVista(v) {
 }
 function renderVista() {
   if (!S.painel) return;
-  ({ fila: renderFila, casos: renderCasos, comprov: renderComprov, estornos: renderEstornos, controles: renderControles })[S.v]();
+  ({ fila: renderFila, casos: renderCasos, comprov: renderComprov, regras: renderRegras, estornos: renderEstornos, controles: renderControles })[S.v]();
 }
 
 // ── fila ─────────────────────────────────────────────────────────────────
@@ -815,6 +818,7 @@ function contadorComprov() {
   const d = S.comp.dados, el = $('#nComp');
   if (!d) { el.textContent = '·'; el.className = ''; return; }
   el.textContent = d.resumo.lote.n; el.className = d.resumo.falta.n ? 'quente' : '';
+  $('#nRegras').textContent = d.clientes.length;
 }
 async function renderComprov() {
   const box = $('#v-comprov');
@@ -843,7 +847,7 @@ async function renderComprov() {
       <td class="n">${brlT(s.valor)}<small>${s.lote ? diaSem(s.lote) : `parado · venc ${dia(s.venc)}`}</small></td></tr>`;
   const SITS = ['falta', 'divergente', 'aguardando', 'completo', 'nao_exige', 'sem_cte', 'fora_bi'];
   box.innerHTML = `
-    <div class="bloco"><div class="bloco-h"><h2>O saldo e o comprovante de entrega</h2><span class="nota">O saldo só sai com o comprovante de todos os CT-e do CTRB, conforme a regra de cada cliente (abaixo). Um CTRB com CT-e de vários clientes segue a regra de cada um; complemento de frete não tem entrega e não conta.</span></div>
+    <div class="bloco"><div class="bloco-h"><h2>O saldo e o comprovante de entrega</h2><span class="nota">O saldo só sai com o comprovante de todos os CT-e do CTRB, conforme a <a data-ir="regras">regra de cada cliente</a>. Um CTRB com CT-e de vários clientes segue a regra de cada um; complemento de frete não tem entrega e não conta.</span></div>
       ${d.robo_ligado ? '' : `<div class="aviso-etapa"><span>ⓘ</span><span>O robô que lê o comprovante no SSW ainda não está ligado. Por enquanto a tela mostra <b>o que cada saldo vai exigir</b>, pela regra de cada cliente; quando ele rodar, cada CT-e passa a mostrar se o comprovante está lá e se bate com o CT-e e a NF.</span></div>`}
       <div class="cp-res">
         ${card('', `Saldo da quinta · ${diaSem(qui)}`, brlT(r.lote.valor, 0), `${r.lote.n} saldos`, 'todas')}
@@ -859,10 +863,21 @@ async function renderComprov() {
       <p class="resumo-linha"><b>${lista.length}</b> saldos · <b>${brlT(lista.reduce((t, s) => t + s.valor, 0), 0)}</b> · clique numa linha para ver os CT-e do CTRB</p>
       ${lista.length ? `<div class="tabela-wrap"><table class="t t-cps"><thead><tr><th>Comprovante</th><th>CTRB</th><th>Clientes</th><th>Regra</th><th class="n" title="CT-e que exigem comprovante, pela regra do cliente">Exigem</th><th class="n">Saldo</th></tr></thead><tbody>${lista.slice(0, 300).map(linha).join('')}</tbody></table></div>${lista.length > 300 ? `<p class="faint" style="font-size:.72rem;margin-top:6px">+${lista.length - 300} saldos — use os filtros</p>` : ''}`
         : '<div class="vazio-v">Nenhum saldo com esse filtro.</div>'}
-    </div>
-    <div class="bloco"><div class="bloco-h"><h2>Regra de cada cliente · ${d.clientes.length}</h2><span class="nota">A lista do Faturamento (raiz do CNPJ, grupos econômicos juntos) — os clientes que aparecem nos CTRBs de agregado e terceiro desde ${diaAno(S.painel.desde)}. Cliente novo entra sozinho exigindo <b>${esc(d.exige[d.padrao])}</b>; mude aqui se precisar — fica registrado quem mudou e quando.</span></div>
+    </div>`;
+}
+async function renderRegras() {
+  const box = $('#v-regras');
+  if (!S.comp.dados) {
+    box.innerHTML = `<div class="bloco"><span class="sk" style="width:100%;height:160px"></span></div>`;
+    try { await carregarComprov(); } catch (e) { box.innerHTML = `<div class="vazio-v">Não consegui abrir as regras: ${esc(e.message)}</div>`; return; }
+    if (S.v !== 'regras') return;
+  }
+  const d = S.comp.dados, F = S.comp;
+  const chip = (val, txt, q) => `<button class="fchip ${F.exige === val ? 'on' : ''}" data-cpe="${val}">${txt} <span class="q">${q}</span></button>`;
+  box.innerHTML = `
+    <div class="bloco"><div class="bloco-h"><h2>Regra de cada cliente · ${d.clientes.length}</h2><span class="nota">O que cada cliente exige para o saldo sair. A lista do Faturamento (raiz do CNPJ, grupos econômicos juntos) — os clientes que aparecem nos CTRBs de agregado e terceiro desde ${diaAno(S.painel.desde)}. Cliente novo entra sozinho exigindo <b>${esc(d.exige[d.padrao])}</b>; mude aqui se precisar — fica registrado quem mudou e quando.</span></div>
       <div class="cp-busca"><input id="cpQ" placeholder="Buscar cliente ou CNPJ" value="${esc(F.q)}" autocomplete="off">
-        <div class="filtro-g"><b>Regra</b>${chip('cpe', 'exige', 'todas', 'Todas', d.clientes.length)}${Object.keys(d.exige).map(k => chip('cpe', 'exige', k, d.exige[k], d.clientes.filter(c => c.exige === k).length)).join('')}</div></div>
+        <div class="filtro-g"><b>Regra</b>${chip('todas', 'Todas', d.clientes.length)}${Object.keys(d.exige).map(k => chip(k, d.exige[k], d.clientes.filter(c => c.exige === k).length)).join('')}</div></div>
       <div id="cpCli"></div>
     </div>`;
   renderClientes();
@@ -905,7 +920,7 @@ async function salvarRegra() {
     toast(`${c ? c.nome : 'Cliente'}: ${S.comp.dados.exige[ed.exige]}`);
     S.comp.edit = null;
     await carregarComprov(true);
-    renderComprov();
+    renderVista();
   } catch (e) { err.textContent = e.message; bt.disabled = false; }
 }
 function comprovDossie(cp) {
@@ -1117,7 +1132,7 @@ async function salvarDecisao(box) {
 }
 function abrirDoHash() {
   const h = new URLSearchParams(location.hash.slice(1));
-  const v = h.get('aba'); if (v && v !== S.v && ['fila', 'casos', 'comprov', 'estornos', 'controles'].includes(v)) trocarVista(v);
+  const v = h.get('aba'); if (v && v !== S.v && ['fila', 'casos', 'comprov', 'regras', 'estornos', 'controles'].includes(v)) trocarVista(v);
   if (h.get('caso') && !$('#gaveta').classList.contains('on')) abrirCaso(h.get('caso'));
   else if (h.get('ctrb') && !$('#gaveta').classList.contains('on')) abrirCtrb(h.get('ctrb'));
 }
@@ -1160,7 +1175,8 @@ document.addEventListener('click', ev => {
   const cpl = t.closest('[data-cpl]'); if (cpl) { S.comp.lote = cpl.dataset.cpl; renderComprov(); return; }
   const cpsel = t.closest('[data-cps]'); if (cpsel) { S.comp.sit = cpsel.dataset.cps; renderComprov(); return; }
   const cpc = t.closest('[data-cpc]'); if (cpc) { S.comp.lote = 'quinta'; S.comp.sit = cpc.dataset.cpc; renderComprov(); return; }
-  const cpe = t.closest('[data-cpe]'); if (cpe) { S.comp.exige = cpe.dataset.cpe; S.comp.lim = 40; renderComprov(); return; }
+  const cpe = t.closest('[data-cpe]'); if (cpe) { S.comp.exige = cpe.dataset.cpe; S.comp.lim = 40; renderRegras(); return; }
+  const ir = t.closest('[data-ir]'); if (ir) { ev.preventDefault(); trocarVista(ir.dataset.ir); return; }
   if (t.closest('[data-cp-mais]')) { S.comp.lim = 100000; renderClientes(); return; }
   const rg = t.closest('[data-rg]');
   if (rg) {
