@@ -233,6 +233,13 @@ def rotulo_cte(v):
     return f'{_milhar(num)} · série {serie}' if serie else _milhar(num)
 
 
+def rotulo_ctrc(v):
+    """O CTRC como sai impresso no canhoto da DACTE do SSW (caixa à direita): 'UDI400123-4' → 'UDI 400123-4'.
+    É o número que o motorista acha no canhoto; o nº do CT-e (`rotulo_cte`) só aparece no cabeçalho da folha."""
+    s = re.sub(r'\s+', '', str(v or '')).upper()
+    return re.sub(r'^([A-Z]+)(?=\d)', r'\1 ', s)
+
+
 def rotulo_nf(v):
     d = so_digitos(str(v or '').split('.')[0])
     return _milhar(int(d)) if d else ''
@@ -510,8 +517,11 @@ def estruturar(v, ctes, fotos, lote=None, exigidos=None):
             for c in cs:
                 for t in exigidos:
                     if t == 'cte':
+                        # `num` = o UDI impresso no canhoto (o motorista confere por ele); `cte` = o nº do
+                        # cabeçalho da DACTE, para o escritório
                         itens.append({'id': f"C:{c['ctrc']}", 'tipo': 'cte', 'ctrc': c['ctrc'], 'parada': chave,
-                                      'rotulo': ROTULO['cte'], 'num': rotulo_cte(c.get('cte_num')) or c['ctrc']})
+                                      'rotulo': ROTULO['cte'], 'num': rotulo_ctrc(c['ctrc']),
+                                      'cte': rotulo_cte(c.get('cte_num')) or None})
                     else:
                         itens.append({'id': f"N:{c['ctrc']}", 'tipo': 'nf', 'ctrc': c['ctrc'], 'parada': chave,
                                       'rotulo': ROTULO['nf'], 'num': rotulo_nf(c.get('nf')) or '—',

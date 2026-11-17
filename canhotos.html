@@ -270,7 +270,8 @@
         return '<div class="parada"><h3>' + esc(p.nome || 'Entrega') + ' <span class="cid">' + esc(p.cidade) + (p.n_ctes > 1 ? ' · ' + p.n_ctes + ' CT-e' : '') + '</span></h3>' +
           p.itens.map(function (it) {
             return '<div class="it"><div class="cab"><b>' + esc(it.rotulo) + '</b>' + (it.estado === 'ok' ? '<span class="pill" style="--cor:#34d399">Recebido</span>' : '<span class="pill" style="--cor:#fbbf24">Falta</span>') + '</div>' +
-              '<div class="num">' + (it.ctrc ? esc(it.ctrc) + ' · ' : '') + (it.num ? 'Nº ' + esc(it.num) : esc(it.sub || '')) + '</div>' +
+              '<div class="num">' + (it.ctrc ? esc(it.ctrc) + ' · ' : '') +
+                (it.tipo === 'cte' ? (it.cte ? 'CT-e nº ' + esc(it.cte) : 'CT-e') : it.num ? 'Nº ' + esc(it.num) : esc(it.sub || '')) + '</div>' +
               (it.fotos.length ? '<div class="fotos">' + it.fotos.map(fotoHtml).join('') + '</div>' : '') + '</div>';
           }).join('') +
           (p.extras.length ? '<div class="it"><div class="cab"><b>Fotos a mais desta parada</b></div><div class="fotos">' + p.extras.map(function (e) { return fotoHtml(e, e.rotulo); }).join('') + '</div></div>' : '') +

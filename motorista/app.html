@@ -144,6 +144,69 @@
   .sem-camera .btn { display: flex; align-items: center; justify-content: center; }
   .sem-camera .btn.claro { color: #fff; border-color: rgba(255,255,255,.35); }
   .oculto { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
+  #camAjuda { min-width: 38px; font-weight: 800; }
+
+  /* cartão "como fotografar": entre o toque em Fotografar e a câmera, nas 3 primeiras vezes de cada tipo */
+  .guia-doc { font: 600 14px var(--mono); color: var(--tinta2); margin: -10px 0 0; }
+  .tela > .link { align-self: flex-start; }
+  .guia-palco { width: min(100%, 250px); aspect-ratio: 1; margin: 0 auto; position: relative; overflow: hidden; background: #e6ebf1; border-radius: 16px; }
+  .guia-passos { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+  .guia-passos li { display: flex; gap: 6px; align-items: flex-start; background: var(--cartao); border: 1.5px solid var(--linha); border-radius: 10px;
+    padding: 7px 8px; font-size: 13px; font-weight: 700; line-height: 1.25; color: var(--tinta2); transition: border-color .2s, color .2s; }
+  .guia-passos li b { flex: none; width: 20px; height: 20px; border-radius: 50%; background: var(--linha); color: var(--tinta); display: flex; align-items: center; justify-content: center; font-size: 12px; }
+  .guia-passos li.agora { border-color: var(--acao); color: var(--tinta); }
+  .guia-passos li.agora b { background: var(--acao); color: #fff; }
+  .confira { background: var(--cartao); border: 1px solid var(--linha); border-radius: 14px; padding: 13px 14px; display: flex; flex-direction: column; gap: 9px; }
+  .confira h2 { font-size: 17px; }
+  .confira ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+  .confira li { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 8px; align-items: start; font-size: 15.5px; line-height: 1.35; }
+  .confira li::before { content: '✓'; width: 22px; height: 22px; border-radius: 50%; background: var(--ok-fundo); color: var(--ok); font-weight: 800; font-size: 13px;
+    display: flex; align-items: center; justify-content: center; }
+  .dicas { margin: 0; padding: 9px 0 0; list-style: none; border-top: 1px solid var(--linha); display: flex; flex-direction: column; gap: 5px; font-size: 14px; color: var(--tinta2); }
+  .confira .dicas li { display: block; font-size: 14px; }
+  .confira .dicas li::before { content: none; }
+  .tela > .link.discreto { color: var(--tinta2); font-weight: 600; align-self: center; }
+
+  /* a animação do cartão: um celular desenhado (palco de 480 px, escalado para caber) */
+  .g-palco { position: absolute; left: 0; top: 0; width: 480px; height: 480px; transform-origin: 0 0; }
+  .g-palco[data-tipo="nf"] .so-cte, .g-palco[data-tipo="cte"] .so-nf { display: none; }
+  .g-phone { position: absolute; left: 120px; top: 10px; width: 240px; height: 460px; border-radius: 38px; background: #0a0c10;
+    box-shadow: 0 0 0 1.5px #9aa6b4, 0 18px 36px rgba(10, 16, 28, .25); transform-origin: 50% 50%; }
+  .g-phone::before { content: ""; position: absolute; top: 15px; left: 50%; width: 56px; height: 6px; margin-left: -28px; border-radius: 9px; background: #23272e; z-index: 9; }
+  .g-tela { position: absolute; left: 10px; top: 10px; width: 220px; height: 440px; border-radius: 28px; overflow: hidden; background: #000; }
+  .g-cam { position: absolute; left: 220px; top: 0; width: 440px; height: 220px; transform-origin: 0 0; transform: rotate(90deg); overflow: hidden; color: #fff;
+    background: radial-gradient(120% 90% at 40% 45%, #4a4f57 0%, #2c3036 55%, #1a1d21 100%); }
+  .g-papel { position: absolute; left: 13px; width: 414px; filter: drop-shadow(0 6px 10px rgba(0,0,0,.45)); }
+  .g-papel svg { display: block; }
+  .g-papel.so-nf { top: 85px; height: 237px; transform-origin: 207px 25px; }
+  .g-papel.so-cte { top: -146.3px; height: 292px; transform-origin: 207px 256px; }
+  .g-molde { --cor: #fff; position: absolute; left: 13px; width: 414px; border: 2px solid var(--cor); border-radius: 4px; box-shadow: 0 0 0 2000px rgba(3,7,18,.5); }
+  .g-molde.so-nf { top: 85px; height: 49px; }
+  .g-molde.so-cte { top: 96px; height: 28px; }
+  .g-molde[data-estado="mexendo"] { --cor: var(--ambar); }
+  .g-molde[data-estado="pronto"] { --cor: var(--verde); border-width: 3px; }
+  .g-zona { position: absolute; top: 26%; height: 70%; border-left: 1px dashed rgba(255,255,255,.65); padding: 1px 3px; font: 700 8.5px/1.1 var(--sans); color: #fff;
+    text-shadow: 0 1px 2px #000, 0 0 3px #000; white-space: nowrap; transition: opacity .25s; }
+  .g-molde.so-nf .g-zona { top: 40%; height: 52%; }
+  .g-molde.so-cte .g-zona { font-size: 7.5px; }
+  .g-zona.num { font-family: var(--mono); color: #7dd3fc; }
+  .g-molde[data-estado="pronto"] .g-zona { opacity: 0; }
+  .g-topo { position: absolute; left: 0; right: 0; top: 0; height: 34px; display: flex; align-items: center; justify-content: center; font-size: 10.5px; font-weight: 700;
+    background: linear-gradient(rgba(0,0,0,.6), transparent); text-shadow: 0 1px 2px #000; }
+  .g-status { position: absolute; left: 50%; top: 40px; transform: translateX(-50%); white-space: nowrap; background: rgba(0,0,0,.76); border-radius: 99px; padding: 4px 12px; font-size: 10.5px; font-weight: 700; }
+  .g-status[data-estado="mexendo"] { color: var(--ambar); }
+  .g-status[data-estado="pronto"] { color: var(--verde); }
+  .g-disparo { position: absolute; left: 198px; top: 166px; width: 44px; height: 44px; border-radius: 50%; background: #fff; background-clip: padding-box; border: 5px solid rgba(255,255,255,.4); }
+  .g-disparo.pulsa { border-color: var(--verde); box-shadow: 0 0 0 var(--onda, 0px) rgba(52,211,153,.5); }
+  .g-flash { position: absolute; inset: 0; background: #fff; opacity: 0; }
+  .g-ok { position: absolute; inset: 0; background: rgba(4, 35, 26, .88); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; font-size: 15px; font-weight: 800; opacity: 0; }
+  .g-ok span { width: 48px; height: 48px; border-radius: 50%; background: var(--verde); color: #04231a; display: flex; align-items: center; justify-content: center; font-size: 28px; }
+  .g-deite { position: absolute; inset: 0; background: rgba(3,7,18,.86); color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+    text-align: center; padding: 20px; font-size: 15px; font-weight: 700; opacity: 0; }
+  .g-deite svg { width: 60px; height: 60px; }
+  .g-dedo, .g-onda { position: absolute; left: 0; top: 0; width: 28px; height: 28px; margin: -14px 0 0 -14px; border-radius: 50%; border: 2px solid #fff; opacity: 0; }
+  .g-dedo { background: rgba(3,105,161,.38); box-shadow: 0 2px 8px rgba(0,0,0,.4); }
+  .g-onda { box-shadow: 0 0 0 1px rgba(3,105,161,.6); }
   @media (prefers-reduced-motion: reduce) { .deite svg, #disparo.pulsa { animation: none; } }
 </style>
 </head>
@@ -188,7 +251,174 @@
     <div class="lista" id="listaParadas"></div>
     <div class="tudo-ok" id="tudoOk" hidden>Tudo certo. Esta viagem sai da lista quando as fotos chegarem.</div>
   </section>
+
+  <section class="tela" id="telaGuia" hidden>
+    <button class="link" id="guiaVoltar" type="button">‹ Voltar</button>
+    <h1 id="guiaTitulo"></h1>
+    <p class="guia-doc" id="guiaDoc"></p>
+    <p class="sub" id="guiaSub"></p>
+    <div class="guia-palco" id="guiaPalco" aria-hidden="true"></div>
+    <ol class="guia-passos" id="guiaPassos">
+      <li><b>1</b>Deite o celular</li>
+      <li><b>2</b>Encaixe no molde</li>
+      <li><b>3</b>Ficou verde? Toque</li>
+    </ol>
+    <div class="confira">
+      <h2>O recebedor já preencheu?</h2>
+      <ul id="guiaConfira"></ul>
+      <ul class="dicas" id="guiaDicas"></ul>
+    </div>
+    <button class="btn" id="guiaCamera" type="button">Abrir a câmera</button>
+    <button class="link discreto" id="guiaChega" type="button">Já sei fazer, não mostrar mais</button>
+  </section>
 </main>
+
+<!-- Desenhos da animação do cartão, em milímetros (dados fictícios). DANFE: canhoto = faixa de 210 × 25 mm no
+     TOPO, com picote. DACTE do SSW: canhoto = faixa de ~210 × 14 mm no PÉ, sem picote (DACTE real de 06/2026). -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <g id="g-danfe" font-family="Arial, Helvetica, sans-serif" fill="#1d1d1f">
+      <rect x="0" y="0" width="210" height="120" fill="#fbfaf5"/>
+      <g fill="none" stroke="#2b2b2b" stroke-width=".35">
+        <rect x=".5" y=".5" width="209" height="24"/><line x1="175" y1=".5" x2="175" y2="24.5"/>
+        <line x1=".5" y1="10" x2="175" y2="10"/><line x1="45" y1="10" x2="45" y2="24.5"/>
+      </g>
+      <text x="2" y="4" font-size="2.1">RECEBEMOS DE INDÚSTRIA EXEMPLO S/A OS PRODUTOS E/OU SERVIÇOS CONSTANTES DA NOTA FISCAL</text>
+      <text x="2" y="7.3" font-size="2.1">ELETRÔNICA INDICADA AO LADO. EMISSÃO: 16/11/2026 · DESTINATÁRIO: DISTRIBUIDORA EXEMPLO LTDA</text>
+      <text x="2" y="12.7" font-size="1.7">DATA DE RECEBIMENTO</text>
+      <text x="47" y="12.7" font-size="1.7">IDENTIFICAÇÃO E ASSINATURA DO RECEBEDOR</text>
+      <text x="192.5" y="7" font-size="3.6" font-weight="700" text-anchor="middle">NF-e</text>
+      <text x="192.5" y="13" font-size="2.8" text-anchor="middle">Nº 000.123.456</text>
+      <text x="192.5" y="18" font-size="2.8" text-anchor="middle">SÉRIE 1</text>
+      <g fill="#1f3c99" font-family="'Segoe Print', 'Bradley Hand', 'Comic Sans MS', cursive">
+        <text x="8" y="21.6" font-size="5.4">17/11/26</text>
+        <text x="50" y="21.8" font-size="4.8">Marcos A. Souza</text>
+      </g>
+      <path d="M90 20 c3 -6 5 -6 6 -1 s2 4 4 -2 s3 -3 4 1 s3 2 6 -3 l2 3 c2 1 5 -1 7 -2" fill="none" stroke="#1f3c99" stroke-width=".5" stroke-linecap="round"/>
+      <g transform="rotate(-6 146 17)" fill="#3b4fc4" opacity=".82">
+        <rect x="121" y="9" width="50" height="17" rx="1.6" fill="none" stroke="#3b4fc4" stroke-width=".7"/>
+        <text x="146" y="14" font-size="3.8" font-weight="700" text-anchor="middle" letter-spacing=".3">RECEBIDO</text>
+        <text x="146" y="18.6" font-size="2.3" text-anchor="middle">DISTRIBUIDORA EXEMPLO LTDA</text>
+        <text x="146" y="23.2" font-size="2.9" font-weight="700" text-anchor="middle">17 NOV 2026</text>
+      </g>
+      <line x1="0" y1="27.5" x2="210" y2="27.5" stroke="#777" stroke-width=".35" stroke-dasharray="1.2 1"/>
+      <g fill="none" stroke="#2b2b2b" stroke-width=".35">
+        <rect x=".5" y="30" width="209" height="34"/><line x1="85" y1="30" x2="85" y2="64"/><line x1="122" y1="30" x2="122" y2="64"/>
+        <rect x=".5" y="66" width="209" height="9"/><rect x=".5" y="77" width="209" height="9"/>
+      </g>
+      <text x="4" y="38" font-size="3.6" font-weight="700">INDÚSTRIA EXEMPLO S/A</text>
+      <text x="4" y="43" font-size="2.2">Rodovia do Contorno, km 0 · Galpão 3</text>
+      <text x="103.5" y="37" font-size="5" font-weight="700" text-anchor="middle">DANFE</text>
+      <text x="103.5" y="41" font-size="1.9" text-anchor="middle">Documento Auxiliar da</text>
+      <text x="103.5" y="43.6" font-size="1.9" text-anchor="middle">Nota Fiscal Eletrônica</text>
+      <text x="103.5" y="56" font-size="2.6" font-weight="700" text-anchor="middle">Nº 000.123.456</text>
+      <g class="g-barras" data-x0="126" data-x1="205" data-y="33" data-h="13"></g>
+      <text x="125" y="51" font-size="1.8">CHAVE DE ACESSO</text>
+      <text x="2" y="69.5" font-size="1.7">NATUREZA DA OPERAÇÃO</text>
+      <text x="2" y="73.4" font-size="2.6">VENDA DE MERCADORIA</text>
+      <text x="2" y="80.5" font-size="1.7">DESTINATÁRIO / REMETENTE</text>
+      <text x="2" y="84.4" font-size="2.6">DISTRIBUIDORA EXEMPLO LTDA</text>
+    </g>
+    <g id="g-dacte" font-family="Arial, Helvetica, sans-serif" fill="#1d1d1f">
+      <rect x="0" y="0" width="210" height="148" fill="#fbfaf5"/>
+      <g fill="none" stroke="#2b2b2b" stroke-width=".35">
+        <rect x=".5" y=".5" width="209" height="136.5"/>
+        <line x1="92" y1=".5" x2="92" y2="104"/><line x1="160" y1=".5" x2="160" y2="12"/>
+        <line x1=".5" y1="21" x2="209.5" y2="21"/><line x1="92" y1="12" x2="209.5" y2="12"/>
+        <line x1=".5" y1="33" x2="92" y2="33"/><line x1="92" y1="37" x2="209.5" y2="37"/>
+        <line x1=".5" y1="49" x2="92" y2="49"/><line x1=".5" y1="62" x2="92" y2="62"/><line x1=".5" y1="75" x2="92" y2="75"/>
+        <line x1="152" y1="37" x2="152" y2="80"/><line x1=".5" y1="88" x2="209.5" y2="88"/><line x1="92" y1="94" x2="209.5" y2="94"/>
+        <line x1=".5" y1="104" x2="209.5" y2="104"/><line x1=".5" y1="119.5" x2="179.2" y2="119.5"/>
+        <line x1=".5" y1="123" x2="209.5" y2="123"/><line x1=".5" y1="126.3" x2="179.2" y2="126.3"/>
+        <line x1="45.6" y1="126.3" x2="45.6" y2="137"/><line x1="92.9" y1="126.3" x2="92.9" y2="137"/>
+        <line x1="179.2" y1="104" x2="179.2" y2="137"/>
+      </g>
+      <rect x="3" y="3.5" width="24" height="9" fill="#1d1d1f"/>
+      <text x="15" y="9.6" font-size="3.2" font-weight="700" text-anchor="middle" fill="#fbfaf5">EXEMPLO</text>
+      <text x="30" y="5" font-size="2.5" font-weight="700">TRANSPORTADORA EXEMPLO LTDA</text>
+      <text x="30" y="8.2" font-size="1.9">Rua das Flores, 100 · Distrito Industrial</text>
+      <text x="126" y="6.5" font-size="5" font-weight="700" text-anchor="middle" letter-spacing="1">DACTE</text>
+      <text x="126" y="10" font-size="1.4" text-anchor="middle">Documento Auxiliar do Conhecimento de Transporte Eletrônico</text>
+      <text x="162" y="4" font-size="1.5">AUTORIZAÇÃO</text>
+      <text x="162" y="8.5" font-size="2.6" font-weight="700" font-family="monospace">17/11/26 06:12</text>
+      <text x="94" y="19" font-size="2.6" font-weight="700" font-family="monospace">84   000000412   RODOVIÁRIO</text>
+      <g class="g-qr" data-x="190" data-y="13.5" data-n="17" data-s="1.05"></g>
+      <g class="g-barras" data-x0="96" data-x1="186" data-y="23" data-h="10"></g>
+      <text x="2" y="24" font-size="1.5">TIPO DO CT-E       TIPO DO SERVIÇO</text>
+      <text x="2" y="27.4" font-size="2.2" font-weight="700">NORMAL           NORMAL</text>
+      <text x="2" y="36" font-size="1.5">REMETENTE</text><text x="16" y="36" font-size="2.3" font-weight="700">INDÚSTRIA EXEMPLO S/A</text>
+      <rect x="2" y="38.5" width="70" height="1.6" fill="#c9c9c4"/><rect x="2" y="41.8" width="55" height="1.6" fill="#c9c9c4"/>
+      <text x="2" y="52" font-size="1.5">DESTINATÁRIO</text><text x="19" y="52" font-size="2.3" font-weight="700">DISTRIBUIDORA EXEMPLO LTDA</text>
+      <rect x="2" y="54.5" width="74" height="1.6" fill="#c9c9c4"/><rect x="2" y="57.8" width="50" height="1.6" fill="#c9c9c4"/>
+      <text x="2" y="65" font-size="1.5">EXPEDIDOR</text>
+      <text x="2" y="78" font-size="1.5">TOMADOR</text><text x="14" y="78" font-size="2.3" font-weight="700">INDÚSTRIA EXEMPLO S/A</text>
+      <text x="122" y="40" font-size="1.6" text-anchor="middle">COMPONENTES DO FRETE</text>
+      <text x="181" y="40" font-size="1.6" text-anchor="middle">MERCADORIA</text>
+      <rect x="94" y="43" width="40" height="1.5" fill="#c9c9c4"/><rect x="94" y="47" width="30" height="1.5" fill="#c9c9c4"/>
+      <rect x="154" y="44" width="40" height="1.5" fill="#c9c9c4"/><rect x="154" y="48" width="46" height="1.5" fill="#c9c9c4"/>
+      <text x="46" y="90.6" font-size="1.6" text-anchor="middle">OBSERVAÇÕES</text>
+      <text x="150" y="92.3" font-size="1.6" text-anchor="middle">CHAVES NF-E/CT-E/DC-E</text>
+      <rect x="94" y="96.5" width="110" height="1.7" fill="#c9c9c4"/><rect x="94" y="100.2" width="110" height="1.7" fill="#c9c9c4"/>
+      <text x="2" y="118" font-size="1.6">PLACA DE COLETA</text><text x="18" y="118" font-size="2.4" font-weight="700" font-family="monospace">ABC1D23</text>
+      <text x="2" y="122" font-size="1.6">TOMADOR SERVIÇO  REMET     COBRAR  A PRAZO     PREV.ENTREGA  18/11/26</text>
+      <text x="2" y="125.4" font-size="1.65">DECLARO QUE RECEBI OS VOLUMES DESTE CONHECIMENTO EM PERFEITO ESTADO PELO QUE DOU POR CUMPRIDO O PRESENTE CONTRATO DE TRANSPORTE</text>
+      <text x="2" y="128.3" font-size="1.5">NOME / RG</text>
+      <text x="47.3" y="128.3" font-size="1.5">ASSINATURA / CARIMBO</text>
+      <text x="94.5" y="128.3" font-size="1.5">CHEGADA DATA/HORA</text>
+      <text x="135.3" y="128.3" font-size="1.5">SAÍDA DATA/HORA</text>
+      <text x="181" y="127" font-size="2.6" font-weight="700">UDI 400123-4</text>
+      <text x="181" y="133.6" font-size="5.2" font-weight="700">FEC / 102</text>
+      <g fill="#1f3c99" font-family="'Segoe Print', 'Bradley Hand', 'Comic Sans MS', cursive">
+        <text x="2.5" y="132.2" font-size="3.4">Marcos A. Souza</text>
+        <text x="2.5" y="135.9" font-size="2.8">RG 12.345.678-9</text>
+        <text x="96" y="134" font-size="4">17/11  08:40</text>
+        <text x="137" y="134" font-size="4">17/11  10:15</text>
+      </g>
+      <path d="M49 134 c2 -5 4 -5 5 -1 s2 3 3 -2 s3 -2 3 1 s3 1 5 -2 l2 2.5 c2 1 4 -1 6 -1.5" fill="none" stroke="#1f3c99" stroke-width=".45" stroke-linecap="round"/>
+      <g transform="rotate(-5 80 128)" fill="#3b4fc4" opacity=".8">
+        <rect x="68" y="121" width="24" height="13" rx="1.4" fill="none" stroke="#3b4fc4" stroke-width=".6"/>
+        <text x="80" y="125.4" font-size="2.7" font-weight="700" text-anchor="middle">RECEBIDO</text>
+        <text x="80" y="128.8" font-size="1.6" text-anchor="middle">DISTRIB. EXEMPLO</text>
+        <text x="80" y="132.4" font-size="2.2" font-weight="700" text-anchor="middle">17 NOV 2026</text>
+      </g>
+      <text x="207" y="139.6" font-size="1.4" text-anchor="end" font-weight="700">PROCESSADO POR SSW</text>
+    </g>
+  </defs>
+</svg>
+
+<template id="tplGuia">
+  <div class="g-palco" data-tipo="nf">
+    <div class="g-phone"><div class="g-tela">
+      <div class="g-cam">
+        <div class="g-papel so-nf"><svg viewBox="0 0 210 120" width="414" height="236.6"><use href="#g-danfe"/></svg></div>
+        <div class="g-papel so-cte"><svg viewBox="0 0 210 148" width="414" height="291.8"><use href="#g-dacte"/></svg></div>
+        <div class="g-molde so-nf">
+          <div class="g-zona" style="left:2.4%;width:19%">Data</div>
+          <div class="g-zona" style="left:21.4%;width:61.9%">Assinatura ou carimbo</div>
+          <div class="g-zona num" style="left:83.3%;top:12%;width:14.3%;height:80%">Nº da NF</div>
+        </div>
+        <div class="g-molde so-cte">
+          <div class="g-zona" style="left:1%;width:20.6%;border-left:0">Nome e RG</div>
+          <div class="g-zona" style="left:21.6%;width:22.6%">Assinatura ou carimbo</div>
+          <div class="g-zona" style="left:44.2%;width:20.3%">Chegada</div>
+          <div class="g-zona" style="left:64.5%;width:21%;border-left:0">Saída</div>
+          <div class="g-zona num" style="left:85.5%;top:8%;width:14%;height:88%">UDI</div>
+        </div>
+        <div class="g-topo"></div>
+        <div class="g-status"></div>
+        <div class="g-disparo"></div>
+        <div class="g-flash"></div>
+        <div class="g-ok"><span>✓</span>Foto tirada</div>
+        <div class="g-onda"></div>
+        <div class="g-dedo"></div>
+      </div>
+      <div class="g-deite">
+        <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3"><rect x="20" y="6" width="24" height="52" rx="5"/><path d="M28 12h8"/><path d="M8 40 a24 24 0 0 1 6 -22" stroke-width="2.4"/><path d="M8 26 l6 -8 l3 9" stroke-width="2.4"/></svg>
+        Deite o celular para a esquerda
+      </div>
+    </div></div>
+  </div>
+</template>
 
 <section class="camera" id="telaCamera" hidden>
   <video id="video" playsinline muted autoplay></video>
@@ -198,6 +428,7 @@
       <button id="camVoltar" type="button">‹ Voltar</button>
       <span class="cam-doc" id="camDoc"></span>
       <button id="lanterna" type="button" aria-pressed="false" hidden>Lanterna</button>
+      <button id="camAjuda" type="button" aria-label="Como fotografar" hidden>?</button>
     </div>
     <div class="cam-status" id="camStatus" data-estado="enquadrar" role="status"></div>
     <div class="cam-baixo" id="camBaixo">
@@ -238,7 +469,8 @@
             atualizado: null, tentativas: 0, timer: 0, instalar: null, sairConfirmar: false };
   var MOLDES = {
     nf:    { forma: 'faixa', razao: 210 / 25,  nome: 'Canhoto da NF',   pede: 'Encaixe o canhoto da NF no molde' },
-    cte:   { forma: 'faixa', razao: 210 / 28,  nome: 'Canhoto do CT-e', pede: 'Encaixe o canhoto do CT-e no molde' },
+    // faixa do pé da DACTE do SSW: ~210 × 14 mm (medida numa DACTE real em 17/11/2026; antes era 28 mm, um chute)
+    cte:   { forma: 'faixa', razao: 210 / 14,  nome: 'Canhoto do CT-e', pede: 'Encaixe o canhoto do CT-e no molde' },
     folha: { forma: 'folha', razao: 210 / 297, nome: 'Folha inteira',   pede: 'Encaixe a folha inteira no molde' },
     outro: { forma: 'livre', razao: 210 / 150, nome: 'Outro papel',     pede: 'Enquadre o papel inteiro' }
   };
@@ -266,6 +498,8 @@
     var h = Array.prototype.map.call(b, function (x) { return (x + 256).toString(16).slice(1); }).join('');
     return h.slice(0, 8) + '-' + h.slice(8, 12) + '-' + h.slice(12, 16) + '-' + h.slice(16, 20) + '-' + h.slice(20);
   }
+  // No CT-e o número é o UDI impresso no canhoto (UDI 400123-4), que já traz a sigla; na NF, "Nº 123.456".
+  function numTxt(it) { return it && it.num ? (it.tipo === 'cte' ? it.num : 'Nº ' + it.num) : ''; }
   function primeiroNome(n) { n = String(n || '').trim().split(/\s+/)[0] || ''; return n ? n.charAt(0) + n.slice(1).toLowerCase() : ''; }
   function dm(iso) { return iso ? iso.slice(8, 10) + '/' + iso.slice(5, 7) : ''; }
   function hora(d) { return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2); }
@@ -319,16 +553,21 @@
   function naFila(itemId) { return minhaFila().some(function (r) { return r.item === itemId; }); }
 
   // ── navegação (o botão Voltar do Android anda dentro do app) ────────────
+  // empilhar: true = nova entrada no histórico; 'trocar' = substitui a atual (cartão ↔ câmera ocupam o mesmo
+  // degrau, para o Voltar depois da foto cair na entrega e não no cartão)
   function ir(tela, empilhar) {
-    if (empilhar) history.pushState({ tela: tela }, '', '#' + tela);
+    if (empilhar === 'trocar') history.replaceState({ tela: tela }, '', '#' + tela);
+    else if (empilhar) history.pushState({ tela: tela }, '', '#' + tela);
     S.tela = tela;
     $('telaCpf').hidden = tela !== 'cpf'; $('telaViagens').hidden = tela !== 'viagens';
     $('telaEntrega').hidden = tela !== 'entrega'; $('telaCamera').hidden = tela !== 'camera';
+    $('telaGuia').hidden = tela !== 'guia';
     document.querySelector('.barra').hidden = tela === 'camera';
     if (tela !== 'camera') window.scrollTo(0, 0);
   }
   window.addEventListener('popstate', function () {
     if (S.tela === 'camera') { fecharCamera(); ir(CAM_ANTES || 'viagens'); render(); }
+    else if (S.tela === 'guia') { pararGuia(); ir(GV.antes || 'viagens'); render(); }
     else if (S.tela === 'entrega') { ir('viagens'); render(); }
   });
 
@@ -420,14 +659,14 @@
     var t = document.createElement('span'), nome = document.createElement('b'), det = document.createElement('small');
     nome.textContent = it.rotulo;
     if (it.sub) det.textContent = it.sub;
-    else { det.className = 'num'; det.textContent = 'Nº ' + (it.num || '—'); }
+    else { det.className = 'num'; det.textContent = numTxt(it) || 'Nº —'; }
     t.appendChild(nome); t.appendChild(det);
     var a = document.createElement('span'); a.className = 'acao';
     a.textContent = ok ? 'Enviado ✓' : fila ? 'Na fila' : 'Fotografar ›';
     b.appendChild(bola); b.appendChild(t); b.appendChild(a);
     b.addEventListener('click', function () {
-      abrirCamera({ id: it.id, tipo: it.tipo, ctrc: it.ctrc, parada: p.chave, manifesto: v.manifesto, rotulo: it.rotulo, num: it.num },
-                  it.tipo === 'cte' ? 'cte' : it.tipo === 'nf' ? 'nf' : 'outro');
+      fotografar({ id: it.id, tipo: it.tipo, ctrc: it.ctrc, parada: p.chave, manifesto: v.manifesto, rotulo: it.rotulo, num: it.num },
+                 it.tipo === 'cte' ? 'cte' : it.tipo === 'nf' ? 'nf' : 'outro');
     });
     return b;
   }
@@ -448,7 +687,7 @@
       var mais = document.createElement('div'); mais.className = 'mais';
       var nf = document.createElement('button'); nf.type = 'button'; nf.className = 'btn claro'; nf.textContent = '+ Outra NF desta entrega';
       nf.addEventListener('click', function () {
-        abrirCamera({ tipo: 'nf_extra', extra: true, ctrc: p.ctrc_unico, parada: p.chave, manifesto: v.manifesto, rotulo: 'Outra NF', num: null }, 'nf');
+        fotografar({ tipo: 'nf_extra', extra: true, ctrc: p.ctrc_unico, parada: p.chave, manifesto: v.manifesto, rotulo: 'Outra NF', num: null }, 'nf');
       });
       var o = document.createElement('button'); o.type = 'button'; o.className = 'btn claro'; o.textContent = '+ Outro papel (carimbo, protocolo)';
       o.addEventListener('click', function () {
@@ -546,10 +785,13 @@
   var video = $('video');
 
   function abrirCamera(item, molde) {
-    CAM_ANTES = S.tela;
+    var doCartao = S.tela === 'guia';           // vindo do cartão, a câmera toma o lugar dele no histórico
+    if (doCartao) pararGuia();
+    CAM_ANTES = doCartao ? GV.antes : S.tela;
     CAM = { item: item, molde: molde, giro: false, t0: performance.now(), focoMax: 0, prev: null, seguidos: 0,
             resultado: null, semVideo: false, estado: '' };
-    ir('camera', true);
+    ir('camera', doCartao ? 'trocar' : true);
+    $('camAjuda').hidden = !guiaDe(item.tipo);
     $('conferir').hidden = true; $('camBaixo').hidden = false; $('semCamera').hidden = true;
     montarChips(); montarMolde(); geometria(); dicaDeitar();
     ligarCamera();
@@ -624,16 +866,19 @@
       mo.appendChild(zona('', 21.4, 40, 61.9, 40, 'Assinatura ou carimbo'));
       mo.appendChild(zona('num', 83.3, 12, 14.3, 68, n ? 'NF ' + n : 'Nº da NF'));
     } else if (m === 'cte') {
-      mo.appendChild(zona('sem-linha', 2.4, 20, 23.8, 60, 'Nome e RG'));
-      mo.appendChild(zona('', 26.2, 20, 23.8, 60, 'Assinatura ou carimbo'));
-      mo.appendChild(zona('', 50, 20, 23.8, 60, 'Chegada e saída'));
-      mo.appendChild(zona('num', 73.8, 20, 23.8, 60, n ? 'CT-e ' + String(n).split(' ·')[0] : 'Nº do CT-e'));
+      // campos da faixa do pé da DACTE do SSW, em % da largura: Nome/RG · Assinatura/Carimbo · Chegada e Saída
+      // (um campo só, dois rótulos) · a caixa do UDI na ponta direita
+      mo.appendChild(zona('sem-linha', 1, 26, 20.6, 70, 'Nome e RG'));
+      mo.appendChild(zona('', 21.6, 26, 22.6, 70, 'Assinatura ou carimbo'));
+      mo.appendChild(zona('', 44.2, 26, 20.3, 70, 'Chegada'));
+      mo.appendChild(zona('sem-linha', 64.5, 26, 21, 70, 'Saída'));
+      mo.appendChild(zona('num', 85.5, 8, 14, 88, n || 'UDI'));
     } else {
       var c = document.createElement('div'); c.className = 'miolo';
       c.textContent = m === 'folha' ? 'A folha inteira, com o canhoto e o carimbo' : 'Carimbo, protocolo ou lista assinada';
       mo.appendChild(c);
     }
-    $('camDoc').textContent = CAM.item.rotulo + (n ? ' · Nº ' + n : '');
+    $('camDoc').textContent = CAM.item.rotulo + (n ? ' · ' + numTxt(CAM.item) : '');
     ponEstado('enquadrar');
   }
   function geometria() {
@@ -726,7 +971,9 @@
   }
   $('disparo').addEventListener('click', function () {
     if (!CAM || !video.videoWidth) { avisar('A câmera ainda está abrindo.'); return; }
-    var r = CAM.rm, m = Math.min(r.w, r.h) * 0.12;
+    // margem em volta do molde: 12% do lado menor, mas nunca menos que 3% do maior — na faixa fina do CT-e
+    // (~14 mm) 12% da altura cortaria o carimbo, que costuma passar da faixa
+    var r = CAM.rm, m = Math.max(Math.min(r.w, r.h) * 0.12, Math.max(r.w, r.h) * 0.03);
     var rv = telaParaVideo(uiParaTela({ x: r.x - m, y: r.y - m, w: r.w + 2 * m, h: r.h + 2 * m }));
     var c = document.createElement('canvas'); c.width = Math.round(rv.w); c.height = Math.round(rv.h);
     c.getContext('2d').drawImage(video, rv.x, rv.y, rv.w, rv.h, 0, 0, c.width, c.height);
@@ -749,8 +996,10 @@
     cancelAnimationFrame(RAF); RAF = 0;
     desenharCorte();
     var t = $('confTexto'), it = CAM.item; t.textContent = '';
-    var b = document.createElement('b'); b.textContent = 'Dá para ler o número e o carimbo?'; t.appendChild(b);
-    if (it.num) { var s = document.createElement('span'); s.appendChild(document.createTextNode('Confira: ' + it.rotulo + ' ')); var n = document.createElement('span'); n.className = 'num'; n.textContent = 'Nº ' + it.num; s.appendChild(n); t.appendChild(s); }
+    var b = document.createElement('b');
+    b.textContent = guiaDe(it.tipo) === 'cte' ? 'Dá para ler o nome, a assinatura e os horários?' : 'Dá para ler o número e o carimbo?';
+    t.appendChild(b);
+    if (it.num) { var s = document.createElement('span'); s.appendChild(document.createTextNode('Confira: ' + it.rotulo + ' ')); var n = document.createElement('span'); n.className = 'num'; n.textContent = numTxt(it); s.appendChild(n); t.appendChild(s); }
     $('conferir').hidden = false; $('camBaixo').hidden = true;
   }
   function desenharCorte() {
@@ -786,6 +1035,136 @@
   });
   $('camVoltar').addEventListener('click', function () { history.back(); });
   $('semCameraVoltar').addEventListener('click', function () { history.back(); });
+  $('camAjuda').addEventListener('click', function () { if (CAM) abrirGuia(CAM.item, CAM.molde, true); });
+
+  // ── cartão "como fotografar" ────────────────────────────────────────────
+  // Aparece entre o toque em Fotografar e a câmera nas 3 primeiras vezes de cada tipo (contagem no aparelho)
+  // e sempre pelo "?" da câmera. Só NF e CT-e têm cartão; comprovante da parada e outro papel vão direto.
+  var GUIA = {
+    nf: { titulo: 'Canhoto da NF', sub: 'É a faixa de CIMA da nota fiscal. Veja como fotografar:',
+          confira: ['Data do recebimento', 'Nome ou assinatura de quem recebeu', 'Carimbo da empresa, se tiver'],
+          dicas: ['Uma foto por nota. Tem outra NF nesta entrega? Use “+ Outra NF desta entrega”.',
+                  'Assinaram fora do canhoto? Na câmera, toque em “Folha inteira”.'],
+          frase: 'Encaixe o canhoto da NF no molde', topo: 'Canhoto da NF' },
+    cte: { titulo: 'Canhoto do CT-e', sub: 'É a faixa de BAIXO do CT-e. Ela não se destaca da folha. Veja como fotografar:',
+           confira: ['Nome e RG de quem recebeu', 'Assinatura ou carimbo', 'Data e hora de chegada e de saída'],
+           dicas: ['Confira o número UDI na caixa da direita do canhoto: é o mesmo do app.'],
+           frase: 'Encaixe o canhoto do CT-e no molde', topo: 'Canhoto do CT-e' }
+  };
+  var GV = { R: null, g: null, item: null, molde: null, antes: null, t: 0, ultimo: null, raf: 0 };
+  var GT = 7.6;                                   // duração do loop da animação, em segundos
+  var REDUZ = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+  function guiaDe(tipo) { return tipo === 'cte' ? 'cte' : (tipo === 'nf' || tipo === 'nf_extra') ? 'nf' : null; }
+  function fotografar(item, molde) {
+    var g = guiaDe(item.tipo), v = ler('canhotos.guia') || {};
+    if (g && (v[g] || 0) < 3) { v[g] = (v[g] || 0) + 1; guardar('canhotos.guia', v); abrirGuia(item, molde, false); }
+    else abrirCamera(item, molde);
+  }
+  function preencher(ul, linhas) {
+    ul.textContent = '';
+    linhas.forEach(function (t) { var li = document.createElement('li'); li.textContent = t; ul.appendChild(li); });
+  }
+  function abrirGuia(item, molde, daCamera) {
+    var g = guiaDe(item.tipo); if (!g) return;
+    GV.g = g; GV.item = item; GV.molde = molde;
+    if (daCamera) { GV.antes = CAM_ANTES; fecharCamera(); ir('guia', 'trocar'); }
+    else { GV.antes = S.tela; ir('guia', true); }
+    var d = GUIA[g];
+    $('guiaTitulo').textContent = d.titulo;
+    $('guiaDoc').textContent = numTxt(item); $('guiaDoc').hidden = !item.num;
+    $('guiaSub').textContent = d.sub;
+    preencher($('guiaConfira'), d.confira); preencher($('guiaDicas'), d.dicas);
+    iniciarGuia();
+  }
+  $('guiaVoltar').addEventListener('click', function () { history.back(); });
+  $('guiaCamera').addEventListener('click', function () { abrirCamera(GV.item, GV.molde); });
+  $('guiaChega').addEventListener('click', function () {
+    var v = ler('canhotos.guia') || {}; v[GV.g] = 99; guardar('canhotos.guia', v);
+    abrirCamera(GV.item, GV.molde);
+  });
+
+  // desenhos: código de barras e QR da DANFE/DACTE (decorativos, sempre iguais)
+  (function () {
+    var ns = 'http://www.w3.org/2000/svg', s = 7;
+    function rnd() { s = (s * 9301 + 49297) % 233280; return s / 233280; }
+    function ret(g, x, y, w, h) { var r = document.createElementNS(ns, 'rect'); r.setAttribute('x', x.toFixed(2)); r.setAttribute('y', y); r.setAttribute('width', w.toFixed(2)); r.setAttribute('height', h); g.appendChild(r); }
+    Array.prototype.forEach.call(document.querySelectorAll('g.g-barras'), function (g) {
+      var x = +g.dataset.x0, x1 = +g.dataset.x1;
+      while (x < x1) { var w = 0.25 + Math.floor(rnd() * 4) * 0.22; ret(g, x, +g.dataset.y, w, +g.dataset.h); x += w + 0.3 + Math.floor(rnd() * 3) * 0.2; }
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('g.g-qr'), function (g) {
+      var x0 = +g.dataset.x, y0 = +g.dataset.y, n = +g.dataset.n, q = +g.dataset.s, k = n - 5;
+      for (var i = 0; i < n; i++) for (var j = 0; j < n; j++) {
+        var canto = (i < 5 && j < 5) || (i < 5 && j >= k) || (i >= k && j < 5), a = i % k, b = j % k;
+        if (canto ? (a === 0 || a === 4 || b === 0 || b === 4 || (a === 2 && b === 2)) : rnd() > 0.5) ret(g, x0 + j * q, (y0 + i * q).toFixed(2), q, q);
+      }
+    });
+  })();
+
+  function c01(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
+  function seg(t, a, b) { return c01((t - a) / (b - a)); }
+  function suave(x) { return x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2; }
+  function montarGuia() {
+    if (GV.R) return;
+    var host = $('guiaPalco'), p = $('tplGuia').content.firstElementChild.cloneNode(true);
+    host.appendChild(p);
+    var q = function (s) { return p.querySelector(s); };
+    GV.R = { palco: p, phone: q('.g-phone'), deite: q('.g-deite'), topo: q('.g-topo'), status: q('.g-status'), disparo: q('.g-disparo'),
+             flash: q('.g-flash'), ok: q('.g-ok'), dedo: q('.g-dedo'), onda: q('.g-onda'),
+             papel: { nf: q('.g-papel.so-nf'), cte: q('.g-papel.so-cte') }, molde: { nf: q('.g-molde.so-nf'), cte: q('.g-molde.so-cte') },
+             passos: Array.prototype.slice.call(document.querySelectorAll('#guiaPassos li')), estado: '', passo: -1 };
+    var escala = function () { p.style.transform = 'scale(' + (host.clientWidth / 480) + ')'; };
+    if (window.ResizeObserver) new ResizeObserver(escala).observe(host); else window.addEventListener('resize', escala);
+    escala();
+  }
+  function iniciarGuia() {
+    montarGuia();
+    var R = GV.R;
+    R.palco.dataset.tipo = GV.g; R.estado = ''; R.passo = -1;
+    R.topo.textContent = GUIA[GV.g].topo;
+    GV.t = REDUZ ? 4.3 : 0; GV.ultimo = null;
+    cancelAnimationFrame(GV.raf);
+    var passo = function (agora) {
+      GV.raf = 0;
+      if (S.tela !== 'guia') return;
+      if (!REDUZ && GV.ultimo !== null) GV.t = (GV.t + Math.min(0.1, (agora - GV.ultimo) / 1000)) % GT;
+      GV.ultimo = agora;
+      desenharGuia(GV.t);
+      if (!REDUZ) GV.raf = requestAnimationFrame(passo);
+    };
+    GV.raf = requestAnimationFrame(passo);
+  }
+  function pararGuia() { cancelAnimationFrame(GV.raf); GV.raf = 0; }
+  // Linha do tempo (s): deita 0,7–1,6 · o papel entra 1,7–3,2 · "segure firme" até 3,9 · verde · toque 4,55 ·
+  // flash · "Foto tirada" · volta a ficar de pé 6,6–7,3 · recomeça.
+  function desenharGuia(t) {
+    var R = GV.R, g = GV.g;
+    R.phone.style.transform = 'rotate(' + (-90 * suave(seg(t, 0.7, 1.6)) + 90 * suave(seg(t, 6.6, 7.3))) + 'deg)';
+    R.deite.style.opacity = c01(1 - seg(t, 1.2, 1.5) + seg(t, 7.25, 7.5));
+    var p = suave(seg(t, 1.7, 3.2));
+    var j = t > 3.2 && t < 3.9 ? Math.sin(t * 38) * 1.8 * (1 - seg(t, 3.2, 3.9)) : 0;
+    R.papel[g].style.transform = 'translate(' + ((1 - p) * 82 + j) + 'px,' + ((1 - p) * (g === 'nf' ? -40 : 46) + j * 0.6) + 'px) rotate(' +
+      ((1 - p) * -10) + 'deg) scale(' + (1 + (1 - p) * 0.28) + ')';
+    var e = t < 3.2 ? 'enquadrar' : t < 3.9 ? 'mexendo' : 'pronto';
+    if (e !== R.estado) {
+      R.estado = e; R.molde[g].dataset.estado = e; R.status.dataset.estado = e;
+      R.status.textContent = e === 'enquadrar' ? GUIA[g].frase : FRASE[e];
+      R.disparo.classList.toggle('pulsa', e === 'pronto');
+    }
+    if (e === 'pronto') R.disparo.style.setProperty('--onda', ((t * 1.6 % 1) * 12).toFixed(1) + 'px');
+    // o dedo vai até o botão (220, 188 no palco da câmera) e toca
+    var k = suave(seg(t, 4.0, 4.45)), toque = t >= 4.55 && t < 4.71;
+    R.dedo.style.opacity = c01(seg(t, 3.85, 4.0) - seg(t, 4.85, 5.0));
+    R.dedo.style.transform = 'translate(' + (330 - 110 * k) + 'px,' + (150 + 38 * k) + 'px) scale(' + (toque ? 0.78 : 1) + ')';
+    var o = seg(t, 4.55, 5.05);
+    R.onda.style.opacity = o > 0 && o < 1 ? 1 - o : 0;
+    R.onda.style.transform = 'translate(220px,188px) scale(' + (0.6 + 1.7 * o) + ')';
+    R.flash.style.opacity = t >= 4.6 ? 1 - seg(t, 4.62, 5.0) : 0;
+    R.ok.style.opacity = seg(t, 4.95, 5.2);
+    var n = t < 1.7 ? 0 : t < 3.9 ? 1 : 2;
+    if (n !== R.passo) { R.passo = n; R.passos.forEach(function (li, i) { li.classList.toggle('agora', i === n); }); }
+  }
 
   // ── início ──────────────────────────────────────────────────────────────
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('/motorista/sw.js', { scope: '/motorista/' }).catch(function () {});
