@@ -113,6 +113,8 @@ CREATE TABLE IF NOT EXISTS canhoto_ctes (
     parada_nome   TEXT
 );
 CREATE INDEX IF NOT EXISTS ix_canhoto_ctes_manifesto ON canhoto_ctes (manifesto);
+-- o tomador (quem paga o frete): decide se o CT-e pede o DACTE inteiro em vez da faixa do pé (18/11/2026)
+ALTER TABLE canhoto_ctes ADD COLUMN IF NOT EXISTS tomador_cnpj TEXT;
 CREATE TABLE IF NOT EXISTS canhoto_motoristas (
     cpf           TEXT PRIMARY KEY,
     nome          TEXT,
@@ -308,7 +310,7 @@ def coletar(dax, desde):
         "rc", {CE}[cnpj_remetente], "rn", {CE}[cliente_remetente], "dc", {CE}[cnpj_destinatario],
         "dn", {CE}[cliente_destinatario], "ec", {CE}[cnpj_recebedor], "en", {CE}[cliente_recebedor],
         "loc", {CE}[local_entrega], "cid", {CE}[cidade_entrega], "uf", {CE}[uf_entrega],
-        "co", {CE}[cidade_origem_prestacao], "uo", {CE}[uf_origem_prestacao])""")
+        "co", {CE}[cidade_origem_prestacao], "uo", {CE}[uf_origem_prestacao], "pc", {CE}[cnpj_pagador])""")
     mot = dax(f"""EVALUATE SELECTCOLUMNS({MOT}, "cpf", {MOT}[cpf], "nome", {MOT}[nome],
         "rel", {MOT}[relacao_com_transportadora])""")
     return mans, ctes, mot
@@ -363,6 +365,7 @@ def montar(mans, ctes, mot):
                 'ctrc': ctrc_norm(r.get('ctrc')), 'manifesto': k, 'tipo_documento': str(r.get('t') or '').strip(),
                 'emissao': _dia(r.get('d')), 'cte_num': cte_num, 'nf': nf.lstrip('0') or None,
                 'remetente_cnpj': so_digitos(r.get('rc')), 'remetente': str(r.get('rn') or '').strip(),
+                'tomador_cnpj': so_digitos(r.get('pc')) or None,
                 'destinatario': str(r.get('dn') or '').strip(), 'recebedor': str(r.get('en') or '').strip(),
                 'local_entrega': str(r.get('loc') or '').strip(),
                 'cidade': str(r.get('cid') or '').strip().title(), 'uf': str(r.get('uf') or '').strip().upper(),
@@ -396,7 +399,7 @@ def gravar(conn, viagens, ctes, motoristas):
                        [tuple(v[c] for c in cols) for v in viagens])
     if ctes:
         cols = ('ctrc', 'manifesto', 'tipo_documento', 'emissao', 'cte_num', 'nf', 'remetente_cnpj', 'remetente',
-                'destinatario', 'recebedor', 'local_entrega', 'cidade', 'uf', 'parada', 'parada_nome')
+                'destinatario', 'recebedor', 'local_entrega', 'cidade', 'uf', 'parada', 'parada_nome', 'tomador_cnpj')
         execute_values(cur, f"INSERT INTO canhoto_ctes ({', '.join(cols)}) VALUES %s",
                        [tuple(l[c] for c in cols) for l in ctes])
     if motoristas:
@@ -475,7 +478,17 @@ def loop():
 # ── o que o motorista vê ─────────────────────────────────────────────────────────────────────────────
 
 ROTULO = {'cte': 'Canhoto do CT-e', 'nf': 'Canhoto da NF', 'parada': 'Comprovante da parada',
-          'nf_extra': 'Outra NF', 'outro': 'Outro papel', 'solta': 'Foto sem viagem'}
+          'nf_extra': 'Outra NF', 'outro': 'Outro papel', 'solta': 'Foto sem viagem', 'dacte': 'DACTE inteiro'}
+# Clientes (raiz do CNPJ do TOMADOR) em que a faixa do pé não basta: o comprovante é o DACTE inteiro — carimbo,
+# assinatura e chegada/saída escritos no meio da folha. Nestlé (pedido do usuário em 18/11/2026). O DACTE do SSW
+# ocupa só a metade de cima da folha (~210 × 148 mm): o molde é ele, não a folha inteira.
+DACTE_INTEIRO = {'60409075'}
+
+
+def dacte_inteiro(c):
+    """O CT-e pede o DACTE inteiro? Pelo tomador; sem tomador (CT-e carregado antes de 18/11), pelo remetente."""
+    d = so_digitos(c.get('tomador_cnpj') or c.get('remetente_cnpj'))
+    return len(d) >= 8 and d[:8] in DACTE_INTEIRO
 
 
 def motorista(cur, cpf):
@@ -519,9 +532,11 @@ def estruturar(v, ctes, fotos, lote=None, exigidos=None):
                     if t == 'cte':
                         # `num` = o UDI impresso no canhoto (o motorista confere por ele); `cte` = o nº do
                         # cabeçalho da DACTE, para o escritório
+                        inteiro = dacte_inteiro(c)
                         itens.append({'id': f"C:{c['ctrc']}", 'tipo': 'cte', 'ctrc': c['ctrc'], 'parada': chave,
-                                      'rotulo': ROTULO['cte'], 'num': rotulo_ctrc(c['ctrc']),
-                                      'cte': rotulo_cte(c.get('cte_num')) or None})
+                                      'rotulo': ROTULO['dacte' if inteiro else 'cte'], 'num': rotulo_ctrc(c['ctrc']),
+                                      'cte': rotulo_cte(c.get('cte_num')) or None,
+                                      'molde': 'dacte' if inteiro else 'cte'})
                     else:
                         itens.append({'id': f"N:{c['ctrc']}", 'tipo': 'nf', 'ctrc': c['ctrc'], 'parada': chave,
                                       'rotulo': ROTULO['nf'], 'num': rotulo_nf(c.get('nf')) or '—',
@@ -549,7 +564,7 @@ def estruturar(v, ctes, fotos, lote=None, exigidos=None):
 _COLS_V = ('manifesto', 'rotulo', 'emissao', 'cpf', 'motorista', 'relacao', 'placa_cavalo', 'placa_carreta',
            'origem', 'destinos', 'n_ctes')
 _COLS_C = ('ctrc', 'manifesto', 'cte_num', 'nf', 'parada', 'parada_nome', 'destinatario', 'cidade', 'uf',
-           'remetente', 'tipo_documento')
+           'remetente', 'tipo_documento', 'remetente_cnpj', 'tomador_cnpj')
 
 
 def _carregar(cur, onde, args):
@@ -583,7 +598,7 @@ def viagens_do_motorista(cur, cpf):
 # ── foto ──────────────────────────────────────────────────────────────────────────────────────────────
 
 TIPOS = {'cte', 'nf', 'nf_extra', 'parada', 'outro', 'solta'}
-MOLDES = {'nf', 'cte', 'folha', 'outro', 'livre'}
+MOLDES = {'nf', 'cte', 'dacte', 'folha', 'outro', 'livre'}
 
 
 class Recusa(Exception):

@@ -14,8 +14,9 @@
   App do motorista para mandar o canhoto da NF e o do CT-e (Tabela Auditoria, módulo Canhotos).
   Uma página só, sem biblioteca e sem fonte externa: abre sem sinal (o service worker guarda esta página)
   e pesa pouco no 3G. As fotos esperam na fila do aparelho (IndexedDB) e vão quando houver sinal.
-  O molde da câmera: faixa (NF ou CT-e, celular deitado), folha inteira ou papel livre. Na faixa o
-  texto do molde já vem girado, então funciona com a rotação automática do celular desligada.
+  O molde da câmera: faixa (NF ou CT-e, celular deitado), DACTE inteiro (cliente que pede o CT-e todo, como a
+  Nestlé — também deitado), folha inteira ou papel livre. Deitado, o texto do molde já vem girado, então funciona
+  com a rotação automática do celular desligada.
 -->
 <style>
   :root {
@@ -169,7 +170,7 @@
 
   /* a animação do cartão: um celular desenhado (palco de 480 px, escalado para caber) */
   .g-palco { position: absolute; left: 0; top: 0; width: 480px; height: 480px; transform-origin: 0 0; }
-  .g-palco[data-tipo="nf"] .so-cte, .g-palco[data-tipo="cte"] .so-nf { display: none; }
+  .g-palco:not([data-tipo="nf"]) .so-nf, .g-palco:not([data-tipo="cte"]) .so-cte, .g-palco:not([data-tipo="dacte"]) .so-dacte { display: none; }
   .g-phone { position: absolute; left: 120px; top: 10px; width: 240px; height: 460px; border-radius: 38px; background: #0a0c10;
     box-shadow: 0 0 0 1.5px #9aa6b4, 0 18px 36px rgba(10, 16, 28, .25); transform-origin: 50% 50%; }
   .g-phone::before { content: ""; position: absolute; top: 15px; left: 50%; width: 56px; height: 6px; margin-left: -28px; border-radius: 9px; background: #23272e; z-index: 9; }
@@ -180,9 +181,13 @@
   .g-papel svg { display: block; }
   .g-papel.so-nf { top: 85px; height: 237px; transform-origin: 207px 25px; }
   .g-papel.so-cte { top: -146.3px; height: 292px; transform-origin: 207px 256px; }
+  /* DACTE inteiro (210 × 148 mm) no palco da câmera de 440 × 220: o maior que cabe, 298 × 210, no meio */
+  .g-papel.so-dacte { left: 71px; top: 5px; width: 298px; height: 210px; transform-origin: 149px 105px; }
   .g-molde { --cor: #fff; position: absolute; left: 13px; width: 414px; border: 2px solid var(--cor); border-radius: 4px; box-shadow: 0 0 0 2000px rgba(3,7,18,.5); }
   .g-molde.so-nf { top: 85px; height: 49px; }
   .g-molde.so-cte { top: 96px; height: 28px; }
+  .g-molde.so-dacte { left: 71px; top: 5px; width: 298px; height: 210px; }
+  .g-molde.so-dacte .g-zona { font-size: 7.5px; white-space: normal; }
   .g-molde[data-estado="mexendo"] { --cor: var(--ambar); }
   .g-molde[data-estado="pronto"] { --cor: var(--verde); border-width: 3px; }
   .g-zona { position: absolute; top: 26%; height: 70%; border-left: 1px dashed rgba(255,255,255,.65); padding: 1px 3px; font: 700 8.5px/1.1 var(--sans); color: #fff;
@@ -392,6 +397,18 @@
       <div class="g-cam">
         <div class="g-papel so-nf"><svg viewBox="0 0 210 120" width="414" height="236.6"><use href="#g-danfe"/></svg></div>
         <div class="g-papel so-cte"><svg viewBox="0 0 210 148" width="414" height="291.8"><use href="#g-dacte"/></svg></div>
+        <div class="g-papel so-dacte"><svg viewBox="0 0 210 148" width="298" height="210"><use href="#g-dacte"/>
+          <!-- como nas fotos da Nestlé: chegada e saída escritas à mão no MEIO do DACTE e um carimbo do depósito -->
+          <g fill="#1f3c99" font-family="'Segoe Print', 'Bradley Hand', 'Comic Sans MS', cursive">
+            <text x="95" y="57" font-size="8">chegada</text><text x="95" y="67" font-size="7.4">17/11  08:40</text>
+            <text x="95" y="80" font-size="8">saída</text><text x="122" y="80" font-size="7.4">10:15</text>
+          </g>
+          <g transform="rotate(-4 46 100)" fill="#3b4fc4" opacity=".85">
+            <rect x="22" y="91" width="48" height="16" rx="1.5" fill="none" stroke="#3b4fc4" stroke-width=".8"/>
+            <text x="46" y="98" font-size="4.2" font-weight="700" text-anchor="middle">RECEBIDO</text>
+            <text x="46" y="104" font-size="3" text-anchor="middle">DEPÓSITO EXEMPLO</text>
+          </g>
+        </svg></div>
         <div class="g-molde so-nf">
           <div class="g-zona" style="left:2.4%;width:19%">Data</div>
           <div class="g-zona" style="left:21.4%;width:61.9%">Assinatura ou carimbo</div>
@@ -403,6 +420,11 @@
           <div class="g-zona" style="left:44.2%;width:20.3%">Chegada</div>
           <div class="g-zona" style="left:64.5%;width:21%;border-left:0">Saída</div>
           <div class="g-zona num" style="left:85.5%;top:8%;width:14%;height:88%">UDI</div>
+        </div>
+        <div class="g-molde so-dacte">
+          <div class="g-zona" style="left:2%;top:3%;width:70%;height:10%;border-left:0">Do topo do DACTE…</div>
+          <div class="g-zona" style="left:1.5%;top:82%;width:70%;height:15%;border-left:0">…até o pé: nome, assinatura, carimbo, chegada e saída</div>
+          <div class="g-zona num" style="left:72%;top:82%;width:27%;height:15%">UDI</div>
         </div>
         <div class="g-topo"></div>
         <div class="g-status"></div>
@@ -471,6 +493,9 @@
     nf:    { forma: 'faixa', razao: 210 / 25,  nome: 'Canhoto da NF',   pede: 'Encaixe o canhoto da NF no molde' },
     // faixa do pé da DACTE do SSW: ~210 × 14 mm (medida numa DACTE real em 17/11/2026; antes era 28 mm, um chute)
     cte:   { forma: 'faixa', razao: 210 / 14,  nome: 'Canhoto do CT-e', pede: 'Encaixe o canhoto do CT-e no molde' },
+    // DACTE inteiro (Nestlé, 18/11/2026): o DACTE do SSW ocupa só a metade de cima da folha, ~210 × 148 mm
+    // (medido em duas fotos de comprovante da Nestlé) — o carimbo e a chegada/saída vêm escritos no meio dele
+    dacte: { forma: 'faixa', razao: 210 / 148, nome: 'DACTE inteiro',   pede: 'Encaixe o DACTE inteiro no molde' },
     folha: { forma: 'folha', razao: 210 / 297, nome: 'Folha inteira',   pede: 'Encaixe a folha inteira no molde' },
     outro: { forma: 'livre', razao: 210 / 150, nome: 'Outro papel',     pede: 'Enquadre o papel inteiro' }
   };
@@ -665,8 +690,9 @@
     a.textContent = ok ? 'Enviado ✓' : fila ? 'Na fila' : 'Fotografar ›';
     b.appendChild(bola); b.appendChild(t); b.appendChild(a);
     b.addEventListener('click', function () {
-      fotografar({ id: it.id, tipo: it.tipo, ctrc: it.ctrc, parada: p.chave, manifesto: v.manifesto, rotulo: it.rotulo, num: it.num },
-                 it.tipo === 'cte' ? 'cte' : it.tipo === 'nf' ? 'nf' : 'outro');
+      fotografar({ id: it.id, tipo: it.tipo, ctrc: it.ctrc, parada: p.chave, manifesto: v.manifesto, rotulo: it.rotulo, num: it.num,
+                   molde: it.molde },
+                 it.tipo === 'cte' ? (it.molde === 'dacte' ? 'dacte' : 'cte') : it.tipo === 'nf' ? 'nf' : 'outro');
     });
     return b;
   }
@@ -791,7 +817,7 @@
     CAM = { item: item, molde: molde, giro: false, t0: performance.now(), focoMax: 0, prev: null, seguidos: 0,
             resultado: null, semVideo: false, estado: '' };
     ir('camera', doCartao ? 'trocar' : true);
-    $('camAjuda').hidden = !guiaDe(item.tipo);
+    $('camAjuda').hidden = !guiaDe(item);
     $('conferir').hidden = true; $('camBaixo').hidden = false; $('semCamera').hidden = true;
     montarChips(); montarMolde(); geometria(); dicaDeitar();
     ligarCamera();
@@ -842,9 +868,10 @@
     RAF = requestAnimationFrame(passo);
   }
   function montarChips() {
-    var base = CAM.item.tipo === 'cte' ? 'cte' : 'nf';
+    var dacte = CAM.item.tipo === 'cte' && CAM.item.molde === 'dacte';
+    var base = dacte ? 'dacte' : CAM.item.tipo === 'cte' ? 'cte' : 'nf';
     var raiz = $('chips'); raiz.textContent = '';
-    [[base, 'Faixa'], ['folha', 'Folha inteira'], ['outro', 'Outro papel']].forEach(function (o) {
+    [[base, dacte ? 'DACTE inteiro' : 'Faixa'], ['folha', 'Folha inteira'], ['outro', 'Outro papel']].forEach(function (o) {
       var b = document.createElement('button'); b.type = 'button'; b.className = 'chip'; b.textContent = o[1];
       b.setAttribute('aria-pressed', String(CAM.molde === o[0]));
       b.addEventListener('click', function () {
@@ -865,6 +892,11 @@
       mo.appendChild(zona('', 2.4, 40, 19, 40, 'Data'));
       mo.appendChild(zona('', 21.4, 40, 61.9, 40, 'Assinatura ou carimbo'));
       mo.appendChild(zona('num', 83.3, 12, 14.3, 68, n ? 'NF ' + n : 'Nº da NF'));
+    } else if (m === 'dacte') {
+      // o DACTE todo; em destaque o que tem de aparecer: o quadro do recebimento no pé e o UDI no canto
+      mo.appendChild(zona('sem-linha', 2, 4, 60, 12, 'Do topo do DACTE…'));
+      mo.appendChild(zona('', 1.5, 82, 70, 15, '…até o pé: nome, assinatura, carimbo, chegada e saída'));
+      mo.appendChild(zona('num', 72, 82, 27, 15, n || 'UDI'));
     } else if (m === 'cte') {
       // campos da faixa do pé da DACTE do SSW, em % da largura: Nome/RG · Assinatura/Carimbo · Chegada e Saída
       // (um campo só, dois rótulos) · a caixa do UDI na ponta direita
@@ -890,7 +922,10 @@
     ui.style.width = W + 'px'; ui.style.height = H + 'px';
     CAM.fw = fw; CAM.fh = fh; CAM.W = W; CAM.H = H;
     var topo = 96, baixo = $('camBaixo').offsetHeight || 90, disp = H - topo - baixo - 8, w, h;
-    if (forma === 'faixa') { w = W * 0.94; h = w / MOLDES[CAM.molde].razao; }
+    if (forma === 'faixa') {
+      w = W * 0.94; h = w / MOLDES[CAM.molde].razao;
+      if (h > disp) { h = disp; w = h * MOLDES[CAM.molde].razao; }    // o DACTE inteiro é alto: cabe entre as barras
+    }
     else if (forma === 'folha') { h = Math.min(disp, W * 0.86 * 1.414); w = h / 1.414; }
     else { w = W * 0.88; h = Math.min(disp, w * 1.1); }
     // no meio da TELA quando cabe entre as duas barras; senão, o mais perto do meio que couber
@@ -997,7 +1032,9 @@
     desenharCorte();
     var t = $('confTexto'), it = CAM.item; t.textContent = '';
     var b = document.createElement('b');
-    b.textContent = guiaDe(it.tipo) === 'cte' ? 'Dá para ler o nome, a assinatura e os horários?' : 'Dá para ler o número e o carimbo?';
+    var gq = guiaDe(it);
+    b.textContent = gq === 'dacte' ? 'Saiu o DACTE inteiro, com o carimbo, a assinatura e os horários?'
+      : gq === 'cte' ? 'Dá para ler o nome, a assinatura e os horários?' : 'Dá para ler o número e o carimbo?';
     t.appendChild(b);
     if (it.num) { var s = document.createElement('span'); s.appendChild(document.createTextNode('Confira: ' + it.rotulo + ' ')); var n = document.createElement('span'); n.className = 'num'; n.textContent = numTxt(it); s.appendChild(n); t.appendChild(s); }
     $('conferir').hidden = false; $('camBaixo').hidden = true;
@@ -1049,15 +1086,25 @@
     cte: { titulo: 'Canhoto do CT-e', sub: 'É a faixa de BAIXO do CT-e. Ela não se destaca da folha. Veja como fotografar:',
            confira: ['Nome e RG de quem recebeu', 'Assinatura ou carimbo', 'Data e hora de chegada e de saída'],
            dicas: ['Confira o número UDI na caixa da direita do canhoto: é o mesmo do app.'],
-           frase: 'Encaixe o canhoto do CT-e no molde', topo: 'Canhoto do CT-e' }
+           frase: 'Encaixe o canhoto do CT-e no molde', topo: 'Canhoto do CT-e' },
+    // cliente que pede o CT-e todo (Nestlé): o comprovante é o DACTE carimbado, com a chegada e a saída escritas
+    dacte: { titulo: 'DACTE inteiro', sub: 'Este cliente pede o CT-e todo, não só a faixa de baixo. O DACTE ocupa a metade de cima da folha. Veja como fotografar:',
+             confira: ['Carimbo de recebimento', 'Nome e assinatura de quem recebeu',
+                       'Data e hora de chegada e de saída (podem estar escritas no meio do DACTE)'],
+             dicas: ['Não precisa da folha inteira: o molde vai do topo do DACTE até a linha do recebimento.',
+                     'Confira o número UDI no canto de baixo, à direita: é o mesmo do app.'],
+             frase: 'Encaixe o DACTE inteiro no molde', topo: 'DACTE inteiro' }
   };
   var GV = { R: null, g: null, item: null, molde: null, antes: null, t: 0, ultimo: null, raf: 0 };
   var GT = 7.6;                                   // duração do loop da animação, em segundos
   var REDUZ = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
 
-  function guiaDe(tipo) { return tipo === 'cte' ? 'cte' : (tipo === 'nf' || tipo === 'nf_extra') ? 'nf' : null; }
+  function guiaDe(item) {
+    var tipo = item && item.tipo;
+    return tipo === 'cte' ? (item.molde === 'dacte' ? 'dacte' : 'cte') : (tipo === 'nf' || tipo === 'nf_extra') ? 'nf' : null;
+  }
   function fotografar(item, molde) {
-    var g = guiaDe(item.tipo), v = ler('canhotos.guia') || {};
+    var g = guiaDe(item), v = ler('canhotos.guia') || {};
     if (g && (v[g] || 0) < 3) { v[g] = (v[g] || 0) + 1; guardar('canhotos.guia', v); abrirGuia(item, molde, false); }
     else abrirCamera(item, molde);
   }
@@ -1066,7 +1113,7 @@
     linhas.forEach(function (t) { var li = document.createElement('li'); li.textContent = t; ul.appendChild(li); });
   }
   function abrirGuia(item, molde, daCamera) {
-    var g = guiaDe(item.tipo); if (!g) return;
+    var g = guiaDe(item); if (!g) return;
     GV.g = g; GV.item = item; GV.molde = molde;
     if (daCamera) { GV.antes = CAM_ANTES; fecharCamera(); ir('guia', 'trocar'); }
     else { GV.antes = S.tela; ir('guia', true); }
@@ -1112,7 +1159,8 @@
     var q = function (s) { return p.querySelector(s); };
     GV.R = { palco: p, phone: q('.g-phone'), deite: q('.g-deite'), topo: q('.g-topo'), status: q('.g-status'), disparo: q('.g-disparo'),
              flash: q('.g-flash'), ok: q('.g-ok'), dedo: q('.g-dedo'), onda: q('.g-onda'),
-             papel: { nf: q('.g-papel.so-nf'), cte: q('.g-papel.so-cte') }, molde: { nf: q('.g-molde.so-nf'), cte: q('.g-molde.so-cte') },
+             papel: { nf: q('.g-papel.so-nf'), cte: q('.g-papel.so-cte'), dacte: q('.g-papel.so-dacte') },
+             molde: { nf: q('.g-molde.so-nf'), cte: q('.g-molde.so-cte'), dacte: q('.g-molde.so-dacte') },
              passos: Array.prototype.slice.call(document.querySelectorAll('#guiaPassos li')), estado: '', passo: -1 };
     var escala = function () { p.style.transform = 'scale(' + (host.clientWidth / 480) + ')'; };
     if (window.ResizeObserver) new ResizeObserver(escala).observe(host); else window.addEventListener('resize', escala);
@@ -1144,7 +1192,7 @@
     R.deite.style.opacity = c01(1 - seg(t, 1.2, 1.5) + seg(t, 7.25, 7.5));
     var p = suave(seg(t, 1.7, 3.2));
     var j = t > 3.2 && t < 3.9 ? Math.sin(t * 38) * 1.8 * (1 - seg(t, 3.2, 3.9)) : 0;
-    R.papel[g].style.transform = 'translate(' + ((1 - p) * 82 + j) + 'px,' + ((1 - p) * (g === 'nf' ? -40 : 46) + j * 0.6) + 'px) rotate(' +
+    R.papel[g].style.transform = 'translate(' + ((1 - p) * 82 + j) + 'px,' + ((1 - p) * (g === 'nf' ? -40 : g === 'dacte' ? 30 : 46) + j * 0.6) + 'px) rotate(' +
       ((1 - p) * -10) + 'deg) scale(' + (1 + (1 - p) * 0.28) + ')';
     var e = t < 3.2 ? 'enquadrar' : t < 3.9 ? 'mexendo' : 'pronto';
     if (e !== R.estado) {
