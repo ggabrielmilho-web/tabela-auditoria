@@ -324,6 +324,13 @@ def report_filter_js():
     return send_from_directory('.', 'report-filter.js', mimetype='application/javascript')
 
 
+@app.route('/tabela-larga.js')
+def tabela_larga_js():
+    """Ir para o lado em tabela larga: barra presa no pé da janela + 1ª coluna congelada.
+    Carregado pelo nav-perms.js em todas as telas (19/11/2026)."""
+    return send_from_directory('.', 'tabela-larga.js', mimetype='application/javascript')
+
+
 @app.route('/mapa-config.js')
 @login_required
 def mapa_config_js():

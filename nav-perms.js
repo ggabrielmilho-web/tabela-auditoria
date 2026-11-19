@@ -357,6 +357,15 @@
       .catch(function () {});
   }
 
+  // Tabela larga (19/11/2026): barra lateral presa no pé da janela + 1ª coluna congelada em toda
+  // tabela que rola para o lado. Vem por aqui para valer em todas as telas — inclusive as novas —
+  // sem cada uma lembrar do <script>. Ver o cabeçalho do tabela-larga.js.
+  if (!window.TabelaLarga && !document.querySelector('script[src="/tabela-larga.js"]')) {
+    var tl = document.createElement('script');
+    tl.src = '/tabela-larga.js';
+    (document.head || document.documentElement).appendChild(tl);
+  }
+
   // Não basta escutar DOMContentLoaded: o PGR injeta este script dinamicamente e
   // script inserido por JS é async — se ele chega depois do evento, o listener
   // nunca dispara e a página fica sem menu. Checar o readyState cobre os dois casos.

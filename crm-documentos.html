@@ -97,32 +97,8 @@
 
   /* tabela */
   .tabela-box { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: auto; max-height: calc(100vh - 140px); }
-  /* Ir para o lado (19/11/2026): a barra da tabela fica no pé dela, quase sempre fora da tela (os cartões
-     empurram a tabela para baixo). A .rolagem-x é uma cópia dela presa no pé da janela, que só aparece
-     quando a tabela está à vista e a barra de verdade não. Barras mais grossas e visíveis nas duas. */
-  .tabela-box { scrollbar-color: #3b4a63 var(--surface); }
-  .tabela-box::-webkit-scrollbar { height: 14px; width: 12px; }
-  .tabela-box::-webkit-scrollbar-track { background: var(--surface); }
-  .tabela-box::-webkit-scrollbar-thumb { background: #3b4a63; border-radius: 8px; border: 3px solid var(--surface); }
-  .tabela-box::-webkit-scrollbar-thumb:hover { background: var(--accent); }
-  .tabela-box::-webkit-scrollbar-corner { background: var(--surface); }
-  /* desenhada por nós (trilho + polegar): igual em qualquer navegador, mesmo onde a barra nativa some */
-  .rolagem-x { position: sticky; bottom: 0; z-index: 6; padding: 6px 10px; background: var(--surface); border: 1px solid var(--border);
-               border-radius: 0 0 10px 10px; margin-top: 4px; box-shadow: 0 -6px 14px rgba(2,6,15,.55); user-select: none; }
-  .rolagem-x .trilho { position: relative; height: 12px; border-radius: 7px; background: #0b1220; cursor: pointer; touch-action: none; }
-  .rolagem-x .polegar { position: absolute; top: 0; bottom: 0; left: 0; min-width: 48px; border-radius: 7px; background: #52637f; cursor: grab; transition: background .12s; }
-  .rolagem-x .polegar:hover, .rolagem-x.arrastando .polegar { background: var(--accent); }
-  .rolagem-x.arrastando, .rolagem-x.arrastando .polegar { cursor: grabbing; }
-  .rolagem-x.fora { visibility: hidden; }
-  @media (hover: none) { .rolagem-x { display: none; } }   /* celular/tablet: o dedo já rola a tabela */
-  /* CTRC congelado à esquerda, como "Congelar painéis" do Excel: ir para o lado sem perder a linha */
-  table.dados thead th:first-child { left: 0; z-index: 4; }
-  table.dados tbody td:first-child { position: sticky; left: 0; z-index: 1; background: var(--surface); }
-  table.dados tbody tr:hover td:first-child { background: linear-gradient(rgba(26,34,53,.55), rgba(26,34,53,.55)), var(--surface); }
-  table.dados tbody tr.sel td:first-child { background: linear-gradient(rgba(56,189,248,.07), rgba(56,189,248,.07)), var(--surface); }
-  table.dados thead th:first-child::after, table.dados tbody td:first-child::after { content: ''; position: absolute; top: 0; bottom: 0; right: -8px;
-    width: 8px; pointer-events: none; background: linear-gradient(to right, rgba(2,6,15,.45), transparent); opacity: 0; transition: opacity .15s; }
-  .tabela-box.rolado table.dados thead th:first-child::after, .tabela-box.rolado table.dados tbody td:first-child::after { opacity: 1; }
+  /* Ir para o lado (barra presa no pé da janela, CTRC congelado, barras grossas): componente /tabela-larga.js,
+     carregado pelo nav-perms.js em todas as telas (19/11/2026) — nada próprio aqui. */
   table.dados { width: 100%; border-collapse: collapse; font-size: 0.77rem; }
   table.dados thead th { position: sticky; top: 0; z-index: 2; background: #0f1625; text-align: left; padding: 8px 9px; font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); font-weight: 700; border-bottom: 1px solid var(--border); white-space: nowrap; }
   table.dados tbody td { padding: 6px 9px; border-bottom: 1px solid rgba(30,41,59,0.6); vertical-align: middle; white-space: nowrap; }
@@ -242,7 +218,6 @@
     <table class="dados" id="tabela"><thead></thead><tbody><tr><td><div class="carregando"><div class="spinner"></div>Lendo o SSW…</div></td></tr></tbody></table>
     <div class="mais" id="mais" hidden></div>
   </div>
-  <div class="rolagem-x fora" id="rolagemX" title="Arraste para o lado — ou gire a rodinha do mouse aqui (na tabela: Shift + rodinha)"><div class="trilho"><div class="polegar"></div></div></div>
 </div>
 
 <aside class="gaveta" id="gaveta" hidden>
@@ -1385,61 +1360,6 @@
   }
   setInterval(buscarMudancas, MUDANCAS_MS);
   document.addEventListener('visibilitychange', function () { if (!document.hidden) buscarMudancas(); });
-
-  // Barra para o lado presa no pé da janela (19/11/2026): desenhada por nós (trilho + polegar), anda junto
-  // com a tabela e só aparece quando a tabela está à vista, é mais larga que a caixa e o pé dela (onde fica
-  // a barra de verdade) está abaixo da tela. Arrastar o polegar, clicar no trilho ou girar a rodinha em cima.
-  (function rolagemLateral() {
-    var box = document.querySelector('.tabela-box'), barra = $('rolagemX');
-    var trilho = barra.querySelector('.trilho'), polegar = barra.querySelector('.polegar'), arraste = null;
-    function geo() {
-      var max = box.scrollWidth - box.clientWidth, tw = trilho.clientWidth;
-      var pw = Math.min(tw, Math.max(48, tw * box.clientWidth / Math.max(1, box.scrollWidth)));
-      return { max: Math.max(0, max), tw: tw, pw: pw, livre: Math.max(1, tw - pw) };
-    }
-    function posicionar() {
-      var g = geo();
-      polegar.style.width = g.pw + 'px';
-      polegar.style.transform = 'translateX(' + (g.max ? box.scrollLeft / g.max * (g.tw - g.pw) : 0) + 'px)';
-      box.classList.toggle('rolado', box.scrollLeft > 0);
-    }
-    function medir() {
-      var r = box.getBoundingClientRect(), alto = window.innerHeight;
-      // à vista = pelo menos ~3 linhas da tabela na tela; a barra dela (o pé da caixa) abaixo da janela
-      var precisa = box.scrollWidth > box.clientWidth + 1 && r.top < alto - 120 && r.bottom > alto;
-      barra.classList.toggle('fora', !precisa);
-      posicionar();
-    }
-    box.addEventListener('scroll', posicionar, { passive: true });
-    // arrastar o polegar; clicar no trilho leva o polegar até ali e já segue arrastando
-    trilho.addEventListener('pointerdown', function (ev) {
-      if (ev.button !== 0) return;
-      ev.preventDefault();
-      var g = geo();
-      if (ev.target !== polegar) {
-        var x = ev.clientX - trilho.getBoundingClientRect().left - g.pw / 2;
-        box.scrollLeft = Math.max(0, Math.min(g.livre, x)) / g.livre * g.max;
-      }
-      arraste = { x: ev.clientX, inicio: box.scrollLeft, fator: g.max / g.livre };
-      trilho.setPointerCapture(ev.pointerId); barra.classList.add('arrastando');
-    });
-    trilho.addEventListener('pointermove', function (ev) {
-      if (arraste) box.scrollLeft = arraste.inicio + (ev.clientX - arraste.x) * arraste.fator;
-    });
-    function soltar() { arraste = null; barra.classList.remove('arrastando'); }
-    trilho.addEventListener('pointerup', soltar);
-    trilho.addEventListener('pointercancel', soltar);
-    // a rodinha em cima da barra leva a tabela para o lado (sem precisar do Shift)
-    barra.addEventListener('wheel', function (ev) {
-      var d = Math.abs(ev.deltaY) > Math.abs(ev.deltaX) ? ev.deltaY : ev.deltaX;
-      if (!d) return;
-      ev.preventDefault(); box.scrollLeft += d;
-    }, { passive: false });
-    window.addEventListener('scroll', medir, { passive: true });
-    window.addEventListener('resize', medir);
-    if (window.ResizeObserver) { var ro = new ResizeObserver(medir); ro.observe(box); ro.observe($('tabela')); }
-    medir();
-  })();
 
   // ?busca= vem do link da aba de descargas para o CT-e da carga na aba Nestlé
   var qs = new URLSearchParams(location.search), inicial = qs.get('carteira'), buscaInicial = qs.get('busca');

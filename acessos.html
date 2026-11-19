@@ -22,7 +22,8 @@
   .loading-screen h2 { font-size: 1.1rem; font-weight: 600; color: var(--accent); }
   .error-box { margin-top: 16px; padding: 14px 20px; background: rgba(248,113,113,0.08); border: 1px solid rgba(248,113,113,0.25); border-radius: 10px; color: var(--red); font-size: 0.82rem; max-width: 620px; text-align: center; line-height: 1.5; }
 
-  .dashboard { display: none; padding: 24px; max-width: 1500px; margin: 0 auto; }
+  /* sem teto de largura: tela de tabela — tirar o zoom (Ctrl −) mostra mais colunas (padrão de 19/11/2026) */
+  .dashboard { display: none; padding: 24px; margin: 0 auto; }
   .dashboard.active { display: block; animation: fadeUp 0.5s ease; }
 
   .top-bar { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 22px; flex-wrap: wrap; gap: 16px; }
