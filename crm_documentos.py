@@ -135,7 +135,9 @@ CARTEIRAS = {
             {'id': 'ticket_pipefy', 'rotulo': 'Ticket Pipefy', 'tipo': 'texto', 'col': None},
             # no lugar da Antecipação (pedido de 21/10/2026): os AUTORIZADO/ANTECIPADO que vieram da coluna
             # MIDAS/B2B/PIPEFY (1.576) ficam no banco como `antecipacao`, sem coluna — a etapa já diz isso
-            {'id': 'data_solicitacao', 'rotulo': 'Data solicitação', 'tipo': 'data_texto', 'col': None},
+            # na tela "Status" (pedido dela, 19/11/2026); o id segue data_solicitacao para não perder o que já
+            # foi digitado. Aceita texto ou data, como antes
+            {'id': 'data_solicitacao', 'rotulo': 'Status', 'tipo': 'data_texto', 'col': None},
             {'id': 'data_envio', 'rotulo': 'Data Pipefy', 'tipo': 'data_texto', 'col': 'DATA ENVIO/ data PQD'},
             {'id': 'autorizado_gll', 'rotulo': 'Autorizado GLL', 'tipo': 'data_texto', 'col': 'AUTORIZADOS GLL'},
             {'id': 'motorista', 'rotulo': 'Motorista', 'tipo': 'texto', 'col': 'MOTORISTA'},
