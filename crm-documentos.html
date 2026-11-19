@@ -361,8 +361,11 @@
     var mv = S.cfg.col_vencimento;
     // coluna lida da observação, depois do Frete: o rótulo vem da carteira (Transporte na Nestlé, DT na Unilever)
     // Destinatário, Cidade e Outros (R$ do CT-e) depois da NF — só onde a carteira pede (Unilever, 04/11/2026)
-    var c = ['CTRC', 'Emissão', 'CT-e', 'NF'].concat(S.cfg.col_destinatario ? ['Destinatário', 'Cidade', 'Outros'] : [], ['Frete'], S.cfg.transporte ? [S.cfg.transporte] : [], ['Idade', 'Etapa'], mv ? ['Vencimento'] : [], ['SSW']);
-    S.cfg.campos.forEach(function (f) { if (!(mv === 'campo' && f.id === 'vencimento')) c.push(f.rotulo); });
+    // campos logo depois da Etapa (`apos_etapa`; Nestlé: Canal, 19/11/2026) saem da fila dos outros campos
+    var ae = S.cfg.apos_etapa || [];
+    var aeRot = S.cfg.campos.filter(function (f) { return ae.indexOf(f.id) >= 0; }).map(function (f) { return f.rotulo; });
+    var c = ['CTRC', 'Emissão', 'CT-e', 'NF'].concat(S.cfg.col_destinatario ? ['Destinatário', 'Cidade', 'Outros'] : [], ['Frete'], S.cfg.transporte ? [S.cfg.transporte] : [], ['Idade', 'Etapa'], aeRot, mv ? ['Vencimento'] : [], ['SSW']);
+    S.cfg.campos.forEach(function (f) { if (!(mv === 'campo' && f.id === 'vencimento') && ae.indexOf(f.id) < 0) c.push(f.rotulo); });
     c.push('Obs. do CT-e');
     return c;
   }

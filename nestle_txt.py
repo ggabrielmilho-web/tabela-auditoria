@@ -410,7 +410,7 @@ def montar_txt(ctes):
 # ── Histórico dos arquivos e a marca no CRM (30/10/2026) ────────────────────
 #
 # Cada TXT gerado fica guardado (quem, quando, os CT-e, o conteúdo para baixar de novo) e os CT-e
-# dele passam para EXPORTADO na coluna "Ticket B2B/Transp" da aba Nestlé do CRM - Documentos
+# dele passam para EXPORTADO na coluna "Ticket B2B" da aba Nestlé do CRM - Documentos
 # (campo `conferencia`), que ela preenchia à mão ("EXP 30/10"). A data fica no histórico da linha,
 # não no texto. Só o CT-e cujo XML entrou no arquivo: o complementar marca a si mesmo, não o original.
 #

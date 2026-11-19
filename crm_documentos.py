@@ -109,6 +109,7 @@ CARTEIRAS = {
     'nestle': {
         'nome': 'Nestlé', 'raizes': ('60409075', '08334818', '28053619'), 'desde': '2025-01-02',
         'col_transporte': 'Transporte',     # a carga B10 da observação, coluna depois do Frete (pedido de 26/10/2026)
+        'apos_etapa': ('canal',),           # na tela, logo depois da Etapa (pedido dela, 19/11/2026)
         'aba': 'NESTLE 2025', 'col_etapa': 'STATUS', 'col_cte': 'CT-e/ NFS',
         'etapas': [
             _E('AG. COMPROVANTE', 'Aguardando retorno do comprovante de entrega', 'ciano', 'Aguardando comprovante'),
@@ -127,12 +128,14 @@ CARTEIRAS = {
         ],
         'campos': [
             {'id': 'tipo', 'rotulo': 'Tipo frete', 'tipo': 'lista', 'opcoes': TIPOS_FRETE, 'col': 'TIPO FRETE'},
-            {'id': 'conferencia', 'rotulo': 'Ticket B2B/Transp', 'tipo': 'texto', 'col': 'TICKET B2B/TRANSP'},
             {'id': 'canal', 'rotulo': 'Canal', 'tipo': 'lista', 'opcoes': CANAIS, 'col': 'MIDAS/B2B/PIPEFY'},
+            # 19/11/2026, pedido dela: "Ticket B2B" (sem o "/Transp") e o Ticket Pipefy ao lado. O `col` segue o
+            # cabeçalho da planilha (importação e Excel)
+            {'id': 'conferencia', 'rotulo': 'Ticket B2B', 'tipo': 'texto', 'col': 'TICKET B2B/TRANSP'},
+            {'id': 'ticket_pipefy', 'rotulo': 'Ticket Pipefy', 'tipo': 'texto', 'col': None},
             # no lugar da Antecipação (pedido de 21/10/2026): os AUTORIZADO/ANTECIPADO que vieram da coluna
             # MIDAS/B2B/PIPEFY (1.576) ficam no banco como `antecipacao`, sem coluna — a etapa já diz isso
             {'id': 'data_solicitacao', 'rotulo': 'Data solicitação', 'tipo': 'data_texto', 'col': None},
-            {'id': 'ticket_pipefy', 'rotulo': 'Ticket Pipefy', 'tipo': 'texto', 'col': None},
             {'id': 'data_envio', 'rotulo': 'Data Pipefy', 'tipo': 'data_texto', 'col': 'DATA ENVIO/ data PQD'},
             {'id': 'autorizado_gll', 'rotulo': 'Autorizado GLL', 'tipo': 'data_texto', 'col': 'AUTORIZADOS GLL'},
             {'id': 'motorista', 'rotulo': 'Motorista', 'tipo': 'texto', 'col': 'MOTORISTA'},
@@ -308,6 +311,8 @@ def config_publica():
              # ajustado), 'ssw' (Unilever, a fatura do 441), 'campo' (Química, só o que ela digita) ou
              # None (Nestlé: não usam)
              'col_vencimento': CARTEIRAS[cid].get('col_vencimento'),
+             # campos que a tela põe logo depois da Etapa, antes do SSW (Nestlé: Canal, 19/11/2026)
+             'apos_etapa': list(CARTEIRAS[cid].get('apos_etapa') or ()),
              'fora_do_aberto': sorted(ETAPAS_FORA_DO_ABERTO)}
             for cid in ORDEM] + [DESCARGAS]
 
