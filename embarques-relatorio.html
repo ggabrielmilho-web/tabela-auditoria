@@ -6,12 +6,9 @@
 <title>Relatório de cargas — Rizza Log</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%2338bdf8'/%3E%3Ctext x='50' y='72' font-family='Arial,sans-serif' font-size='68' font-weight='900' text-anchor='middle' fill='%230a0e17'%3ER%3C/text%3E%3C/svg%3E">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/tema.css">
+<script src="/tema.js"></script>
 <style>
-  :root {
-    --bg: #0a0e17; --surface: #111827; --surface2: #1a2235; --border: #1e293b;
-    --text: #e2e8f0; --text-dim: #94a3b8; --accent: #38bdf8; --accent2: #818cf8;
-    --green: #34d399; --red: #f87171; --orange: #fb923c; --yellow: #fbbf24;
-  }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
   body::before {
@@ -37,7 +34,7 @@
   }
   .btn-sm:hover { border-color: var(--accent); color: var(--accent); }
   .export-btn {
-    padding: 8px 18px; background: var(--green); color: var(--bg);
+    padding: 8px 18px; background: var(--green); color: var(--sobre-accent);
     font-family: 'DM Sans', sans-serif; font-weight: 600; font-size: 0.82rem;
     border: none; border-radius: 8px; cursor: pointer; transition: opacity 0.15s;
     text-decoration: none; display: inline-block;
@@ -79,26 +76,26 @@
   thead th.asc::after { content: ' ▲'; color: var(--accent); font-size: 0.6rem; }
   thead th.desc::after { content: ' ▼'; color: var(--accent); font-size: 0.6rem; }
   tbody tr { transition: background 0.12s; }
-  tbody tr:hover { background: rgba(56,189,248,0.04); }
-  tbody tr:nth-child(even) { background: rgba(255,255,255,0.012); }
-  tbody tr.destacar { background: rgba(56,189,248,0.12) !important; }
+  tbody tr:hover { background: rgba(var(--accent-rgb),0.04); }
+  tbody tr:nth-child(even) { background: rgba(var(--realce-rgb),0.012); }
+  tbody tr.destacar { background: rgba(var(--accent-rgb),0.12) !important; }
   td { padding: 8px 12px; border-bottom: 1px solid var(--border); color: var(--text); max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
   td.acoes { white-space: nowrap; }
   td.acoes button { margin-right: 4px; padding: 4px 8px; background: transparent; border: 1px solid var(--border); border-radius: 6px; color: var(--text); cursor: pointer; font-size: 0.78rem; }
   td.acoes button:hover { border-color: var(--accent); color: var(--accent); }
 
   .badge { padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; }
-  .badge-Aberta   { background: rgba(56,189,248,0.15); color: var(--accent); }
-  .badge-Em-rota  { background: rgba(251,146,60,0.15); color: var(--orange); }
-  .badge-No-destino { background: rgba(167,139,250,0.15); color: #a78bfa; }
-  .badge-Desengatada { background: rgba(250,204,21,0.15); color: #facc15; }
-  .badge-Entregue { background: rgba(52,211,153,0.15); color: var(--green); }
-  .badge-Cancelada{ background: rgba(248,113,113,0.15); color: var(--red); }
+  .badge-Aberta   { background: rgba(var(--accent-rgb),0.15); color: var(--accent); }
+  .badge-Em-rota  { background: rgba(var(--orange-rgb),0.15); color: var(--orange); }
+  .badge-No-destino { background: rgba(var(--violet-rgb),0.15); color: var(--violet); }
+  .badge-Desengatada { background: rgba(var(--amarelo-vivo-rgb),0.15); color: var(--amarelo-vivo); }
+  .badge-Entregue { background: rgba(var(--green-rgb),0.15); color: var(--green); }
+  .badge-Cancelada{ background: rgba(var(--red-rgb),0.15); color: var(--red); }
   /* Perna vazia concluida: rotulo proprio sobre o status 'Entregue', que nao muda
      (secao 0 do handoff). Mesmo criterio da 21.18 — rotulo, nunca status. */
-  .badge-Vazia    { background: rgba(148,163,184,0.15); color: var(--text-dim); }
+  .badge-Vazia    { background: rgba(var(--text-dim-rgb),0.15); color: var(--text-dim); }
   /* §24 — mesmo conjunto parou no hub, manifesto novo, seguiu: terminal, nao conta entrega */
-  .badge-Continuada { background: rgba(148,163,184,0.15); color: var(--text-dim); }
+  .badge-Continuada { background: rgba(var(--text-dim-rgb),0.15); color: var(--text-dim); }
   /* a ligacao A -> B (continua_em): quem manda no significado do status e o ponteiro */
   .lig { font-size: 0.72rem; color: var(--text-dim); text-decoration: none; margin-left: 4px; white-space: nowrap; }
   .lig:hover { color: var(--accent); }
@@ -107,7 +104,7 @@
 
   /* Modal */
   .modal-overlay {
-    position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+    position: fixed; inset: 0; background: rgba(var(--sombra-rgb),0.7);
     display: none; align-items: center; justify-content: center;
     z-index: 1000; padding: 20px;
   }
@@ -132,7 +129,7 @@
   .modal .acoes { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
   .btn-primary {
     padding: 9px 22px; background: linear-gradient(135deg, var(--accent), var(--accent2));
-    color: var(--bg); font-family: 'DM Sans', sans-serif; font-weight: 700;
+    color: var(--sobre-accent); font-family: 'DM Sans', sans-serif; font-weight: 700;
     font-size: 0.86rem; border: none; border-radius: 8px; cursor: pointer;
   }
   .btn-primary:hover { opacity: 0.9; }
@@ -341,7 +338,7 @@
     </div>
     <div class="acoes">
       <button class="btn-sm" onclick="fecharModal('modalDesengate')">Cancelar</button>
-      <button class="btn-sm" style="border-color:#facc15;color:#facc15;" id="dgConfirmar" onclick="confirmarDesengate()">🔌 Confirmar desengate</button>
+      <button class="btn-sm" style="border-color:var(--amarelo-vivo);color:var(--amarelo-vivo);" id="dgConfirmar" onclick="confirmarDesengate()">🔌 Confirmar desengate</button>
     </div>
   </div>
 </div>
@@ -485,7 +482,7 @@
       const km = c.km_placa_ate_origem != null ? ` (${Math.round(c.km_placa_ate_origem)} km)` : '';
       html += ` <span style="color:var(--orange,#fb923c);font-size:0.82em;cursor:help;" title="A carga está Aberta, mas a placa rastreada está longe da origem${km} — provável carreta errada no documento, ou a viagem começou sem a placa passar pela origem">📍 placa longe</span>`;
     } else if (c.aberta_situacao === 'na_origem') {
-      html += ` <span style="color:var(--muted,#94a3b8);font-size:0.82em;cursor:help;" title="A carga está Aberta e a carreta está na origem: ainda não saiu. Normal — não precisa de ação.">⏳ na origem</span>`;
+      html += ` <span style="color:var(--text-dim);font-size:0.82em;cursor:help;" title="A carga está Aberta e a carreta está na origem: ainda não saiu. Normal — não precisa de ação.">⏳ na origem</span>`;
     }
     // Rastreio defasado: carreta sem posição há +X dias numa carga ativa (não fecha sozinha)
     if (c.rastreio_defasado) {

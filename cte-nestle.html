@@ -6,12 +6,9 @@
 <title>Arquivo Nestlé — Rizza Log</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%2338bdf8'/%3E%3Ctext x='50' y='72' font-family='Arial,sans-serif' font-size='68' font-weight='900' text-anchor='middle' fill='%230a0e17'%3ER%3C/text%3E%3C/svg%3E">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/tema.css">
+<script src="/tema.js"></script>
 <style>
-  :root {
-    --bg: #0a0e17; --surface: #111827; --surface2: #1a2235; --border: #1e293b;
-    --text: #e2e8f0; --text-dim: #94a3b8; --accent: #38bdf8; --accent2: #818cf8;
-    --green: #34d399; --red: #f87171; --orange: #fb923c; --yellow: #fbbf24;
-  }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
   [hidden] { display: none !important; }
@@ -26,12 +23,12 @@
   .btn-sm { padding: 8px 16px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); font-weight: 500; font-size: 0.82rem; border-radius: 8px; cursor: pointer; transition: all 0.15s; font-family: 'DM Sans', sans-serif; }
   .btn-sm:hover { border-color: var(--accent); color: var(--accent); }
   .btn-sm:disabled { opacity: 0.45; cursor: not-allowed; }
-  .btn-sm.primary { background: var(--accent); border-color: var(--accent); color: var(--bg); font-weight: 700; }
-  .btn-sm.primary:hover:not(:disabled) { filter: brightness(1.1); color: var(--bg); }
+  .btn-sm.primary { background: var(--accent); border-color: var(--accent); color: var(--sobre-accent); font-weight: 700; }
+  .btn-sm.primary:hover:not(:disabled) { filter: brightness(1.1); color: var(--sobre-accent); }
 
   .drop { border: 2px dashed var(--border); border-radius: 14px; padding: 34px 20px; text-align: center; cursor: pointer;
           background: var(--surface); transition: border-color .15s, background .15s; margin-bottom: 16px; }
-  .drop:hover, .drop.over { border-color: var(--accent); background: rgba(56,189,248,0.05); }
+  .drop:hover, .drop.over { border-color: var(--accent); background: rgba(var(--accent-rgb),0.05); }
   .drop .t { font-size: 1rem; font-weight: 600; }
   .drop .s { font-size: 0.8rem; color: var(--text-dim); margin-top: 6px; line-height: 1.6; }
   .drop.ocupado { cursor: wait; opacity: .7; }
@@ -44,9 +41,9 @@
   .kpi .v.bad { color: var(--red); } .kpi .v.ok { color: var(--green); }
 
   .alerta { padding: 11px 14px; border-radius: 10px; font-size: 0.82rem; margin-bottom: 12px; line-height: 1.6; }
-  .alerta.bad { background: rgba(248,113,113,0.08); border: 1px solid rgba(248,113,113,0.28); color: #fecaca; }
-  .alerta.warn { background: rgba(251,146,60,0.07); border: 1px solid rgba(251,146,60,0.28); color: #fed7aa; }
-  .alerta.ok { background: rgba(52,211,153,0.07); border: 1px solid rgba(52,211,153,0.28); color: #a7f3d0; }
+  .alerta.bad { background: rgba(var(--red-rgb),0.08); border: 1px solid rgba(var(--red-rgb),0.28); color: var(--red-txt2); }
+  .alerta.warn { background: rgba(var(--orange-rgb),0.07); border: 1px solid rgba(var(--orange-rgb),0.28); color: var(--orange-txt2); }
+  .alerta.ok { background: rgba(var(--green-rgb),0.07); border: 1px solid rgba(var(--green-rgb),0.28); color: var(--green-txt); }
 
   .cte { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; margin-bottom: 14px; overflow: hidden; }
   .cte-cab { padding: 14px 16px; display: flex; gap: 10px 26px; flex-wrap: wrap; align-items: flex-end; border-bottom: 1px solid var(--border); }
@@ -62,17 +59,17 @@
 
   table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
   thead th { text-align: left; padding: 8px 12px; font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); font-weight: 700; border-bottom: 1px solid var(--border); white-space: nowrap; }
-  tbody td { padding: 7px 12px; border-bottom: 1px solid rgba(30,41,59,0.55); vertical-align: middle; }
+  tbody td { padding: 7px 12px; border-bottom: 1px solid rgba(var(--border-rgb),0.55); vertical-align: middle; }
   tfoot td { padding: 9px 12px; font-weight: 600; }
   .num { text-align: right; }
   .mono { font-family: 'JetBrains Mono', monospace; white-space: nowrap; }
   .dim { color: var(--text-dim); }
   .pill { padding: 2px 8px; border-radius: 5px; font-size: 0.68rem; font-weight: 600; white-space: nowrap; }
-  .pill.ok { background: rgba(52,211,153,0.13); color: var(--green); }
-  .pill.pago { background: rgba(129,140,248,0.15); color: var(--accent2); }
+  .pill.ok { background: rgba(var(--green-rgb),0.13); color: var(--green); }
+  .pill.pago { background: rgba(var(--accent2-rgb),0.15); color: var(--accent2); }
   .pill.dim { background: var(--surface2); color: var(--text-dim); }
-  .pill.bad { background: rgba(248,113,113,0.13); color: var(--red); }
-  .pill.warn { background: rgba(251,146,60,0.13); color: var(--orange); }
+  .pill.bad { background: rgba(var(--red-rgb),0.13); color: var(--red); }
+  .pill.warn { background: rgba(var(--orange-rgb),0.13); color: var(--orange); }
   .soma.bad { color: var(--red); } .soma.ok { color: var(--green); }
 
   .hist { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; margin-top: 22px; overflow: hidden; }

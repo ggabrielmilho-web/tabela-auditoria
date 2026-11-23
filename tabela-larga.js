@@ -24,18 +24,18 @@
   if (window.TabelaLarga) return;
 
   var CSS = [
-    '.tl-caixa{scrollbar-color:#52637f var(--surface,#111827);}',
+    '.tl-caixa{scrollbar-color:var(--scroll-thumb) var(--surface,#111827);}',
     '.tl-caixa::-webkit-scrollbar{height:14px;width:12px;}',
     '.tl-caixa::-webkit-scrollbar-track{background:var(--surface,#111827);}',
-    '.tl-caixa::-webkit-scrollbar-thumb{background:#52637f;border-radius:8px;border:3px solid var(--surface,#111827);}',
+    '.tl-caixa::-webkit-scrollbar-thumb{background:var(--scroll-thumb);border-radius:8px;border:3px solid var(--surface,#111827);}',
     '.tl-caixa::-webkit-scrollbar-thumb:hover{background:var(--accent,#38bdf8);}',
     '.tl-caixa::-webkit-scrollbar-corner{background:var(--surface,#111827);}',
     // barra flutuante
     '.tl-barra{position:fixed;bottom:0;z-index:900;box-sizing:border-box;padding:6px 10px;background:var(--surface,#111827);',
-    'border:1px solid var(--border,#1e293b);border-bottom:none;border-radius:10px 10px 0 0;box-shadow:0 -6px 14px rgba(2,6,15,.55);user-select:none;}',
+    'border:1px solid var(--border,#1e293b);border-bottom:none;border-radius:10px 10px 0 0;box-shadow:0 -6px 14px rgba(var(--veu-rgb),.55);user-select:none;}',
     '.tl-barra[hidden]{display:none;}',
-    '.tl-trilho{position:relative;height:12px;border-radius:7px;background:#0b1220;cursor:pointer;touch-action:none;}',
-    '.tl-polegar{position:absolute;top:0;bottom:0;left:0;min-width:48px;border-radius:7px;background:#52637f;cursor:grab;transition:background .12s;}',
+    '.tl-trilho{position:relative;height:12px;border-radius:7px;background:var(--trilho);cursor:pointer;touch-action:none;}',
+    '.tl-polegar{position:absolute;top:0;bottom:0;left:0;min-width:48px;border-radius:7px;background:var(--scroll-thumb);cursor:grab;transition:background .12s;}',
     '.tl-polegar:hover,.tl-barra.tl-arrastando .tl-polegar{background:var(--accent,#38bdf8);}',
     '.tl-barra.tl-arrastando,.tl-barra.tl-arrastando .tl-polegar{cursor:grabbing;}',
     // coluna congelada (1 ou 2)
@@ -47,14 +47,14 @@
     '{z-index:1;background-color:var(--tl-fundo,#111827)!important;}',
     'table.tl-c1>thead>tr>:first-child,table.tl-c2>thead>tr>:nth-child(2){z-index:var(--tl-zcab,4)!important;background-color:var(--tl-fundo-cab,var(--tl-fundo,#111827))!important;}',
     'table.tl-c1>tbody>tr:hover>:first-child,table.tl-c2>tbody>tr:hover>:nth-child(2)',
-    '{background-image:linear-gradient(rgba(148,163,184,.09),rgba(148,163,184,.09))!important;}',
+    '{background-image:linear-gradient(rgba(var(--text-dim-rgb),.09),rgba(var(--text-dim-rgb),.09))!important;}',
     // sombra na borda da parte congelada quando a tabela andou: td com ::after, th com box-shadow
     // (o th::after é a seta de ordenação em algumas telas)
     'table.tl-c1:not(.tl-c2)>tbody>tr>:first-child::after,table.tl-c2>tbody>tr>:nth-child(2)::after',
     '{content:"";position:absolute;top:0;bottom:0;right:-8px;width:8px;pointer-events:none;',
-    'background:linear-gradient(to right,rgba(2,6,15,.45),transparent);opacity:0;transition:opacity .15s;}',
+    'background:linear-gradient(to right,rgba(var(--veu-rgb),.45),transparent);opacity:0;transition:opacity .15s;}',
     '.tl-rolado table.tl-c1:not(.tl-c2)>tbody>tr>:first-child::after,.tl-rolado table.tl-c2>tbody>tr>:nth-child(2)::after{opacity:1;}',
-    '.tl-rolado table.tl-c1:not(.tl-c2)>thead>tr>:first-child,.tl-rolado table.tl-c2>thead>tr>:nth-child(2){box-shadow:6px 0 8px -6px rgba(2,6,15,.6);}'
+    '.tl-rolado table.tl-c1:not(.tl-c2)>thead>tr>:first-child,.tl-rolado table.tl-c2>thead>tr>:nth-child(2){box-shadow:6px 0 8px -6px rgba(var(--veu-rgb),.6);}'
   ].join('');
 
   var TOQUE = window.matchMedia && window.matchMedia('(hover: none)').matches;
@@ -88,7 +88,9 @@
       var c = rgba(getComputedStyle(el).backgroundColor);
       if (c && c.a > 0) { camadas.push(c); if (c.a >= 0.99) break; }
     }
-    var base = { r: 10, g: 14, b: 23, a: 1 };   // --bg das telas
+    // --bg do tema (claro/escuro); sem o tema.css, o escuro de sempre
+    var bg = (getComputedStyle(document.documentElement).getPropertyValue('--bg-rgb') || '10,14,23').split(',').map(parseFloat);
+    var base = { r: bg[0], g: bg[1], b: bg[2], a: 1 };
     if (camadas.length && camadas[camadas.length - 1].a >= 0.99) base = camadas.pop();
     for (var i = camadas.length - 1; i >= 0; i--) base = sobre(camadas[i], base);
     return base;
@@ -167,7 +169,7 @@
         var r = '';
         if (c && c.a > 0) r = alvo + '{background-color:' + txt(sobre(c, fundo)) + '!important;}';
         else if (/(^|\s)(sel|selected|selecionada|marcada)(\s|$)/.test(cls))
-          r = alvo + '{background-image:linear-gradient(rgba(56,189,248,.08),rgba(56,189,248,.08))!important;}';
+          r = alvo + '{background-image:linear-gradient(rgba(var(--accent-rgb),.08),rgba(var(--accent-rgb),.08))!important;}';
         regrasLinhas[chave] = r;
         if (r) novas += r + '\n';
       }
@@ -194,6 +196,10 @@
       setVar(t, '--tl-fundo', txt(fundo));
       var cab = t.tHead && t.tHead.rows[0];
       if (cab && cab.cells[0]) {
+        // A 1ª célula já está pintada pela NOSSA regra (var --tl-fundo-cab, !important): ler o fundo
+        // dela com a variável posta devolve a cor da passada anterior. Na troca de tema isso prendia
+        // o cabeçalho congelado na cor do tema antigo (branco no escuro). Tira a variável antes de ler.
+        t.style.removeProperty('--tl-fundo-cab');
         var cc = rgba(getComputedStyle(cab.cells[0]).backgroundColor);
         setVar(t, '--tl-fundo-cab', txt(cc && cc.a > 0 ? sobre(cc, fundo) : fundo));
         // o cabeçalho congelado fica acima dos outros cabeçalhos (que podem ser sticky com z próprio)
@@ -319,6 +325,13 @@
   }
 
   window.TabelaLarga = { atualizar: function () { daCaixa = new WeakMap(); agendar(true); } };
+  // Troca de tema: o fundo opaco da coluna congelada foi composto com as cores do tema anterior
+  // (e guardado por classe de linha) — descarta e recompõe.
+  window.addEventListener('tema', function () {
+    regrasLinhas = {};
+    if (estiloLinhas) estiloLinhas.textContent = '';
+    agendar(true);
+  });
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar);
   else iniciar();
 })();

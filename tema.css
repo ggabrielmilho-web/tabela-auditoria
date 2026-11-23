@@ -1,0 +1,185 @@
+/* Paleta da Tabela Auditoria — fonte única de cor.
+ *
+ * Antes cada tela trazia o próprio bloco :root: 42 cópias, em 13 combinações diferentes de
+ * variáveis (os valores batiam; mudava QUAIS cada tela declarava). Mexer em cor era caçar 42
+ * arquivos. Mesmo caminho do JOGA/Multpel (static/tema.css de lá), cuja paleta escura é a
+ * mesma desta, hex a hex.
+ *
+ * Carregado por todas as telas com <link> ANTES do <style> de cada uma, para o CSS local
+ * continuar podendo sobrescrever. Servido pela rota /tema.css (sem login: a tela de login usa).
+ *
+ * As variáveis têm nome de PAPEL (surface, border, text-dim), não de cor: "surface" continua
+ * fazendo sentido quando for clara. O tema claro entra como :root[data-tema="claro"]
+ * sobrescrevendo só os valores.
+ *
+ * As cores próprias de uma tela (categorias do DRE, estados da Torre, papéis da Viagem…) moram
+ * aqui também, agrupadas pela tela, para o tema claro achar todas num lugar só. Quando são a
+ * mesma cor da paleta, apontam para ela (var) e seguem o tema sozinhas.
+ */
+
+:root {
+  /* ── Fundo e superfícies ── */
+  --bg: #0a0e17;          /* fundo da página */
+  --surface: #111827;     /* cartões, painéis */
+  --surface2: #1a2235;    /* controles, cabeçalho de tabela, hover */
+  --surface3: #212c42;    /* 3º nível (Pagamentos CTRB, Viagem) */
+  --border: #1e293b;
+  --border2: #2a3650;     /* borda mais marcada (Pagamentos CTRB, Viagem) */
+
+  /* ── Texto ── */
+  --text: #e2e8f0;        /* corpo */
+  --text-dim: #94a3b8;    /* secundário, rótulos */
+  --text-faint: #64748b;  /* terciário, dicas */
+  --gray: #64748b;
+
+  /* ── Marca ── */
+  --accent: #38bdf8;
+  --accent2: #818cf8;     /* 2º tom dos gradientes */
+
+  /* ── Status ── */
+  --green: #34d399;
+  --red: #f87171;
+  --orange: #fb923c;
+  --yellow: #fbbf24;
+  --pink: #f472b6;
+  --violet: #a78bfa;
+
+  /* ── Texto por cima de cor cheia (botão primário, pílula, segmento de barra) ──
+     No escuro é quase preto sobre o azul claro. Nome próprio porque no claro o --bg vira
+     branco, e "texto branco sobre azul claro" fica ilegível — o claro redefine este. */
+  --sobre-accent: #0a0e17;
+  --sobre-accent2: #06101f;   /* mesmo papel, tom usado em Pagamentos CTRB e Viagem */
+  --sobre-green: #052e1f;     /* texto do botão verde (Comissões: Aprovar) */
+
+  /* ── Texto de status: tom claro (Tailwind 200/300) que só existe para ler sobre o escuro.
+        No claro vira o tom escuro da mesma cor. txt = 300, txt2 = 200 (mais claro), txt3 = 300
+        de outra família. ── */
+  --red-txt: #fca5a5;
+  --red-txt2: #fecaca;
+  --green-txt: #a7f3d0;
+  --green-txt3: #6ee7b7;
+  --yellow-txt: #fde68a;
+  --yellow-txt3: #fcd34d;
+  --orange-txt: #fdba74;
+  --orange-txt2: #fed7aa;
+  --accent-txt: #7dd3fc;
+  --accent-txt2: #bae6fd;
+  --accent2-txt: #c7d2fe;
+  --accent2-txt3: #a5b4fc;
+  --pink-txt: #f9a8d4;
+  --violet-txt: #c4b5fd;
+  --cyan-txt: #a5f3fc;
+  --amarelo-vivo: #facc15;    /* alerta "rastreio"/desengatada nos mapas e no relatório */
+  --gray-escuro: #475569;     /* barra/estado apagado (Pareto do DRE, Torre) */
+  --slate-700: #334155;
+
+  /* ── Superfícies próprias de componente ── */
+  --nav-bg: #070a12;          /* menu lateral (nav-perms.js) — um tom abaixo do --bg */
+  --cab-tabela: #0f1625;      /* cabeçalho fixo das tabelas de dados */
+  --gaveta: #0d1320;          /* gaveta lateral, detalhe aberto, caixa de busca */
+  --toast: #0f1a2e;
+  --surface-grupo: #0d1422;   /* linha de grupo (Contas a receber), card em hover */
+  --surface-grupo-hover: #121b2d;
+  --surface-subtotal: #121c2c;
+  --border3: #26324a;         /* borda tracejada da área de soltar arquivo */
+  --border-hover: #33415a;
+  --mapa-bg: #0b1220;         /* fundo do mapa antes dos tiles / trilho da barra lateral */
+  --mapa-bg2: #0b111c;
+  --brilho: #253149;          /* brilho do esqueleto de carregamento */
+  --zero: #3b4760;            /* célula zerada (Faturamento) — some de propósito */
+  --scroll-thumb: #52637f;    /* polegar da barra de rolagem (tabela-larga.js) */
+  --trilho: #0b1220;          /* trilho da barra presa no pé da janela (tabela-larga.js) */
+
+  /* ── Tipo de veículo na Análise por Veículo: cor (barra, % na tabela) e texto das pílulas ── */
+  /* luminosidade do texto de margem (Análise por Veículo: hsl(matiz, 65%, var(--margem-l))) */
+  --margem-l: 55%;
+  --frota-cor: #5b86b0;
+  --agregado-cor: #4f9d7f;
+  --carreteiro-cor: #c08a5b;
+  --frota-txt: #88aacb;
+  --agregado-txt: #6cbf9f;
+  --carreteiro-txt: #cba074;
+
+  /* ── Triplas RGB ──
+     Fundos "vidro", tints e sombras: rgba(var(--accent-rgb), .15). O claro redefine só a
+     tripla e cada opacidade fica no ponto de uso. */
+  --bg-rgb: 10, 14, 23;
+  --surface-rgb: 17, 24, 39;
+  --surface2-rgb: 26, 34, 53;
+  --border-rgb: 30, 41, 59;
+  --text-rgb: 226, 232, 240;
+  --text-dim-rgb: 148, 163, 184;
+  --text-faint-rgb: 100, 116, 139;
+  --accent-rgb: 56, 189, 248;
+  --accent2-rgb: 129, 140, 248;
+  --green-rgb: 52, 211, 153;
+  --red-rgb: 248, 113, 113;
+  --orange-rgb: 251, 146, 60;
+  --yellow-rgb: 251, 191, 36;
+  --violet-rgb: 167, 139, 250;
+  --pink-rgb: 244, 114, 182;
+  --amarelo-vivo-rgb: 250, 204, 21;
+  --sombra-rgb: 0, 0, 0;          /* sombras */
+  --realce-rgb: 255, 255, 255;    /* zebra/hover: um véu branco sobre o escuro */
+  --veu-rgb: 2, 6, 15;            /* fundo de modal, sombra da barra e da coluna congelada */
+  --veu2-rgb: 3, 6, 12;           /* fundo atrás da gaveta (Pagamentos CTRB) */
+
+  /* ── Paleta de categorias (CRM - Documentos, Contas a receber, Comissões, Fechamento
+        Autônomos): etiqueta/canal escolhido por nome, var(--c-<nome>) ── */
+  --c-vermelho: var(--red);
+  --c-laranja: var(--orange);
+  --c-amarelo: var(--yellow);
+  --c-verde: var(--green);
+  --c-azul: var(--accent);
+  --c-roxo: var(--violet);
+  --c-cinza: var(--text-dim);
+  --c-indigo: var(--accent2);
+  --c-rosa: var(--pink);
+  --c-ciano: #22d3ee;
+  --c-magenta: #e879f9;
+  --c-chumbo: var(--text-faint);
+
+  /* ── DRE: paleta financeira — categorias ── */
+  --cor-operacional: #3B82F6;
+  --cor-administrativo: #8B5CF6;
+  --cor-financeiro: #F59E0B;
+  --cor-deducoes: #EC4899;
+  --cor-investimento: #10B981;
+  --cor-retirada: #F97316;
+  --cor-impostos: #FBBF24;
+  --cor-receita: #22D3EE;
+  --cor-resultado-pos: #22C55E;
+  --cor-resultado-neg: #EF4444;
+  --cor-linha-resultado: #FACC15;
+
+  /* ── Torre: estado de cada carga no mapa e na faixa ── */
+  --c-carregada: var(--accent);
+  --c-carregada-parada: #1d6f94;
+  --c-cliente: var(--yellow);
+  --c-vazia: var(--violet);
+  --c-parada: #334155;
+  --c-x: repeating-linear-gradient(45deg, #1e293b 0 3px, #0f172a 3px 6px);
+  --terceiro-livre: #f0abfc;
+
+  /* ── Pagamentos CTRB: tipo de veículo ── */
+  --c-frota: var(--accent);
+  --c-agregado: var(--violet);
+  --c-carreteiro: var(--pink);
+
+  /* ── Projeção: origem de cada número projetado ── */
+  --o-realizado: var(--text-dim);
+  --o-contratado: var(--green);
+  --o-direcionado: var(--accent);
+  --o-estatistico: #c084fc;
+  --o-natureza: var(--yellow);
+
+  /* ── Viagem: papéis do percurso — os mesmos tons da Torre (vazia = violeta, carregada = azul) ── */
+  --p-vazio: var(--violet);
+  --p-carregado: var(--accent);
+  --p-continuacao: #2dd4bf;
+  --p-documental: var(--pink);
+  --ok: var(--green);
+  --atencao: var(--yellow);
+  --alerta: var(--red);
+  --neutro: var(--text-faint);
+}

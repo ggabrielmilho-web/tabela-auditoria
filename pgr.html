@@ -7,13 +7,12 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/tema.css">
+<script src="/tema.js"></script>
 <style>
   :root {
-    --bg:#0a0e17; --surface:#111827; --surface2:#1a2235; --border:#1e293b;
-    --text:#e2e8f0; --text-dim:#94a3b8; --accent:#38bdf8; --accent2:#818cf8;
-    --green:#34d399; --red:#f87171; --orange:#fb923c; --yellow:#fbbf24;
-    --sans:'DM Sans',-apple-system,'Segoe UI',Roboto,sans-serif;
-    --mono:'JetBrains Mono',ui-monospace,'SF Mono',Consolas,monospace;
+    --sans: 'DM Sans',-apple-system,'Segoe UI',Roboto,sans-serif;
+    --mono: 'JetBrains Mono',ui-monospace,'SF Mono',Consolas,monospace;
   }
   * { margin:0; padding:0; box-sizing:border-box; }
   body { font-family:var(--sans); background:var(--bg); color:var(--text);
@@ -56,7 +55,7 @@
   .mes-btn::after { content:'▾'; float:right; color:var(--text-dim); margin-left:8px; }
   .mes-pop { position:absolute; top:calc(100% + 6px); left:0; z-index:50; width:244px; display:none;
         background:var(--surface2); border:1px solid var(--border); border-radius:10px; padding:12px;
-        box-shadow:0 14px 36px rgba(0,0,0,.55); }
+        box-shadow:0 14px 36px rgba(var(--sombra-rgb),.55); }
   .mes-pop.open { display:block; }
   .mes-pop-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;
         font-weight:700; font-size:.9rem; }
@@ -68,7 +67,7 @@
         border:1px solid var(--border); color:var(--text-dim); font-size:.78rem; font-weight:600;
         cursor:pointer; text-transform:capitalize; user-select:none; }
   .mes-cell:hover { border-color:var(--accent2); color:var(--text); }
-  .mes-cell.sel { background:var(--accent); border-color:var(--accent); color:#0a0e17; }
+  .mes-cell.sel { background:var(--accent); border-color:var(--accent); color:var(--sobre-accent); }
   /* Mês sem dia apurado não é clicável: a base começou agora, e oferecer um mês
      vazio faria a tela parecer quebrada. */
   .mes-cell.off { opacity:.28; cursor:not-allowed; }
@@ -101,7 +100,7 @@
   thead th { font-size:.58rem; text-transform:uppercase; letter-spacing:.07em; color:var(--text-dim);
              font-weight:700; text-align:left; padding:0 6px 6px; border-bottom:1px solid var(--border); }
   thead th.r { text-align:right; }
-  tbody tr { border-bottom:1px solid rgba(30,41,59,.6); }
+  tbody tr { border-bottom:1px solid rgba(var(--border-rgb),.6); }
   tbody tr:last-child { border-bottom:none; }
   td { padding:8px 6px; vertical-align:top; }
 
@@ -360,7 +359,7 @@ function cobertura(b) {
 
 function rodape(d) {
   const mon = d.dias && d.dias.length === 1 && d.dias[0].totais
-    ? `<p style="color:#64748b">${d.dias[0].totais.placas_monitoradas} veículo(s) com posição no dia.</p>` : '';
+    ? `<p style="color:var(--text-faint)">${d.dias[0].totais.placas_monitoradas} veículo(s) com posição no dia.</p>` : '';
   return `<footer>
     <div class="leg"><span class="l1">96–102 km/h</span><span class="l2">103–109</span><span class="l3">110+</span></div>
     <p><b>O número é recorrência, não duração.</b> O rastreador reporta a cada 2–5 min e cada

@@ -6,15 +6,9 @@
 <title>CRM - Documentos — Rizza Log</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%2338bdf8'/%3E%3Ctext x='50' y='72' font-family='Arial,sans-serif' font-size='68' font-weight='900' text-anchor='middle' fill='%230a0e17'%3ER%3C/text%3E%3C/svg%3E">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/tema.css">
+<script src="/tema.js"></script>
 <style>
-  :root {
-    --bg: #0a0e17; --surface: #111827; --surface2: #1a2235; --border: #1e293b;
-    --text: #e2e8f0; --text-dim: #94a3b8; --accent: #38bdf8; --accent2: #818cf8;
-    --green: #34d399; --red: #f87171; --orange: #fb923c; --yellow: #fbbf24;
-    --c-vermelho: #f87171; --c-laranja: #fb923c; --c-amarelo: #fbbf24; --c-verde: #34d399;
-    --c-azul: #38bdf8; --c-rosa: #f472b6; --c-roxo: #a78bfa; --c-ciano: #22d3ee; --c-cinza: #94a3b8;
-    --c-indigo: #818cf8; --c-magenta: #e879f9; --c-chumbo: #64748b;
-  }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   /* `display: flex` da gaveta, do modal e da barra de lote venceria o `hidden` */
   [hidden] { display: none !important; }
@@ -29,8 +23,8 @@
   .meta { font-size: 0.74rem; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; margin-top: 4px; line-height: 1.5; }
   .btn-sm { padding: 7px 14px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); font-weight: 500; font-size: 0.8rem; border-radius: 8px; cursor: pointer; transition: all 0.15s; font-family: 'DM Sans', sans-serif; white-space: nowrap; }
   .btn-sm:hover { border-color: var(--accent); color: var(--accent); }
-  .btn-sm.primary { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 700; }
-  .btn-sm.primary:hover { color: var(--bg); filter: brightness(1.1); }
+  .btn-sm.primary { background: var(--accent); color: var(--sobre-accent); border-color: var(--accent); font-weight: 700; }
+  .btn-sm.primary:hover { color: var(--sobre-accent); filter: brightness(1.1); }
   .btn-sm:disabled { opacity: .5; cursor: wait; }
   .tag-nfs { font-size: 0.6rem; font-weight: 700; color: var(--orange); border: 1px solid currentColor; border-radius: 3px; padding: 0 3px; vertical-align: 1px; }
   /* a seta do Desfazer, como a do Excel: perto da tabela, onde se edita */
@@ -39,7 +33,7 @@
   .btn-sm.desfazer:disabled { cursor: default; }
   .acoes-topo { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
-  .erro { padding: 12px 14px; border-radius: 10px; font-size: 0.82rem; margin-bottom: 14px; background: rgba(248,113,113,0.08); border: 1px solid rgba(248,113,113,0.28); color: #fecaca; }
+  .erro { padding: 12px 14px; border-radius: 10px; font-size: 0.82rem; margin-bottom: 14px; background: rgba(var(--red-rgb),0.08); border: 1px solid rgba(var(--red-rgb),0.28); color: var(--red-txt2); }
   .carregando { display: flex; gap: 12px; align-items: center; padding: 40px; justify-content: center; color: var(--text-dim); }
   .spinner { width: 26px; height: 26px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; }
 
@@ -71,7 +65,7 @@
 
   /* custo extra (lista por CT-e) e farol de validação */
   td.custos { cursor: pointer; }
-  td.custos:hover { box-shadow: inset 0 -1px 0 rgba(56,189,248,.6); }
+  td.custos:hover { box-shadow: inset 0 -1px 0 rgba(var(--accent-rgb),.6); }
   td.custos .pill { margin-right: 4px; }
   td.farol { cursor: pointer; font-size: 0.78rem; }
   td.farol .luz { display: inline-block; width: 11px; height: 11px; border-radius: 50%; vertical-align: -1px; margin-right: 6px; }
@@ -81,18 +75,18 @@
   .custo .grade { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px 10px; }
   .custo label { display: flex; flex-direction: column; gap: 3px; font-size: 0.66rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: .04em; }
   .custo input, .custo select { padding: 6px 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 0.8rem; color-scheme: dark; text-transform: none; letter-spacing: 0; }
-  .sugestoes { margin-top: 12px; padding: 10px 12px; border-radius: 9px; background: rgba(56,189,248,.06); border: 1px dashed rgba(56,189,248,.35); font-size: 0.78rem; }
-  .sugestoes li { list-style: none; display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid rgba(30,41,59,.6); }
+  .sugestoes { margin-top: 12px; padding: 10px 12px; border-radius: 9px; background: rgba(var(--accent-rgb),.06); border: 1px dashed rgba(var(--accent-rgb),.35); font-size: 0.78rem; }
+  .sugestoes li { list-style: none; display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid rgba(var(--border-rgb),.6); }
 
   /* barra de ferramentas */
   .barra { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
   .busca { padding: 7px 10px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 0.8rem; min-width: 240px; flex: 0 1 320px; }
   label.chk { font-size: 0.78rem; color: var(--text-dim); display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
   .info { font-size: 0.76rem; color: var(--text-dim); margin-left: auto; font-family: 'JetBrains Mono', monospace; }
-  .chip-filtro { display: inline-flex; gap: 6px; align-items: center; font-size: 0.74rem; padding: 4px 9px; border-radius: 999px; background: rgba(56,189,248,.12); border: 1px solid rgba(56,189,248,.35); color: var(--accent); }
+  .chip-filtro { display: inline-flex; gap: 6px; align-items: center; font-size: 0.74rem; padding: 4px 9px; border-radius: 999px; background: rgba(var(--accent-rgb),.12); border: 1px solid rgba(var(--accent-rgb),.35); color: var(--accent); }
   .chip-filtro button { background: none; border: none; color: inherit; cursor: pointer; font-size: .85rem; }
 
-  .lote { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 9px 12px; margin-bottom: 8px; border-radius: 9px; background: rgba(56,189,248,.08); border: 1px solid rgba(56,189,248,.3); font-size: 0.8rem; }
+  .lote { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 9px 12px; margin-bottom: 8px; border-radius: 9px; background: rgba(var(--accent-rgb),.08); border: 1px solid rgba(var(--accent-rgb),.3); font-size: 0.8rem; }
   .lote select, .lote input, .editor { padding: 5px 8px; background: var(--bg); border: 1px solid var(--accent); border-radius: 6px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 0.78rem; color-scheme: dark; }
 
   /* tabela */
@@ -100,10 +94,10 @@
   /* Ir para o lado (barra presa no pé da janela, CTRC congelado, barras grossas): componente /tabela-larga.js,
      carregado pelo nav-perms.js em todas as telas (19/11/2026) — nada próprio aqui. */
   table.dados { width: 100%; border-collapse: collapse; font-size: 0.77rem; }
-  table.dados thead th { position: sticky; top: 0; z-index: 2; background: #0f1625; text-align: left; padding: 8px 9px; font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); font-weight: 700; border-bottom: 1px solid var(--border); white-space: nowrap; }
-  table.dados tbody td { padding: 6px 9px; border-bottom: 1px solid rgba(30,41,59,0.6); vertical-align: middle; white-space: nowrap; }
-  table.dados tbody tr:hover td { background: rgba(26,34,53,.55); }
-  table.dados tbody tr.sel td { background: rgba(56,189,248,.07); }
+  table.dados thead th { position: sticky; top: 0; z-index: 2; background: var(--cab-tabela); text-align: left; padding: 8px 9px; font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); font-weight: 700; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  table.dados tbody td { padding: 6px 9px; border-bottom: 1px solid rgba(var(--border-rgb),0.6); vertical-align: middle; white-space: nowrap; }
+  table.dados tbody tr:hover td { background: rgba(var(--surface2-rgb),.55); }
+  table.dados tbody tr.sel td { background: rgba(var(--accent-rgb),.07); }
   table.dados tbody tr.div td:first-child { box-shadow: inset 3px 0 0 var(--red); }
   td.num { text-align: right; font-family: 'JetBrains Mono', monospace; }
   td.ctrc { font-family: 'JetBrains Mono', monospace; }
@@ -111,8 +105,8 @@
   td.ctrc a { color: var(--accent); text-decoration: none; }
   td.ctrc a:hover { text-decoration: underline; }
   td.ed { cursor: text; }
-  td.ed:hover { box-shadow: inset 0 -1px 0 rgba(56,189,248,.6); }
-  td.ed .vazio { color: #334155; }
+  td.ed:hover { box-shadow: inset 0 -1px 0 rgba(var(--accent-rgb),.6); }
+  td.ed .vazio { color: var(--slate-700); }
   /* crescem com a janela: com menos zoom, mostram mais da observação/anotação antes do "…" */
   td.obs { max-width: max(260px, 16vw); overflow: hidden; text-overflow: ellipsis; color: var(--text-dim); }
   td.txt { max-width: max(220px, 12vw); overflow: hidden; text-overflow: ellipsis; }
@@ -125,18 +119,18 @@
 
   .pill { display: inline-block; padding: 2px 8px; border-radius: 5px; font-size: 0.68rem; font-weight: 700; white-space: nowrap; color: var(--cor); background: color-mix(in srgb, var(--cor) 15%, transparent); }
   .ssw { display: inline-block; padding: 2px 7px; border-radius: 5px; font-size: 0.68rem; font-weight: 600; white-space: nowrap; }
-  .ssw.pago { color: var(--green); background: rgba(52,211,153,.12); }
-  .ssw.fatura { color: var(--accent); background: rgba(56,189,248,.12); }
-  .ssw.aberto { color: var(--text-dim); background: rgba(148,163,184,.1); }
-  .ssw.sem_ssw { color: var(--orange); background: rgba(251,146,60,.12); }
-  .ssw.cancelado { color: var(--red); background: rgba(248,113,113,.10); text-decoration: line-through; }
-  .ssw.vencida { color: var(--red); background: rgba(248,113,113,.14); }
-  .ssw.indefinido { color: var(--text-dim); background: transparent; border: 1px dashed #334155; font-weight: 500; }
+  .ssw.pago { color: var(--green); background: rgba(var(--green-rgb),.12); }
+  .ssw.fatura { color: var(--accent); background: rgba(var(--accent-rgb),.12); }
+  .ssw.aberto { color: var(--text-dim); background: rgba(var(--text-dim-rgb),.1); }
+  .ssw.sem_ssw { color: var(--orange); background: rgba(var(--orange-rgb),.12); }
+  .ssw.cancelado { color: var(--red); background: rgba(var(--red-rgb),.10); text-decoration: line-through; }
+  .ssw.vencida { color: var(--red); background: rgba(var(--red-rgb),.14); }
+  .ssw.indefinido { color: var(--text-dim); background: transparent; border: 1px dashed var(--slate-700); font-weight: 500; }
   .marca { font-size: 0.62rem; color: var(--orange); margin-left: 4px; }
   .mais { padding: 12px; text-align: center; color: var(--text-dim); font-size: 0.78rem; }
 
   /* gaveta */
-  .gaveta { position: fixed; top: 0; right: 0; bottom: 0; width: min(560px, 100vw); background: #0d1320; border-left: 1px solid var(--border); z-index: 950; display: flex; flex-direction: column; box-shadow: -12px 0 30px rgba(0,0,0,.4); }
+  .gaveta { position: fixed; top: 0; right: 0; bottom: 0; width: min(560px, 100vw); background: var(--gaveta); border-left: 1px solid var(--border); z-index: 950; display: flex; flex-direction: column; box-shadow: -12px 0 30px rgba(var(--sombra-rgb),.4); }
   .gaveta-cab { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; padding: 16px 18px 12px; border-bottom: 1px solid var(--border); }
   .gaveta-cab h2 { font-size: 1.05rem; font-family: 'JetBrains Mono', monospace; }
   .gaveta-cab .sub { font-size: 0.76rem; color: var(--text-dim); margin-top: 3px; }
@@ -149,14 +143,14 @@
   .hist { list-style: none; font-size: 0.76rem; }
   .hist li { padding: 6px 0 6px 10px; border-left: 2px solid var(--border); margin-bottom: 4px; line-height: 1.45; }
   .hist .q { color: var(--text-dim); font-size: 0.7rem; font-family: 'JetBrains Mono', monospace; }
-  .aviso-div { font-size: 0.78rem; line-height: 1.5; padding: 8px 10px; border-radius: 7px; margin-bottom: 6px; background: rgba(248,113,113,.07); border-left: 3px solid var(--red); }
+  .aviso-div { font-size: 0.78rem; line-height: 1.5; padding: 8px 10px; border-radius: 7px; margin-bottom: 6px; background: rgba(var(--red-rgb),.07); border-left: 3px solid var(--red); }
   .nota { font-size: 0.74rem; color: var(--text-dim); line-height: 1.5; }
   table.pg { font-size: 0.74rem; border-collapse: collapse; width: 100%; }
   table.pg td, table.pg th { padding: 4px 6px; border-bottom: 1px solid var(--border); text-align: left; }
   table.pg th { color: var(--text-dim); font-size: 0.64rem; text-transform: uppercase; }
 
   /* modal */
-  .modal { position: fixed; inset: 0; background: rgba(2,6,15,.65); z-index: 960; display: flex; align-items: flex-start; justify-content: center; padding: 8vh 16px 16px; }
+  .modal { position: fixed; inset: 0; background: rgba(var(--veu-rgb),.65); z-index: 960; display: flex; align-items: flex-start; justify-content: center; padding: 8vh 16px 16px; }
   .modal .caixa { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px; width: min(560px, 100%); }
   .modal h3 { font-size: 1rem; margin-bottom: 6px; }
   .modal textarea { width: 100%; height: 160px; margin: 10px 0; padding: 9px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; }
@@ -166,7 +160,7 @@
   #resLista { font-size: 0.78rem; line-height: 1.55; color: var(--text-dim); }
   #resLista b { color: var(--text); }
 
-  .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: #0f1a2e; border: 1px solid var(--accent); color: var(--text); padding: 9px 16px; border-radius: 9px; font-size: 0.8rem; z-index: 999; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+  .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--toast); border: 1px solid var(--accent); color: var(--text); padding: 9px 16px; border-radius: 9px; font-size: 0.8rem; z-index: 999; box-shadow: 0 8px 24px rgba(var(--sombra-rgb),.4); }
   .toast.erro { border-color: var(--red); }
 
   @media (max-width: 700px) {

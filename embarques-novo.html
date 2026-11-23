@@ -6,12 +6,9 @@
 <title>Nova carga — Rizza Log</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%2338bdf8'/%3E%3Ctext x='50' y='72' font-family='Arial,sans-serif' font-size='68' font-weight='900' text-anchor='middle' fill='%230a0e17'%3ER%3C/text%3E%3C/svg%3E">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/tema.css">
+<script src="/tema.js"></script>
 <style>
-  :root {
-    --bg: #0a0e17; --surface: #111827; --surface2: #1a2235; --border: #1e293b;
-    --text: #e2e8f0; --text-dim: #94a3b8; --accent: #38bdf8; --accent2: #818cf8;
-    --green: #34d399; --red: #f87171; --orange: #fb923c; --yellow: #fbbf24;
-  }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
   body::before {
@@ -37,7 +34,7 @@
   .btn-sm:hover { border-color: var(--accent); color: var(--accent); }
   .btn-primary {
     padding: 11px 26px; background: linear-gradient(135deg, var(--accent), var(--accent2));
-    color: var(--bg); font-family: 'DM Sans', sans-serif; font-weight: 700;
+    color: var(--sobre-accent); font-family: 'DM Sans', sans-serif; font-weight: 700;
     font-size: 0.92rem; border: none; border-radius: 8px;
     cursor: pointer; transition: opacity 0.15s;
   }
@@ -88,8 +85,8 @@
   .veiculo-card .linha .k { color: var(--text-dim); font-size: 0.76rem; }
   .veiculo-card .linha .v { font-weight: 500; }
   .badge-prop { padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.03em; }
-  .badge-rizza { background: rgba(52,211,153,0.18); color: var(--green); }
-  .badge-terc  { background: rgba(148,163,184,0.16); color: var(--text-dim); }
+  .badge-rizza { background: rgba(var(--green-rgb),0.18); color: var(--green); }
+  .badge-terc  { background: rgba(var(--text-dim-rgb),0.16); color: var(--text-dim); }
 
   .destino-row {
     display: grid; grid-template-columns: 90px 1fr 185px 36px; gap: 8px;
@@ -105,7 +102,7 @@
     background: transparent; border: 1px solid var(--border); color: var(--red);
     border-radius: 6px; font-size: 1rem; cursor: pointer; padding: 6px 10px;
   }
-  .destino-rm:hover { background: rgba(248,113,113,0.1); }
+  .destino-rm:hover { background: rgba(var(--red-rgb),0.1); }
   .destino-head {
     display: grid; grid-template-columns: 90px 1fr 185px 36px; gap: 8px;
     padding: 0 11px 6px; font-size: 0.64rem; font-weight: 600;
@@ -117,7 +114,7 @@
     border-radius: 8px; padding: 8px 16px; cursor: pointer;
     font-size: 0.82rem; margin-top: 4px;
   }
-  .btn-add:hover { border-color: var(--accent); background: rgba(56,189,248,0.05); }
+  .btn-add:hover { border-color: var(--accent); background: rgba(var(--accent-rgb),0.05); }
 
   .cliente-novo {
     background: var(--surface2); border: 1px dashed var(--accent);
@@ -126,12 +123,12 @@
   .cliente-novo .field { margin-bottom: 8px; }
 
   .alerta-warn {
-    background: rgba(251,191,36,0.08); border: 1px solid rgba(251,191,36,0.3);
+    background: rgba(var(--yellow-rgb),0.08); border: 1px solid rgba(var(--yellow-rgb),0.3);
     border-radius: 8px; padding: 10px 14px; margin-top: 8px;
     color: var(--yellow); font-size: 0.8rem;
   }
   .alerta-bloq {
-    background: rgba(248,113,113,0.08); border: 1px solid rgba(248,113,113,0.35);
+    background: rgba(var(--red-rgb),0.08); border: 1px solid rgba(var(--red-rgb),0.35);
     border-radius: 10px; padding: 14px 16px; margin-bottom: 14px;
     color: var(--red); font-size: 0.85rem;
   }
@@ -144,8 +141,8 @@
   .feedback {
     margin-top: 10px; padding: 10px 14px; border-radius: 8px; font-size: 0.85rem;
   }
-  .feedback.ok { background: rgba(52,211,153,0.1); border: 1px solid rgba(52,211,153,0.3); color: var(--green); }
-  .feedback.err { background: rgba(248,113,113,0.1); border: 1px solid rgba(248,113,113,0.3); color: var(--red); }
+  .feedback.ok { background: rgba(var(--green-rgb),0.1); border: 1px solid rgba(var(--green-rgb),0.3); color: var(--green); }
+  .feedback.err { background: rgba(var(--red-rgb),0.1); border: 1px solid rgba(var(--red-rgb),0.3); color: var(--red); }
   .feedback code { display: block; margin-top: 6px; font-family: 'JetBrains Mono', monospace; font-size: 0.74rem; opacity: 0.85; }
 
   .acoes-rodape { display: flex; justify-content: space-between; align-items: center; margin-top: 18px; gap: 12px; flex-wrap: wrap; }

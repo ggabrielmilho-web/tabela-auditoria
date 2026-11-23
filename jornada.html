@@ -6,12 +6,9 @@
 <title>Jornada — Escala de Motoristas — Rizza Log</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%2338bdf8'/%3E%3Ctext x='50' y='72' font-family='Arial,sans-serif' font-size='68' font-weight='900' text-anchor='middle' fill='%230a0e17'%3ER%3C/text%3E%3C/svg%3E">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/tema.css">
+<script src="/tema.js"></script>
 <style>
-  :root {
-    --bg: #0a0e17; --surface: #111827; --surface2: #1a2235; --border: #1e293b;
-    --text: #e2e8f0; --text-dim: #94a3b8; --accent: #38bdf8; --accent2: #818cf8;
-    --green: #34d399; --red: #f87171; --orange: #fb923c; --yellow: #fbbf24;
-  }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
   @keyframes spin { to { transform: rotate(360deg); } }
@@ -23,8 +20,8 @@
   .meta { font-size: 0.78rem; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; margin-top: 4px; }
   .btn-sm { padding: 8px 16px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); font-weight: 500; font-size: 0.82rem; border-radius: 8px; cursor: pointer; transition: all 0.15s; text-decoration: none; display: inline-block; font-family: 'DM Sans', sans-serif; }
   .btn-sm:hover { border-color: var(--accent); color: var(--accent); }
-  .btn-sm.primary { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 700; }
-  .btn-sm.primary:hover { color: var(--bg); filter: brightness(1.1); }
+  .btn-sm.primary { background: var(--accent); color: var(--sobre-accent); border-color: var(--accent); font-weight: 700; }
+  .btn-sm.primary:hover { color: var(--sobre-accent); filter: brightness(1.1); }
   .btn-sm:disabled { opacity: .5; cursor: wait; }
 
   .controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
@@ -35,10 +32,10 @@
   label.chk { font-size: 0.8rem; color: var(--text-dim); display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
 
   .aviso { padding: 11px 14px; border-radius: 10px; font-size: 0.8rem; margin-bottom: 14px; line-height: 1.55;
-           background: rgba(56,189,248,0.06); border: 1px solid rgba(56,189,248,0.22); color: var(--text-dim); }
+           background: rgba(var(--accent-rgb),0.06); border: 1px solid rgba(var(--accent-rgb),0.22); color: var(--text-dim); }
   .aviso b { color: var(--text); }
   .erro { padding: 12px 14px; border-radius: 10px; font-size: 0.82rem; margin-bottom: 14px;
-          background: rgba(248,113,113,0.08); border: 1px solid rgba(248,113,113,0.28); color: #fecaca; }
+          background: rgba(var(--red-rgb),0.08); border: 1px solid rgba(var(--red-rgb),0.28); color: var(--red-txt2); }
 
   .kpis { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
   .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 18px; min-width: 150px; flex: 1; }
@@ -54,7 +51,7 @@
   table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
   thead th { text-align: left; padding: 8px 10px; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em;
              color: var(--text-dim); font-weight: 700; border-bottom: 1px solid var(--border); white-space: nowrap; }
-  tbody td { padding: 9px 10px; border-bottom: 1px solid rgba(30,41,59,0.55); vertical-align: top; }
+  tbody td { padding: 9px 10px; border-bottom: 1px solid rgba(var(--border-rgb),0.55); vertical-align: top; }
   tr.linha { cursor: pointer; }
   tr.linha:hover { background: var(--surface2); }
   tr.linha.aberta { background: var(--surface2); }
@@ -65,48 +62,48 @@
 
   .chips { display: flex; flex-wrap: wrap; gap: 6px; }
   .chip { display: inline-flex; gap: 6px; align-items: baseline; padding: 3px 9px; border-radius: 6px; font-size: 0.74rem;
-          background: rgba(56,189,248,0.10); border: 1px solid rgba(56,189,248,0.28); white-space: nowrap; }
+          background: rgba(var(--accent-rgb),0.10); border: 1px solid rgba(var(--accent-rgb),0.28); white-space: nowrap; }
   .chip b { font-family: 'JetBrains Mono', monospace; }
   .chip .per { font-family: 'JetBrains Mono', monospace; color: var(--text-dim); font-size: 0.7rem; }
-  .chip.vc { background: rgba(251,191,36,0.10); border-color: rgba(251,191,36,0.40); }
+  .chip.vc { background: rgba(var(--yellow-rgb),0.10); border-color: rgba(var(--yellow-rgb),0.40); }
   .vazio { color: var(--text-dim); font-style: italic; font-size: 0.78rem; }
 
   .pill { padding: 2px 8px; border-radius: 5px; font-size: 0.68rem; font-weight: 600; white-space: nowrap; }
-  .pill.ok { background: rgba(52,211,153,0.13); color: var(--green); }
-  .pill.warn { background: rgba(251,191,36,0.13); color: var(--yellow); }
-  .pill.bad { background: rgba(251,146,60,0.13); color: var(--orange); }
+  .pill.ok { background: rgba(var(--green-rgb),0.13); color: var(--green); }
+  .pill.warn { background: rgba(var(--yellow-rgb),0.13); color: var(--yellow); }
+  .pill.bad { background: rgba(var(--orange-rgb),0.13); color: var(--orange); }
 
   /* linha do tempo: um bloco por dia */
   .tl { display: grid; gap: 1px; margin-top: 7px; max-width: 520px; }
   .tl span { height: 8px; border-radius: 1px; background: var(--surface2); }
-  .tl span.p0 { background: #38bdf8; } .tl span.p1 { background: #818cf8; } .tl span.p2 { background: #34d399; }
-  .tl span.p3 { background: #f472b6; } .tl span.p4 { background: #a3e635; }
+  .tl span.p0 { background: var(--accent); } .tl span.p1 { background: var(--accent2); } .tl span.p2 { background: var(--green); }
+  .tl span.p3 { background: var(--pink); } .tl span.p4 { background: #a3e635; }
   .tl span.vc { outline: 1px solid var(--yellow); outline-offset: -1px; }
-  .tl span.x { background: repeating-linear-gradient(45deg, #334155 0 2px, #1a2235 2px 4px); }
+  .tl span.x { background: repeating-linear-gradient(45deg, var(--slate-700) 0 2px, var(--surface2) 2px 4px); }
   /* situação medida no dia: vazio é listrado, parado é apagado, andou sem viagem é âmbar */
-  .tl span.s-vazia { background-image: repeating-linear-gradient(45deg, rgba(10,14,23,.55) 0 2px, transparent 2px 4px); }
+  .tl span.s-vazia { background-image: repeating-linear-gradient(45deg, rgba(var(--bg-rgb),.55) 0 2px, transparent 2px 4px); }
   .tl span.s-parado { opacity: .32; }
   .tl span.s-rodou { box-shadow: inset 0 0 0 1px var(--orange); }
   .tl span.s-sem_gps { opacity: .55; }
 
-  .drill td { background: #0d1320; padding: 12px 16px 16px; }
+  .drill td { background: var(--gaveta); padding: 12px 16px 16px; }
   .alerta { font-size: 0.78rem; line-height: 1.5; padding: 7px 10px; border-radius: 7px; margin-bottom: 6px; }
-  .alerta.sem_prova, .alerta.sem_prova_periodo { background: rgba(148,163,184,0.08); border-left: 3px solid #64748b; }
-  .alerta.so_valecard { background: rgba(251,191,36,0.07); border-left: 3px solid var(--yellow); }
+  .alerta.sem_prova, .alerta.sem_prova_periodo { background: rgba(var(--text-dim-rgb),0.08); border-left: 3px solid var(--text-faint); }
+  .alerta.so_valecard { background: rgba(var(--yellow-rgb),0.07); border-left: 3px solid var(--yellow); }
   .alerta.compartilhada, .alerta.fora_frota, .alerta.vc_descartado, .alerta.vc_outro_nome,
-  .alerta.rodou_sem_viagem, .alerta.so_viagem { background: rgba(251,146,60,0.07); border-left: 3px solid var(--orange); }
+  .alerta.rodou_sem_viagem, .alerta.so_viagem { background: rgba(var(--orange-rgb),0.07); border-left: 3px solid var(--orange); }
   .seg { margin-top: 12px; }
   .seg h4 { font-size: 0.78rem; margin-bottom: 5px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .seg h4 .per { font-family: 'JetBrains Mono', monospace; color: var(--text-dim); font-weight: 500; }
   .provas { width: auto; min-width: 560px; font-size: 0.74rem; }
-  .provas td { padding: 4px 10px; border-bottom: 1px solid rgba(30,41,59,0.45); }
+  .provas td { padding: 4px 10px; border-bottom: 1px solid rgba(var(--border-rgb),0.45); }
   .fonte { font-size: 0.64rem; font-weight: 700; padding: 1px 6px; border-radius: 4px; text-transform: uppercase; }
-  .fonte.manifesto { background: rgba(56,189,248,0.14); color: var(--accent); }
-  .fonte.valecard { background: rgba(251,191,36,0.14); color: var(--yellow); }
+  .fonte.manifesto { background: rgba(var(--accent-rgb),0.14); color: var(--accent); }
+  .fonte.valecard { background: rgba(var(--yellow-rgb),0.14); color: var(--yellow); }
   .ancora { font-size: 0.72rem; color: var(--text-dim); margin-bottom: 4px; }
   .viagens { list-style: none; margin: 4px 0 8px; font-size: 0.75rem; }
-  .viagens li { padding: 3px 0 3px 10px; border-left: 2px solid rgba(56,189,248,0.35); margin-bottom: 3px; line-height: 1.45; }
-  .viagens li.vz { border-left-color: rgba(148,163,184,0.5); color: var(--text-dim); }
+  .viagens li { padding: 3px 0 3px 10px; border-left: 2px solid rgba(var(--accent-rgb),0.35); margin-bottom: 3px; line-height: 1.45; }
+  .viagens li.vz { border-left-color: rgba(var(--text-dim-rgb),0.5); color: var(--text-dim); }
   .viagens .num { font-family: 'JetBrains Mono', monospace; color: var(--accent); }
   .viagens li.vz .num { color: var(--text-dim); }
   .viagens .h { font-family: 'JetBrains Mono', monospace; color: var(--text-dim); }
@@ -169,12 +166,12 @@
       <label class="chk"><input type="checkbox" id="soPend"> Só quem tem pendência</label>
     </div>
     <div class="legenda">
-      <span><i style="background:#38bdf8"></i>placa (uma cor por placa)</span>
-      <span><i style="background:#1a2235;outline:1px solid var(--yellow)"></i>só pelo ValeCard</span>
-      <span><i style="background:#38bdf8;background-image:repeating-linear-gradient(45deg,rgba(10,14,23,.55) 0 2px,transparent 2px 4px)"></i>viagem vazia</span>
-      <span><i style="background:#38bdf8;opacity:.32"></i>placa parada</span>
-      <span><i style="background:#38bdf8;box-shadow:inset 0 0 0 1px #fb923c"></i>andou sem viagem</span>
-      <span><i style="background:repeating-linear-gradient(45deg,#334155 0 2px,#1a2235 2px 4px)"></i>sem registro</span>
+      <span><i style="background:var(--accent)"></i>placa (uma cor por placa)</span>
+      <span><i style="background:var(--surface2);outline:1px solid var(--yellow)"></i>só pelo ValeCard</span>
+      <span><i style="background:var(--accent);background-image:repeating-linear-gradient(45deg,rgba(var(--bg-rgb),.55) 0 2px,transparent 2px 4px)"></i>viagem vazia</span>
+      <span><i style="background:var(--accent);opacity:.32"></i>placa parada</span>
+      <span><i style="background:var(--accent);box-shadow:inset 0 0 0 1px var(--orange)"></i>andou sem viagem</span>
+      <span><i style="background:repeating-linear-gradient(45deg,var(--slate-700) 0 2px,var(--surface2) 2px 4px)"></i>sem registro</span>
     </div>
     <div class="scroll" style="margin-top:10px">
       <table>

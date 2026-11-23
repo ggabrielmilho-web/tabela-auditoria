@@ -10,26 +10,9 @@
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<link rel="stylesheet" href="/tema.css">
+<script src="/tema.js"></script>
 <style>
-  :root {
-    --bg: #0a0e17; --surface: #111827; --surface2: #1a2235;
-    --border: #1e293b; --text: #e2e8f0; --text-dim: #94a3b8;
-    --accent: #38bdf8; --accent2: #818cf8;
-    --green: #34d399; --red: #f87171; --orange: #fb923c; --yellow: #fbbf24;
-
-    /* Paleta financeira — categorias */
-    --cor-operacional: #3B82F6;
-    --cor-administrativo: #8B5CF6;
-    --cor-financeiro: #F59E0B;
-    --cor-deducoes: #EC4899;
-    --cor-investimento: #10B981;
-    --cor-retirada: #F97316;
-    --cor-impostos: #FBBF24;
-    --cor-receita: #22D3EE;
-    --cor-resultado-pos: #22C55E;
-    --cor-resultado-neg: #EF4444;
-    --cor-linha-resultado: #FACC15;
-  }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
     font-family: 'DM Sans', sans-serif;
@@ -55,7 +38,7 @@
     text-decoration: none; transition: all 0.2s;
   }
   .nav-btn:hover { border-color: var(--accent); color: var(--accent); }
-  .nav-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(56,189,248,0.08); }
+  .nav-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(var(--accent-rgb),0.08); }
 
   /* FILTROS */
   .filtros-card {
@@ -84,7 +67,7 @@
   }
   .chip.active {
     background: linear-gradient(135deg, var(--accent), var(--accent2));
-    border-color: var(--accent); color: #0a0e17; font-weight: 700;
+    border-color: var(--accent); color: var(--sobre-accent); font-weight: 700;
   }
   .chip-acao {
     background: transparent; border: none; color: var(--text-dim);
@@ -99,7 +82,7 @@
   .btn-aplicar {
     padding: 10px 22px;
     background: linear-gradient(135deg, var(--accent), var(--accent2));
-    border: none; border-radius: 8px; color: #0a0e17;
+    border: none; border-radius: 8px; color: var(--sobre-accent);
     font-weight: 700; font-size: 0.85rem; cursor: pointer;
   }
   .btn-aplicar:hover { opacity: 0.85; }
@@ -123,7 +106,7 @@
   .dias-hint { font-style: italic; opacity: 0.75; }
 
   .aviso-fracionado {
-    background: rgba(251,191,36,0.08); border: 1px solid rgba(251,191,36,0.35);
+    background: rgba(var(--yellow-rgb),0.08); border: 1px solid rgba(var(--yellow-rgb),0.35);
     border-left: 3px solid var(--yellow); border-radius: 8px;
     padding: 12px 16px; margin-bottom: 18px;
     font-size: 0.82rem; color: var(--text); line-height: 1.55;
@@ -179,13 +162,13 @@
     font-family: 'DM Sans', sans-serif; font-weight: 500;
   }
   table.dre tbody tr.subtotal {
-    background: rgba(56,189,248,0.05);
+    background: rgba(var(--accent-rgb),0.05);
     font-weight: 700;
   }
   table.dre tbody tr.subtotal td { color: var(--accent); font-weight: 700; }
   table.dre tbody tr.grupo td { color: var(--text); }
   table.dre tbody tr.grupo.clicavel { cursor: pointer; transition: background 0.2s; }
-  table.dre tbody tr.grupo.clicavel:hover { background: rgba(255,255,255,0.04); }
+  table.dre tbody tr.grupo.clicavel:hover { background: rgba(var(--realce-rgb),0.04); }
   table.dre tbody tr.grupo.clicavel td:first-child::after {
     content: ' →'; opacity: 0; transition: opacity 0.2s; color: var(--accent);
   }
@@ -198,15 +181,15 @@
   }
   table.dre .pos { color: var(--cor-resultado-pos); }
   table.dre .col-total {
-    background: rgba(56, 189, 248, 0.04);
+    background: rgba(var(--accent-rgb), 0.04);
     font-weight: 600;
-    border-left: 2px solid rgba(56, 189, 248, 0.3);
+    border-left: 2px solid rgba(var(--accent-rgb), 0.3);
   }
   table.dre .mes-header {
-    border-left: 1px solid rgba(148, 163, 184, 0.35);
+    border-left: 1px solid rgba(var(--text-dim-rgb), 0.35);
     padding-left: 16px;
   }
-  table.dre thead th.mes-header { border-left: 1px solid rgba(148, 163, 184, 0.4); }
+  table.dre thead th.mes-header { border-left: 1px solid rgba(var(--text-dim-rgb), 0.4); }
 
   /* Tabela compacta para muitos meses */
   table.dre.compact { font-size: 0.74rem; }
@@ -249,7 +232,7 @@
     padding: 11px 18px; border-bottom: 1px solid var(--border);
     cursor: pointer; transition: background 0.2s;
   }
-  .subgrupo-row:hover { background: rgba(255,255,255,0.03); }
+  .subgrupo-row:hover { background: rgba(var(--realce-rgb),0.03); }
   .subgrupo-row .nome {
     display: flex; align-items: center; gap: 10px;
     font-size: 0.86rem; font-weight: 500;
@@ -301,7 +284,7 @@
   .grafico-canvas-wrap.alto { height: 420px; }
   .grafico-canvas-wrap.muito-alto { height: 480px; }
 
-  .eventos-lista { display: none; background: rgba(0,0,0,0.15); }
+  .eventos-lista { display: none; background: rgba(var(--sombra-rgb),0.15); }
   .eventos-lista.aberto { display: block; }
   .evento-row {
     display: flex; align-items: center; justify-content: space-between;
@@ -309,7 +292,7 @@
     cursor: pointer; transition: background 0.2s;
     font-size: 0.78rem;
   }
-  .evento-row:hover { background: rgba(56,189,248,0.05); color: var(--accent); }
+  .evento-row:hover { background: rgba(var(--accent-rgb),0.05); color: var(--accent); }
   .evento-row .descr { color: var(--text-dim); font-family: 'JetBrains Mono', monospace; }
   .evento-row:hover .descr { color: var(--accent); }
   .evento-row .valor {
@@ -322,9 +305,9 @@
     position: fixed; bottom: 24px; right: 24px;
     width: 60px; height: 60px; border-radius: 50%;
     background: linear-gradient(135deg, var(--accent), var(--accent2));
-    border: none; color: #0a0e17;
+    border: none; color: var(--sobre-accent);
     font-size: 26px; cursor: pointer;
-    box-shadow: 0 10px 30px rgba(56,189,248,0.35);
+    box-shadow: 0 10px 30px rgba(var(--accent-rgb),0.35);
     z-index: 9998; transition: transform 0.2s;
     display: flex; align-items: center; justify-content: center;
   }
@@ -338,7 +321,7 @@
     background: var(--surface); border: 1px solid var(--border);
     border-radius: 16px; display: none;
     flex-direction: column; overflow: hidden;
-    box-shadow: 0 25px 80px rgba(0,0,0,0.6);
+    box-shadow: 0 25px 80px rgba(var(--sombra-rgb),0.6);
     z-index: 9999; font-family: 'DM Sans', sans-serif;
   }
   .chat-container.aberto { display: flex; animation: chatFade 0.3s ease; }
@@ -376,8 +359,8 @@
     color: var(--text); align-self: flex-end;
   }
   .chat-msg.ia {
-    background: rgba(56,189,248,0.06);
-    border: 1px solid rgba(56,189,248,0.18);
+    background: rgba(var(--accent-rgb),0.06);
+    border: 1px solid rgba(var(--accent-rgb),0.18);
     color: var(--text); align-self: flex-start;
   }
   .chat-msg.ia strong { color: var(--accent); }
@@ -417,7 +400,7 @@
   }
   .chat-sugestoes button:hover {
     border-color: var(--accent); color: var(--accent);
-    background: rgba(56,189,248,0.08);
+    background: rgba(var(--accent-rgb),0.08);
   }
 
   .chat-typing {
@@ -447,7 +430,7 @@
   .chat-input-area input:focus { border-color: var(--accent); }
   .chat-input-area button {
     background: linear-gradient(135deg, var(--accent), var(--accent2));
-    color: #0a0e17; border: none; border-radius: 8px;
+    color: var(--sobre-accent); border: none; border-radius: 8px;
     padding: 9px 16px; font-weight: 700; cursor: pointer;
     font-family: 'DM Sans', sans-serif; font-size: 0.82rem;
   }
@@ -459,8 +442,8 @@
   }
 
   .chat-msg.sistema {
-    background: rgba(251,191,36,0.08);
-    border: 1px dashed rgba(251,191,36,0.3);
+    background: rgba(var(--yellow-rgb),0.08);
+    border: 1px dashed rgba(var(--yellow-rgb),0.3);
     color: var(--yellow); align-self: center;
     font-size: 0.75rem; font-style: italic;
     text-align: center; max-width: 100%;
@@ -975,10 +958,10 @@ function destroyChart(name) {
 const CHART_DEFAULTS = {
   responsive: true, maintainAspectRatio: false,
   plugins: {
-    legend: { labels: { color: '#e2e8f0', font: { size: 11 } } },
+    legend: { labels: { color: corTema('--text'), font: { size: 11 } } },
     tooltip: {
-      backgroundColor: '#1a2235', borderColor: '#1e293b', borderWidth: 1,
-      titleColor: '#e2e8f0', bodyColor: '#e2e8f0',
+      backgroundColor: corTema('--surface2'), borderColor: corTema('--border'), borderWidth: 1,
+      titleColor: corTema('--text'), bodyColor: corTema('--text'),
       callbacks: {
         label: ctx => {
           const v = ctx.parsed.y ?? ctx.parsed.x ?? ctx.parsed;
@@ -989,9 +972,9 @@ const CHART_DEFAULTS = {
     }
   },
   scales: {
-    x: { ticks: { color: '#94a3b8', font: { size: 10 } }, grid: { color: 'rgba(148,163,184,0.08)' } },
-    y: { ticks: { color: '#94a3b8', font: { size: 10 }, callback: v => fmtCurto(v) },
-         grid: { color: 'rgba(148,163,184,0.08)' } }
+    x: { ticks: { color: corTema('--text-dim'), font: { size: 10 } }, grid: { color: corTemaA('--text-dim-rgb', 0.08) } },
+    y: { ticks: { color: corTema('--text-dim'), font: { size: 10 }, callback: v => fmtCurto(v) },
+         grid: { color: corTemaA('--text-dim-rgb', 0.08) } }
   }
 };
 
@@ -1009,16 +992,16 @@ function renderWaterfall(estrutura) {
       data.push([0, v]);
       valoresExibir.push(v);
       if (isResultadoFinal(i)) {
-        cores.push(v >= 0 ? '#22C55E' : '#EF4444');
+        cores.push(v >= 0 ? corTema('--cor-resultado-pos') : corTema('--cor-resultado-neg'));
       } else {
-        cores.push(v >= 0 ? '#22D3EE' : '#EF4444');
+        cores.push(v >= 0 ? corTema('--cor-receita') : corTema('--cor-resultado-neg'));
       }
       running = v;
     } else {
       const novo = running - v;
       data.push([Math.min(running, novo), Math.max(running, novo)]);
       valoresExibir.push(-v);  // valor da dedução com sinal negativo
-      cores.push('#F87171');
+      cores.push(corTema('--red'));
       running = novo;
     }
   });
@@ -1032,7 +1015,7 @@ function renderWaterfall(estrutura) {
       plugins: {
         legend: { display: false },
         tooltip: {
-          backgroundColor: '#1a2235', titleColor: '#e2e8f0', bodyColor: '#e2e8f0',
+          backgroundColor: corTema('--surface2'), titleColor: corTema('--text'), bodyColor: corTema('--text'),
           callbacks: {
             label: ctx => {
               const item = estrutura[ctx.dataIndex];
@@ -1053,14 +1036,14 @@ function renderWaterfall(estrutura) {
       scales: {
         x: {
           ticks: {
-            color: '#e2e8f0', font: { size: 11, family: 'DM Sans' },
+            color: corTema('--text'), font: { size: 11, family: 'DM Sans' },
             maxRotation: 45, minRotation: 30, autoSkip: false
           },
-          grid: { color: 'rgba(148,163,184,0.06)' }
+          grid: { color: corTemaA('--text-dim-rgb', 0.06) }
         },
         y: {
-          ticks: { color: '#94a3b8', font: { size: 10 }, callback: v => fmtCurto(v) },
-          grid: { color: 'rgba(148,163,184,0.08)' }
+          ticks: { color: corTema('--text-dim'), font: { size: 10 }, callback: v => fmtCurto(v) },
+          grid: { color: corTemaA('--text-dim-rgb', 0.08) }
         }
       }
     }
@@ -1075,7 +1058,7 @@ function renderDonutGrupo(subgrupos, totalGeral) {
   const entries = Object.entries(porGrupo).sort((a, b) => b[1] - a[1]);
   const labels = entries.map(e => e[0]);
   const data = entries.map(e => e[1]);
-  const cores = labels.map(g => CORES_GRUPO[g] || '#94a3b8');
+  const cores = labels.map(g => CORES_GRUPO[g] || corTema('--text-dim'));
 
   // Offset: fatia dominante puxada pra fora
   const offset = data.map((_, i) => i === 0 ? 16 : 0);
@@ -1085,7 +1068,7 @@ function renderDonutGrupo(subgrupos, totalGeral) {
     data: {
       labels,
       datasets: [{
-        data, backgroundColor: cores, borderColor: '#0a0e17', borderWidth: 2,
+        data, backgroundColor: cores, borderColor: corTema('--bg'), borderWidth: 2,
         offset
       }]
     },
@@ -1094,8 +1077,8 @@ function renderDonutGrupo(subgrupos, totalGeral) {
       responsive: true, maintainAspectRatio: false,
       layout: { padding: 20 },
       plugins: {
-        legend: { position: 'right', labels: { color: '#e2e8f0', font: { size: 12 }, boxWidth: 14, padding: 12 } },
-        tooltip: { backgroundColor: '#1a2235', titleColor: '#e2e8f0', bodyColor: '#e2e8f0',
+        legend: { position: 'right', labels: { color: corTema('--text'), font: { size: 12 }, boxWidth: 14, padding: 12 } },
+        tooltip: { backgroundColor: corTema('--surface2'), titleColor: corTema('--text'), bodyColor: corTema('--text'),
           callbacks: { label: ctx => {
             const pct = (ctx.parsed / totalGeral * 100).toFixed(1).replace('.', ',');
             return ctx.label + ': ' + fmt(ctx.parsed) + ' (' + pct + '%)';
@@ -1131,7 +1114,7 @@ function renderPareto(subgrupos, totalGeral) {
   document.getElementById('paretoInsight').textContent =
     `${nVitais} subgrupos = 80% das despesas`;
 
-  const coresBarras = valores.map((_, i) => i < nVitais ? '#38bdf8' : '#475569');
+  const coresBarras = valores.map((_, i) => i < nVitais ? corTema('--accent') : corTema('--gray-escuro'));
 
   chartsInstances.pareto = new Chart(document.getElementById('chartPareto'), {
     data: {
@@ -1140,16 +1123,16 @@ function renderPareto(subgrupos, totalGeral) {
         { type: 'bar', label: 'Valor (R$)', data: valores,
           backgroundColor: coresBarras, borderRadius: 4, yAxisID: 'y', order: 2 },
         { type: 'line', label: '% Acumulado', data: acumPct,
-          borderColor: '#fbbf24', backgroundColor: 'rgba(251,191,36,0.1)',
-          tension: 0.2, pointRadius: 3, pointBackgroundColor: '#fbbf24',
+          borderColor: corTema('--yellow'), backgroundColor: corTemaA('--yellow-rgb', 0.1),
+          tension: 0.2, pointRadius: 3, pointBackgroundColor: corTema('--yellow'),
           yAxisID: 'y1', order: 1 }
       ]
     },
     options: {
       responsive: true, maintainAspectRatio: false,
       plugins: {
-        legend: { labels: { color: '#e2e8f0', font: { size: 11 } } },
-        tooltip: { backgroundColor: '#1a2235', titleColor: '#e2e8f0', bodyColor: '#e2e8f0',
+        legend: { labels: { color: corTema('--text'), font: { size: 11 } } },
+        tooltip: { backgroundColor: corTema('--surface2'), titleColor: corTema('--text'), bodyColor: corTema('--text'),
           callbacks: { label: ctx => {
             if (ctx.dataset.type === 'line') return '% Acumulado: ' + ctx.parsed.y.toFixed(1).replace('.',',') + '%';
             const pct = (ctx.parsed.y / totalGeral * 100).toFixed(1).replace('.', ',');
@@ -1160,7 +1143,7 @@ function renderPareto(subgrupos, totalGeral) {
           annotations: {
             linha80: {
               type: 'line', yMin: 80, yMax: 80, yScaleID: 'y1',
-              borderColor: '#f87171', borderWidth: 2, borderDash: [6, 4],
+              borderColor: corTema('--red'), borderWidth: 2, borderDash: [6, 4],
               label: { display: true, content: '80% (Pareto)', position: 'end',
                        backgroundColor: '#f87171', color: '#0a0e17', font: { size: 10, weight: 'bold' } }
             }
@@ -1168,15 +1151,15 @@ function renderPareto(subgrupos, totalGeral) {
         }
       },
       scales: {
-        x: { ticks: { color: '#94a3b8', font: { size: 9 }, maxRotation: 60, minRotation: 45 },
-             grid: { color: 'rgba(148,163,184,0.06)' } },
-        y: { position: 'left', ticks: { color: '#94a3b8', callback: v => fmtCurto(v) },
-             grid: { color: 'rgba(148,163,184,0.08)' },
-             title: { display: true, text: 'R$', color: '#94a3b8', font: { size: 10 } } },
+        x: { ticks: { color: corTema('--text-dim'), font: { size: 9 }, maxRotation: 60, minRotation: 45 },
+             grid: { color: corTemaA('--text-dim-rgb', 0.06) } },
+        y: { position: 'left', ticks: { color: corTema('--text-dim'), callback: v => fmtCurto(v) },
+             grid: { color: corTemaA('--text-dim-rgb', 0.08) },
+             title: { display: true, text: 'R$', color: corTema('--text-dim'), font: { size: 10 } } },
         y1: { position: 'right', min: 0, max: 100,
-              ticks: { color: '#fbbf24', callback: v => v + '%' },
+              ticks: { color: corTema('--yellow'), callback: v => v + '%' },
               grid: { display: false },
-              title: { display: true, text: '% Acumulado', color: '#fbbf24', font: { size: 10 } } }
+              title: { display: true, text: '% Acumulado', color: corTema('--yellow'), font: { size: 10 } } }
       }
     }
   });
@@ -1222,14 +1205,14 @@ function renderMensal(estrutura, meses, jsonDre) {
     {
       label: 'Receita Bruta' + sufRec, type: 'bar',
       data: dadosReceita,
-      backgroundColor: '#22D3EE',
+      backgroundColor: corTema('--cor-receita'),
       borderRadius: 4,
       order: 2
     },
     {
       label: 'Despesa Total' + sufDes, type: 'bar',
       data: dadosDespesa,
-      backgroundColor: '#F87171',
+      backgroundColor: corTema('--red'),
       borderRadius: 4,
       order: 2
     }
@@ -1239,11 +1222,11 @@ function renderMensal(estrutura, meses, jsonDre) {
     datasets.push({
       label: 'Resultado Final', type: 'line',
       data: dadosResultado,
-      borderColor: '#FACC15',
-      backgroundColor: 'rgba(250,204,21,0.15)',
+      borderColor: corTema('--amarelo-vivo'),
+      backgroundColor: corTemaA('--amarelo-vivo-rgb', 0.15),
       borderWidth: 3, tension: 0.2,
-      pointRadius: 6, pointBackgroundColor: '#FACC15',
-      pointBorderColor: '#0a0e17', pointBorderWidth: 2,
+      pointRadius: 6, pointBackgroundColor: corTema('--amarelo-vivo'),
+      pointBorderColor: corTema('--bg'), pointBorderWidth: 2,
       order: 1
     });
   }
@@ -1254,11 +1237,11 @@ function renderMensal(estrutura, meses, jsonDre) {
     options: {
       responsive: true, maintainAspectRatio: false,
       plugins: {
-        legend: { labels: { color: '#e2e8f0', font: { size: 11 }, boxWidth: 14, padding: 12 } },
-        tooltip: { backgroundColor: '#1a2235', titleColor: '#e2e8f0', bodyColor: '#e2e8f0',
+        legend: { labels: { color: corTema('--text'), font: { size: 11 }, boxWidth: 14, padding: 12 } },
+        tooltip: { backgroundColor: corTema('--surface2'), titleColor: corTema('--text'), bodyColor: corTema('--text'),
           callbacks: { label: ctx => ctx.dataset.label + ': ' + fmt(ctx.parsed.y) } },
         datalabels: {
-          color: '#e2e8f0',
+          color: corTema('--text'),
           font: { weight: 700, size: 10, family: 'DM Sans' },
           anchor: ctx => ctx.dataset.type === 'line' ? 'end' : 'end',
           align: ctx => ctx.dataset.type === 'line' ? 'top' : 'end',
@@ -1267,10 +1250,10 @@ function renderMensal(estrutura, meses, jsonDre) {
         }
       },
       scales: {
-        x: { ticks: { color: '#e2e8f0', font: { size: 11 } }, grid: { color: 'rgba(148,163,184,0.08)' } },
+        x: { ticks: { color: corTema('--text'), font: { size: 11 } }, grid: { color: corTemaA('--text-dim-rgb', 0.08) } },
         y: {
-          ticks: { color: '#94a3b8', callback: v => fmtCurto(v) },
-          grid: { color: 'rgba(148,163,184,0.08)' },
+          ticks: { color: corTema('--text-dim'), callback: v => fmtCurto(v) },
+          grid: { color: corTemaA('--text-dim-rgb', 0.08) },
           suggestedMax: Math.max(...dadosReceita, ...dadosDespesa) * 1.2
         }
       }
@@ -1278,7 +1261,11 @@ function renderMensal(estrutura, meses, jsonDre) {
   });
 }
 
+// Troca de tema: os gráficos guardam a cor resolvida na criação (canvas não lê CSS) — redesenha
+// com o mesmo dado, sem buscar de novo.
+Tema.aoTrocar(() => { if (window.__dreGraficos) renderGraficos(window.__dreGraficos); });
 async function renderGraficos(jsonDre) {
+  window.__dreGraficos = jsonDre;
   document.getElementById('graficosContainer').style.display = 'grid';
   const frac = !!jsonDre.fracionado;
 

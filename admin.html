@@ -6,21 +6,9 @@
 <title>Admin — Rizza Log</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%2338bdf8'/%3E%3Ctext x='50' y='72' font-family='Arial,sans-serif' font-size='68' font-weight='900' text-anchor='middle' fill='%230a0e17'%3ER%3C/text%3E%3C/svg%3E">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/tema.css">
+<script src="/tema.js"></script>
 <style>
-  :root {
-    --bg: #0a0e17;
-    --surface: #111827;
-    --surface2: #1a2235;
-    --border: #1e293b;
-    --text: #e2e8f0;
-    --text-dim: #94a3b8;
-    --accent: #38bdf8;
-    --accent2: #818cf8;
-    --green: #34d399;
-    --red: #f87171;
-    --orange: #fb923c;
-    --yellow: #fbbf24;
-  }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -78,7 +66,7 @@
 
   .btn-success {
     background: var(--green);
-    color: var(--bg);
+    color: var(--sobre-accent);
     border-color: var(--green);
     font-weight: 600;
   }
@@ -86,38 +74,38 @@
   .btn-success:disabled { opacity: 0.4; cursor: not-allowed; }
 
   .btn-danger {
-    background: rgba(248,113,113,0.12);
+    background: rgba(var(--red-rgb),0.12);
     color: var(--red);
-    border-color: rgba(248,113,113,0.3);
+    border-color: rgba(var(--red-rgb),0.3);
   }
-  .btn-danger:hover { background: rgba(248,113,113,0.22); }
+  .btn-danger:hover { background: rgba(var(--red-rgb),0.22); }
 
   .btn-warning {
-    background: rgba(251,146,60,0.12);
+    background: rgba(var(--orange-rgb),0.12);
     color: var(--orange);
-    border-color: rgba(251,146,60,0.3);
+    border-color: rgba(var(--orange-rgb),0.3);
     font-size: 0.75rem;
     padding: 5px 12px;
   }
-  .btn-warning:hover { background: rgba(251,146,60,0.22); }
+  .btn-warning:hover { background: rgba(var(--orange-rgb),0.22); }
 
   .btn-sm-danger {
-    background: rgba(248,113,113,0.1);
+    background: rgba(var(--red-rgb),0.1);
     color: var(--red);
-    border-color: rgba(248,113,113,0.25);
+    border-color: rgba(var(--red-rgb),0.25);
     font-size: 0.75rem;
     padding: 5px 12px;
   }
-  .btn-sm-danger:hover { background: rgba(248,113,113,0.22); }
+  .btn-sm-danger:hover { background: rgba(var(--red-rgb),0.22); }
 
   .btn-sm-green {
-    background: rgba(52,211,153,0.1);
+    background: rgba(var(--green-rgb),0.1);
     color: var(--green);
-    border-color: rgba(52,211,153,0.25);
+    border-color: rgba(var(--green-rgb),0.25);
     font-size: 0.75rem;
     padding: 5px 12px;
   }
-  .btn-sm-green:hover { background: rgba(52,211,153,0.22); }
+  .btn-sm-green:hover { background: rgba(var(--green-rgb),0.22); }
 
   /* Section card */
   .section {
@@ -183,8 +171,8 @@
     display: none;
   }
 
-  .form-feedback.success { background: rgba(52,211,153,0.1); color: var(--green); border: 1px solid rgba(52,211,153,0.25); }
-  .form-feedback.error   { background: rgba(248,113,113,0.1); color: var(--red);   border: 1px solid rgba(248,113,113,0.25); }
+  .form-feedback.success { background: rgba(var(--green-rgb),0.1); color: var(--green); border: 1px solid rgba(var(--green-rgb),0.25); }
+  .form-feedback.error   { background: rgba(var(--red-rgb),0.1); color: var(--red);   border: 1px solid rgba(var(--red-rgb),0.25); }
 
   /* Table */
   table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
@@ -200,9 +188,9 @@
   }
 
   tbody tr { transition: background 0.1s; }
-  tbody tr:hover { background: rgba(56,189,248,0.04); }
-  tbody tr:nth-child(even) { background: rgba(255,255,255,0.012); }
-  tbody tr:nth-child(even):hover { background: rgba(56,189,248,0.04); }
+  tbody tr:hover { background: rgba(var(--accent-rgb),0.04); }
+  tbody tr:nth-child(even) { background: rgba(var(--realce-rgb),0.012); }
+  tbody tr:nth-child(even):hover { background: rgba(var(--accent-rgb),0.04); }
 
   td { padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
 
@@ -211,11 +199,11 @@
     border-radius: 4px; font-size: 0.7rem; font-weight: 600;
   }
 
-  .badge-admin  { background: rgba(129,140,248,0.15); color: var(--accent2); }
-  .badge-viewer { background: rgba(56,189,248,0.12); color: var(--accent); }
-  .badge-on     { background: rgba(52,211,153,0.12); color: var(--green); }
-  .badge-off    { background: rgba(248,113,113,0.12); color: var(--red); }
-  .badge-tipo   { background: rgba(251,191,36,0.12); color: var(--yellow); margin: 2px 2px 2px 0; }
+  .badge-admin  { background: rgba(var(--accent2-rgb),0.15); color: var(--accent2); }
+  .badge-viewer { background: rgba(var(--accent-rgb),0.12); color: var(--accent); }
+  .badge-on     { background: rgba(var(--green-rgb),0.12); color: var(--green); }
+  .badge-off    { background: rgba(var(--red-rgb),0.12); color: var(--red); }
+  .badge-tipo   { background: rgba(var(--yellow-rgb),0.12); color: var(--yellow); margin: 2px 2px 2px 0; }
 
   /* Checkboxes de tipo */
   .tipo-checks { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 4px; }
@@ -371,34 +359,34 @@
     </div>
     <div class="section-body">
       <div id="rastrHealth" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:14px;margin-bottom:18px;">
-        <div style="background:#1a2235;border:1px solid #1e293b;border-radius:8px;padding:12px 14px;">
-          <div style="font-size:0.7rem;color:#94a3b8;text-transform:uppercase;font-weight:600;">Worker</div>
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;">
+          <div style="font-size:0.7rem;color:var(--text-dim);text-transform:uppercase;font-weight:600;">Worker</div>
           <div style="font-size:1.1rem;font-weight:700;margin-top:4px;" id="hWorker">—</div>
         </div>
-        <div style="background:#1a2235;border:1px solid #1e293b;border-radius:8px;padding:12px 14px;">
-          <div style="font-size:0.7rem;color:#94a3b8;text-transform:uppercase;font-weight:600;">Modo</div>
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;">
+          <div style="font-size:0.7rem;color:var(--text-dim);text-transform:uppercase;font-weight:600;">Modo</div>
           <div style="font-size:1.1rem;font-weight:700;margin-top:4px;" id="hModo">—</div>
         </div>
-        <div style="background:#1a2235;border:1px solid #1e293b;border-radius:8px;padding:12px 14px;">
-          <div style="font-size:0.7rem;color:#94a3b8;text-transform:uppercase;font-weight:600;">Última sync</div>
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;">
+          <div style="font-size:0.7rem;color:var(--text-dim);text-transform:uppercase;font-weight:600;">Última sync</div>
           <div style="font-size:1.1rem;font-weight:700;margin-top:4px;font-family:'JetBrains Mono',monospace;" id="hSync">—</div>
         </div>
-        <div style="background:#1a2235;border:1px solid #1e293b;border-radius:8px;padding:12px 14px;">
-          <div style="font-size:0.7rem;color:#94a3b8;text-transform:uppercase;font-weight:600;">Chamadas (60s)</div>
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;">
+          <div style="font-size:0.7rem;color:var(--text-dim);text-transform:uppercase;font-weight:600;">Chamadas (60s)</div>
           <div style="font-size:1.1rem;font-weight:700;margin-top:4px;font-family:'JetBrains Mono',monospace;" id="hChamadas">—</div>
         </div>
-        <div style="background:#1a2235;border:1px solid #1e293b;border-radius:8px;padding:12px 14px;">
-          <div style="font-size:0.7rem;color:#94a3b8;text-transform:uppercase;font-weight:600;">ORS 24h</div>
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;">
+          <div style="font-size:0.7rem;color:var(--text-dim);text-transform:uppercase;font-weight:600;">ORS 24h</div>
           <div style="font-size:1.1rem;font-weight:700;margin-top:4px;font-family:'JetBrains Mono',monospace;" id="hOrs">—</div>
         </div>
-        <div style="background:#1a2235;border:1px solid #1e293b;border-radius:8px;padding:12px 14px;">
-          <div style="font-size:0.7rem;color:#94a3b8;text-transform:uppercase;font-weight:600;">Erros 24h</div>
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;">
+          <div style="font-size:0.7rem;color:var(--text-dim);text-transform:uppercase;font-weight:600;">Erros 24h</div>
           <div style="font-size:1.1rem;font-weight:700;margin-top:4px;font-family:'JetBrains Mono',monospace;" id="hErros">—</div>
         </div>
       </div>
 
-      <div style="font-size:0.85rem;color:#94a3b8;text-transform:uppercase;font-weight:600;margin-bottom:8px;">📋 Log de chamadas (últimas 100)</div>
-      <div style="overflow:auto;max-height:340px;border:1px solid #1e293b;border-radius:8px;">
+      <div style="font-size:0.85rem;color:var(--text-dim);text-transform:uppercase;font-weight:600;margin-bottom:8px;">📋 Log de chamadas (últimas 100)</div>
+      <div style="overflow:auto;max-height:340px;border:1px solid var(--border);border-radius:8px;">
         <table style="font-size:0.78rem;">
           <thead>
             <tr>
@@ -410,7 +398,7 @@
               <th>Erro</th>
             </tr>
           </thead>
-          <tbody id="rastrLogBody"><tr><td colspan="6" style="padding:20px;text-align:center;color:#94a3b8;">Carregando...</td></tr></tbody>
+          <tbody id="rastrLogBody"><tr><td colspan="6" style="padding:20px;text-align:center;color:var(--text-dim);">Carregando...</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -455,11 +443,11 @@ async function rastrLoad() {
     const h = await r1.json();
     if (h.ok) {
       document.getElementById('hWorker').innerHTML = h.worker_running
-        ? '<span style="color:#34d399;">● rodando</span>'
-        : '<span style="color:#f87171;">● parado</span>';
+        ? '<span style="color:var(--green);">● rodando</span>'
+        : '<span style="color:var(--red);">● parado</span>';
       document.getElementById('hModo').innerHTML = h.modo_simulado
-        ? '<span style="color:#fbbf24;">SIMULADO</span>'
-        : '<span style="color:#34d399;">REAL (3S)</span>';
+        ? '<span style="color:var(--yellow);">SIMULADO</span>'
+        : '<span style="color:var(--green);">REAL (3S)</span>';
       document.getElementById('hSync').textContent = fmtTempo(h.ultima_sync);
       document.getElementById('hChamadas').textContent = h.chamadas_60s || 0;
       document.getElementById('hOrs').textContent = h.ors_chamadas_24h || 0;
@@ -471,14 +459,14 @@ async function rastrLoad() {
     if (l.ok) {
       const tb = document.getElementById('rastrLogBody');
       if (l.data.length === 0) {
-        tb.innerHTML = '<tr><td colspan="6" style="padding:20px;text-align:center;color:#94a3b8;">Sem chamadas registradas</td></tr>';
+        tb.innerHTML = '<tr><td colspan="6" style="padding:20px;text-align:center;color:var(--text-dim);">Sem chamadas registradas</td></tr>';
         return;
       }
       tb.innerHTML = l.data.slice(0, 100).map(row => {
         const tempo = new Date(row.chamado_em).toLocaleTimeString('pt-BR');
-        const provCor = row.provider === '3S' ? '#38bdf8' : row.provider === 'ORS' ? '#818cf8' : '#fbbf24';
-        const statusCor = (row.status_http >= 200 && row.status_http < 300) ? '#34d399' : '#f87171';
-        const erro = row.erro_msg ? `<span title="${row.erro_msg.replace(/"/g,'&quot;')}" style="color:#f87171;">${row.erro_codigo || 'ERRO'}</span>` : '';
+        const provCor = row.provider === '3S' ? 'var(--accent)' : row.provider === 'ORS' ? 'var(--accent2)' : 'var(--yellow)';
+        const statusCor = (row.status_http >= 200 && row.status_http < 300) ? 'var(--green)' : 'var(--red)';
+        const erro = row.erro_msg ? `<span title="${row.erro_msg.replace(/"/g,'&quot;')}" style="color:var(--red);">${row.erro_codigo || 'ERRO'}</span>` : '';
         return `<tr>
           <td style="white-space:nowrap;font-family:'JetBrains Mono',monospace;">${tempo}</td>
           <td><span style="color:${provCor};font-weight:600;">${row.provider}</span></td>
@@ -819,7 +807,7 @@ async function salvarEditarAcesso() {
 </script>
 
 <!-- Modal: Editar acesso do usuário -->
-<div id="modalEditAcesso" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;align-items:center;justify-content:center;padding:20px;">
+<div id="modalEditAcesso" style="display:none;position:fixed;inset:0;background:rgba(var(--sombra-rgb),0.7);z-index:1000;align-items:center;justify-content:center;padding:20px;">
   <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:22px;max-width:520px;width:100%;max-height:88vh;overflow-y:auto;">
     <h2 id="eaTitulo" style="font-size:1.05rem;margin-bottom:4px;color:var(--accent);">Editar acesso</h2>
     <div id="eaEmail" style="font-family:'JetBrains Mono',monospace;font-size:0.78rem;color:var(--text-dim);margin-bottom:18px;"></div>

@@ -7,22 +7,9 @@
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%2338bdf8'/%3E%3Ctext x='50' y='72' font-family='Arial,sans-serif' font-size='68' font-weight='900' text-anchor='middle' fill='%230a0e17'%3ER%3C/text%3E%3C/svg%3E">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="/tema.css">
+<script src="/tema.js"></script>
 <style>
-  :root {
-    --bg: #0a0e17;
-    --surface: #111827;
-    --surface2: #1a2235;
-    --border: #1e293b;
-    --text: #e2e8f0;
-    --text-dim: #94a3b8;
-    --accent: #38bdf8;
-    --accent2: #818cf8;
-    --green: #34d399;
-    --red: #f87171;
-    --orange: #fb923c;
-    --yellow: #fbbf24;
-    --gray: #64748b;
-  }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { height: 100%; overflow: hidden; }
   body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); display: flex; flex-direction: column; }
@@ -72,14 +59,14 @@
     padding: 3px 9px; border-radius: 5px; font-size: 0.72rem; font-weight: 600;
     display: inline-block;
   }
-  .badge-Aberta   { background: rgba(56,189,248,0.15); color: var(--accent); }
-  .badge-Em\\ rota  { background: rgba(251,146,60,0.15); color: var(--orange); }
-  .badge-Em-rota  { background: rgba(251,146,60,0.15); color: var(--orange); }
-  .badge-No-destino { background: rgba(167,139,250,0.15); color: #a78bfa; }
-  .badge-Desengatada { background: rgba(250,204,21,0.15); color: #facc15; }
-  .badge-Entregue { background: rgba(52,211,153,0.15); color: var(--green); }
-  .badge-Cancelada{ background: rgba(248,113,113,0.15); color: var(--red); }
-  .badge-Continuada { background: rgba(148,163,184,0.15); color: var(--text-dim); }
+  .badge-Aberta   { background: rgba(var(--accent-rgb),0.15); color: var(--accent); }
+  .badge-Em\\ rota  { background: rgba(var(--orange-rgb),0.15); color: var(--orange); }
+  .badge-Em-rota  { background: rgba(var(--orange-rgb),0.15); color: var(--orange); }
+  .badge-No-destino { background: rgba(var(--violet-rgb),0.15); color: var(--violet); }
+  .badge-Desengatada { background: rgba(var(--amarelo-vivo-rgb),0.15); color: var(--amarelo-vivo); }
+  .badge-Entregue { background: rgba(var(--green-rgb),0.15); color: var(--green); }
+  .badge-Cancelada{ background: rgba(var(--red-rgb),0.15); color: var(--red); }
+  .badge-Continuada { background: rgba(var(--text-dim-rgb),0.15); color: var(--text-dim); }
 
   .kpi-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .kpi-mini { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
@@ -88,7 +75,7 @@
 
   .btn-acao {
     width: 100%; padding: 10px; background: var(--accent); border: none;
-    color: var(--bg); font-family: 'DM Sans', sans-serif; font-weight: 600;
+    color: var(--sobre-accent); font-family: 'DM Sans', sans-serif; font-weight: 600;
     font-size: 0.85rem; border-radius: 8px; cursor: pointer; transition: all 0.15s;
   }
   .btn-acao:hover { background: var(--accent2); }
@@ -101,7 +88,7 @@
   .marker-icon {
     width: 38px; height: 38px; border-radius: 50%; border: 2px solid #fff;
     display: flex; align-items: center; justify-content: center;
-    font-size: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.55); background: var(--surface);
+    font-size: 20px; box-shadow: 0 2px 10px rgba(var(--sombra-rgb),0.55); background: var(--surface);
   }
   .leaflet-labels-bright { filter: brightness(2.8) contrast(1.15); }
   .leaflet-popup-content-wrapper { background: var(--surface); color: var(--text); border-radius: 10px; }
@@ -109,14 +96,14 @@
   .leaflet-popup-content { font-family: 'DM Sans', sans-serif; font-size: 0.82rem; margin: 10px 14px; }
 
   .legenda {
-    position: absolute; bottom: 14px; left: 14px; background: rgba(17,24,39,0.92);
+    position: absolute; bottom: 14px; left: 14px; background: rgba(var(--surface-rgb),0.92);
     border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
     font-size: 0.74rem; z-index: 1000; min-width: 200px;
   }
   .legenda-row { display: flex; align-items: center; gap: 8px; margin: 3px 0; }
   .legenda-row .line { width: 24px; height: 3px; border-radius: 2px; }
 
-  .auto-tag { padding: 1px 6px; border-radius: 3px; background: rgba(251,191,36,0.18); color: var(--yellow); font-size: 0.68rem; font-weight: 600; margin-left: 4px; }
+  .auto-tag { padding: 1px 6px; border-radius: 3px; background: rgba(var(--yellow-rgb),0.18); color: var(--yellow); font-size: 0.68rem; font-weight: 600; margin-left: 4px; }
 </style>
 </head>
 <body>
@@ -145,12 +132,12 @@
     <div id="mapa"></div>
     <div class="legenda">
       <div class="legenda-row"><div class="line" style="background:#3b82f6;"></div> Rota planejada</div>
-      <div class="legenda-row"><div class="line" style="background:#94a3b8;border:1px dashed #94a3b8;"></div> Trajeto percorrido</div>
+      <div class="legenda-row"><div class="line" style="background:var(--text-dim);border:1px dashed var(--text-dim);"></div> Trajeto percorrido</div>
       <div class="legenda-row"><span style="font-size:14px;">🟢</span> Origem</div>
       <div class="legenda-row"><span style="font-size:14px;">📍</span> Destinos</div>
       <div class="legenda-row"><span style="font-size:14px;">🚚</span> Posição atual</div>
-      <div class="legenda-row" id="legPosFech" style="display:none;"><span style="color:#fb923c;">┈┈</span> Depois do fechamento</div>
-      <div class="legenda-row" id="legSalto" style="display:none;" title="Uma das duas posições é falsa — o veículo não pode ter feito o trecho no tempo registrado. A linha do GPS não atravessa; o KM RASTREADOR (odômetro) mede."><span style="color:#fbbf24;">●</span> Salto impossível (linha quebrada)</div>
+      <div class="legenda-row" id="legPosFech" style="display:none;"><span style="color:var(--orange);">┈┈</span> Depois do fechamento</div>
+      <div class="legenda-row" id="legSalto" style="display:none;" title="Uma das duas posições é falsa — o veículo não pode ter feito o trecho no tempo registrado. A linha do GPS não atravessa; o KM RASTREADOR (odômetro) mede."><span style="color:var(--yellow);">●</span> Salto impossível (linha quebrada)</div>
     </div>
   </div>
 
@@ -216,23 +203,23 @@
 </div>
 
 <!-- Modal Finalizar descarga (carga desengatada) -->
-<div id="modalFinalizar" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center;">
+<div id="modalFinalizar" style="display:none;position:fixed;inset:0;background:rgba(var(--sombra-rgb),0.6);z-index:1000;align-items:center;justify-content:center;">
   <div style="background:var(--surface,#11161f);border:1px solid var(--border,#1f2733);border-radius:12px;padding:22px;width:min(440px,92vw);">
     <h2 style="margin:0 0 6px;font-size:1.1rem;">Finalizar descarga</h2>
     <p style="color:var(--text-dim,#94a3b8);font-size:0.85rem;margin:0 0 14px;">
       A carga será marcada como <strong>Entregue</strong>. Registre quem efetivamente fez a descarga
       (se já preenchido no desengate, vem aqui e pode ser ajustado).
     </p>
-    <label style="display:block;font-size:0.8rem;margin-bottom:4px;">Cavalo que fez a descarga <span style="color:#f87171;">*</span></label>
+    <label style="display:block;font-size:0.8rem;margin-bottom:4px;">Cavalo que fez a descarga <span style="color:var(--red);">*</span></label>
     <input type="text" id="fzCavalo" list="dlFzCavalos" placeholder="Placa" style="text-transform:uppercase;width:100%;padding:9px;border-radius:8px;border:1px solid var(--border,#1f2733);background:var(--bg,#0a0e17);color:var(--text,#e2e8f0);margin-bottom:12px;">
     <datalist id="dlFzCavalos"></datalist>
-    <label style="display:block;font-size:0.8rem;margin-bottom:4px;">Motorista que fez a descarga <span style="color:#f87171;">*</span></label>
+    <label style="display:block;font-size:0.8rem;margin-bottom:4px;">Motorista que fez a descarga <span style="color:var(--red);">*</span></label>
     <input type="text" id="fzMotorista" list="dlFzMotoristas" placeholder="Nome ou CPF" style="width:100%;padding:9px;border-radius:8px;border:1px solid var(--border,#1f2733);background:var(--bg,#0a0e17);color:var(--text,#e2e8f0);margin-bottom:8px;">
     <datalist id="dlFzMotoristas"></datalist>
-    <div id="fzErro" style="color:#f87171;font-size:0.82rem;min-height:1.1em;"></div>
+    <div id="fzErro" style="color:var(--red);font-size:0.82rem;min-height:1.1em;"></div>
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">
       <button class="btn-acao" onclick="fecharFinalizar()">Cancelar</button>
-      <button class="btn-acao" id="fzConfirmar" style="border-color:#34d399;color:#34d399;" onclick="confirmarFinalizar()">🏁 Finalizar descarga</button>
+      <button class="btn-acao" id="fzConfirmar" style="border-color:var(--green);color:var(--green);" onclick="confirmarFinalizar()">🏁 Finalizar descarga</button>
     </div>
   </div>
 </div>
@@ -331,7 +318,10 @@
     }
   }
 
+  // Troca de tema: rota e marcadores levam a cor resolvida (Leaflet desenha em SVG) — redesenha.
+  Tema.aoTrocar(() => { if (window.__cargaMapa) renderizar(window.__cargaMapa); });
   function renderizar(d) {
+    window.__cargaMapa = d;
     clearLayers();
     const c = d.carga;
     CARGA_ATUAL = c;
@@ -440,8 +430,8 @@
     const bounds = [];
     if (d.origem.latitude != null && d.origem.longitude != null) {
       const ll = [d.origem.latitude, d.origem.longitude];
-      addLayer(L.marker(ll, { icon: icon('🟢', '#34d399') }).bindPopup(`<strong>Origem</strong><br>${d.origem.cidade}/${d.origem.uf}`));
-      addLayer(L.circle(ll, { radius: 5000, color: '#34d399', weight: 1, fillOpacity: 0.05, dashArray: '4,4' }));
+      addLayer(L.marker(ll, { icon: icon('🟢', corTema('--green')) }).bindPopup(`<strong>Origem</strong><br>${d.origem.cidade}/${d.origem.uf}`));
+      addLayer(L.circle(ll, { radius: 5000, color: corTema('--green'), weight: 1, fillOpacity: 0.05, dashArray: '4,4' }));
       bounds.push(ll);
     }
 
@@ -458,8 +448,8 @@
     // Ponto do cliente (âncora) com o raio de chegada — só com a chave
     if (d.ancora && d.ancora.lat != null) {
       const ll = [d.ancora.lat, d.ancora.lng];
-      addLayer(L.marker(ll, { icon: icon('📍', '#f472b6') }).bindPopup(`<strong>Ponto do cliente</strong><br>raio de ${d.ancora.raio_km} km`));
-      addLayer(L.circle(ll, { radius: (d.ancora.raio_km || 2) * 1000, color: '#f472b6', weight: 1, fillOpacity: 0.08 }));
+      addLayer(L.marker(ll, { icon: icon('📍', corTema('--pink')) }).bindPopup(`<strong>Ponto do cliente</strong><br>raio de ${d.ancora.raio_km} km`));
+      addLayer(L.circle(ll, { radius: (d.ancora.raio_km || 2) * 1000, color: corTema('--pink'), weight: 1, fillOpacity: 0.08 }));
       bounds.push(ll);
     }
 
@@ -496,7 +486,7 @@
       segmentos.push(seg);
       segmentos.forEach(sg => {
         if (sg.length > 1) {
-          addLayer(L.polyline(sg, { color: '#94a3b8', weight: 3, opacity: 0.9, dashArray: '6,6' }));
+          addLayer(L.polyline(sg, { color: corTema('--text-dim'), weight: 3, opacity: 0.9, dashArray: '6,6' }));
         }
       });
       // As duas bolinhas de cada corte sao as PONTAS do buraco: o ultimo ponto confiavel
@@ -521,7 +511,7 @@
               : 'Sem odômetro nos dois pontos, este trecho não é medido por nenhum '
                 + 'instrumento.');
         [pts[i], pts[i + 1]].forEach(pp => addLayer(
-          L.circleMarker(pp, { radius: 4, color: '#fbbf24', weight: 2, fillOpacity: 0.9 })
+          L.circleMarker(pp, { radius: 4, color: corTema('--yellow'), weight: 2, fillOpacity: 0.9 })
             .bindPopup(pop)));
       });
       if (cortes.size) {
@@ -538,7 +528,7 @@
     // passa perto por coincidência e o olho lê "teleporte").
     if (d.trajeto_pos_fechamento && d.trajeto_pos_fechamento.length > 1) {
       const ptsPos = d.trajeto_pos_fechamento.map(p => [p.lat, p.lng]);
-      addLayer(L.polyline(ptsPos, { color: '#fb923c', weight: 3, opacity: 0.95, dashArray: '2,7' })
+      addLayer(L.polyline(ptsPos, { color: corTema('--orange'), weight: 3, opacity: 0.95, dashArray: '2,7' })
         .bindPopup('<strong>Depois do fechamento</strong><br>' +
                    d.trajeto_pos_fechamento.length + ' posições após a conclusão registrada'));
       ptsPos.forEach(p => bounds.push(p));
@@ -547,7 +537,7 @@
     // Posição atual (último ponto do trajeto)
     if (d.ultima_posicao) {
       const ll = [d.ultima_posicao.lat, d.ultima_posicao.lng];
-      addLayer(L.marker(ll, { icon: icon('🚚', '#fb923c') }).bindPopup(
+      addLayer(L.marker(ll, { icon: icon('🚚', corTema('--orange')) }).bindPopup(
         `<strong>Última posição</strong><br>${d.ultima_posicao.cidade || '—'}/${d.ultima_posicao.uf || '—'}<br>${d.ultima_posicao.velocidade || 0} km/h`
       ));
       bounds.push(ll);

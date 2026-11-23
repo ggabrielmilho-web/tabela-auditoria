@@ -7,12 +7,9 @@
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%2338bdf8'/%3E%3Ctext x='50' y='72' font-family='Arial,sans-serif' font-size='68' font-weight='900' text-anchor='middle' fill='%230a0e17'%3ER%3C/text%3E%3C/svg%3E">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="stylesheet" href="/tema.css">
+<script src="/tema.js"></script>
 <style>
-  :root {
-    --bg: #0a0e17; --surface: #111827; --surface2: #1a2235; --border: #1e293b;
-    --text: #e2e8f0; --text-dim: #94a3b8; --accent: #38bdf8; --accent2: #818cf8;
-    --green: #34d399; --red: #f87171; --orange: #fb923c; --yellow: #fbbf24;
-  }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
   @keyframes fadeUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
@@ -22,7 +19,7 @@
   .spinner { width: 44px; height: 44px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; }
   .loading-screen h2 { font-size: 1.1rem; font-weight: 600; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
   .loading-screen p { color: var(--text-dim); font-size: 0.85rem; }
-  .error-box { margin-top: 16px; padding: 14px 20px; background: rgba(248,113,113,0.08); border: 1px solid rgba(248,113,113,0.25); border-radius: 10px; color: var(--red); font-size: 0.82rem; max-width: 620px; text-align: center; line-height: 1.5; }
+  .error-box { margin-top: 16px; padding: 14px 20px; background: rgba(var(--red-rgb),0.08); border: 1px solid rgba(var(--red-rgb),0.25); border-radius: 10px; color: var(--red); font-size: 0.82rem; max-width: 620px; text-align: center; line-height: 1.5; }
   .error-box code { display: block; margin-top: 8px; font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; color: var(--text-dim); word-break: break-all; }
 
   /* sem teto de largura: tela de tabela — tirar o zoom (Ctrl −) mostra mais colunas (padrão de 19/11/2026) */
@@ -37,7 +34,7 @@
   .controls { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
   .toggle { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
   .toggle button { padding: 8px 14px; background: var(--surface2); border: none; color: var(--text-dim); font-family: 'DM Sans', sans-serif; font-weight: 600; font-size: 0.82rem; cursor: pointer; transition: all 0.15s; }
-  .toggle button.active { background: var(--accent); color: var(--bg); }
+  .toggle button.active { background: var(--accent); color: var(--sobre-accent); }
   .field-label { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); font-weight: 700; margin-right: 4px; }
   /* ── Seletor de meses (multi-seleção) ── */
   .mespicker { position: relative; display: inline-block; }
@@ -52,7 +49,7 @@
   .mes-pop {
     position: absolute; top: calc(100% + 6px); left: 0; z-index: 50; width: 244px; display: none;
     background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 12px;
-    box-shadow: 0 14px 36px rgba(0,0,0,0.55);
+    box-shadow: 0 14px 36px rgba(var(--sombra-rgb),0.55);
   }
   .mes-pop.open { display: block; animation: fadeUp 0.18s ease; }
   .mes-pop-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; font-weight: 700; font-size: 0.9rem; }
@@ -65,7 +62,7 @@
     cursor: pointer; text-transform: capitalize; transition: all 0.12s; user-select: none;
   }
   .mes-cell:hover { border-color: var(--accent2); color: var(--text); }
-  .mes-cell.sel { background: var(--accent); border-color: var(--accent); color: #0a0e17; }
+  .mes-cell.sel { background: var(--accent); border-color: var(--accent); color: var(--sobre-accent); }
   .mes-pop-foot { display: flex; justify-content: space-between; margin-top: 12px; }
   .mes-pop-foot button { background: none; border: none; color: var(--accent); font-weight: 700; font-size: 0.8rem; cursor: pointer; padding: 2px 4px; }
   .mes-pop-foot button:hover { text-decoration: underline; }
@@ -104,14 +101,14 @@
   tbody td { padding: 7px 12px; border-bottom: 1px solid var(--border); text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 0.76rem; }
   tbody td:first-child { text-align: left; font-family: 'DM Sans', sans-serif; font-size: 0.82rem; position: sticky; left: 0; background: var(--surface); z-index: 1; max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
   tbody td.bar { position: relative; }
-  tbody td.bar .barfill { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(56,189,248,0.13); z-index: 0; }
+  tbody td.bar .barfill { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(var(--accent-rgb),0.13); z-index: 0; }
   tbody td.bar span { position: relative; z-index: 1; }
-  tbody tr:hover td { background: rgba(56,189,248,0.05); }
+  tbody tr:hover td { background: rgba(var(--accent-rgb),0.05); }
   tbody tr:hover td:first-child { background: #15203360; }
   .pill { font-size: 0.64rem; font-weight: 700; padding: 2px 7px; border-radius: 10px; }
-  .pill.FROTA { background: rgba(91,134,176,0.18); color: #88aacb; }
-  .pill.AGREGADO { background: rgba(79,157,127,0.18); color: #6cbf9f; }
-  .pill.CARRETEIRO { background: rgba(192,138,91,0.18); color: #cba074; }
+  .pill.FROTA { background: rgba(91,134,176,0.18); color: var(--frota-txt); }
+  .pill.AGREGADO { background: rgba(79,157,127,0.18); color: var(--agregado-txt); }
+  .pill.CARRETEIRO { background: rgba(192,138,91,0.18); color: var(--carreteiro-txt); }
   tfoot td { position: sticky; bottom: 0; z-index: 2; background: var(--surface2); padding: 10px 12px; text-align: right; font-weight: 700; font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; border-top: 2px solid var(--border); }
   tfoot td:first-child { text-align: left; left: 0; z-index: 3; font-family: 'DM Sans', sans-serif; }
   .empty-state { text-align: center; padding: 50px 20px; color: var(--text-dim); }
@@ -119,10 +116,10 @@
   tbody tr.clickable { cursor: pointer; }
 
   /* ── Drawer de detalhe do veículo ── */
-  .drawer-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 200; opacity: 0; pointer-events: none; transition: opacity 0.2s; }
+  .drawer-overlay { position: fixed; inset: 0; background: rgba(var(--sombra-rgb),0.55); z-index: 200; opacity: 0; pointer-events: none; transition: opacity 0.2s; }
   .drawer-overlay.open { opacity: 1; pointer-events: auto; }
   .drawer { position: fixed; top: 0; right: 0; height: 100vh; width: min(860px, 96vw); z-index: 201;
-    background: var(--bg); border-left: 1px solid var(--border); box-shadow: -16px 0 40px rgba(0,0,0,0.5);
+    background: var(--bg); border-left: 1px solid var(--border); box-shadow: -16px 0 40px rgba(var(--sombra-rgb),0.5);
     transform: translateX(100%); transition: transform 0.25s ease; display: flex; flex-direction: column; }
   .drawer.open { transform: translateX(0); }
   .drawer-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 18px 22px; border-bottom: 1px solid var(--border); }
@@ -145,11 +142,11 @@
   table.mini thead th:first-child { text-align: left; }
   table.mini td { padding: 6px 10px; border-bottom: 1px solid var(--border); text-align: right; font-family: 'JetBrains Mono', monospace; }
   table.mini td:first-child { text-align: left; font-family: 'DM Sans', sans-serif; max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
-  table.mini tbody tr:hover td { background: rgba(56,189,248,0.05); }
+  table.mini tbody tr:hover td { background: rgba(var(--accent-rgb),0.05); }
   .pill-sm { font-size: 0.6rem; font-weight: 700; padding: 1px 6px; border-radius: 8px; }
-  .pill-sm.FROTA { background: rgba(91,134,176,0.18); color: #88aacb; }
-  .pill-sm.AGREGADO { background: rgba(79,157,127,0.18); color: #6cbf9f; }
-  .pill-sm.CARRETEIRO { background: rgba(192,138,91,0.18); color: #cba074; }
+  .pill-sm.FROTA { background: rgba(91,134,176,0.18); color: var(--frota-txt); }
+  .pill-sm.AGREGADO { background: rgba(79,157,127,0.18); color: var(--agregado-txt); }
+  .pill-sm.CARRETEIRO { background: rgba(192,138,91,0.18); color: var(--carreteiro-txt); }
   .rel-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px,1fr)); gap: 10px; }
   .rel-box { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
   .rel-box .t { font-size: 0.66rem; text-transform: uppercase; color: var(--text-dim); font-weight: 700; margin-bottom: 6px; }
@@ -586,8 +583,10 @@ function renderDonutLegend(items) {
   }).join('');
 }
 
+// Troca de tema: redesenha os gráficos (cor resolvida na criação) com o mesmo dado.
+Tema.aoTrocar(() => { if (DADOS) render(); });
 function renderGraficos(arr) {
-  const tema = { grid: 'rgba(148,163,184,0.12)', tick: '#94a3b8' };
+  const tema = { grid: corTemaA('--text-dim-rgb', 0.12), tick: corTema('--text-dim') };
   if (DADOS && DADOS.custos_cliente) {
     renderGraficosCliente(arr, tema);
     return;
@@ -662,8 +661,8 @@ function renderGraficos(arr) {
         const { ctx, chartArea: { left, right, top, bottom } } = chart;
         const x = (left + right) / 2, y = (top + bottom) / 2;
         ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillStyle = '#94a3b8'; ctx.font = "600 10px 'DM Sans', sans-serif"; ctx.fillText(prejuizo ? 'Resultado' : 'Faturamento', x, y - 11);
-        ctx.fillStyle = prejuizo ? '#f87171' : '#e2e8f0'; ctx.font = "700 14px 'JetBrains Mono', monospace";
+        ctx.fillStyle = corTema('--text-dim'); ctx.font = "600 10px 'DM Sans', sans-serif"; ctx.fillText(prejuizo ? 'Resultado' : 'Faturamento', x, y - 11);
+        ctx.fillStyle = prejuizo ? corTema('--red') : corTema('--text'); ctx.font = "700 14px 'JetBrains Mono', monospace";
         ctx.fillText(fmtBRL(prejuizo ? resultado : fat), x, y + 7);
         ctx.restore();
       }
@@ -673,7 +672,7 @@ function renderGraficos(arr) {
       plugins: [donutLabels, centro],
       data: {
         labels: parts.map(p => p[0]),
-        datasets: [{ data: parts.map(p => p[1]), backgroundColor: parts.map(p => p[2]), borderColor: '#0a0e17', borderWidth: 2, hoverOffset: 6 }]
+        datasets: [{ data: parts.map(p => p[1]), backgroundColor: parts.map(p => p[2]), borderColor: corTema('--bg'), borderWidth: 2, hoverOffset: 6 }]
       },
       options: {
         maintainAspectRatio: false, cutout: '62%',
@@ -692,7 +691,7 @@ function renderGraficos(arr) {
       plugins: [donutLabels],
       data: {
         labels: tipos,
-        datasets: [{ data: tipos.map(k => porTipo[k].faturamento), backgroundColor: tipos.map(k => corTipo(k)), borderColor: '#0a0e17', borderWidth: 2, hoverOffset: 6 }]
+        datasets: [{ data: tipos.map(k => porTipo[k].faturamento), backgroundColor: tipos.map(k => corTipo(k)), borderColor: corTema('--bg'), borderWidth: 2, hoverOffset: 6 }]
       },
       options: {
         maintainAspectRatio: false,
@@ -763,14 +762,14 @@ function renderGraficosCliente(arr, tema) {
     const { ctx, chartArea: { left, right, top, bottom } } = chart;
     const x = (left + right) / 2, y = (top + bottom) / 2;
     ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillStyle = '#94a3b8'; ctx.font = "600 10px 'DM Sans', sans-serif"; ctx.fillText(prejuizo ? 'Resultado' : 'Receita', x, y - 11);
-    ctx.fillStyle = prejuizo ? '#f87171' : '#e2e8f0'; ctx.font = "700 14px 'JetBrains Mono', monospace";
+    ctx.fillStyle = corTema('--text-dim'); ctx.font = "600 10px 'DM Sans', sans-serif"; ctx.fillText(prejuizo ? 'Resultado' : 'Receita', x, y - 11);
+    ctx.fillStyle = prejuizo ? corTema('--red') : corTema('--text'); ctx.font = "700 14px 'JetBrains Mono', monospace";
     ctx.fillText(fmtBRL(prejuizo ? resultado : receita), x, y + 7); ctx.restore();
   } };
   destroy('share');
   charts.share = new Chart(document.getElementById('chartShare'), {
     type: 'doughnut', plugins: [donutLabels, centro],
-    data: { labels: parts.map(p => p[0]), datasets: [{ data: parts.map(p => p[1]), backgroundColor: parts.map(p => p[2]), borderColor: '#0a0e17', borderWidth: 2, hoverOffset: 6 }] },
+    data: { labels: parts.map(p => p[0]), datasets: [{ data: parts.map(p => p[1]), backgroundColor: parts.map(p => p[2]), borderColor: corTema('--bg'), borderWidth: 2, hoverOffset: 6 }] },
     options: { maintainAspectRatio: false, cutout: '62%',
       plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => ` ${c.label}: ${fmtBRL2(c.raw)} (${(c.raw / totComp * 100).toFixed(1)}% da rec.)` } } } }
   });
@@ -827,7 +826,7 @@ function renderTabela(arr, t) {
     return;
   }
   const maxFat = Math.max(1, ...arr.map(r => r.faturamento));
-  const corMargem = m => { const x = Math.max(-0.5, Math.min(0.5, m)); const h = (x + 0.5) * 120; return `hsl(${h},65%,55%)`; };
+  const corMargem = m => { const x = Math.max(-0.5, Math.min(0.5, m)); const h = (x + 0.5) * 120; return `hsl(${h},65%,var(--margem-l))`; };
 
   tb.innerHTML = arr.map(r => {
     const margem = r.faturamento ? r.resultado / r.faturamento : 0;
@@ -867,7 +866,7 @@ function renderTabela(arr, t) {
 
 // Visão da frota (recorte Cavalo + só Frota): custo real por cavalo (pedágio + combustível + ARLA)
 function renderTabelaFrota(arr, t) {
-  const corMargem = m => { const x = Math.max(-0.5, Math.min(0.5, m)); const h = (x + 0.5) * 120; return `hsl(${h},65%,55%)`; };
+  const corMargem = m => { const x = Math.max(-0.5, Math.min(0.5, m)); const h = (x + 0.5) * 120; return `hsl(${h},65%,var(--margem-l))`; };
   document.getElementById('thead').innerHTML = `<tr>
     <th onclick="ordenar('dim')">Cavalo${setaOrd('dim')}</th>
     <th onclick="ordenar('viagens')">Viagens${setaOrd('viagens')}</th>
@@ -940,7 +939,7 @@ function renderTabelaFrota(arr, t) {
 
 // Visão da carreta: manutenção da carreta rateada entre as carretas Rizza (frota + agregado)
 function renderTabelaCarreta(arr, t) {
-  const corMargem = m => { const x = Math.max(-0.5, Math.min(0.5, m)); const h = (x + 0.5) * 120; return `hsl(${h},65%,55%)`; };
+  const corMargem = m => { const x = Math.max(-0.5, Math.min(0.5, m)); const h = (x + 0.5) * 120; return `hsl(${h},65%,var(--margem-l))`; };
   document.getElementById('thead').innerHTML = `<tr>
     <th onclick="ordenar('dim')">Carreta${setaOrd('dim')}</th>
     <th onclick="ordenar('tipo')">Tipo${setaOrd('tipo')}</th>
@@ -997,7 +996,7 @@ function renderTabelaCarreta(arr, t) {
 
 // Visão de cliente: margem por cliente (consolidado por raiz de CNPJ), custo de frota (cavalo+carreta) alocado
 function renderTabelaCliente(arr, t) {
-  const corMargem = m => { const x = Math.max(-0.5, Math.min(0.5, m)); const h = (x + 0.5) * 120; return `hsl(${h},65%,55%)`; };
+  const corMargem = m => { const x = Math.max(-0.5, Math.min(0.5, m)); const h = (x + 0.5) * 120; return `hsl(${h},65%,var(--margem-l))`; };
   document.getElementById('thead').innerHTML = `<tr>
     <th onclick="ordenar('dim')">Cliente${setaOrd('dim')}</th>
     <th onclick="ordenar('viagens')">Viagens${setaOrd('viagens')}</th>
@@ -1030,9 +1029,9 @@ function renderTabelaCliente(arr, t) {
       <td title="${titulo}">${r.dim}</td>
       <td>${fmtInt(r.viagens)}</td>
       <td class="bar"><div class="barfill" style="width:${w}%"></div><span>${fmtBRL(r.faturamento)}</span></td>
-      <td style="color:#5b86b0">${pf ? fmtPct(pf) : '—'}</td>
-      <td style="color:#4f9d7f">${pa ? fmtPct(pa) : '—'}</td>
-      <td style="color:#c08a5b">${pc ? fmtPct(pc) : '—'}</td>
+      <td style="color:var(--frota-cor)">${pf ? fmtPct(pf) : '—'}</td>
+      <td style="color:var(--agregado-cor)">${pa ? fmtPct(pa) : '—'}</td>
+      <td style="color:var(--carreteiro-cor)">${pc ? fmtPct(pc) : '—'}</td>
       <td>${r.custo_frota ? fmtBRL(r.custo_frota) : '—'}</td>
       <td>${r.frete_terceiros ? fmtBRL(r.frete_terceiros) : '—'}</td>
       <td>${fmtBRL(r.resultado)}</td>
@@ -1042,9 +1041,9 @@ function renderTabelaCliente(arr, t) {
 
   document.getElementById('tfoot').innerHTML = `<tr>
     <td>Total (${arr.length})</td><td>${fmtInt(t.viagens)}</td><td>${fmtBRL(t.faturamento)}</td>
-    <td style="color:#5b86b0">${t.faturamento ? fmtPct(t.rec_frota / t.faturamento) : '—'}</td>
-    <td style="color:#4f9d7f">${t.faturamento ? fmtPct(t.rec_agregado / t.faturamento) : '—'}</td>
-    <td style="color:#c08a5b">${t.faturamento ? fmtPct(t.rec_carreteiro / t.faturamento) : '—'}</td>
+    <td style="color:var(--frota-cor)">${t.faturamento ? fmtPct(t.rec_frota / t.faturamento) : '—'}</td>
+    <td style="color:var(--agregado-cor)">${t.faturamento ? fmtPct(t.rec_agregado / t.faturamento) : '—'}</td>
+    <td style="color:var(--carreteiro-cor)">${t.faturamento ? fmtPct(t.rec_carreteiro / t.faturamento) : '—'}</td>
     <td>${fmtBRL(t.cli_custo)}</td><td>${fmtBRL(t.frete_terceiros)}</td>
     <td>${fmtBRL(t.cli_resultado)}</td><td>${fmtPct(t.cli_margem)}</td>
   </tr>`;

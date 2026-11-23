@@ -304,6 +304,18 @@ def nav_perms_js():
     return send_from_directory('.', 'nav-perms.js', mimetype='application/javascript')
 
 
+@app.route('/tema.css')
+def tema_css():
+    """Paleta única de cor (escuro + claro) de todas as telas. Sem login: o login também usa."""
+    return send_from_directory('.', 'tema.css', mimetype='text/css')
+
+
+@app.route('/tema.js')
+def tema_js():
+    """Lado JS do tema (corTema para canvas/Leaflet, troca claro/escuro). Sem login."""
+    return send_from_directory('.', 'tema.js', mimetype='application/javascript')
+
+
 _MARCA = {'rizza-logo.svg', 'rizza-mapa.svg'}
 
 
@@ -337,7 +349,10 @@ def mapa_config_js():
     """Config dos mapas para o front. A chave dos basemaps CARTO vem do ambiente
     (CARTO_API_KEY) e nunca do repositório; sem ela os tiles voltam a vir com a
     marca d'água 'API key required', mas o mapa continua funcionando."""
-    return Response(f'window.CARTO_KEY = {json.dumps(os.getenv("CARTO_API_KEY", ""))};\n',
+    # Tema.ligarLeaflet: toda tela de mapa carrega este arquivo logo depois do leaflet.js, então é
+    # aqui que os basemaps CARTO passam a nascer no tom do tema (claro/escuro). Ver tema.js.
+    return Response(f'window.CARTO_KEY = {json.dumps(os.getenv("CARTO_API_KEY", ""))};\n'
+                    'if (window.Tema && Tema.ligarLeaflet) Tema.ligarLeaflet();\n',
                     mimetype='application/javascript')
 
 

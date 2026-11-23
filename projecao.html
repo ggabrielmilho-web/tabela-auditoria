@@ -7,15 +7,9 @@
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%2338bdf8'/%3E%3Ctext x='50' y='72' font-family='Arial,sans-serif' font-size='68' font-weight='900' text-anchor='middle' fill='%230a0e17'%3ER%3C/text%3E%3C/svg%3E">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="stylesheet" href="/tema.css">
+<script src="/tema.js"></script>
 <style>
-  :root {
-    --bg: #0a0e17; --surface: #111827; --surface2: #1a2235;
-    --border: #1e293b; --text: #e2e8f0; --text-dim: #94a3b8;
-    --accent: #38bdf8; --accent2: #818cf8;
-    --green: #34d399; --red: #f87171; --orange: #fb923c; --yellow: #fbbf24;
-    /* origem de cada número projetado */
-    --o-realizado: #94a3b8; --o-contratado: #34d399; --o-direcionado: #38bdf8; --o-estatistico: #c084fc; --o-natureza: #fbbf24;
-  }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
   /* sem teto de largura: tela de tabela — tirar o zoom (Ctrl −) mostra mais colunas (padrão de 19/11/2026) */
@@ -59,7 +53,7 @@
   .val.neg { color: var(--red); } .val.pos { color: var(--green); }
 
   .aviso {
-    background: rgba(251,191,36,0.07); border: 1px solid rgba(251,191,36,0.3); border-left: 3px solid var(--yellow);
+    background: rgba(var(--yellow-rgb),0.07); border: 1px solid rgba(var(--yellow-rgb),0.3); border-left: 3px solid var(--yellow);
     border-radius: 8px; padding: 11px 15px; margin-bottom: 18px; font-size: 0.8rem; line-height: 1.55;
   }
   .aviso strong { color: var(--yellow); }
@@ -91,22 +85,22 @@
     font-family: 'JetBrains Mono', monospace; white-space: nowrap;
   }
   table.dre td:first-child { text-align: left; font-family: 'DM Sans', sans-serif; font-weight: 500; position: sticky; left: 0; background: var(--surface); }
-  table.dre tr.subtotal td { color: var(--accent); font-weight: 700; background: rgba(56,189,248,0.04); }
-  table.dre tr.subtotal td:first-child { background: #121c2c; }
+  table.dre tr.subtotal td { color: var(--accent); font-weight: 700; background: rgba(var(--accent-rgb),0.04); }
+  table.dre tr.subtotal td:first-child { background: var(--surface-subtotal); }
   table.dre td.neg { color: var(--red); }
   table.dre tr.margem td { color: var(--yellow); font-size: 0.74rem; padding-top: 5px; padding-bottom: 5px; }
   table.dre tr.margem td:first-child { color: var(--yellow); font-weight: 600; padding-left: 18px; }
   table.dre tr.margem td.neg { color: var(--red); }
   table.dre tr.margem .un { color: var(--text-dim); font-weight: 400; font-size: 0.66rem; }
   /* barra de rolagem escura (a branca padrão destoava da tela) */
-  .tabela-wrap { scrollbar-color: #334155 var(--surface); scrollbar-width: thin; }
+  .tabela-wrap { scrollbar-color: var(--slate-700) var(--surface); scrollbar-width: thin; }
   .tabela-wrap::-webkit-scrollbar { height: 10px; }
   .tabela-wrap::-webkit-scrollbar-track { background: var(--surface); }
-  .tabela-wrap::-webkit-scrollbar-thumb { background: #334155; border-radius: 6px; }
-  .tabela-wrap::-webkit-scrollbar-thumb:hover { background: #475569; }
+  .tabela-wrap::-webkit-scrollbar-thumb { background: var(--slate-700); border-radius: 6px; }
+  .tabela-wrap::-webkit-scrollbar-thumb:hover { background: var(--gray-escuro); }
   table.dre td.real-col { color: var(--text-dim); }
-  table.dre td.sep, table.dre th.sep { border-left: 2px solid rgba(56,189,248,0.35); }
-  table.dre td.total, table.dre th.total { border-left: 2px solid rgba(148,163,184,0.35); background: rgba(56,189,248,0.04); }
+  table.dre td.sep, table.dre th.sep { border-left: 2px solid rgba(var(--accent-rgb),0.35); }
+  table.dre td.total, table.dre th.total { border-left: 2px solid rgba(var(--text-dim-rgb),0.35); background: rgba(var(--accent-rgb),0.04); }
   .pt { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
   .pt.realizado { background: var(--o-realizado); } .pt.contratado { background: var(--o-contratado); }
   .pt.direcionado { background: var(--o-direcionado); } .pt.estatistico { background: var(--o-estatistico); }
@@ -188,7 +182,10 @@ async function carregar(forcar) {
   }
 }
 
+// Troca de tema: redesenha os gráficos (cor resolvida na criação) com o mesmo dado.
+Tema.aoTrocar(() => { if (window.__projecao) render(window.__projecao); });
 function render(j) {
+  window.__projecao = j;
   const ger = new Date(j.gerado_em);
   document.getElementById('meta').textContent =
     `calculado às ${ger.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} · ` +
@@ -277,11 +274,12 @@ function render(j) {
 }
 
 // ── gráficos ─────────────────────────────────────────────────────────────
-const EIXO = {
-  x: { ticks: { color: '#94a3b8', font: { size: 10 } }, grid: { color: 'rgba(148,163,184,0.06)' } },
-  y: { ticks: { color: '#94a3b8', font: { size: 10 }, callback: v => fmtMi(v).replace('R$ ', '') },
-       grid: { color: 'rgba(148,163,184,0.08)' } }
-};
+// função, não constante: a cor dos eixos tem de ser lida a cada desenho (troca de tema)
+const eixo = () => ({
+  x: { ticks: { color: corTema('--text-dim'), font: { size: 10 } }, grid: { color: corTemaA('--text-dim-rgb', 0.06) } },
+  y: { ticks: { color: corTema('--text-dim'), font: { size: 10 }, callback: v => fmtMi(v).replace('R$ ', '') },
+       grid: { color: corTemaA('--text-dim-rgb', 0.08) } }
+});
 
 function leque(canvasId, labels, real, prev, p10, p90, cor) {
   if (charts[canvasId]) charts[canvasId].destroy();
@@ -293,19 +291,19 @@ function leque(canvasId, labels, real, prev, p10, p90, cor) {
         { label: 'p90', data: p90, borderWidth: 0, pointRadius: 0, backgroundColor: cor + '26', fill: '+1' },
         { label: 'p10', data: p10, borderWidth: 0, pointRadius: 0, fill: false },
         { label: 'Projetado', data: prev, borderColor: cor, borderDash: [6, 4], borderWidth: 2, pointRadius: 2, tension: .2 },
-        { label: 'Real', data: real, borderColor: '#e2e8f0', borderWidth: 2, pointRadius: 2, tension: .2 },
+        { label: 'Real', data: real, borderColor: corTema('--text'), borderWidth: 2, pointRadius: 2, tension: .2 },
       ]
     },
     options: {
       responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
       plugins: {
-        legend: { labels: { color: '#e2e8f0', font: { size: 11 }, filter: i => !['p10', 'p90'].includes(i.text) } },
+        legend: { labels: { color: corTema('--text'), font: { size: 11 }, filter: i => !['p10', 'p90'].includes(i.text) } },
         tooltip: {
-          backgroundColor: '#1a2235', titleColor: '#e2e8f0', bodyColor: '#e2e8f0',
+          backgroundColor: corTema('--surface2'), titleColor: corTema('--text'), bodyColor: corTema('--text'),
           callbacks: { label: c => c.raw == null ? null : `${c.dataset.label === 'p90' ? 'faixa até' : c.dataset.label === 'p10' ? 'faixa desde' : c.dataset.label}: ${fmtMi(c.raw)}` }
         }
       },
-      scales: EIXO
+      scales: eixo()
     }
   });
 }
@@ -320,7 +318,7 @@ function renderGraficos(j, proj) {
   const prevR = [...reais.map((r, i) => i === n - 1 ? r.receita : null), ...proj.map(m => m.dre.receita_bruta)];
   const p10R = [...reais.map(() => null), ...proj.map(m => m.receita_p10 ?? null)];
   const p90R = [...reais.map(() => null), ...proj.map(m => m.receita_p90 ?? null)];
-  leque('chReceita', labels, realR, prevR, p10R, p90R, '#38bdf8');
+  leque('chReceita', labels, realR, prevR, p10R, p90R, corTema('--accent'));
 
   const hist = j.historico;
   const inter = j.meses.filter(m => m.h < 1);            // mês com receita real e custo ainda projetado
@@ -331,7 +329,7 @@ function renderGraficos(j, proj) {
   leque('chEbitda', todos.map(t => rotMes(t.mes)),
     todos.map(t => t.real ?? null),
     todos.map((t, i) => i === nh - 1 ? t.real : (t.prev ?? null)),
-    todos.map(t => t.p10 ?? null), todos.map(t => t.p90 ?? null), '#c084fc');
+    todos.map(t => t.p10 ?? null), todos.map(t => t.p90 ?? null), corTema('--o-estatistico'));
 }
 
 function renderEscada(escada) {
@@ -341,17 +339,17 @@ function renderEscada(escada) {
     data: {
       labels: escada.map(e => e.ano),
       datasets: [
-        { label: 'Investimento', data: escada.map(e => e.Investimento || 0), backgroundColor: '#34d399', borderRadius: 3 },
-        { label: 'Dívida', data: escada.map(e => e.Financeiro || 0), backgroundColor: '#fbbf24', borderRadius: 3 },
+        { label: 'Investimento', data: escada.map(e => e.Investimento || 0), backgroundColor: corTema('--green'), borderRadius: 3 },
+        { label: 'Dívida', data: escada.map(e => e.Financeiro || 0), backgroundColor: corTema('--yellow'), borderRadius: 3 },
       ]
     },
     options: {
       responsive: true, maintainAspectRatio: false,
       plugins: {
-        legend: { labels: { color: '#e2e8f0', font: { size: 11 } } },
-        tooltip: { backgroundColor: '#1a2235', callbacks: { label: c => `${c.dataset.label}: ${fmtMi(c.raw)}` } }
+        legend: { labels: { color: corTema('--text'), font: { size: 11 } } },
+        tooltip: { backgroundColor: corTema('--surface2'), callbacks: { label: c => `${c.dataset.label}: ${fmtMi(c.raw)}` } }
       },
-      scales: { x: { ...EIXO.x, stacked: true }, y: { ...EIXO.y, stacked: true } }
+      scales: (e => ({ x: { ...e.x, stacked: true }, y: { ...e.y, stacked: true } }))(eixo())
     }
   });
 }

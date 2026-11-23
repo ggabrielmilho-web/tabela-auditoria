@@ -9,22 +9,9 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
+<link rel="stylesheet" href="/tema.css">
+<script src="/tema.js"></script>
 <style>
-  :root {
-    --bg: #0a0e17;
-    --surface: #111827;
-    --surface2: #1a2235;
-    --border: #1e293b;
-    --text: #e2e8f0;
-    --text-dim: #94a3b8;
-    --accent: #38bdf8;
-    --accent2: #818cf8;
-    --green: #34d399;
-    --red: #f87171;
-    --orange: #fb923c;
-    --yellow: #fbbf24;
-    --gray: #64748b;
-  }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { height: 100%; overflow: hidden; }
   body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); display: flex; flex-direction: column; }
@@ -69,7 +56,7 @@
     text-align: center; transition: all 0.15s; font-weight: 500;
   }
   .tab:hover { color: var(--text); }
-  .tab.active { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 600; }
+  .tab.active { background: var(--accent); color: var(--sobre-accent); border-color: var(--accent); font-weight: 600; }
   .search-input {
     width: 100%; padding: 8px 10px; background: var(--surface2);
     border: 1px solid var(--border); color: var(--text); border-radius: 6px;
@@ -87,7 +74,7 @@
   }
   .veic-item:hover { background: var(--surface2); }
   .veic-status { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-  .s-mov { background: var(--green); box-shadow: 0 0 8px rgba(52,211,153,0.5); }
+  .s-mov { background: var(--green); box-shadow: 0 0 8px rgba(var(--green-rgb),0.5); }
   .s-parado-ign { background: var(--yellow); }
   .s-parado { background: var(--gray); }
   .s-sem-sinal { background: var(--red); }
@@ -100,14 +87,14 @@
   }
 
   .map-container { flex: 1; position: relative; }
-  #mapa { width: 100%; height: 100%; background: #0a0e17; }
+  #mapa { width: 100%; height: 100%; background: var(--bg); }
   .footer {
     padding: 10px 16px; background: var(--surface2); border-top: 1px solid var(--border);
     font-size: 0.74rem; color: var(--text-dim); display: flex; justify-content: space-between; align-items: center;
   }
   .badge-modo {
     padding: 2px 7px; border-radius: 4px; font-size: 0.68rem; font-weight: 600;
-    background: rgba(251,191,36,0.18); color: var(--yellow);
+    background: rgba(var(--yellow-rgb),0.18); color: var(--yellow);
   }
   .leaflet-popup-content-wrapper { background: var(--surface); color: var(--text); border-radius: 10px; }
   .leaflet-popup-tip { background: var(--surface); }
@@ -116,14 +103,14 @@
   .popup-row { margin-top: 4px; }
   .popup-link {
     display: inline-block; margin-top: 10px; padding: 5px 12px;
-    background: var(--accent); color: var(--bg); border-radius: 6px;
+    background: var(--accent); color: var(--sobre-accent); border-radius: 6px;
     text-decoration: none; font-weight: 600; font-size: 0.78rem;
   }
   .popup-row strong { color: var(--text); }
   .marker-truck {
     width: 32px; height: 32px; border-radius: 50%; border: 2px solid #fff;
     display: flex; align-items: center; justify-content: center;
-    font-size: 17px; box-shadow: 0 2px 8px rgba(0,0,0,0.55);
+    font-size: 17px; box-shadow: 0 2px 8px rgba(var(--sombra-rgb),0.55);
   }
   .leaflet-labels-bright { filter: brightness(2.8) contrast(1.15); }
 </style>
@@ -239,10 +226,10 @@
     return 'parado';
   }
   const corStatus = {
-    'mov': '#34d399',
-    'parado-ign': '#fbbf24',
-    'parado': '#64748b',
-    'sem-sinal': '#f87171',
+    'mov': 'var(--green)',
+    'parado-ign': 'var(--yellow)',
+    'parado': 'var(--gray)',
+    'sem-sinal': 'var(--red)',
   };
 
   function makeIcon(p) {
@@ -252,7 +239,7 @@
     const tem_carga = p.carregado;
     const ico = desengatada ? '🔌' : (tem_carga ? '🚛' : '🚚');
     // Carreta desengatada parada no destino: anel âmbar p/ destacar na visão geral
-    const ring = desengatada ? 'box-shadow:0 0 0 3px #facc15;' : '';
+    const ring = desengatada ? 'box-shadow:0 0 0 3px var(--amarelo-vivo);' : '';
     return L.divIcon({
       html: `<div class="marker-truck" style="background:${cor};${ring}">${ico}</div>`,
       className: '',
@@ -291,7 +278,7 @@
     if (p.carregado && p.carga_id) {
       html += `<div class="popup-row" style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px;">`;
       html += `<strong>Carga:</strong> ${p.numero || '—'}`;
-      if (p.status === 'Desengatada') html += `<div style="color:#facc15;font-weight:600;">🔌 Desengatada · carregada (aguardando descarga)</div>`;
+      if (p.status === 'Desengatada') html += `<div style="color:var(--amarelo-vivo);font-weight:600;">🔌 Desengatada · carregada (aguardando descarga)</div>`;
       if (p.motorista_nome) html += `<div>Motorista: ${p.motorista_nome}</div>`;
       if (p.cliente_nome) html += `<div>Cliente: ${p.cliente_nome}</div>`;
       html += `<a class="popup-link" href="/embarques/cargas/${p.carga_id}/mapa" target="_blank">🗺️ Detalhes da carga</a>`;

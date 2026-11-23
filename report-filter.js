@@ -174,7 +174,7 @@ window.ReportFilter = (function () {
       box.className = 'rf-popup';
       box.style.cssText =
         'position:fixed;z-index:10000;background:var(--surface2);border:1px solid var(--border);' +
-        'border-radius:10px;padding:12px;min-width:240px;max-width:320px;box-shadow:0 12px 32px rgba(0,0,0,0.5);' +
+        'border-radius:10px;padding:12px;min-width:240px;max-width:320px;box-shadow:0 12px 32px rgba(var(--sombra-rgb),0.5);' +
         'font-family:\'DM Sans\',sans-serif;color:var(--text);font-size:0.8rem;';
 
       // ordenação no topo (toda coluna)
@@ -343,8 +343,8 @@ window.ReportFilter = (function () {
       s.textContent =
         '.rf-btn{padding:6px 10px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.78rem;cursor:pointer;font-family:\'DM Sans\',sans-serif;}' +
         '.rf-btn:hover{border-color:var(--accent);color:var(--accent);}' +
-        '.rf-primary{background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;color:#0a0e17;font-weight:700;}' +
-        '.rf-primary:hover{opacity:0.85;color:#0a0e17;}' +
+        '.rf-primary{background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;color:var(--sobre-accent);font-weight:700;}' +
+        '.rf-primary:hover{opacity:0.85;color:var(--sobre-accent);}' +
         '.rf-list{max-height:220px;overflow-y:auto;overflow-x:hidden;display:block;}' +
         '.rf-opt{display:flex;align-items:center;gap:8px;height:26px;padding:0 4px;border-radius:4px;cursor:pointer;box-sizing:border-box;}' +
         '.rf-opt:hover{background:var(--surface);}' +
