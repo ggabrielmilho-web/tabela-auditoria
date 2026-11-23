@@ -18,6 +18,12 @@
  */
 
 :root {
+  /* Declara o esquema para o NAVEGADOR, não só para o nosso CSS. O que ele desenha sozinho —
+     barra de rolagem, a LISTA que abre num <select>, checkbox, seletor de data — ignora as
+     variáveis e sai claro por padrão: gatilho escuro abrindo lista branca. Lição do Multpel
+     (72636bb). Nos DOIS temas, para a troca ser simétrica. */
+  color-scheme: dark;
+
   /* ── Fundo e superfícies ── */
   --bg: #0a0e17;          /* fundo da página */
   --surface: #111827;     /* cartões, painéis */
@@ -183,3 +189,136 @@
   --alerta: var(--red);
   --neutro: var(--text-faint);
 }
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════
+ * TEMA CLARO
+ *
+ * Ativado por data-tema="claro" no <html> (botão ☀️/🌙 no menu lateral; padrão é o escuro).
+ * Sobrescreve só os VALORES — nenhuma regra de tela muda, porque tudo aponta para as variáveis.
+ *
+ * Mesma base do JOGA/Multpel: branco/cinza neutro, fundo levemente acinzentado e cartões
+ * brancos que "saltam". As cores de status foram ESCURECIDAS: tom claro brilha sobre preto
+ * mas some sobre branco. Os pares de texto passam WCAG AA (≥ 4,5:1) sobre o cartão branco —
+ * conferido por cálculo, não no olho. Os "-txt" (tons pastel do escuro) viram o tom escuro
+ * da mesma cor.
+ * ══════════════════════════════════════════════════════════════════════════════════════════ */
+:root[data-tema="claro"] {
+  color-scheme: light;
+  --bg: #f5f7fa;
+  --surface: #ffffff;
+  --surface2: #eef1f6;
+  --surface3: #e3e8f0;
+  --border: #d5dce6;
+  --border2: #c3ccd9;
+
+  /* secundário quase preto: no Multpel o cinza-médio ficou "lavado" no branco (pedido do diretor) */
+  --text: #0f172a;
+  --text-dim: #1e293b;
+  --text-faint: #475569;
+  --gray: #64748b;
+
+  --accent: #075f94;
+  --accent2: #4f46e5;
+
+  --green: #03704f;
+  --red: #b91c1c;
+  --orange: #b13a0b;
+  --yellow: #a14a08;
+  --pink: #be185d;
+  --violet: #7c3aed;
+
+  --sobre-accent: #ffffff;
+  --sobre-accent2: #ffffff;
+  --sobre-green: #ffffff;
+
+  --red-txt: #b91c1c;
+  --red-txt2: #991b1b;
+  --green-txt: #03704f;
+  --green-txt3: #065f46;
+  --yellow-txt: #92400e;
+  --yellow-txt3: #854d0e;
+  --orange-txt: #b13a0b;
+  --orange-txt2: #9a3412;
+  --accent-txt: #075f94;
+  --accent-txt2: #075985;
+  --accent2-txt: #4338ca;
+  --accent2-txt3: #4f46e5;
+  --pink-txt: #be185d;
+  --violet-txt: #6d28d9;
+  --cyan-txt: #0e7490;
+  --amarelo-vivo: #854d0e;
+  --gray-escuro: #94a3b8;
+  --slate-700: #94a3b8;
+
+  --nav-bg: #ffffff;
+  --cab-tabela: #eef1f6;
+  --gaveta: #ffffff;
+  --toast: #ffffff;
+  --surface-grupo: #f0f3f8;
+  --surface-grupo-hover: #e6ebf2;
+  --surface-subtotal: #eef1f6;
+  --border3: #b8c3d3;
+  --border-hover: #94a3b8;
+  --mapa-bg: #e5e9ef;
+  --mapa-bg2: #e5e9ef;
+  --brilho: #f8fafc;
+  --zero: #c0c8d4;
+  --scroll-thumb: #7c8798;
+  --trilho: #e3e8f0;
+
+  /* luminosidade do texto de margem (Análise por Veículo: hsl(matiz, 65%, var(--margem-l))) */
+  --margem-l: 27%;
+  --frota-cor: #3b6a96;
+  --agregado-cor: #276b51;
+  --carreteiro-cor: #855a2f;
+  --frota-txt: #2f5a85;
+  --agregado-txt: #276b51;
+  --carreteiro-txt: #8a5a2c;
+
+  --bg-rgb: 245, 247, 250;
+  --surface-rgb: 255, 255, 255;
+  --surface2-rgb: 238, 241, 246;
+  --border-rgb: 213, 220, 230;
+  --text-rgb: 15, 23, 42;
+  --text-dim-rgb: 30, 41, 59;
+  --text-faint-rgb: 71, 85, 105;
+  --accent-rgb: 7, 95, 148;
+  --accent2-rgb: 79, 70, 229;
+  --green-rgb: 3, 112, 79;
+  --red-rgb: 185, 28, 28;
+  --orange-rgb: 177, 58, 11;
+  --yellow-rgb: 161, 74, 8;
+  --violet-rgb: 124, 58, 237;
+  --pink-rgb: 190, 24, 93;
+  --amarelo-vivo-rgb: 133, 77, 14;
+  /* no claro sombra, zebra e véu são ardósia, não preto/branco */
+  --sombra-rgb: 15, 23, 42;
+  --realce-rgb: 15, 23, 42;
+  --veu-rgb: 15, 23, 42;
+  --veu2-rgb: 15, 23, 42;
+
+  --c-ciano: #0e7490;
+  --c-magenta: #c026d3;
+
+  --cor-impostos: #d97706;
+  --cor-receita: #0891b2;
+  --cor-linha-resultado: #ca8a04;
+
+  --c-carregada-parada: #60a5c8;
+  --c-parada: #cbd5e1;
+  --c-x: repeating-linear-gradient(45deg, #e2e8f0 0 3px, #f8fafc 3px 6px);
+  --terceiro-livre: #c026d3;
+
+  --o-estatistico: #9333ea;
+  --p-continuacao: #0f766e;
+}
+
+/* ── Regras que não são só valor ── */
+
+/* A logo da Rizza (menu e login) é branca, desenhada para o escuro. No claro, a mesma arte
+   invertida (branco -> preto): sem segundo arquivo e sem trocar src, então não pisca. */
+:root[data-tema="claro"] img[src^="/marca/rizza-"] { filter: invert(1); }
+
+/* Mapas: no escuro o rótulo dos basemaps CARTO é clareado para ler sobre o fundo preto; no claro
+   os tiles já vêm claros (Tema.ligarLeaflet troca dark_ por light_) e o filtro só atrapalharia. */
+:root[data-tema="claro"] .leaflet-labels-bright { filter: none; }

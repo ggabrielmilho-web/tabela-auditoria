@@ -149,6 +149,12 @@
     '.side-nav .rodape .quem { font-size: 12.5px; color: var(--text-dim, #94a3b8); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }',
     '.side-nav .rodape a.sair { font-size: 12px; color: var(--text-faint); text-decoration: none; padding: 4px 0; white-space: nowrap; }',
     '.side-nav .rodape a.sair:hover { color: var(--red, #f87171); }',
+    // Troca claro/escuro: mostra o que o clique VAI fazer.
+    '.side-nav .rodape .linha { display: flex; align-items: center; justify-content: space-between; gap: 8px; }',
+    '.side-nav .tema-btn { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; background: transparent;',
+    '  border: 1px solid var(--border, #1e293b); color: var(--text-dim, #94a3b8); border-radius: 7px;',
+    "  padding: 3px 8px; font: 500 11.5px 'DM Sans', -apple-system, 'Segoe UI', Roboto, sans-serif; white-space: nowrap; }",
+    '.side-nav .tema-btn:hover { border-color: var(--accent, #38bdf8); color: var(--accent, #38bdf8); }',
     // Recolhida: some o texto, não a navegação — o title de cada item vira a dica.
     'html.nav-recolhida .side-nav { padding: 14px 8px 12px; }',
     'html.nav-recolhida .side-nav .topo { flex-direction: column; gap: 10px; }',
@@ -159,6 +165,8 @@
     'html.nav-recolhida .side-nav .grupo-sep { display: block; }',
     '.side-nav .grupo-sep { display: none; height: 1px; background: var(--border, #1e293b); margin: 8px 6px; }',
     'html.nav-recolhida .side-nav .rodape { align-items: center; }',
+    'html.nav-recolhida .side-nav .rodape .linha { flex-direction: column; }',
+    'html.nav-recolhida .side-nav .tema-btn .rotulo { display: none; }',
     // Tela estreita: sempre faixa de ícones, e o botão sai (não há o que abrir).
     '@media (max-width: 900px) {',
     '  :root, html.nav-recolhida { --nav-w: 56px; }',
@@ -170,6 +178,8 @@
     '  .side-nav .marca .logo-mapa { display: block; width: 34px; }',
     '  .side-nav a.item { justify-content: center; padding: 8px 4px; }',
     '  .side-nav .rodape { align-items: center; }',
+    '  .side-nav .rodape .linha { flex-direction: column; }',
+    '  .side-nav .tema-btn .rotulo { display: none; }',
     '}'
   ].join('\n');
 
@@ -306,7 +316,11 @@
     sair.textContent = '↪ Sair';
     rod.appendChild(papel);
     rod.appendChild(quem);
-    rod.appendChild(sair);
+    var linha = document.createElement('div');
+    linha.className = 'linha';
+    linha.appendChild(sair);
+    if (window.Tema) linha.appendChild(botaoTema());
+    rod.appendChild(linha);
     nav.appendChild(rod);
 
     document.body.insertBefore(nav, document.body.firstChild);
@@ -324,6 +338,30 @@
     });
     // A página mudou de largura depois do primeiro desenho (mapa, gráficos).
     window.dispatchEvent(new Event('resize'));
+  }
+
+  // ── Tema claro/escuro (tema.js) ── O padrão é o escuro; o claro é escolha de cada pessoa.
+  // Guarda nos dois lugares: localStorage (a próxima tela já nasce no tom certo, sem piscar) e
+  // banco (segue a pessoa em outra máquina). Quando discordam, vale o banco — ver iniciar().
+  function rotularTema(b) {
+    var claro = Tema.atual() === 'claro';
+    b.innerHTML = '<span class="ic">' + (claro ? '🌙' : '☀️') + '</span><span class="rotulo">' + (claro ? 'Escuro' : 'Claro') + '</span>';
+    b.title = claro ? 'Mudar para o tema escuro' : 'Mudar para o tema claro';
+  }
+  function botaoTema() {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'tema-btn';
+    rotularTema(b);
+    b.addEventListener('click', function () {
+      var novo = Tema.atual() === 'claro' ? 'escuro' : 'claro';
+      Tema.aplicar(novo);
+      fetch('/api/me/tema', { method: 'PUT', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tema: novo }) })
+        .catch(function () {});
+    });
+    window.addEventListener('tema', function () { rotularTema(b); });
+    return b;
   }
 
   // Compat: esconde quaisquer links [data-page] hardcoded que sobrem numa página
@@ -352,7 +390,11 @@
     fetch('/api/me', { credentials: 'same-origin' })
       .then(function (r) { return r.json(); })
       .then(function (j) {
-        if (j && j.ok) { montarMenu(j); aplicarPermissoesAbas(j); }
+        if (j && j.ok) {
+          // O banco vence o localStorage: a escolha foi feita noutra máquina (ou navegador limpo).
+          if (window.Tema && (j.tema === 'claro' || j.tema === 'escuro') && j.tema !== Tema.atual()) Tema.aplicar(j.tema);
+          montarMenu(j); aplicarPermissoesAbas(j);
+        }
       })
       .catch(function () {});
   }

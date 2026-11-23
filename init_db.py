@@ -47,6 +47,13 @@ cur.execute("""
     ALTER TABLE auditoria_users
     ADD COLUMN IF NOT EXISTS paginas_permitidas TEXT[] DEFAULT ARRAY['auditoria','tarifas','embarques'];
 """)
+# Tema da interface (botão ☀️/🌙 do menu). Padrão escuro: o claro é escolha de cada pessoa.
+# O login NÃO lê esta coluna (o /api/me lê à parte e tolera a coluna ausente), então um deploy
+# que esqueça este script não derruba o login — só deixa todo mundo no escuro.
+cur.execute("""
+    ALTER TABLE auditoria_users
+    ADD COLUMN IF NOT EXISTS tema VARCHAR(10) NOT NULL DEFAULT 'escuro';
+""")
 
 # Inserir admin padrão (ignora se já existir). A senha inicial não mora no código
 # (o repositório é público): vem de ADMIN_SENHA_INICIAL ou é sorteada e impressa

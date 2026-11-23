@@ -4048,6 +4048,22 @@ def api_icms():
         return jsonify({'ok': False, 'error': str(e)}), 500
 
 
+def _tema_do_usuario(uid):
+    """'claro' ou 'escuro' (padrão). Consulta à parte e tolerante: sem a coluna (init_db.py não
+    rodou) ou sem banco, a tela segue no escuro em vez de quebrar o /api/me — que toda tela chama."""
+    try:
+        conn = get_db()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT tema FROM auditoria_users WHERE id = %s", (uid,))
+            r = cur.fetchone()
+        finally:
+            conn.close()
+        return 'claro' if r and r[0] == 'claro' else 'escuro'
+    except Exception:
+        return 'escuro'
+
+
 @app.route('/api/me')
 @login_required
 def me():
@@ -4057,7 +4073,28 @@ def me():
         'role':            session.get('role'),
         'tipos_permitidos': session.get('tipos_permitidos', []),
         'paginas_permitidas': session.get('paginas_permitidas', []),
+        'tema':            _tema_do_usuario(session.get('user_id')),
     })
+
+
+@app.route('/api/me/tema', methods=['PUT'])
+@login_required
+def me_tema():
+    """Grava o tema escolhido no botão do menu: segue a pessoa em qualquer máquina."""
+    tema = ((request.get_json(silent=True) or {}).get('tema') or '').strip()
+    if tema not in ('claro', 'escuro'):
+        return jsonify({'ok': False, 'error': "tema deve ser 'claro' ou 'escuro'"}), 400
+    try:
+        conn = get_db()
+        try:
+            with conn:
+                with conn.cursor() as cur:
+                    cur.execute("UPDATE auditoria_users SET tema = %s WHERE id = %s", (tema, session['user_id']))
+        finally:
+            conn.close()
+    except Exception as e:
+        return jsonify({'ok': False, 'error': f'Erro de banco: {e}'}), 500
+    return jsonify({'ok': True, 'tema': tema})
 
 
 @app.route('/api/status')
