@@ -49,6 +49,9 @@
     // Junto da família de rastreamento, não perto do DRE: é segurança
     // operacional, não financeiro.
     { id: 'pgr',           page: 'pgr',           href: '/pgr',               label: '🚦 PGR' },
+    // O RH sobe o PDF do Onvio e os robôs cadastram nos benefícios: Flash, ponto, Hapvida, Odonto (24/11/26).
+    // 👥 já é dos Acessos; 📋 do CIOT — 🆕 é Emoji 1.0 (glifo no Windows 10).
+    { id: 'rh_admissoes',  page: 'rh_admissoes',  href: '/rh-admissoes',      label: '🆕 Admissões' },
     // Escala motorista × placa que o RH manda à empresa de controle de jornada.
     // ⏱ é bloco antigo (glifo no Windows 10), pela mesma razão do 🚛 abaixo.
     { id: 'jornada',       page: 'jornada',       href: '/jornada',           label: '⏱ Jornada' },
@@ -100,6 +103,7 @@
   // no dia em que alguém mover uma aba de grupo.
   var GRUPOS = [
     { nome: 'Operação',   abas: ['torre', 'viagem', 'canhotos', 'embarques', 'ordens', 'semordem', 'sm', 'mapa', 'pgr', 'jornada', 'ciot', 'veiculos', 'verda'] },
+    { nome: 'RH',         abas: ['rh_admissoes'] },
     { nome: 'Comercial',  abas: ['tarifas', 'faturamento', 'contratos'] },
     { nome: 'Financeiro', abas: ['auditoria', 'dre', 'projecao', 'despesas', 'conhecimentos', 'contabil', 'contas_receber', 'comissoes', 'pagamentos_ctrb', 'fechamento_autonomos', 'crm_documentos', 'cte_nestle'] },
     { nome: 'Sistema',    abas: ['reuniao', 'admin', 'uso'] }

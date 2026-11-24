@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admissões — Rizza Log</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%2338bdf8'/%3E%3Ctext x='50' y='72' font-family='Arial,sans-serif' font-size='68' font-weight='900' text-anchor='middle' fill='%230a0e17'%3ER%3C/text%3E%3C/svg%3E">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/tema.css">
+<script>try{if(localStorage.getItem("rizza:tema")==="claro")document.documentElement.dataset.tema="claro"}catch(e){}</script>
+<script src="/tema.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes pulsa { 50% { box-shadow: 0 0 0 6px rgba(var(--yellow-rgb),.12); } }
+  .mono { font-family: 'JetBrains Mono', monospace; }
+  .dashboard { padding: 22px; margin: 0 auto; }
+  .top-bar { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; flex-wrap: wrap; gap: 12px; }
+  .top-bar h1 { font-size: 1.4rem; font-weight: 700; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .meta { font-size: 0.74rem; color: var(--text-dim); margin-top: 4px; line-height: 1.5; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .bola { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--text-faint); }
+  .bola.on { background: var(--green); } .bola.off { background: var(--red); }
+  .acoes-topo { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .btn-sm { padding: 7px 14px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); font-weight: 500; font-size: 0.8rem; border-radius: 8px; cursor: pointer; font-family: 'DM Sans', sans-serif; white-space: nowrap; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+  .btn-sm:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-sm.perigo:hover { border-color: var(--red); color: var(--red); }
+  .btn-sm.primary { background: var(--accent); color: var(--sobre-accent); border-color: var(--accent); font-weight: 700; }
+  .btn-sm.primary:hover { color: var(--sobre-accent); filter: brightness(1.08); }
+  .btn-sm:disabled { opacity: .45; cursor: not-allowed; filter: none; }
+  .erro { padding: 12px 14px; border-radius: 10px; font-size: 0.82rem; margin-bottom: 14px; background: rgba(var(--red-rgb),0.08); border: 1px solid rgba(var(--red-rgb),0.28); color: var(--red-txt2); white-space: pre-wrap; }
+  .faixa { display: flex; gap: 10px; align-items: center; padding: 10px 14px; border-radius: 10px; font-size: 0.82rem; margin-bottom: 14px; line-height: 1.5; flex-wrap: wrap; }
+  .faixa.info { background: rgba(var(--accent-rgb),.07); border: 1px solid rgba(var(--accent-rgb),.25); color: var(--accent-txt2); }
+  .faixa.alerta { background: rgba(var(--yellow-rgb),.08); border: 1px solid rgba(var(--yellow-rgb),.3); color: var(--yellow-txt); }
+  .carregando { display: flex; justify-content: center; padding: 70px 20px; }
+  .spinner { width: 30px; height: 30px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; }
+
+  /* código do SMS — o que a RH precisa fazer AGORA fica em cima de tudo */
+  .codigo { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; padding: 14px 16px; border-radius: 12px; margin-bottom: 16px;
+    background: rgba(var(--yellow-rgb),.09); border: 1px solid rgba(var(--yellow-rgb),.45); animation: pulsa 1.8s ease-in-out infinite; }
+  .codigo .ic { font-size: 1.5rem; }
+  .codigo .t { flex: 1 1 260px; font-size: 0.86rem; line-height: 1.5; }
+  .codigo .t b { color: var(--yellow-txt); }
+  .codigo input { width: 150px; padding: 9px 12px; font-family: 'JetBrains Mono', monospace; font-size: 1.25rem; letter-spacing: .3em; text-align: center;
+    background: var(--bg); border: 1px solid var(--border2); border-radius: 9px; color: var(--text); }
+  .codigo input:focus { outline: none; border-color: var(--yellow); }
+  .codigo .tempo { font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; color: var(--text-dim); }
+
+  .cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; cursor: pointer; }
+  .card:hover, .card.on { border-color: var(--accent); }
+  .card .l { font-size: 0.66rem; text-transform: uppercase; letter-spacing: .08em; color: var(--text-dim); font-weight: 700; }
+  .card .v { font-family: 'JetBrains Mono', monospace; font-size: 1.6rem; font-weight: 600; margin-top: 6px; }
+  .card .x { font-size: 0.76rem; color: var(--text-dim); margin-top: 3px; }
+  .barra { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+  .busca { padding: 7px 10px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 0.8rem; min-width: 280px; }
+  .busca:focus { outline: none; border-color: var(--accent); }
+  .tabela-box { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: auto; max-height: 68vh; }
+  table.dados { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+  table.dados thead th { position: sticky; top: 0; z-index: 2; background: var(--cab-tabela); text-align: left; padding: 8px 10px; font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); font-weight: 700; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  table.dados tbody td { padding: 8px 10px; border-bottom: 1px solid rgba(var(--border-rgb),0.6); white-space: nowrap; }
+  table.dados tbody tr { cursor: pointer; }
+  table.dados tbody tr:hover td { background: rgba(var(--surface2-rgb),.55); }
+  .vazio { padding: 34px; text-align: center; color: var(--text-dim); font-size: 0.85rem; line-height: 1.6; }
+  .pill { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 5px; font-size: 0.7rem; font-weight: 700; white-space: nowrap; color: var(--cor); background: color-mix(in srgb, var(--cor) 15%, transparent); }
+  .pill.nada { color: var(--text-faint); background: transparent; font-weight: 400; }
+  .pill .gira { width: 9px; height: 9px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; }
+
+  /* gaveta do detalhe */
+  .gaveta { position: fixed; top: 0; right: 0; bottom: 0; width: min(640px, 100vw); background: var(--gaveta); border-left: 1px solid var(--border); z-index: 950; display: flex; flex-direction: column; box-shadow: -12px 0 30px rgba(var(--sombra-rgb),.4); }
+  .gaveta-cab { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; padding: 16px 18px 12px; border-bottom: 1px solid var(--border); }
+  .gaveta-cab h2 { font-size: 1.05rem; }
+  .gaveta-cab .sub { font-size: 0.78rem; color: var(--text-dim); margin-top: 3px; line-height: 1.5; }
+  .gaveta-corpo { overflow: auto; padding: 14px 18px 30px; }
+  .gaveta .acoes { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+  .sis { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; background: var(--surface); }
+  .sis .cab { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .sis .cab b { font-size: 0.9rem; }
+  .sis .msg { font-size: 0.8rem; color: var(--text-dim); margin-top: 8px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+  .sis .msg.ruim { color: var(--red-txt); }
+  .sis img { width: 100%; max-height: 220px; object-fit: contain; object-position: top; border: 1px solid var(--border); border-radius: 8px; margin-top: 10px; cursor: zoom-in; background: var(--bg); }
+  .sis .linha-acoes { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+  .hist { margin-top: 8px; font-size: 0.72rem; color: var(--text-faint); line-height: 1.7; }
+  .hist span.h { font-family: 'JetBrains Mono', monospace; }
+  .div-tab { width: 100%; border-collapse: collapse; font-size: 0.74rem; margin-top: 8px; }
+  .div-tab td, .div-tab th { padding: 4px 6px; border-bottom: 1px solid var(--border); text-align: left; }
+  .div-tab th { color: var(--text-dim); font-weight: 600; }
+
+  /* editor */
+  .ed { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; align-items: start; }
+  .ed-lado { position: sticky; top: 16px; display: flex; flex-direction: column; gap: 12px; }
+  .soltar { border: 2px dashed var(--border3); border-radius: 14px; padding: 34px 20px; text-align: center; cursor: pointer; color: var(--text-dim); font-size: 0.9rem; line-height: 1.6; background: var(--surface); }
+  .soltar:hover, .soltar.sobre { border-color: var(--accent); color: var(--accent); }
+  .soltar b { color: var(--text); font-size: 1rem; }
+  .soltar.mini { padding: 10px 14px; font-size: 0.8rem; margin-bottom: 12px; text-align: left; }
+  .resumo { display: flex; gap: 22px; flex-wrap: wrap; padding: 14px 16px; border-radius: 12px; background: var(--surface); border: 1px solid var(--border); margin-bottom: 12px; }
+  .resumo div { font-size: 0.72rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: .06em; font-weight: 700; }
+  .resumo div span { display: block; margin-top: 3px; font-size: 0.95rem; color: var(--text); text-transform: none; letter-spacing: 0; font-weight: 600; }
+  details.bloco { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; margin-bottom: 10px; }
+  details.bloco > summary { cursor: pointer; padding: 12px 16px; font-weight: 600; font-size: 0.9rem; display: flex; align-items: center; gap: 10px; list-style: none; }
+  details.bloco > summary::-webkit-details-marker { display: none; }
+  details.bloco > summary::before { content: '▸'; color: var(--text-dim); transition: transform .15s; }
+  details.bloco[open] > summary::before { transform: rotate(90deg); }
+  details.bloco > summary .cont { margin-left: auto; font-size: 0.72rem; font-weight: 500; }
+  .campos { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px 14px; padding: 4px 16px 16px; }
+  .campo label { display: flex; justify-content: space-between; gap: 6px; font-size: 0.7rem; color: var(--text-dim); margin-bottom: 4px; font-weight: 600; }
+  .campo label .tag { font-weight: 700; font-size: 0.62rem; text-transform: uppercase; letter-spacing: .04em; }
+  .tag.onvio { color: var(--text-faint); } .tag.editado { color: var(--violet-txt); } .tag.painel { color: var(--accent-txt); }
+  .campo input, .campo select, .dep input, .dep select, .ben input { width: 100%; padding: 7px 9px; background: var(--bg); border: 1px solid var(--border); border-radius: 7px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 0.82rem; }
+  .campo input:focus, .campo select:focus, .dep input:focus, .dep select:focus, .ben input:focus { outline: none; border-color: var(--accent); }
+  .campo.falta input, .campo.falta select, .dep .falta { border-color: var(--red); background: rgba(var(--red-rgb),.05); }
+  .campo.editado input, .campo.editado select { border-color: rgba(var(--violet-rgb),.55); }
+  .deps { padding: 4px 16px 16px; display: flex; flex-direction: column; gap: 10px; }
+  .dep { border: 1px solid var(--border); border-radius: 10px; padding: 12px; background: var(--bg); }
+  .dep.incompleto { border-color: rgba(var(--yellow-rgb),.55); }
+  .dep .topo { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 8px; font-size: 0.82rem; }
+  .dep .grade { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px 10px; }
+  .dep .grade label { display: block; font-size: 0.68rem; color: var(--text-dim); margin-bottom: 3px; font-weight: 600; }
+  .painel { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
+  .painel h3 { font-size: 0.7rem; text-transform: uppercase; letter-spacing: .08em; color: var(--text-dim); margin-bottom: 10px; }
+  .ben { display: flex; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .ben:last-child { border-bottom: 0; }
+  .ben input[type=checkbox] { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--accent); flex-shrink: 0; }
+  .ben .n { font-weight: 600; font-size: 0.86rem; }
+  .ben .d { font-size: 0.74rem; color: var(--text-dim); margin-top: 2px; line-height: 1.45; }
+  .ben .feito { font-size: 0.72rem; margin-top: 4px; }
+  .pend { font-size: 0.78rem; line-height: 1.5; display: flex; flex-direction: column; gap: 6px; }
+  .pend .p { display: flex; gap: 6px; color: var(--red-txt); cursor: pointer; }
+  .pend .p small { color: var(--text-faint); }
+  .pend .a { color: var(--yellow-txt); }
+  .pend .ok { color: var(--green-txt); }
+  .botoes { display: flex; flex-direction: column; gap: 8px; }
+  .botoes .btn-sm { justify-content: center; padding: 10px 14px; font-size: 0.86rem; }
+  .ajuda { font-size: 0.72rem; color: var(--text-faint); line-height: 1.5; }
+  .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--toast); border: 1px solid var(--accent); color: var(--text); padding: 9px 16px; border-radius: 9px; font-size: 0.8rem; z-index: 999; box-shadow: 0 8px 24px rgba(var(--sombra-rgb),.4); max-width: 90vw; }
+  .toast.erro { border-color: var(--red); }
+  .zoom { position: fixed; inset: 0; background: rgba(var(--sombra-rgb),.8); z-index: 1000; display: flex; align-items: flex-start; justify-content: center; overflow: auto; padding: 24px; cursor: zoom-out; }
+  .zoom img { max-width: 100%; border-radius: 8px; }
+  @media (max-width: 1100px) { .ed { grid-template-columns: 1fr; } .ed-lado { position: static; } }
+  @media (max-width: 860px) {
+    .dashboard { padding: 14px 16px; }
+    .cards { grid-template-columns: 1fr 1fr; }
+    .busca { min-width: 0; flex: 1 1 100%; }
+  }
+</style>
+</head>
+<body>
+<div class="dashboard">
+  <div class="top-bar">
+    <div>
+      <h1 id="titulo">Admissões</h1>
+      <div class="meta" id="meta">PDF do Onvio → conferência → robôs cadastram nos benefícios</div>
+    </div>
+    <div class="acoes-topo">
+      <button class="btn-sm primary" id="btnNova">+ Nova admissão</button>
+      <button class="btn-sm" id="btnVoltar" hidden>← Voltar à lista</button>
+      <span data-nav-menu data-nav-style="btn-anchor" data-nav-active="rh_admissoes"></span>
+    </div>
+  </div>
+  <div id="erro" class="erro" hidden></div>
+  <div id="codigos"></div>
+  <div id="vista"><div class="carregando"><div class="spinner"></div></div></div>
+</div>
+
+<aside class="gaveta" id="gaveta" hidden>
+  <div class="gaveta-cab">
+    <div><h2 id="gavTitulo"></h2><div class="sub" id="gavSub"></div></div>
+    <button class="btn-sm" id="gavFechar" title="Fechar (Esc)">✕</button>
+  </div>
+  <div class="gaveta-corpo" id="gavCorpo"></div>
+</aside>
+<div class="zoom" id="zoom" hidden><img id="zoomImg" alt="Tela do robô"></div>
+<input type="file" id="arquivo" accept="application/pdf,.pdf" hidden>
+<div class="toast" id="toast" hidden></div>
+<script src="/nav-perms.js"></script>
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  // lista: dados da API | ed: o que está no editor | aberta: id na gaveta
+  var S = { lista: null, geral: null, sistemas: [], cfg: null, filtro: '', busca: '', aberta: null, ed: null, assinatura: '' };
+  var COR = { fila: 'var(--text-dim)', rodando: 'var(--accent)', aguardando_codigo: 'var(--yellow)', feito: 'var(--green)',
+              conferir: 'var(--yellow)', erro: 'var(--red)', cancelada: 'var(--text-faint)' };
+  var ICONE = { fila: '⏳', aguardando_codigo: '🔑', feito: '✔', conferir: '👁', erro: '✖', cancelada: '⊘' };
+
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function dmhm(iso) { if (!iso) return '—'; var d = new Date(iso); return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }); }
+  function cpfFmt(c) { c = String(c || '').replace(/\D/g, ''); return c.length === 11 ? c.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4') : c; }
+  function toast(msg, ruim) {
+    var t = $('toast'); t.textContent = msg; t.className = 'toast' + (ruim ? ' erro' : ''); t.hidden = false;
+    clearTimeout(toast._t); toast._t = setTimeout(function () { t.hidden = true; }, ruim ? 7000 : 2800);
+  }
+  function erro(msg) { $('erro').textContent = msg || ''; $('erro').hidden = !msg; }
+  function api(url, opt) {
+    return fetch(url, Object.assign({ credentials: 'same-origin' }, opt || {})).then(function (r) {
+      return r.json().catch(function () { return { ok: false, error: 'HTTP ' + r.status }; });
+    }).catch(function () { return { ok: false, error: 'Sem conexão com o servidor.' }; });
+  }
+  function postJson(url, corpo) { return api(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo || {}) }); }
+  function pill(t) {
+    if (!t) return '<span class="pill nada">—</span>';
+    var ic = t.estado === 'rodando' ? '<span class="gira"></span>' : (ICONE[t.estado] || '');
+    return '<span class="pill" style="--cor:' + COR[t.estado] + '">' + ic + ' ' + esc(t.estado_nome) + '</span>';
+  }
+
+  // ───────────────────────────── situação (worker, código do SMS) — pergunta a cada 4 s
+  function situacao() {
+    api('/api/rh/situacao').then(function (j) {
+      if (!j.ok) return;
+      var g = j.geral; S.geral = g; desenharTopo();
+      var assin = JSON.stringify(g.contagem) + '|' + g.codigos.map(function (c) { return c.tarefa_id + ':' + c.ja_digitado; }).join(',');
+      if (assin !== S.assinatura) {
+        S.assinatura = assin;
+        if (!S.ed) carregarLista(true);
+        if (S.aberta) abrir(S.aberta, true);
+      }
+    });
+  }
+  function desenharTopo() {
+    var g = S.geral; if (!g) return;
+    var vivo = g.worker_online, s = g.worker_visto_s;
+    var quando = s == null ? 'nunca conectou' : s < 90 ? 'online' : 'visto há ' + (s < 3600 ? Math.round(s / 60) + ' min' : Math.round(s / 3600) + ' h');
+    if (!S.ed) $('meta').innerHTML = '<span class="bola ' + (vivo ? 'on' : 'off') + '"></span> Robô do servidor: ' + esc(quando) +
+      ' · os cadastros rodam um de cada vez, na ordem Flash → Ponto → Hapvida → Odonto';
+    var box = $('codigos'), foco = document.activeElement && document.activeElement.dataset.cod;
+    var html = g.codigos.map(function (c) {
+      var fim = new Date(c.pedido_em).getTime() + 10 * 60000;
+      return '<div class="codigo" data-t="' + c.tarefa_id + '"><div class="ic">🔑</div><div class="t"><b>A Flash mandou um SMS para o celular do RH.</b><br>' +
+        'Digite o código de 6 dígitos para o robô cadastrar <b>' + esc(c.nome) + '</b>.' +
+        (c.ja_digitado ? '<br><span class="tempo">Código enviado — o robô está entrando…</span>' : '') + '</div>' +
+        '<input data-cod="' + c.tarefa_id + '" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="000000"' + (c.ja_digitado ? ' disabled' : '') + '>' +
+        '<span class="tempo" data-fim="' + fim + '"></span>' +
+        '<button class="btn-sm primary" data-envcod="' + c.tarefa_id + '"' + (c.ja_digitado ? ' disabled' : '') + '>Continuar</button></div>';
+    }).join('');
+    if (box.dataset.h !== html) {
+      var digitado = {};
+      Array.prototype.forEach.call(box.querySelectorAll('input[data-cod]'), function (i) { digitado[i.dataset.cod] = i.value; });
+      box.innerHTML = html; box.dataset.h = html;
+      Array.prototype.forEach.call(box.querySelectorAll('input[data-cod]'), function (i) {
+        if (digitado[i.dataset.cod]) i.value = digitado[i.dataset.cod];
+        i.addEventListener('input', function () { i.value = i.value.replace(/\D/g, '').slice(0, 6); if (i.value.length === 6) mandarCodigo(i.dataset.cod); });
+        i.addEventListener('keydown', function (e) { if (e.key === 'Enter') mandarCodigo(i.dataset.cod); });
+      });
+      Array.prototype.forEach.call(box.querySelectorAll('[data-envcod]'), function (b) { b.addEventListener('click', function () { mandarCodigo(b.dataset.envcod); }); });
+      var primeiro = box.querySelector('input[data-cod]:not([disabled])');
+      if (primeiro && (foco || !S.ed)) primeiro.focus();
+    }
+    relogio();
+  }
+  function relogio() {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-fim]'), function (el) {
+      var r = Math.max(0, Math.round((+el.dataset.fim - Date.now()) / 1000));
+      el.textContent = r ? 'vale por ' + Math.floor(r / 60) + ':' + String(r % 60).padStart(2, '0') : 'o código pode ter vencido';
+    });
+  }
+  function mandarCodigo(tid) {
+    var i = document.querySelector('input[data-cod="' + tid + '"]'); if (!i) return;
+    if (i.value.length !== 6) { toast('O código tem 6 dígitos.', true); return; }
+    i.disabled = true;
+    postJson('/api/rh/tarefas/' + tid + '/codigo', { codigo: i.value }).then(function (j) {
+      if (!j.ok) { i.disabled = false; toast(j.error || 'Não deu para mandar o código.', true); return; }
+      toast('Código enviado ao robô.'); situacao();
+    });
+  }
+
+  // ───────────────────────────── lista
+  function carregarLista(quieto) {
+    if (!quieto) erro('');
+    return api('/api/rh/admissoes').then(function (j) {
+      if (!j.ok) { erro(j.error || 'Não deu para carregar.'); return; }
+      S.lista = j.admissoes; S.geral = j.geral; S.sistemas = j.sistemas;
+      if (!S.ed) desenharLista();
+      desenharTopo();
+    });
+  }
+  function grupo(a) {
+    var ts = a.tarefas;
+    if (!a.enviado_em) return 'rascunho';
+    if (ts.some(function (t) { return t.estado === 'aguardando_codigo' || t.estado === 'conferir'; })) return 'voce';
+    if (ts.some(function (t) { return t.estado === 'erro'; })) return 'erro';
+    if (ts.some(function (t) { return t.estado === 'fila' || t.estado === 'rodando'; })) return 'andamento';
+    return 'concluida';
+  }
+  function desenharLista() {
+    var l = S.lista || [], n = { andamento: 0, voce: 0, erro: 0, concluida: 0, rascunho: 0 };
+    l.forEach(function (a) { n[grupo(a)]++; });
+    var h = '<div class="cards">' +
+      card('andamento', 'Em andamento', n.andamento, 'na fila ou rodando agora') +
+      card('voce', 'Precisa de você', n.voce, 'código do SMS ou conferir no portal') +
+      card('erro', 'Com erro', n.erro, 'corrigir e tentar de novo') +
+      card('concluida', 'Concluídas', n.concluida, (n.rascunho ? n.rascunho + ' rascunho(s) não enviado(s)' : 'todos os benefícios feitos')) + '</div>';
+    h += '<div class="barra"><input class="busca" id="busca" placeholder="Buscar nome ou CPF" value="' + esc(S.busca) + '">' +
+      (S.filtro ? '<button class="btn-sm" id="limpaFiltro">✕ Tirar o filtro</button>' : '') + '</div>';
+    h += '<div class="tabela-box"><table class="dados"><thead><tr><th>Funcionário</th><th>CPF</th><th>Admissão</th><th>Enviada</th>';
+    S.sistemas.forEach(function (s) { h += '<th>' + esc(s.nome) + '</th>'; });
+    h += '</tr></thead><tbody id="corpo"></tbody></table></div>';
+    $('vista').innerHTML = h;
+    $('busca').addEventListener('input', function (e) { S.busca = e.target.value; linhas(); });
+    if ($('limpaFiltro')) $('limpaFiltro').addEventListener('click', function () { S.filtro = ''; desenharLista(); });
+    Array.prototype.forEach.call(document.querySelectorAll('.card[data-f]'), function (c) {
+      c.addEventListener('click', function () { S.filtro = S.filtro === c.dataset.f ? '' : c.dataset.f; desenharLista(); });
+    });
+    linhas();
+  }
+  function card(f, rot, v, x) {
+    return '<div class="card' + (S.filtro === f ? ' on' : '') + '" data-f="' + f + '"><div class="l">' + rot + '</div><div class="v">' + v + '</div><div class="x">' + esc(x) + '</div></div>';
+  }
+  function linhas() {
+    var q = S.busca.trim().toUpperCase(), qd = q.replace(/\D/g, '');
+    var l = (S.lista || []).filter(function (a) {
+      if (S.filtro && grupo(a) !== S.filtro && !(S.filtro === 'concluida' && grupo(a) === 'rascunho')) return false;
+      if (!q) return true;
+      return (a.nome || '').toUpperCase().indexOf(q) >= 0 || (qd && a.cpf.indexOf(qd) >= 0);
+    });
+    var c = $('corpo'), cols = 4 + S.sistemas.length;
+    if (!S.lista.length) { c.innerHTML = '<tr><td colspan="' + cols + '" class="vazio">Nenhuma admissão ainda.<br>Clique em <b>+ Nova admissão</b> e suba o PDF do Onvio (“Relatório de cadastro de empregados na folha”).</td></tr>'; return; }
+    if (!l.length) { c.innerHTML = '<tr><td colspan="' + cols + '" class="vazio">Nada neste filtro.</td></tr>'; return; }
+    c.innerHTML = l.map(function (a) {
+      var por = {}; a.tarefas.forEach(function (t) { por[t.sistema] = t; });
+      var h = '<tr data-id="' + a.id + '"><td><b>' + esc(a.nome || '(sem nome)') + '</b></td><td class="mono">' + cpfFmt(a.cpf) + '</td>' +
+        '<td class="mono">' + esc(a.data_admissao || '—') + '</td><td class="mono">' + (a.enviado_em ? dmhm(a.enviado_em) : '<span class="pill" style="--cor:var(--text-dim)">rascunho</span>') + '</td>';
+      S.sistemas.forEach(function (s) {
+        var adere = (a.beneficios[s.id] || {}).adere;
+        h += '<td>' + (por[s.id] ? pill(por[s.id]) : adere && !a.enviado_em ? '<span class="pill nada">vai aderir</span>' : '<span class="pill nada">—</span>') + '</td>';
+      });
+      return h + '</tr>';
+    }).join('');
+    Array.prototype.forEach.call(c.querySelectorAll('tr[data-id]'), function (tr) { tr.addEventListener('click', function () { abrir(+tr.dataset.id); }); });
+  }
+
+  // ───────────────────────────── gaveta (detalhe)
+  function abrir(id, quieto) {
+    S.aberta = id;
+    if (!quieto) { $('gaveta').hidden = false; $('gavCorpo').innerHTML = '<div class="carregando"><div class="spinner"></div></div>'; }
+    api('/api/rh/admissoes/' + id).then(function (j) {
+      if (S.aberta !== id) return;
+      if (!j.ok) { $('gavCorpo').innerHTML = '<div class="erro">' + esc(j.error) + '</div>'; return; }
+      var a = j.admissao, d = a.dados;
+      $('gavTitulo').textContent = a.nome || '(sem nome)';
+      $('gavSub').innerHTML = 'CPF <span class="mono">' + cpfFmt(a.cpf) + '</span> · ' + esc(d.cargo || 'sem cargo') + ' · admissão <span class="mono">' + esc(d.data_admissao || '—') + '</span>' +
+        '<br>Criada por ' + esc(a.criado_por || '—') + ' em ' + dmhm(a.criado_em) + (a.enviado_em ? ' · enviada em ' + dmhm(a.enviado_em) : ' · <b>rascunho</b>') +
+        (a.arquivo ? ' · PDF ' + esc(a.arquivo) : '');
+      var ocupado = a.tarefas.some(function (t) { return t.estado === 'rodando' || t.estado === 'aguardando_codigo'; });
+      var registro = a.tarefas.some(function (t) { return t.estado === 'feito' || t.estado === 'conferir'; });
+      var h = '<div class="acoes"><button class="btn-sm primary" id="gEditar"' + (ocupado ? ' disabled title="O robô está usando os dados"' : '') + '>✎ ' + (a.enviado_em ? 'Corrigir dados / benefícios' : 'Continuar a admissão') + '</button>' +
+        (!registro && !ocupado ? '<button class="btn-sm perigo" id="gExcluir">Excluir</button>' : '') + '</div>';
+      if (a.pendencias.length && !a.enviado_em) h += '<div class="faixa alerta">Falta completar: ' + esc(a.pendencias.map(function (p) { return p.msg; }).join('; ')) + '</div>';
+      var por = {}; a.tarefas.forEach(function (t) { por[t.sistema] = t; });
+      S.sistemas.forEach(function (s) {
+        var t = por[s.id], adere = (a.beneficios[s.id] || {}).adere;
+        h += '<div class="sis"><div class="cab"><b>' + esc(s.nome) + '</b>' + (t ? pill(t) : '<span class="pill nada">' + (adere ? 'vai aderir (não enviado)' : 'não adere') + '</span>') + '</div>';
+        if (t) {
+          var resumo = a.resumo[s.id];
+          if (resumo) h += '<div class="msg">' + esc(resumo) + (s.id === 'rhid' && a.beneficios.rhid && a.beneficios.rhid.horario ? ' · ' + esc(a.beneficios.rhid.horario) : '') + '</div>';
+          if (t.mensagem) h += '<div class="msg' + (t.estado === 'erro' ? ' ruim' : '') + '">' + esc(t.mensagem) + '</div>';
+          if (t.estado === 'conferir') h += '<div class="msg">O robô clicou no botão final, mas a tela não confirmou do jeito esperado. Confira no portal e marque como conferido.</div>';
+          var dv = (t.detalhe && t.detalhe.divergencias) || [];
+          if (dv.length) {
+            h += '<table class="div-tab"><tr><th>Campo</th><th>No portal</th><th>No Onvio</th></tr>' + dv.map(function (x) {
+              return Array.isArray(x) ? '<tr><td>' + esc(x[0]) + '</td><td>' + esc(x[1]) + '</td><td>' + esc(x[2]) + '</td></tr>' : '<tr><td colspan="3">' + esc(typeof x === 'string' ? x : JSON.stringify(x)) + '</td></tr>';
+            }).join('') + '</table><div class="ajuda">O portal já tinha estes dados (pré-cadastro pelo CPF) e o robô manteve os do portal.</div>';
+          }
+          if (t.tem_print) h += '<img loading="lazy" src="/api/rh/tarefas/' + t.id + '/print?v=' + encodeURIComponent(t.atualizado_em) + '" alt="Última tela do robô" data-zoom>';
+          var bts = '';
+          if (t.estado === 'erro' || t.estado === 'cancelada') bts += '<button class="btn-sm" data-ac="repetir" data-t="' + t.id + '">↻ Tentar de novo</button>';
+          if (t.estado === 'conferir') bts += '<button class="btn-sm" data-ac="conferido" data-t="' + t.id + '">✔ Conferi no portal</button><button class="btn-sm" data-ac="repetir" data-t="' + t.id + '">↻ Rodar de novo</button>';
+          if (t.estado === 'fila' || t.estado === 'erro') bts += '<button class="btn-sm perigo" data-ac="cancelar" data-t="' + t.id + '">Cancelar</button>';
+          if (bts) h += '<div class="linha-acoes">' + bts + '</div>';
+          if (t.historico && t.historico.length) h += '<div class="hist">' + t.historico.slice(-6).map(function (x) {
+            return '<span class="h">' + dmhm(x.em) + '</span> ' + esc(x.estado_nome) + (x.mensagem ? ' — ' + esc(x.mensagem.slice(0, 120)) : '') + ' <span>(' + esc(x.quem) + ')</span>';
+          }).join('<br>') + (t.tentativas > 1 ? '<br>' + t.tentativas + ' tentativas' : '') + '</div>';
+        }
+        h += '</div>';
+      });
+      if (a.avisos.length) h += '<div class="ajuda">' + esc(a.avisos.join(' · ')) + '</div>';
+      $('gavCorpo').innerHTML = h;
+      $('gEditar').addEventListener('click', function () { editar(a); });
+      if ($('gExcluir')) $('gExcluir').addEventListener('click', function () {
+        if (!confirm('Excluir a admissão de ' + (a.nome || 'sem nome') + '? Nada foi cadastrado nos portais ainda.')) return;
+        api('/api/rh/admissoes/' + a.id, { method: 'DELETE' }).then(function (r) {
+          if (!r.ok) { toast(r.error, true); return; }
+          fechar(); toast('Admissão excluída.'); carregarLista();
+        });
+      });
+      Array.prototype.forEach.call($('gavCorpo').querySelectorAll('[data-ac]'), function (b) {
+        b.addEventListener('click', function () {
+          b.disabled = true;
+          postJson('/api/rh/tarefas/' + b.dataset.t + '/' + b.dataset.ac).then(function (r) {
+            if (!r.ok) { b.disabled = false; toast(r.error, true); return; }
+            toast(b.dataset.ac === 'cancelar' ? 'Cancelada.' : b.dataset.ac === 'conferido' ? 'Marcado como feito.' : 'Voltou para a fila.');
+            abrir(id, true); carregarLista(true);
+          });
+        });
+      });
+      Array.prototype.forEach.call($('gavCorpo').querySelectorAll('img[data-zoom]'), function (im) {
+        im.addEventListener('click', function () { $('zoomImg').src = im.src; $('zoom').hidden = false; });
+      });
+    });
+  }
+  function fechar() { S.aberta = null; $('gaveta').hidden = true; }
+
+  // ───────────────────────────── editor
+  function vazio() {
+    var d = {}; (S.cfg ? S.cfg.blocos : []).forEach(function (b) { b.campos.forEach(function (c) { d[c.k] = ''; }); });
+    d.dependentes = []; return d;
+  }
+  function editar(a) {
+    fechar();
+    var ben = {}; S.sistemas.forEach(function (s) { ben[s.id] = { adere: false }; });
+    ben.rhid.horario = '';
+    S.ed = a ? { id: a.id, dados: JSON.parse(JSON.stringify(a.dados)), onvio: a.onvio, beneficios: Object.assign(ben, JSON.parse(JSON.stringify(a.beneficios || {}))),
+                 arquivo: a.arquivo, tarefas: a.tarefas, enviado: !!a.enviado_em, nome: a.nome }
+             : { id: null, dados: null, onvio: null, beneficios: ben, arquivo: null, tarefas: [], enviado: false };
+    S.conf = null;
+    $('btnNova').hidden = true; $('btnVoltar').hidden = false;
+    desenharEditor();
+    window.scrollTo(0, 0);
+  }
+  function sairEditor() {
+    S.ed = null; $('btnNova').hidden = false; $('btnVoltar').hidden = true;
+    $('titulo').textContent = 'Admissões'; desenharLista(); desenharTopo();
+  }
+  function desenharEditor() {
+    var e = S.ed;
+    $('titulo').textContent = e.id ? (e.enviado ? 'Corrigir — ' : 'Admissão — ') + (e.nome || '') : 'Nova admissão';
+    $('meta').textContent = e.dados ? 'Confira os dados lidos do Onvio, complete o que falta e marque os benefícios.' : 'Passo 1 de 3 — suba o PDF do Onvio';
+    if (!e.dados) {
+      $('vista').innerHTML = '<div class="soltar" id="soltar"><b>Arraste aqui o PDF do Onvio</b><br>ou clique para escolher o arquivo<br><br>' +
+        '<span class="ajuda">No Onvio: Relatórios → “Relatório de cadastro de empregados na folha” do funcionário → PDF.</span></div>' +
+        '<div style="margin-top:12px"><button class="btn-sm" id="semPdf">Preencher sem PDF</button></div>';
+      ligarSoltar($('soltar'));
+      $('semPdf').addEventListener('click', function () { e.dados = vazio(); desenharEditor(); });
+      return;
+    }
+    var d = e.dados, h = '<div class="ed"><div>';
+    h += '<div class="soltar mini" id="soltar">📄 ' + (e.arquivo ? 'Lido de <b>' + esc(e.arquivo) + '</b>. ' : '') +
+      'Corrigiu no Onvio? <b>Arraste o PDF novo aqui</b> — o que você completou no painel e não está no PDF continua.</div>';
+    h += '<div class="resumo">' + [['Nome', d.nome], ['CPF', cpfFmt(d.cpf)], ['Cargo', d.cargo], ['Admissão', d.data_admissao], ['Dependentes', (d.dependentes || []).length]].map(function (x) {
+      return '<div>' + x[0] + '<span>' + esc(x[1] || '—') + '</span></div>'; }).join('') + '</div>';
+    S.cfg.blocos.forEach(function (b, i) {
+      h += '<details class="bloco" data-b="' + i + '"' + (i === 0 || !e.onvio ? ' open' : '') + '><summary>' + esc(b.titulo) + '<span class="cont" data-cont="' + i + '"></span></summary><div class="campos">';
+      b.campos.forEach(function (c) { h += campoHtml(c.k, c.rot); });
+      h += '</div></details>';
+    });
+    h += '<details class="bloco" id="blDeps" open><summary>Dependentes <span class="cont" id="contDeps"></span></summary><div class="deps" id="deps"></div>' +
+      '<div style="padding:0 16px 16px"><button class="btn-sm" id="addDep">+ Adicionar dependente</button> <span class="ajuda">Quem adere à Hapvida ou à Odonto leva todos os dependentes.</span></div></details>';
+    h += '</div><div class="ed-lado"><div class="painel"><h3>Benefícios</h3><div id="bens"></div></div>' +
+      '<div class="painel"><h3>Antes de enviar</h3><div class="pend" id="pend"><span class="ajuda">Conferindo…</span></div></div>' +
+      '<div class="botoes"><button class="btn-sm primary" id="btnEnviar" disabled>Enviar para os robôs</button>' +
+      '<button class="btn-sm" id="btnRascunho">Salvar rascunho</button>' +
+      '<div class="ajuda">Os robôs cadastram e <b>enviam direto</b> nos portais marcados (Flash manda o convite na hora; Hapvida e Odonto incluem com a data de inclusão acima). A Flash pode pedir o código do SMS — ele aparece no topo desta tela.</div></div>' +
+      '</div></div>';
+    $('vista').innerHTML = h;
+    ligarSoltar($('soltar'));
+    Array.prototype.forEach.call($('vista').querySelectorAll('[data-k]'), function (el) {
+      el.addEventListener('input', function () { d[el.dataset.k] = el.value; marcarEditado(el.dataset.k); conferir(); });
+    });
+    $('addDep').addEventListener('click', function () { d.dependentes.push({}); desenharDeps(); conferir(); });
+    desenharDeps(); desenharBens();
+    S.cfg.blocos.forEach(function (b) { b.campos.forEach(function (c) { marcarEditado(c.k); }); });
+    $('btnEnviar').addEventListener('click', function () { gravar(true); });
+    $('btnRascunho').addEventListener('click', function () { gravar(false); });
+    conferir(true);
+  }
+  function campoHtml(k, rot) {
+    var d = S.ed.dados, v = d[k] || '', ctl;
+    if (k === 'sexo') ctl = '<select data-k="sexo"><option value=""></option><option value="M"' + (v === 'M' ? ' selected' : '') + '>Masculino</option><option value="F"' + (v === 'F' ? ' selected' : '') + '>Feminino</option></select>';
+    else if (k === 'estado_civil') ctl = '<select data-k="estado_civil"><option value=""></option>' + S.cfg.estados_civis.map(function (o) { return '<option value="' + o[0] + '"' + (v === o[0] ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select>';
+    else ctl = '<input data-k="' + k + '" value="' + esc(v) + '"' + (/data_/.test(k) ? ' placeholder="dd/mm/aaaa" inputmode="numeric"' : '') + (k === 'cpf' || k === 'pis' || k === 'cep' || k === 'celular' || k === 'telefone' ? ' inputmode="numeric"' : '') + '>';
+    return '<div class="campo" data-campo="' + k + '"><label><span>' + esc(rot) + '</span><span class="tag" data-tag="' + k + '"></span></label>' + ctl + '</div>';
+  }
+  function marcarEditado(k) {
+    var e = S.ed, tag = document.querySelector('[data-tag="' + k + '"]'), box = document.querySelector('[data-campo="' + k + '"]');
+    if (!tag) return;
+    var de = e.onvio ? (e.onvio[k] || '') : null, v = e.dados[k] || '';
+    var dig = function (x) { return /cpf|pis|cep|celular|telefone/.test(k) ? String(x).replace(/\D/g, '') : String(x).trim().toUpperCase(); };
+    var editado = de !== null && dig(de) !== dig(v);
+    tag.textContent = de === null ? '' : editado ? 'editado' : (v ? 'Onvio' : '');
+    tag.className = 'tag ' + (editado ? 'editado' : 'onvio');
+    tag.title = editado ? 'No Onvio: ' + (de || '(vazio)') : '';
+    box.classList.toggle('editado', editado);
+  }
+  function desenharDeps() {
+    var deps = S.ed.dados.dependentes, box = $('deps');
+    $('contDeps').textContent = deps.length ? deps.length + ' dependente(s)' : 'nenhum';
+    if (!deps.length) { box.innerHTML = '<div class="ajuda">Nenhum dependente no Onvio.</div>'; return; }
+    box.innerHTML = deps.map(function (dp, i) {
+      var sel = function (k, ops) { return '<select data-dk="' + k + '" data-i="' + i + '"><option value=""></option>' + ops.map(function (o) { return '<option value="' + o[0] + '"' + (dp[k] === o[0] ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select>'; };
+      var inp = function (k, ph) { return '<input data-dk="' + k + '" data-i="' + i + '" value="' + esc(dp[k] || '') + '"' + (ph ? ' placeholder="' + ph + '"' : '') + '>'; };
+      return '<div class="dep" data-dep="' + i + '"><div class="topo"><b>' + esc(dp.nome || 'Dependente ' + (i + 1)) + '</b><button class="btn-sm perigo" data-rm="' + i + '">Remover</button></div><div class="grade">' +
+        '<div><label>Nome</label>' + inp('nome') + '</div><div><label>CPF</label>' + inp('cpf') + '</div>' +
+        '<div><label>Parentesco</label>' + sel('parentesco', S.cfg.parentescos) + '</div>' +
+        '<div><label>Nascimento</label>' + inp('data_nascimento', 'dd/mm/aaaa') + '</div>' +
+        '<div><label>Sexo</label>' + sel('sexo', [['M', 'Masculino'], ['F', 'Feminino']]) + '</div>' +
+        '<div><label>Estado civil</label>' + sel('estado_civil', S.cfg.estados_civis) + '</div>' +
+        '<div style="grid-column:1/-1"><label>Nome da mãe</label>' + inp('nome_mae') + '</div></div></div>';
+    }).join('');
+    Array.prototype.forEach.call(box.querySelectorAll('[data-dk]'), function (el) {
+      el.addEventListener('input', function () { deps[+el.dataset.i][el.dataset.dk] = el.value; conferir(); });
+    });
+    Array.prototype.forEach.call(box.querySelectorAll('[data-rm]'), function (b) {
+      b.addEventListener('click', function () { deps.splice(+b.dataset.rm, 1); desenharDeps(); conferir(); });
+    });
+  }
+  function desenharBens() {
+    var e = S.ed, r = (S.conf && S.conf.resumo) || {}, por = {};
+    (e.tarefas || []).forEach(function (t) { por[t.sistema] = t; });
+    $('bens').innerHTML = S.sistemas.map(function (s) {
+      var b = e.beneficios[s.id], t = por[s.id], travado = t && (t.estado === 'feito' || t.estado === 'conferir');
+      var h = '<label class="ben"><input type="checkbox" data-ben="' + s.id + '"' + (b.adere ? ' checked' : '') + (travado ? ' disabled' : '') + '><div style="flex:1"><div class="n">' + esc(s.nome) + '</div>' +
+        '<div class="d" data-res="' + s.id + '">' + esc(r[s.id] || s.desc) + '</div>';
+      if (t) h += '<div class="feito">' + pill(t) + (travado ? ' <span class="ajuda">já está no portal</span>' : '') + '</div>';
+      if (s.id === 'rhid') {
+        var hs = (S.geral && S.geral.horarios_rhid) || [];
+        h += '<div style="margin-top:6px"><input list="horarios" data-horario placeholder="Horário (como está no RHID)" value="' + esc(b.horario || '') + '"' + (travado ? ' disabled' : '') + '>' +
+          '<datalist id="horarios">' + hs.map(function (x) { return '<option value="' + esc(x) + '">'; }).join('') + '</datalist>' +
+          (hs.length ? '' : '<div class="ajuda">A lista dos horários aparece aqui depois da 1ª rodada do robô do ponto.</div>') + '</div>';
+      }
+      return h + '</div></label>';
+    }).join('') + (r.inclusao ? '<div class="ajuda" style="margin-top:8px">Data de inclusão nos planos hoje: <b class="mono">' + esc(r.inclusao) + '</b> (até o dia 19 entra no mês seguinte; depois, no outro).</div>' : '');
+    Array.prototype.forEach.call($('bens').querySelectorAll('[data-ben]'), function (c) {
+      c.addEventListener('change', function () { e.beneficios[c.dataset.ben].adere = c.checked; conferir(); });
+    });
+    var hi = $('bens').querySelector('[data-horario]');
+    if (hi) hi.addEventListener('input', function () { e.beneficios.rhid.horario = hi.value; conferir(); });
+  }
+  function conferir(ja) {
+    clearTimeout(conferir._t);
+    conferir._t = setTimeout(function () {
+      var e = S.ed; if (!e || !e.dados) return;
+      postJson('/api/rh/conferir', { id: e.id, dados: e.dados, beneficios: e.beneficios, onvio: e.onvio }).then(function (j) {
+        if (!j.ok || S.ed !== e) return;
+        S.conf = j;
+        Array.prototype.forEach.call(document.querySelectorAll('[data-res]'), function (el) { var s = el.dataset.res; if (j.resumo[s]) el.textContent = j.resumo[s]; });
+        var faltaCampo = {}, faltaDep = {};
+        j.pendencias.forEach(function (p) {
+          var m = /^dep(\d+)/.exec(p.campo); if (m) faltaDep[m[1]] = 1; else faltaCampo[p.campo] = 1;
+        });
+        Array.prototype.forEach.call(document.querySelectorAll('[data-campo]'), function (el) { el.classList.toggle('falta', !!faltaCampo[el.dataset.campo]); });
+        Array.prototype.forEach.call(document.querySelectorAll('[data-dep]'), function (el) {
+          el.classList.toggle('incompleto', !!faltaDep[el.dataset.dep]);
+          Array.prototype.forEach.call(el.querySelectorAll('[data-dk]'), function (i) { i.classList.toggle('falta', !!faltaDep[el.dataset.dep] && !i.value); });
+        });
+        S.cfg.blocos.forEach(function (b, i) {
+          var n = b.campos.filter(function (c) { return faltaCampo[c.k]; }).length, el = document.querySelector('[data-cont="' + i + '"]');
+          if (el) { el.textContent = n ? n + ' para completar' : ''; el.style.color = n ? 'var(--red-txt)' : ''; }
+          if (n) document.querySelector('[data-b="' + i + '"]').open = true;
+        });
+        var nomeSis = {}; S.sistemas.forEach(function (s) { nomeSis[s.id] = s.nome; });
+        var h = j.pendencias.map(function (p) {
+          return '<div class="p" data-ir="' + esc(p.campo) + '">✖ <span>' + esc(p.msg) + (p.sistemas.length ? ' <small>(' + p.sistemas.map(function (s) { return nomeSis[s]; }).join(', ') + ')</small>' : '') + '</span></div>';
+        }).join('');
+        if (j.outra) h += '<div class="a">⚠ Já existe uma admissão com este CPF (' + esc(j.outra.nome || '') + ', ' + dmhm(j.outra.criado_em) + ').</div>';
+        h += j.avisos.map(function (a) { return '<div class="a">⚠ ' + esc(a) + '</div>'; }).join('');
+        if (!j.pendencias.length) h = '<div class="ok">✔ Tudo certo para enviar.</div>' + h;
+        $('pend').innerHTML = h;
+        Array.prototype.forEach.call($('pend').querySelectorAll('[data-ir]'), function (p) {
+          p.addEventListener('click', function () {
+            var c = p.dataset.ir, m = /^dep(\d+)/.exec(c);
+            var alvo = m ? document.querySelector('[data-dep="' + m[1] + '"]') : c === 'horario' ? document.querySelector('[data-horario]') : document.querySelector('[data-campo="' + c + '"]');
+            if (alvo) { var det = alvo.closest('details'); if (det) det.open = true; alvo.scrollIntoView({ behavior: 'smooth', block: 'center' }); var i = alvo.querySelector ? (alvo.querySelector('input,select') || alvo) : alvo; if (i.focus) i.focus(); }
+          });
+        });
+        $('btnEnviar').disabled = !!j.pendencias.length;
+        $('btnEnviar').textContent = e.enviado ? 'Salvar e mandar o que falta aos robôs' : 'Enviar para os robôs';
+        if (ja === true) desenharBens();
+      });
+    }, ja === true ? 0 : 350);
+  }
+  function gravar(enviar) {
+    var e = S.ed, b1 = $('btnEnviar'), b2 = $('btnRascunho');
+    if (enviar) {
+      var marc = S.sistemas.filter(function (s) { return e.beneficios[s.id].adere; }).map(function (s) { return s.nome; });
+      if (!confirm('Mandar ' + (e.dados.nome || 'o funcionário') + ' para os robôs?\n\nVão cadastrar e enviar em: ' + marc.join(', ') + '.')) return;
+    }
+    b1.disabled = b2.disabled = true;
+    postJson('/api/rh/admissoes', { id: e.id, dados: e.dados, onvio: e.onvio, beneficios: e.beneficios, arquivo: e.arquivo, enviar: enviar }).then(function (j) {
+      b2.disabled = false;
+      if (j.id) e.id = j.id;
+      if (!j.ok) { toast(j.error || 'Não deu para salvar.', true); conferir(); return; }
+      toast(enviar ? 'Enviado. Acompanhe na lista.' : 'Rascunho salvo.');
+      var id = e.id; sairEditor(); carregarLista().then(function () { abrir(id); });
+    });
+  }
+  function ligarSoltar(z) {
+    z.addEventListener('click', function () { $('arquivo').value = ''; $('arquivo').click(); });
+    z.addEventListener('dragover', function (ev) { ev.preventDefault(); z.classList.add('sobre'); });
+    z.addEventListener('dragleave', function () { z.classList.remove('sobre'); });
+    z.addEventListener('drop', function (ev) { ev.preventDefault(); z.classList.remove('sobre'); if (ev.dataTransfer.files[0]) lerPdf(ev.dataTransfer.files[0]); });
+  }
+  function lerPdf(f) {
+    var e = S.ed, fd = new FormData(); fd.append('pdf', f);
+    toast('Lendo o PDF…');
+    api('/api/rh/ler-pdf', { method: 'POST', body: fd }).then(function (j) {
+      if (!j.ok) { toast(j.error || 'Não consegui ler o PDF.', true); return; }
+      var novo = j.funcionario;
+      if (e.dados && e.dados.cpf && novo.cpf && e.dados.cpf.replace(/\D/g, '') !== novo.cpf) {
+        if (!confirm('O PDF é de outro CPF (' + cpfFmt(novo.cpf) + ' — ' + novo.nome + '). Trocar os dados desta admissão por ele?')) return;
+      }
+      var pronto = function (dados) {
+        e.dados = dados; e.onvio = novo; e.arquivo = j.arquivo; if (!e.id) e.nome = novo.nome;
+        desenharEditor(); toast('PDF lido: ' + (novo.nome || 'sem nome') + '.');
+      };
+      if (e.dados) postJson('/api/rh/mesclar-pdf', { atual: e.dados, novo: novo }).then(function (m) { pronto(m.ok ? m.dados : novo); });
+      else pronto(novo);
+    });
+  }
+  // limpa o campo depois de ler: escolher o MESMO arquivo de novo (PDF corrigido com o mesmo nome) dispara outra vez
+  $('arquivo').addEventListener('change', function () { var f = this.files[0]; this.value = ''; if (f) lerPdf(f); });
+
+  // ───────────────────────────── início
+  $('btnNova').addEventListener('click', function () { editar(null); });
+  $('btnVoltar').addEventListener('click', function () {
+    if (S.ed && S.ed.dados && !confirm('Sair sem salvar o que mudou?')) return;
+    sairEditor();
+  });
+  $('gavFechar').addEventListener('click', fechar);
+  $('zoom').addEventListener('click', function () { $('zoom').hidden = true; });
+  document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape') { if (!$('zoom').hidden) $('zoom').hidden = true; else fechar(); } });
+  window.addEventListener('beforeunload', function (ev) { if (S.ed && S.ed.dados) { ev.preventDefault(); ev.returnValue = ''; } });
+  api('/api/rh/config').then(function (j) {
+    if (!j.ok) { erro(j.error || 'Não deu para abrir.'); return; }
+    S.cfg = j; S.sistemas = j.sistemas;
+    carregarLista();
+    setInterval(situacao, 4000);
+    setInterval(relogio, 1000);
+  });
+})();
+</script>
+</body>
+</html>

@@ -178,7 +178,8 @@ def admin_required(f):
 PAGINAS_VALIDAS = {'auditoria', 'tarifas', 'embarques', 'reuniao', 'dre',
                    'despesas', 'conhecimentos', 'faturamento', 'contratos', 'veiculos',
                    'pgr', 'contabil', 'verda', 'jornada', 'ciot', 'projecao', 'crm_documentos', 'cte_nestle',
-                   'contas_receber', 'comissoes', 'canhotos', 'fechamento_autonomos', 'pagamentos_ctrb'}
+                   'contas_receber', 'comissoes', 'canhotos', 'fechamento_autonomos', 'pagamentos_ctrb',
+                   'rh_admissoes'}
 # O de-para aba → rota e a ordem de preferência viviam aqui para escolher em qual
 # aba o usuário caía no login. Não existem mais: quem escolhe é ele, na /inicio.
 # As rotas de cada aba são declaradas uma vez só, no `ABAS` do nav-perms.js.
@@ -2442,6 +2443,222 @@ def api_comprovantes_robo_leitura():
     except ValueError as e:
         return jsonify({'ok': False, 'error': str(e)}), 400
     return jsonify({'ok': True, **r})
+
+# ── Admissões do RH — PDF do Onvio → conferência → robôs dos benefícios (24/11/2026) ──
+#
+# A RH sobe o PDF do Onvio, confere/completa e marca "vai aderir" por benefício (Flash, Ponto/RHID, Hapvida,
+# Odonto). Cada benefício vira uma tarefa em `rh_tarefa`; o worker do SLTBL-10 (RH/rh_worker.py, fora deste
+# repositório) puxa a fila pelas rotas /api/rh/robo/* com o cabeçalho X-Robo-Chave = RH_ROBO_CHAVE — só
+# conexão de saída do servidor local, sem túnel. A lógica mora em rh_admissoes.py; o leitor do PDF em
+# rh_onvio.py (cópia de RH/onvio_pdf.py).
+_RH = {'tabelas': False}
+
+
+def _rh_db(fn):
+    import rh_admissoes as rh
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            if not _RH['tabelas']:
+                rh.garantir(cur)
+                _RH['tabelas'] = True
+            r = fn(cur)
+        conn.commit()
+        return r
+    finally:
+        conn.close()
+
+
+def _rh_hoje():
+    return _dtm.datetime.now(_BRT).date()
+
+
+def _rh_usuario():
+    return session.get('nome') or 'usuário'
+
+
+@app.route('/rh-admissoes')
+@page_required('rh_admissoes')
+def rh_admissoes_page():
+    resp = send_from_directory('.', 'rh-admissoes.html')
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+@app.route('/api/rh/admissoes')
+@page_required('rh_admissoes')
+def api_rh_admissoes():
+    import rh_admissoes as rh
+    lista, geral = _rh_db(lambda cur: (rh.listar(cur), rh.situacao_geral(cur)))
+    return jsonify({'ok': True, 'admissoes': lista, 'geral': geral, 'estados': rh.ESTADOS,
+                    'sistemas': [{'id': k, 'nome': n, 'desc': d} for k, n, d in rh.SISTEMAS]})
+
+
+@app.route('/api/rh/situacao')
+@page_required('rh_admissoes')
+def api_rh_situacao():
+    """Leve, para a tela perguntar a cada poucos segundos (código do SMS, robô vivo)."""
+    import rh_admissoes as rh
+    return jsonify({'ok': True, 'geral': _rh_db(rh.situacao_geral)})
+
+
+@app.route('/api/rh/admissoes/<int:aid>')
+@page_required('rh_admissoes')
+def api_rh_admissao(aid):
+    import rh_admissoes as rh
+    a = _rh_db(lambda cur: rh.obter(cur, aid, _rh_hoje()))
+    if not a:
+        return jsonify({'ok': False, 'error': 'Admissão não encontrada.'}), 404
+    return jsonify({'ok': True, 'admissao': a})
+
+
+@app.route('/api/rh/config')
+@page_required('rh_admissoes')
+def api_rh_config():
+    """Listas da tela de edição: blocos de campos, parentescos, estados civis e a data de inclusão de hoje."""
+    import rh_admissoes as rh
+    return jsonify({'ok': True, 'blocos': [{'titulo': t, 'campos': [{'k': k, 'rot': r} for k, r in cs]} for t, cs in rh.BLOCOS],
+                    'parentescos': rh.PARENTESCOS, 'estados_civis': rh.ESTADOS_CIVIS,
+                    'sistemas': [{'id': k, 'nome': n, 'desc': d} for k, n, d in rh.SISTEMAS],
+                    'dependente': rh.DEPENDENTE_OBRIGATORIOS})
+
+
+@app.route('/api/rh/conferir', methods=['POST'])
+@page_required('rh_admissoes')
+def api_rh_conferir():
+    """Pendências, avisos e resumo dos benefícios do que está na tela (sem gravar)."""
+    import rh_admissoes as rh
+    d = request.get_json(silent=True) or {}
+    dados, ben = rh.limpar_dados(d.get('dados')), rh.limpar_beneficios(d.get('beneficios'))
+    onvio = d.get('onvio')
+    outra = _rh_db(lambda cur: rh.outra_com_cpf(cur, dados['cpf'], d.get('id'))) if dados['cpf'] else None
+    return jsonify({'ok': True, 'pendencias': rh.pendencias(dados, ben),
+                    'avisos': rh.avisos(dados, rh.limpar_dados(onvio) if onvio else None),
+                    'resumo': rh.resumo_beneficios(dados, _rh_hoje()), 'outra': outra})
+
+
+@app.route('/api/rh/ler-pdf', methods=['POST'])
+@page_required('rh_admissoes')
+def api_rh_ler_pdf():
+    import rh_admissoes as rh
+    import rh_onvio
+    arq = request.files.get('pdf')
+    if not arq:
+        return jsonify({'ok': False, 'error': 'Mande o PDF do Onvio.'}), 400
+    dados = arq.read(rh.MAX_PDF + 1)
+    if len(dados) > rh.MAX_PDF:
+        return jsonify({'ok': False, 'error': 'PDF grande demais.'}), 413
+    if not dados.startswith(b'%PDF'):
+        return jsonify({'ok': False, 'error': 'O arquivo não é um PDF.'}), 400
+    try:
+        f = rh.limpar_dados(rh_onvio.ler_funcionario(dados))
+    except Exception as e:
+        return jsonify({'ok': False, 'error': f'Não consegui ler o PDF: {str(e)[:200]}'}), 400
+    if not f['cpf'] and not f['nome']:
+        return jsonify({'ok': False, 'error': 'Este PDF não parece o "Relatório de cadastro de empregados na folha" do Onvio.'}), 400
+    return jsonify({'ok': True, 'funcionario': f, 'arquivo': (arq.filename or '')[:200]})
+
+
+@app.route('/api/rh/mesclar-pdf', methods=['POST'])
+@page_required('rh_admissoes')
+def api_rh_mesclar_pdf():
+    import rh_admissoes as rh
+    d = request.get_json(silent=True) or {}
+    return jsonify({'ok': True, 'dados': rh.mesclar_pdf(d.get('atual') or {}, d.get('novo') or {})})
+
+
+@app.route('/api/rh/admissoes', methods=['POST'])
+@page_required('rh_admissoes')
+def api_rh_admissao_salvar():
+    import rh_admissoes as rh
+    d = request.get_json(silent=True) or {}
+    onvio = rh.limpar_dados(d['onvio']) if d.get('onvio') else None
+    aid, err = _rh_db(lambda cur: rh.salvar(cur, d.get('id'), d.get('dados'), onvio, d.get('beneficios'),
+                                            d.get('arquivo'), _rh_usuario(), bool(d.get('enviar'))))
+    if aid is None:
+        return jsonify({'ok': False, 'error': err}), 409
+    return jsonify({'ok': not err, 'id': aid, 'error': err})
+
+
+@app.route('/api/rh/admissoes/<int:aid>', methods=['DELETE'])
+@page_required('rh_admissoes')
+def api_rh_admissao_excluir(aid):
+    import rh_admissoes as rh
+    err = _rh_db(lambda cur: rh.excluir(cur, aid))
+    return jsonify({'ok': not err, 'error': err}), (409 if err else 200)
+
+
+@app.route('/api/rh/tarefas/<int:tid>/<acao>', methods=['POST'])
+@page_required('rh_admissoes')
+def api_rh_tarefa_acao(tid, acao):
+    import rh_admissoes as rh
+    if acao == 'codigo':
+        cod = (request.get_json(silent=True) or {}).get('codigo')
+        err = _rh_db(lambda cur: rh.informar_codigo(cur, tid, cod, _rh_usuario()))
+    else:
+        err = _rh_db(lambda cur: rh.acao_tarefa(cur, tid, acao, _rh_usuario()))
+    return jsonify({'ok': not err, 'error': err}), (409 if err else 200)
+
+
+@app.route('/api/rh/tarefas/<int:tid>/print')
+@page_required('rh_admissoes')
+def api_rh_tarefa_print(tid):
+    import rh_admissoes as rh
+    png = _rh_db(lambda cur: rh.print_da_tarefa(cur, tid))
+    if not png:
+        return jsonify({'ok': False, 'error': 'Sem print.'}), 404
+    resp = Response(png, mimetype='image/png')
+    resp.headers['Cache-Control'] = 'private, no-store'
+    return resp
+
+
+# Rotas do worker (sem sessão): X-Robo-Chave = RH_ROBO_CHAVE. Sem a variável, respondem 503.
+def _rh_robo_autorizado():
+    import rh_admissoes as rh
+    if not os.getenv('RH_ROBO_CHAVE'):
+        return jsonify({'ok': False, 'error': 'Robô do RH não configurado (RH_ROBO_CHAVE).'}), 503
+    if not rh.chave_robo_ok(request.headers.get('X-Robo-Chave')):
+        return jsonify({'ok': False, 'error': 'Chave do robô inválida.'}), 401
+    return None
+
+
+@app.route('/api/rh/robo/proxima', methods=['POST'])
+def api_rh_robo_proxima():
+    import rh_admissoes as rh
+    neg = _rh_robo_autorizado()
+    if neg:
+        return neg
+    return jsonify({'ok': True, 'tarefa': _rh_db(rh.proxima)})
+
+
+@app.route('/api/rh/robo/estado', methods=['POST'])
+def api_rh_robo_estado():
+    import rh_admissoes as rh
+    neg = _rh_robo_autorizado()
+    if neg:
+        return neg
+    if not request.content_length:
+        return jsonify({'ok': False, 'error': 'Sem Content-Length.'}), 411
+    if request.content_length > 2 * rh.MAX_PRINT:
+        return jsonify({'ok': False, 'error': 'Grande demais.'}), 413
+    d = request.get_json(silent=True)
+    if not isinstance(d, dict):
+        return jsonify({'ok': False, 'error': 'JSON inválido.'}), 400
+    try:
+        r = _rh_db(lambda cur: rh.atualizar_pelo_robo(cur, d))
+    except (ValueError, TypeError) as e:
+        return jsonify({'ok': False, 'error': str(e)[:200]}), 400
+    return jsonify({'ok': True, **r})
+
+
+@app.route('/api/rh/robo/codigo/<int:tid>', methods=['POST'])
+def api_rh_robo_codigo(tid):
+    import rh_admissoes as rh
+    neg = _rh_robo_autorizado()
+    if neg:
+        return neg
+    cod, estado = _rh_db(lambda cur: rh.codigo_para_robo(cur, tid))
+    return jsonify({'ok': True, 'codigo': cod, 'estado': estado})
 
 
 # ── Canhotos — o motorista fotografa o canhoto da NF e o do CT-e pelo celular (09/11/2026) ──
