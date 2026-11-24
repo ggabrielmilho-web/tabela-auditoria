@@ -96,7 +96,10 @@
     // Relatório de uso (/uso). Era tela escondida; desde 25/09/26 aparece no menu para quem é
     // role=admin — `page: 'admin'` faz o `podeVer` negar aos demais, e o servidor segue
     // protegendo a rota com admin_required (menu escondido nunca foi a proteção).
-    { id: 'uso',           page: 'admin',         href: '/uso',               label: '👥 Acessos' }
+    { id: 'uso',           page: 'admin',         href: '/uso',               label: '👥 Acessos' },
+    // Os SMS do SSW que liberam o IP no login (25/11/26): o celular de automação manda para cá.
+    // Só admin (`page: 'admin'`); quem protege é o admin_required. 🔑 é Emoji 1.0 (glifo no Windows 10).
+    { id: 'ssw_codigos',   page: 'admin',         href: '/ssw-codigos',       label: '🔑 Códigos SSW' }
   ];
 
   // Grupos da barra E dos cards do /inicio — uma lista só, para os dois não divergirem
@@ -106,7 +109,7 @@
     { nome: 'RH',         abas: ['rh_admissoes'] },
     { nome: 'Comercial',  abas: ['tarifas', 'faturamento', 'contratos'] },
     { nome: 'Financeiro', abas: ['auditoria', 'dre', 'projecao', 'despesas', 'conhecimentos', 'contabil', 'contas_receber', 'comissoes', 'pagamentos_ctrb', 'fechamento_autonomos', 'crm_documentos', 'cte_nestle'] },
-    { nome: 'Sistema',    abas: ['reuniao', 'admin', 'uso'] }
+    { nome: 'Sistema',    abas: ['reuniao', 'admin', 'uso', 'ssw_codigos'] }
   ];
 
   var CHAVE_RECOLHIDA = 'rizza.nav.recolhida';

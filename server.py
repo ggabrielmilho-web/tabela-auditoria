@@ -2661,6 +2661,113 @@ def api_rh_robo_codigo(tid):
     return jsonify({'ok': True, 'codigo': cod, 'estado': estado})
 
 
+# ── Códigos SMS do SSW (24/11/2026) ──
+#
+# Desde 25/11/2026 o login do SSW manda um código por SMS ao celular do usuário, que libera o IP. O celular
+# do gfranca é o de automação: o app "SMS to URL Forwarder" posta cada SMS em /api/ssw/sms (X-Robo-Chave =
+# SSW_SMS_CHAVE, só grava); o robô do SLTBL-10 (Rizza/ssw_sessao.py) lê o código por /api/ssw/robo/codigo
+# (X-Robo-Chave = SSW_ROBO_CHAVE, só lê); o Gabriel, entrando de fora, lê na tela /ssw-codigos (só admin).
+# Sem a variável, a rota correspondente responde 503. A lógica mora em ssw_sms.py.
+_SSW_SMS = {'tabela': False}
+
+
+def _ssw_sms_db(fn):
+    import ssw_sms
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            if not _SSW_SMS['tabela']:
+                # Grava a criação antes: se `fn` falhar, o rollback não pode levar a tabela junto.
+                ssw_sms.garantir(cur)
+                conn.commit()
+                _SSW_SMS['tabela'] = True
+            r = fn(cur)
+        conn.commit()
+        return r
+    finally:
+        conn.close()
+
+
+def _ssw_sms_autorizado(variavel, conferir):
+    if not os.getenv(variavel):
+        return jsonify({'ok': False, 'error': f'Não configurado ({variavel}).'}), 503
+    if not conferir(request.headers.get('X-Robo-Chave')):
+        return jsonify({'ok': False, 'error': 'Chave inválida.'}), 401
+    return None
+
+
+@app.route('/api/ssw/sms', methods=['POST'])
+def api_ssw_sms_receber():
+    """O celular de automação manda cada SMS que chega: {"de": ..., "texto": ..., "recebido": ...}."""
+    import ssw_sms
+    neg = _ssw_sms_autorizado('SSW_SMS_CHAVE', ssw_sms.chave_celular_ok)
+    if neg:
+        return neg
+    if (request.content_length or 0) > 8192:
+        return jsonify({'ok': False, 'error': 'Grande demais.'}), 413
+    d = request.get_json(silent=True, force=True)
+    if not isinstance(d, dict):
+        # SMS com aspas ou quebra de linha pode chegar como JSON quebrado: o corpo inteiro vira o texto
+        # (o código ainda é extraído dele, e a tela mostra o texto como veio).
+        d = {'texto': request.get_data(as_text=True)}
+    try:
+        # Aceita o modelo padrão do app ("from"/"text") e o nosso ("de"/"texto").
+        sid, codigo = _ssw_sms_db(lambda cur: ssw_sms.registrar(cur, d.get('texto') or d.get('text'),
+                                                                d.get('de') or d.get('from')))
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    return jsonify({'ok': True, 'id': sid, 'tem_codigo': bool(codigo)})
+
+
+@app.route('/api/ssw/robo/codigo', methods=['POST'])
+def api_ssw_robo_codigo():
+    """O robô pergunta: chegou código nos últimos N segundos? {"segundos": N, "robo": "..."}."""
+    import ssw_sms
+    neg = _ssw_sms_autorizado('SSW_ROBO_CHAVE', ssw_sms.chave_robo_ok)
+    if neg:
+        return neg
+    d = request.get_json(silent=True) or {}
+    try:
+        segundos = int(d.get('segundos') or 0)
+    except (TypeError, ValueError):
+        return jsonify({'ok': False, 'error': 'segundos inválido.'}), 400
+    if segundos <= 0:
+        return jsonify({'ok': False, 'error': 'segundos inválido.'}), 400
+    r = _ssw_sms_db(lambda cur: ssw_sms.codigo_para_robo(cur, segundos, d.get('robo') or 'robô'))
+    return jsonify({'ok': True, 'codigo': r['codigo'] if r else None, 'recebido_em': r['recebido_em'] if r else None})
+
+
+@app.route('/ssw-codigos')
+@admin_required
+def ssw_codigos_page():
+    resp = send_from_directory('.', 'ssw-codigos.html')
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+@app.route('/api/ssw/codigos')
+@admin_required
+def api_ssw_codigos():
+    import ssw_sms
+    resp = jsonify({'ok': True, 'sms': _ssw_sms_db(ssw_sms.recentes), 'minutos': ssw_sms.TELA_MINUTOS,
+                    'celular_ligado': bool(os.getenv('SSW_SMS_CHAVE')), 'robo_ligado': bool(os.getenv('SSW_ROBO_CHAVE'))})
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+@app.route('/api/ssw/codigos', methods=['POST'])
+@admin_required
+def api_ssw_codigos_informar():
+    """Código digitado na tela (o celular falhou e o robô está esperando)."""
+    import ssw_sms
+    cod = re.sub(r'\D', '', str((request.get_json(silent=True) or {}).get('codigo') or ''))
+    if not 4 <= len(cod) <= 8:
+        return jsonify({'ok': False, 'error': 'O código tem de ter de 4 a 8 dígitos.'}), 400
+    nome = session.get('nome') or 'admin'
+    sid, _ = _ssw_sms_db(lambda cur: ssw_sms.registrar(cur, f'Código digitado na tela: {cod}', None, 'manual', nome))
+    return jsonify({'ok': True, 'id': sid})
+
+
 # ── Canhotos — o motorista fotografa o canhoto da NF e o do CT-e pelo celular (09/11/2026) ──
 #
 # Duas portas. `/motorista/` é o app do motorista (PWA): entra só com o CPF, NÃO usa a sessão do sistema

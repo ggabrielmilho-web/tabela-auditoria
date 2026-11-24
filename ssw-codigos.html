@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Códigos SSW — Rizza Log</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%2338bdf8'/%3E%3Ctext x='50' y='72' font-family='Arial,sans-serif' font-size='68' font-weight='900' text-anchor='middle' fill='%230a0e17'%3ER%3C/text%3E%3C/svg%3E">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/tema.css">
+<script>try{if(localStorage.getItem("rizza:tema")==="claro")document.documentElement.dataset.tema="claro"}catch(e){}</script>
+<script src="/tema.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+  .pagina { padding: 24px; max-width: 900px; }
+  .top-bar { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; flex-wrap: wrap; gap: 16px; }
+  .top-bar h1 { font-size: 1.4rem; font-weight: 700; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .meta { font-size: 0.78rem; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; }
+  .btn-sm { padding: 8px 18px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); font-family: 'DM Sans', sans-serif; font-weight: 500; font-size: 0.82rem; border-radius: 8px; cursor: pointer; text-decoration: none; display: inline-block; }
+  .btn-sm:hover { border-color: var(--accent); color: var(--accent); }
+  .explica { font-size: 0.84rem; color: var(--text-dim); line-height: 1.6; margin-bottom: 18px; }
+  .aviso { padding: 10px 14px; font-size: 0.8rem; color: var(--yellow); background: rgba(var(--yellow-rgb),0.06); border: 1px solid rgba(var(--yellow-rgb),0.25); border-radius: 10px; margin-bottom: 16px; }
+  .erro { padding: 10px 14px; font-size: 0.8rem; color: var(--red); background: rgba(var(--red-rgb),0.08); border: 1px solid rgba(var(--red-rgb),0.25); border-radius: 10px; margin-bottom: 16px; display: none; }
+  .lista { display: flex; flex-direction: column; gap: 10px; margin-bottom: 26px; }
+  .sms { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 18px; display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
+  .sms.novo { border-color: var(--accent); }
+  .sms.velho { opacity: .55; }
+  .codigo { font-family: 'JetBrains Mono', monospace; font-size: 1.9rem; font-weight: 700; letter-spacing: 0.12em; min-width: 9ch; }
+  .sms .info { flex: 1; min-width: 220px; font-size: 0.8rem; line-height: 1.55; }
+  .sms .texto { color: var(--text-dim); word-break: break-word; }
+  .tag { display: inline-block; font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 8px; border-radius: 6px; background: var(--surface2); color: var(--text-dim); margin-right: 6px; }
+  .tag.usado { color: var(--yellow); }
+  .vazio { padding: 30px 20px; text-align: center; color: var(--text-dim); font-size: 0.86rem; background: var(--surface); border: 1px dashed var(--border); border-radius: 12px; }
+  .manual { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
+  .manual h2 { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-dim); font-weight: 700; margin-bottom: 8px; }
+  .manual p { font-size: 0.8rem; color: var(--text-dim); margin-bottom: 10px; line-height: 1.5; }
+  .manual input { font-family: 'JetBrains Mono', monospace; font-size: 1.1rem; padding: 8px 12px; width: 12ch; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; color: var(--text); margin-right: 8px; }
+</style>
+</head>
+<body>
+<div class="pagina">
+  <div class="top-bar">
+    <div>
+      <h1>Códigos SSW</h1>
+      <span class="meta" id="userInfo" style="margin-top:4px;display:block;"></span>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <span data-nav-menu data-nav-style="btn-anchor" data-nav-active="ssw_codigos"></span>
+      <a href="/logout" class="btn-sm">Sair</a>
+    </div>
+  </div>
+
+  <p class="explica">
+    Os SMS que o SSW manda para o celular de automação (usuário gfranca), para liberar o IP no login.
+    Entrando no SSW de fora da empresa, o código aparece aqui em segundos. A tela atualiza sozinha
+    e mostra só os últimos <span id="minutos">30</span> minutos.
+  </p>
+  <div class="aviso" id="avisoConfig" style="display:none;"></div>
+  <div class="erro" id="erro"></div>
+
+  <div class="lista" id="lista"><div class="vazio">Carregando…</div></div>
+
+  <div class="manual">
+    <h2>Digitar um código à mão</h2>
+    <p>Se o celular de automação falhar e o robô estiver esperando o código, digite aqui o código que chegou
+       por outro meio. O robô pega o código mais recente.</p>
+    <input id="codigoManual" inputmode="numeric" maxlength="8" placeholder="000000" autocomplete="off">
+    <button class="btn-sm" id="btnManual">Enviar ao robô</button>
+    <span class="meta" id="manualMsg" style="margin-left:8px;"></span>
+  </div>
+</div>
+
+<script src="/nav-perms.js"></script>
+<script>
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+function ha(seg) {
+  if (seg < 60) return `há ${seg} s`;
+  const m = Math.floor(seg / 60);
+  return `há ${m} min`;
+}
+
+function hora(iso) {
+  return new Date(iso).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+}
+
+function render(j) {
+  document.getElementById('minutos').textContent = j.minutos;
+  const avisos = [];
+  if (!j.celular_ligado) avisos.push('O celular ainda não está ligado ao painel (falta SSW_SMS_CHAVE no serviço).');
+  if (!j.robo_ligado) avisos.push('O robô ainda não está ligado ao painel (falta SSW_ROBO_CHAVE no serviço).');
+  const av = document.getElementById('avisoConfig');
+  av.style.display = avisos.length ? 'block' : 'none';
+  av.textContent = avisos.join(' ');
+
+  const lista = document.getElementById('lista');
+  if (!j.sms.length) {
+    lista.innerHTML = `<div class="vazio">Nenhum SMS nos últimos ${j.minutos} minutos.</div>`;
+    return;
+  }
+  lista.innerHTML = j.sms.map((s, i) => {
+    const classe = i === 0 && s.ha_segundos < 300 ? 'novo' : (s.ha_segundos > 600 ? 'velho' : '');
+    const tags = [
+      `<span class="tag">${s.origem === 'manual' ? 'digitado por ' + esc(s.informado_por) : 'celular'}</span>`,
+      s.usado_em ? `<span class="tag usado">usado pelo ${esc(s.usado_por || 'robô')} às ${hora(s.usado_em)}</span>` : ''
+    ].join('');
+    return `<div class="sms ${classe}">
+      <div class="codigo">${esc(s.codigo || '—')}</div>
+      <div class="info">
+        <div><strong>${hora(s.recebido_em)}</strong> · ${ha(s.ha_segundos)} ${s.de ? '· de ' + esc(s.de) : ''}</div>
+        <div>${tags}</div>
+        <div class="texto">${esc(s.texto)}</div>
+      </div>
+      ${s.codigo ? `<button class="btn-sm" data-copiar="${esc(s.codigo)}">Copiar</button>` : ''}
+    </div>`;
+  }).join('');
+}
+
+async function carregar() {
+  const erro = document.getElementById('erro');
+  try {
+    const r = await fetch('/api/ssw/codigos', { credentials: 'same-origin', cache: 'no-store' });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || 'falha');
+    erro.style.display = 'none';
+    render(j);
+  } catch (e) {
+    erro.style.display = 'block';
+    erro.textContent = 'Erro ao carregar: ' + e.message;
+  }
+}
+
+document.getElementById('lista').addEventListener('click', async ev => {
+  const b = ev.target.closest('[data-copiar]');
+  if (!b) return;
+  try { await navigator.clipboard.writeText(b.dataset.copiar); b.textContent = 'Copiado'; }
+  catch { b.textContent = b.dataset.copiar; }
+  setTimeout(() => { b.textContent = 'Copiar'; }, 2000);
+});
+
+document.getElementById('btnManual').addEventListener('click', async () => {
+  const inp = document.getElementById('codigoManual');
+  const msg = document.getElementById('manualMsg');
+  const codigo = inp.value.replace(/\D/g, '');
+  if (codigo.length < 4) { msg.textContent = 'De 4 a 8 dígitos.'; return; }
+  try {
+    const r = await fetch('/api/ssw/codigos', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ codigo })
+    });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || 'falha');
+    inp.value = '';
+    msg.textContent = 'Enviado.';
+    carregar();
+  } catch (e) { msg.textContent = 'Erro: ' + e.message; }
+});
+
+document.addEventListener('DOMContentLoaded', async () => {
+  try {
+    const r = await fetch('/api/me', { credentials: 'same-origin' });
+    const j = await r.json();
+    if (j.ok) document.getElementById('userInfo').textContent = `👤 ${j.nome}`;
+  } catch {}
+  carregar();
+  setInterval(carregar, 5000);
+});
+</script>
+</body>
+</html>
