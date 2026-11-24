@@ -23,6 +23,7 @@ import placas
 import fontes_gps
 import viagem as _viagem
 import verda_painel
+import vale_pedagio as _vped
 from flask import Flask, Response, jsonify, send_from_directory, request, session, redirect, url_for, send_file, stream_with_context
 from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
@@ -4216,6 +4217,9 @@ def auditoria():
         # Aditivo: proprietário do cavalo e da carreta (resolvidos pelo cadastro, via placa).
         data = _anexar_proprietarios(token, data)
 
+        # Vale-pedágio do cliente (TAG dele: sem despesa no CTRB nem 5403 no 477) sai do frete e volta ao resultado.
+        data = _vped.ajustar_linhas_auditoria(lambda q: _dax_rows(token, q), data)
+
         return jsonify({'ok': True, 'data': data, 'count': len(data)})
 
     except requests.exceptions.HTTPError as e:
@@ -6391,6 +6395,12 @@ def _dax_km_viagem(AR):
             f"'public rotas_km'[cidade_uf_destino],{AR}[cidade_uf_destino]),{AR}[distancia_km])")
 
 
+def _vale_cliente_meses(token, meses_set):
+    """CTRBs dos meses cujo vale-pedágio é TAG do cliente — não é custo (vale_pedagio.py)."""
+    return _vped.ctrbs_vale_cliente(lambda q: _dax_rows(token, q),
+                                    f"FORMAT('Auditoria Receita'[data_ref_ctrc], \"YYYY-MM\") IN {meses_set}")
+
+
 _CARRETA_COMP = (('manut_carreta', 'Manut. Carreta'), ('pneu_carreta', 'Pneu (carreta)'),
                  ('fin_carreta', 'Financiamento (carreta)'), ('tres_s_carreta', '3S (carreta)'))
 
@@ -6500,13 +6510,14 @@ def _veiculos_margem_cliente(token, meses_comp, meses_set, tipos, tipos_dax):
 
     cadastro = _cadastro_veiculos(token)
     base = _custo_km_cliente(token, meses_set, cadastro)
+    vc = _vale_cliente_meses(token, meses_set)
 
     # Viagens (1 linha por CTRB) da Auditoria no período/tipos
     viagens = _dax_rows(token, f"EVALUATE SELECTCOLUMNS(FILTER({AR}, "
         f"FORMAT({AR}[data_ref_ctrc],\"YYYY-MM\") IN {meses_set} && {AR}[Tipo Operacao] IN {tipos_dax}), "
         f"\"ctrb\",{AR}[CTRB],\"ctrc\",{AR}[CTRC],\"cnpj\",{AR}[cnpj_pagador],\"nome\",{AR}[cliente_pagador],"
         f"\"tipo\",{AR}[Tipo Operacao],\"cav\",{AR}[placa_cavalo],\"car\",{AR}[placa_carreta],"
-        f"\"rec\",{AR}[receita_rateada],\"frete\",{AR}[frete_motorista_total],"
+        f"\"rec\",{AR}[receita_rateada],\"frete\",{_vped.dax_frete_custo(vc, AR)},"
         f"\"km\",{_dax_km_viagem(AR)})")
 
     ctrc_map = _ctrc_tomador_map(token, meses_comp)
@@ -6659,6 +6670,10 @@ def api_veiculos_analise():
             return jsonify({'ok': False, 'error': str(e)}), 500
 
     dim_expr = DIMS[dim]
+    try:
+        vc = _vale_cliente_meses(get_token(), meses_set)
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
     dax = (
         "EVALUATE SUMMARIZE(ADDCOLUMNS(FILTER('Auditoria Receita', "
         f"FORMAT('Auditoria Receita'[data_ref_ctrc], \"YYYY-MM\") IN {meses_set} && "
@@ -6666,10 +6681,11 @@ def api_veiculos_analise():
         f"\"dim\", {dim_expr}), "
         "[dim], 'Auditoria Receita'[Tipo Operacao], "
         "\"faturamento\", SUM('Auditoria Receita'[receita_rateada]), "
-        "\"pagamento\", SUM('Auditoria Receita'[frete_motorista_total]), "
+        # Vale-pedágio do cliente (TAG dele) não é custo: sai do pagamento e da coluna Pedágio (vale_pedagio.py).
+        f"\"pagamento\", SUMX('Auditoria Receita', {_vped.dax_frete_custo(vc)}), "
         # Vale-pedágio (repasse) e retenção (SEST/INSS/IRRF) p/ desdobrar o pagamento em colunas visuais.
         # frete_motorista_total = valor_a_pagar + vale_pedagio; retenção vem do ctrbs_oss (join 1:1 por CTRB).
-        "\"vale_pedagio\", SUM('Auditoria Receita'[vale_pedagio]), "
+        f"\"vale_pedagio\", SUMX('Auditoria Receita', {_vped.dax_vale_rizza(vc)}), "
         "\"retencao\", SUMX(VALUES('Auditoria Receita'[CTRB]), "
         "COALESCE(LOOKUPVALUE('public ctrbs_oss'[total_retencoes], 'public ctrbs_oss'[ctrb], 'Auditoria Receita'[CTRB]), 0)), "
         # KM igual ao BI: prefere rotas_km (distância de rota), cai no distancia_km cru só se não achar
@@ -6846,10 +6862,11 @@ def _veiculos_detalhe_cliente(token, valor, meses_comp, meses_set, tipos, tipos_
 
     # Participação do cliente em cada viagem vem da proporção dos CTRCs (igual à tabela) — não por cnpj inteiro
     ctrc_map = _ctrc_tomador_map(token, meses_comp)
+    vc = _vale_cliente_meses(token, meses_set)
     vrows = _dax_rows(token, f"EVALUATE SELECTCOLUMNS(FILTER({AR}, FORMAT({AR}[data_ref_ctrc],\"YYYY-MM\") IN {meses_set} && {AR}[Tipo Operacao] IN {tipos_dax}), "
         f"\"data\",{AR}[data_ref_ctrc],\"mes\",FORMAT({AR}[data_ref_ctrc],\"YYYY-MM\"),\"ctrb\",{AR}[CTRB],\"ctrc\",{AR}[CTRC],"
         f"\"origem\",{AR}[cidade_uf_origem],\"destino\",{AR}[cidade_uf_destino],\"tipo\",{AR}[Tipo Operacao],"
-        f"\"receita\",{AR}[receita_rateada],\"frete\",{AR}[frete_motorista_total],\"km\",{_dax_km_viagem(AR)},"
+        f"\"receita\",{AR}[receita_rateada],\"frete\",{_vped.dax_frete_custo(vc, AR)},\"km\",{_dax_km_viagem(AR)},"
         f"\"cavalo\",{AR}[placa_cavalo],\"carreta\",{AR}[placa_carreta],\"cnpj\",{AR}[cnpj_pagador],\"nome\",{AR}[cliente_pagador])")
 
     cadastro = _cadastro_veiculos(token)
@@ -7025,11 +7042,12 @@ def api_veiculos_detalhe():
 
         cargas = []
         if filtro_aud:
+            vc = _vale_cliente_meses(token, meses_set)
             cargas = _q(
                 f"EVALUATE SELECTCOLUMNS(FILTER({AR}, FORMAT({AR}[data_ref_ctrc],\"YYYY-MM\") IN {meses_set} && {tipo_clause} && {filtro_aud}), "
                 f"\"data\",{AR}[data_ref_ctrc],\"ctrc\",{AR}[CTRC],\"manifesto\",{AR}[Manifesto],"
                 f"\"origem\",{AR}[cidade_uf_origem],\"destino\",{AR}[cidade_uf_destino],\"cliente\",{AR}[cliente_pagador],"
-                f"\"receita\",{AR}[receita_rateada],\"frete\",{AR}[frete_motorista_total],\"km\",{AR}[distancia_km],"
+                f"\"receita\",{AR}[receita_rateada],\"frete\",{_vped.dax_frete_custo(vc, AR)},\"km\",{AR}[distancia_km],"
                 f"\"status\",{AR}[status_auditoria_frete],\"motorista\",{AR}[motorista],"
                 f"\"cavalo\",{AR}[placa_cavalo],\"carreta\",{AR}[placa_carreta])")
             cargas.sort(key=lambda r: str(r.get('data') or ''))   # data crescente

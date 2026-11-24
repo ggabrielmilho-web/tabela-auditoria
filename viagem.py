@@ -33,6 +33,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 
 import placas as pl
+import vale_pedagio as vped
 
 BRT = timedelta(hours=3)
 ATIVAS = ('Aberta', 'Em rota', 'No destino', 'Desengatada')
@@ -682,7 +683,8 @@ def busca(cur, q='', limite=50, de=None, ate=None, tipos=None):
 # outra viagem (6 das 476 cargas de 01/09 a 07/10). Manifesto que leva carga de outras viagens
 # entra pela parte do frete desta (consolidado).
 #   frete pago ... `frete_motorista_total` da Auditoria = valor a pagar + vale-pedágio + pedágio
-#                  + acerto de conta corrente (CCF, que pode abater dívida de OUTRA viagem)
+#                  + acerto de conta corrente (CCF, que pode abater dívida de OUTRA viagem),
+#                  MENOS o vale-pedágio do cliente (TAG dele, sem despesa no CTRB — vale_pedagio.py)
 #   frota ........ R$/km da placa × km de rota (a conta da aba Veículos), do último mês fechado
 # ═══════════════════════════════════════════════════════════════════════════════════════════
 _CACHE = {}
@@ -953,10 +955,12 @@ def _bruto(dados, ctx):
     out['custo_manifestos'] = custo
 
     def q_auditoria():
+        vc = vped.ctrbs_vale_cliente(dax, f"{AR}[Manifesto] IN {_lista(custo)}", AR)   # TAG do cliente
         return dax(f"""EVALUATE SELECTCOLUMNS(FILTER({AR}, {AR}[Manifesto] IN {_lista(custo)}),
             "ctrb", {AR}[CTRB], "ctrc", {AR}[CTRC], "manifesto", {AR}[Manifesto], "tipo", {AR}[Tipo Operacao],
-            "receita_rateada", {AR}[receita_rateada], "frete_pago", {AR}[frete_motorista_total],
+            "receita_rateada", {AR}[receita_rateada], "frete_pago", {vped.dax_frete_custo(vc, AR)},
             "valor_a_pagar", {AR}[valor_a_pagar], "vale_pedagio", {AR}[vale_pedagio], "pedagio", {AR}[pedagio],
+            "vale_cliente", {vped.dax_vale_cliente(vc, AR)},
             "saldo_ccf", {AR}[saldo_ccf], "cavalo", {AR}[placa_cavalo], "carreta", {AR}[placa_carreta],
             "data_ref", {AR}[data_ref_ctrc], "km", {ctx['km_expr'](AR)},
             "auditoria_frete", {AR}[status_auditoria_frete], "frete_tabela", {AR}[frete_tabela])""")
@@ -1317,7 +1321,10 @@ def _dinheiro(dados, br, ctx, km_trechos):
             lancado = round(sum(p['valor'] for p in pagos), 2)
             item = {'tipo': 'agregado' if tipo == 'AGREGADO' else 'terceiro', 'ctrb': a['ctrb'], 'km': km,
                     'frete_pago': round(frete * part, 2), 'frete_cheio': round(frete, 2),
-                    'composicao': {'valor_a_pagar': _f(a.get('valor_a_pagar')), 'vale_pedagio': _f(a.get('vale_pedagio')),
+                    # vale-pedágio do cliente (TAG dele) fica fora do frete pago: só informativo (vale_pedagio.py)
+                    'composicao': {'valor_a_pagar': _f(a.get('valor_a_pagar')),
+                                   'vale_pedagio': round(_f(a.get('vale_pedagio')) - _f(a.get('vale_cliente')), 2),
+                                   'vale_pedagio_cliente': _f(a.get('vale_cliente')),
                                    'pedagio': _f(a.get('pedagio')), 'ccf': _f(a.get('saldo_ccf'))},
                     'retencoes': _f(oss.get('total_retencoes')), 'liquido': liquido, 'ciot': oss.get('ciot'),
                     'pagamentos': pagos,

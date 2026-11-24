@@ -1006,7 +1006,8 @@ function composicao(m) {
         out.push(`<tr class="det"><td colspan="2"><div class="comp-chips">${comps.map(([k, v]) => `<span>${esc(COMP[k] || k)} ${n0(v)}</span>`).join('')}</div></td></tr>`);
       } else {
         const c = it.composicao || {}, cc = it.conciliacao || {};
-        const partes = [`a pagar ${n2(c.valor_a_pagar)}`, c.vale_pedagio ? `vale-pedágio ${n2(c.vale_pedagio)}` : null, c.pedagio ? `pedágio ${n2(c.pedagio)}` : null, c.ccf ? `conta corrente ${n2(c.ccf)}` : null].filter(Boolean).join(' + ');
+        const partes = [`a pagar ${n2(c.valor_a_pagar)}`, c.vale_pedagio ? `vale-pedágio ${n2(c.vale_pedagio)}` : null, c.pedagio ? `pedágio ${n2(c.pedagio)}` : null, c.ccf ? `conta corrente ${n2(c.ccf)}` : null].filter(Boolean).join(' + ')
+          + (c.vale_pedagio_cliente ? ` <span class="faint">· vale-pedágio do cliente ${n2(c.vale_pedagio_cliente)} (TAG dele, não é custo)</span>` : '');
         linha('item', `Frete pago ao ${it.tipo} · CTRB <span class="mono">${esc(it.ctrb)}</span>${it.rkm_pago != null ? ` · <span class="mono">R$ ${n2(it.rkm_pago)}/km</span>` : ''}`, brl(it.frete_pago));
         out.push(`<tr class="det"><td colspan="2">${partes}${it.frete_cheio !== it.frete_pago ? ` · entra ${brl(it.frete_pago)} de ${brl(it.frete_cheio)}` : ''}${it.auditoria_frete ? ` · Auditoria: <span class="mono">${esc(it.auditoria_frete)}</span>` : ''}
           <div class="pagto">${it.ciot ? `<span>CIOT ${esc(it.ciot)}</span>` : ''}<span>líquido ${n2(it.liquido)}</span>

@@ -368,6 +368,8 @@ const DEFAULT_COLUMNS = [
   { key: 'margem',                       label: 'Margem',             type: 'percent' },
   { key: 'pedagio',                      label: 'Pedágio',            type: 'money'   },
   { key: 'vale_pedagio',                 label: 'Vale Pedágio',       type: 'money'   },
+  // TAG do cliente: já fora do Frete Motorista e de volta ao Resultado (server.py → vale_pedagio.py)
+  { key: 'vale_pedagio_cliente',         label: 'VP Cliente',         type: 'money'   },
   { key: 'saldo_ccf',                    label: 'Saldo CCF',          type: 'money'   },
   { key: 'distancia_km',                 label: 'KM',                 type: 'num'     },
   { key: 'motorista',                    label: 'Motorista',          type: 'text'    },
