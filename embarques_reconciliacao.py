@@ -28,6 +28,16 @@ Guardas — cada uma tem um caso que a justifica:
 
 TUDO atrás de `EMBARQUES_RECONCILIACAO` (nasce desligada). Sem DDL: usa `status`,
 `encerrada_motivo` e o log, que já existem.
+
+25/11/2026 — FONTE NOVA: o relatório 200 (`manifestos_200.py`) traz o cancelado com motivo e usuário.
+Com o 200 CONFIÁVEL na rodada (cobre o 916), quem cancela é ele:
+    manifesto CANCELADO no 200 → `Cancelada`, com o motivo e quem cancelou no log
+    (campo `cancelamento_ssw`). Sem a janela do mês (fecha a brecha da virada: manifesto do
+    dia 31 cancelado no dia 1) e com teto próprio (`EMBARQUES_RECONCILIACAO_TETO_200`, 15);
+    manifesto que SUMIU do 916 mas o 200 não diz cancelado → NÃO cancela: vira aviso
+    ("sumiu sem cancelamento no 200") — é falha de extração, não cancelamento.
+200 fora (robô falhou, tabela vazia, BI fora, `MANIFESTOS_200=false`) → a regra antiga do sumiço,
+com as mesmas guardas de sempre.
 """
 import os
 import logging
@@ -49,6 +59,13 @@ def _teto():
         return int(os.getenv('EMBARQUES_RECONCILIACAO_TETO', '3'))
     except ValueError:
         return 3
+
+
+def _teto_200():
+    try:
+        return int(os.getenv('EMBARQUES_RECONCILIACAO_TETO_200', '15'))
+    except ValueError:
+        return 15
 
 
 def _vistos(manifestos):
@@ -104,6 +121,63 @@ def cancelar_sumidos(cur, manifestos, ini, fim):
     return n
 
 
+def _cancelar(cur, cid, numero, status, man, n, rotulo, chave_n):
+    from embarques_auto import _log
+    cur.execute("""UPDATE embarques_cargas
+                      SET status='Cancelada', encerrada_motivo=%s, entregue_auto=FALSE,
+                          atualizado_em=NOW()
+                    WHERE id=%s""", (MOTIVO, cid))
+    # o texto do status fica IGUAL ao da regra antiga: é por ele que `reabrir_retornados` acha o anterior
+    _log(cur, cid, 'status', status, f'Cancelada (robô: {MOTIVO})')
+    _log(cur, cid, 'encerrada_motivo', None, MOTIVO)
+    if rotulo:
+        _log(cur, cid, 'cancelamento_ssw', None, rotulo)
+    n[chave_n] += 1
+    _logger.info('reconciliação: %s cancelada — manifesto %s (%s)', numero, man, rotulo or 'sumiu do relatório')
+
+
+def cancelar_confirmados(cur, manifestos, cancelados, ini, fim):
+    """Com o 200 confiável: cancela a carga do robô cujo manifesto está CANCELADO no 200; o que só
+    sumiu do 916 vira aviso. Sem janela de data para o confirmado (o 200 é fato, não ausência)."""
+    from embarques_auto import _norm
+    import embarques_continuacao as _ec
+    import manifestos_200 as _m2
+    n = Counter()
+    vistos = _vistos(manifestos)
+    lig = " AND continua_em IS NULL" if _ec.colunas_existem(cur) else ""
+    cur.execute(f"""
+        SELECT id, numero, status, manifesto_origem, data_carregamento
+          FROM embarques_cargas
+         WHERE COALESCE(criada_por_robo, FALSE) = TRUE
+           AND manifesto_origem IS NOT NULL
+           AND COALESCE(viagem_vazia, FALSE) = FALSE
+           AND status <> 'Cancelada'{lig}
+    """)
+    linhas = cur.fetchall()
+    conf = [r for r in linhas if _norm(r[3]) in cancelados and _norm(r[3]) not in vistos]
+    if len(conf) > _teto_200():
+        _logger.warning('reconciliação (200): %d cargas de manifesto cancelado de uma vez (teto %d) — '
+                        'nada cancelado, conferir: %s', len(conf), _teto_200(), ', '.join(r[1] for r in conf))
+        n[f'cancelados no 200 em massa ({len(conf)} > teto {_teto_200()}) — ABORTADO'] += 1
+        return n
+    for cid, numero, status, man, _d in conf:
+        if _editada_a_mao(cur, cid):
+            n['cancelado no 200, carga editada à mão — não tocada'] += 1
+            continue
+        _cancelar(cur, cid, numero, status, man, n, _m2.rotulo(cancelados[_norm(man)]),
+                  'cancelada (cancelado no SSW, relatório 200)')
+    # o sumiço sem confirmação: só a janela que o 916 recarrega, como a regra antiga
+    piso = max(ini, date(fim.year, fim.month, 1))
+    sumidos = [r for r in linhas if r[4] is not None and piso <= r[4] <= fim
+               and _norm(r[3]) not in vistos and _norm(r[3]) not in cancelados]
+    if vistos:
+        for _cid, numero, _st, man, _d in sumidos:
+            n['sumiu do 916 sem cancelamento no 200 — não cancelada'] += 1
+            _logger.warning('reconciliação (200): %s — manifesto %s sumiu do 916 mas o 200 não diz '
+                            'cancelado; nada feito (falha de extração?)', numero, man)
+    return n
+
+
 def reabrir_retornados(cur, manifestos):
     """O manifesto que 'sumiu' voltou: o cancelamento era falha de extração. Volta ao status
     anterior, que o log guarda — convergência, não incremento."""
@@ -133,9 +207,17 @@ def reabrir_retornados(cur, manifestos):
     return n
 
 
-def executar(cur, manifestos, ini, fim):
-    """Uma passada. Devolve Counter para o resumo do diário."""
+def executar(cur, manifestos, ini, fim, m200=None):
+    """Uma passada. Devolve Counter para o resumo do diário.
+
+    `m200` = `manifestos_200.ler(...)`. Confiável → o cancelamento vem do 200; senão (ou None) → sumiço."""
     n = Counter()
     n.update(reabrir_retornados(cur, manifestos))
-    n.update(cancelar_sumidos(cur, manifestos, ini, fim))
+    if m200 and m200.get('confiavel'):
+        n['fonte: relatório 200'] += 1
+        n.update(cancelar_confirmados(cur, manifestos, m200.get('cancelados') or {}, ini, fim))
+    else:
+        if m200 is not None:
+            n[f"fonte: sumiço (200 fora: {m200.get('motivo') or '?'})"] += 1
+        n.update(cancelar_sumidos(cur, manifestos, ini, fim))
     return n

@@ -1339,9 +1339,13 @@ def executar(dia=None, dry_run=False, token=None, conn=None):
         # (cancelado no SSW) cancela a carga do robô; manifesto que voltou reabre. Antes do
         # fechamento, para que carga cancelada não sirva de A nem de B para regra nenhuma.
         # Atrás de EMBARQUES_RECONCILIACAO (nasce desligada).
+        # 25/11/26 — com o relatório 200 confiável na rodada, o cancelamento vem dele (motivo e
+        # usuário no log); sem ele, a regra do sumiço de sempre (`manifestos_200`).
         import embarques_reconciliacao as _rc
         if not dry_run and _rc.ligado():
-            resumo['reconciliacao'] = _rc.executar(cur, manifestos, ini, fim)
+            import manifestos_200 as _m2
+            m200 = _m2.ler(token, _m2.chaves_do_916(manifestos), ini)
+            resumo['reconciliacao'] = _rc.executar(cur, manifestos, ini, fim, m200)
 
         # `cargas` (as candidatas ja montadas) entra para o fechamento saber o destino do
         # manifesto novo -- e o que sustenta a excecao do reforco no meio da rota.

@@ -123,6 +123,14 @@ def _cargas(cur, ids):
     for cid, ordem, cidade, uf, lat, lng, ag in cur.fetchall():
         out[cid].setdefault('destinos', []).append(
             {'cidade': cidade, 'uf': uf, 'lat': _num(lat), 'lng': _num(lng), 'agendamento': _iso(ag)})
+    # 25/11/26 — cancelada pelo relatório 200: o motivo e quem cancelou no SSW, do log da reconciliação
+    canc = [i for i, c in out.items() if c.get('encerrada_motivo') == 'manifesto_cancelado']
+    if canc:
+        cur.execute("""SELECT DISTINCT ON (carga_id) carga_id, valor_novo FROM embarques_cargas_log
+                        WHERE carga_id = ANY(%s) AND campo = 'cancelamento_ssw'
+                        ORDER BY carga_id, editado_em DESC, id DESC""", (canc,))
+        for cid, txt in cur.fetchall():
+            out[cid]['cancelamento_ssw'] = txt
     return out
 
 
@@ -226,7 +234,7 @@ def _trecho(c, papel):
         'km_rota_viagem': _num(c['distancia_planejada_km']), 'robo': bool(c['criada_por_robo']),
         'lacuna': 'LACUNA' in obs.upper(), 'sem_gps_janela': 'SEM GPS' in obs.upper(),
         'descarga_cavalo': c['descarga_cavalo_placa'], 'descarga_motorista': c['descarga_motorista_nome'],
-        'continua_em': c['continua_em'],
+        'continua_em': c['continua_em'], 'cancelamento_ssw': c.get('cancelamento_ssw'),
     }
 
 
@@ -552,6 +560,8 @@ def _leg_out(t):
     for k in ('carregamento', 'criado', 'saida', 'chegada', 'conclusao', 'desengate'):
         o[k] = _iso(t[k])
     o['motivo_texto'] = MOTIVO.get(t['motivo'] or '', None)
+    if t.get('cancelamento_ssw') and o['motivo_texto']:
+        o['motivo_texto'] += f" no SSW: {t['cancelamento_ssw']}"
     o['permanencia_h'] = round(_h(t['conclusao'], t['chegada']), 1) if (
         t['motivo'] == 'gps_saiu_do_destino' and t['chegada'] and t['conclusao']) else None
     o['transito_h'] = round(_h(t['chegada'], t['saida']), 1) if (t['chegada'] and t['saida']) else None

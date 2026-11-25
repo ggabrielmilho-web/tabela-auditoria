@@ -25,6 +25,7 @@ Decisões medidas em 06/11/2026 (detalhe na seção "Módulo Canhotos" do README
 Nada aqui manda dado para fora nem escreve no SSW. A foto nunca é apagada: descartar marca a linha.
 """
 import io
+import logging
 import os
 import re
 import uuid
@@ -153,6 +154,15 @@ CREATE INDEX IF NOT EXISTS ix_canhoto_fotos_manifesto ON canhoto_fotos (manifest
 CREATE INDEX IF NOT EXISTS ix_canhoto_fotos_ctrc ON canhoto_fotos (ctrc);
 CREATE INDEX IF NOT EXISTS ix_canhoto_fotos_cpf ON canhoto_fotos (cpf);
 CREATE INDEX IF NOT EXISTS ix_canhoto_fotos_recebida ON canhoto_fotos (recebida_em);
+-- 25/11/2026: manifestos CANCELADOS no SSW (relatório 200) da janela — a foto que ficou sem viagem diz
+-- por quê ("troca de motorista") e o escritório sabe que é para ligar no manifesto novo
+CREATE TABLE IF NOT EXISTS canhoto_cancelados (
+    manifesto     TEXT PRIMARY KEY,        -- chave sem pontuação: UDI0001231
+    rotulo        TEXT,                    -- UDI000123-1
+    emissao       DATE,
+    motivo        TEXT,                    -- "ERRO NO NOME DO MOTORISTA (fulano)"
+    atualizado_em TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 """
 
 _DDL_FEITO = False
@@ -273,6 +283,7 @@ def chave_parada(r):
 
 # ── coleta ────────────────────────────────────────────────────────────────────────────────────────────
 
+_logger = logging.getLogger('canhoto')
 M = "'public manifestos'"
 CE = "'public conhecimentos_emitidos'"
 MOT = "'public motoristas_047'"
@@ -422,7 +433,44 @@ def rodada(conn, dax, hoje=None):
     v, c, m = montar(mans, ctes, mot)
     r = gravar(conn, v, c, m)
     r['desde'] = desde
+    r['cancelados'] = gravar_cancelados(conn, dax, mans, desde)
     return r
+
+
+def gravar_cancelados(conn, dax, mans, desde):
+    """Os cancelados do relatório 200 desde `desde`. Só troca a tabela quando o 200 é confiável na
+    rodada (cobre o 916); senão deixa a última lista boa. Nunca derruba a coleta do motorista."""
+    import manifestos_200 as _m2
+    try:
+        m200 = _m2.ler(None, _m2.chaves_do_916(mans, 'k', 'd'), desde, dax=dax)
+    except Exception as e:                                  # noqa: BLE001
+        conn.rollback()
+        _logger.warning('canhoto: cancelados do 200 não lidos (%s)', e)
+        return None
+    if not m200['confiavel']:
+        return None
+    from psycopg2.extras import execute_values
+    try:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM canhoto_cancelados")
+        if m200['cancelados']:
+            execute_values(cur, "INSERT INTO canhoto_cancelados (manifesto, rotulo, emissao, motivo) VALUES %s",
+                           [(k, c['manifesto'], c['emissao'], _m2.rotulo(c)) for k, c in m200['cancelados'].items()])
+        conn.commit()
+    except Exception as e:                                  # noqa: BLE001 — tabela ainda sem DDL, trava…
+        conn.rollback()
+        _logger.warning('canhoto: cancelados do 200 não gravados (%s)', e)
+        return None
+    return len(m200['cancelados'])
+
+
+_RE_REF_MAN = re.compile(r'manifesto=([^;]+)')
+
+
+def cancelado_da_referencia(cancelados, referencia):
+    """'tipo=nf; manifesto=UDI 000123-1; ctrc=…' → o motivo do cancelamento, se o manifesto foi cancelado."""
+    m = _RE_REF_MAN.search(str(referencia or ''))
+    return cancelados.get(norm_doc(m.group(1))) if m else None
 
 
 def _ts(v):
@@ -763,6 +811,12 @@ def painel(cur):
                     ORDER BY recebida_em DESC LIMIT 300""")
     soltas = [{'uid': u, 'cpf': c, 'motorista': n or '', 'tipo': t, 'molde': mo, 'referencia': ref, 'quando': q}
               for u, c, n, t, mo, ref, q in cur.fetchall()]
+    cur.execute("SELECT to_regclass('canhoto_cancelados') IS NOT NULL")
+    if cur.fetchone()[0]:
+        cur.execute("SELECT manifesto, motivo FROM canhoto_cancelados")
+        canc = dict(cur.fetchall())
+        for s in soltas:
+            s['cancelado'] = cancelado_da_referencia(canc, s['referencia'])
     cur.execute("""SELECT count(*) FILTER (WHERE (recebida_em AT TIME ZONE 'America/Sao_Paulo')::date
                                                  = (NOW() AT TIME ZONE 'America/Sao_Paulo')::date),
                           count(*) FILTER (WHERE situacao = 'recebida')

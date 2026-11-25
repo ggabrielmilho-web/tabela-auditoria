@@ -3956,7 +3956,7 @@ def api_embarques_sm():
                    tipo, tipo_fonte, carga_id, carga_numero, carga_status, saida_real, valor_cte, valor_manifesto,
                    n_ctes, n_ctes_martins, uf_destinos, rio, exige, motivos, sm, sm_status, sm_inicio,
                    sm_encerrada_em, sm_conjunto, sm_link, sm_atraso_h, sinal_pontos, sinal_ultimo,
-                   estado, severidade, detalhe, calculado_em, estado_desde, sumiu_em,
+                   estado, severidade, detalhe, calculado_em, estado_desde, sumiu_em, cancelado_ssw,
                    validacao, validacao_obs, validado_por, validado_em,
                    disponibilidade IS NOT NULL AS tem_disponibilidade, sm_solicitada_em
               FROM embarques_sm WHERE {' AND '.join(where)}

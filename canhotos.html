@@ -230,7 +230,8 @@
     box.innerHTML = S.d.soltas.map(function (s) {
       return '<div class="solta" data-uid="' + s.uid + '">' + imgFoto(s.uid) +
         '<div class="q"><b>' + esc(s.motorista || 'Motorista') + '</b> · ' + esc(s.quando) +
-        (s.referencia ? '<br>A viagem saiu da lista antes da foto chegar: <span class="mono">' + esc(s.referencia) + '</span>' : '<br>Mandada pelo botão “Não achei minha viagem”.') + '</div>' +
+        (s.referencia ? '<br>A viagem saiu da lista antes da foto chegar: <span class="mono">' + esc(s.referencia) + '</span>' : '<br>Mandada pelo botão “Não achei minha viagem”.') +
+        (s.cancelado ? '<br><b>Manifesto cancelado no SSW:</b> ' + esc(s.cancelado) + ' — ligue a foto ao CT-e do manifesto novo.' : '') + '</div>' +
         '<div class="linha"><input placeholder="CTRC: UDI418557-9" data-c="ctrc"><select data-c="tipo"><option value="nf">Canhoto da NF</option><option value="cte">Canhoto do CT-e</option><option value="outro">Outro papel</option></select>' +
         '<button class="btn-sm" data-a="ligar">Ligar</button><button class="btn-sm perigo" data-a="descartar">Descartar</button></div></div>';
     }).join('');

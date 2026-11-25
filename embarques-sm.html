@@ -324,7 +324,10 @@ function renderTabela(){
     // o selo é de ENTREGA no RJ; a carga que sai do RJ mostra "sai do RJ" na coluna Exige
     const dest = (l.uf_destinos||'—') + ((l.uf_destinos||'').split(',').includes('RJ') ? ' <span class="mot rio">RJ</span>' : '');
     const atr = l.sm_atraso_h == null ? '—' : `<span style="color:${l.sm_atraso_h > 1 ? 'var(--orange)' : 'var(--text-dim)'}">${l.sm_atraso_h > 0 ? '+' : ''}${l.sm_atraso_h.toFixed(1)} h</span>`;
-    const canc = (l.sumiu_em ? ' <span class="badge s-pendente" title="o manifesto saiu do BI">cancelado</span>' : '')
+    // cancelado_ssw = confirmado pelo relatório 200 (motivo e quem cancelou); só sumiu_em = saiu do BI sem cancelamento
+    const canc = (l.cancelado_ssw ? ` <span class="badge s-pendente" title="cancelado no SSW: ${esc(l.cancelado_ssw)}">cancelado</span>`
+                  : (l.sumiu_em && l.sumiu_em < '2026-10-26') ? ' <span class="badge s-pendente" title="o manifesto saiu do BI (antes do relatório 200, sem motivo)">cancelado</span>'
+                  : l.sumiu_em ? ' <span class="badge s-atencao" title="o manifesto saiu do BI e o relatório 200 não diz cancelado — falha de extração?">saiu do BI</span>' : '')
       + (l.placa_gr_divergente ? ` <span class="badge s-atencao" title="${esc(l.placa_gr_divergente)} — a GR cadastrou com a grafia antiga; pedir atualização à central">⚠ placa antiga na GR</span>` : '');
     return `<tr class="sev-${sev} ${ATUAL===l.manifesto?'sel':''}" onclick="abrir('${l.manifesto}')" title="${esc(l.detalhe)}">
       <td><span class="badge s-${sev}">${esc(rot)}</span>${canc}</td>

@@ -183,6 +183,8 @@ ALTER TABLE embarques_sm ADD COLUMN IF NOT EXISTS oc_embarcador VARCHAR(60);
 ALTER TABLE embarques_sm ADD COLUMN IF NOT EXISTS pagador_cnpj VARCHAR(14);
 -- a GR cadastrou o cavalo/carreta na OUTRA grafia (antiga × Mercosul): rótulo, não estado — "cavalo HKE0G75 → GR: HKE-0675"
 ALTER TABLE embarques_sm ADD COLUMN IF NOT EXISTS placa_gr_divergente VARCHAR(80);
+-- 25/11/26: o sumiço confirmado pelo relatório 200 — "MOTIVO (usuário)"; vazio com sumiu_em = saiu do BI sem cancelamento
+ALTER TABLE embarques_sm ADD COLUMN IF NOT EXISTS cancelado_ssw TEXT;
 CREATE INDEX IF NOT EXISTS ix_embarques_sm_data ON embarques_sm (data_emissao);
 CREATE INDEX IF NOT EXISTS ix_embarques_sm_estado ON embarques_sm (estado);
 CREATE TABLE IF NOT EXISTS embarques_sm_log (
@@ -615,7 +617,7 @@ def atualizar(conn, tok, manifestos=None, cadastro=None, desde=None, agora=None,
             VALUES (%s, {', '.join(['%s'] * len(CAMPOS))}, %s, %s, %s, NULL)
             ON CONFLICT (manifesto) DO UPDATE SET
               {', '.join(f'{c} = EXCLUDED.{c}' for c in CAMPOS)},
-              calculado_em = EXCLUDED.calculado_em, sumiu_em = NULL,
+              calculado_em = EXCLUDED.calculado_em, sumiu_em = NULL, cancelado_ssw = NULL,
               estado_desde = CASE WHEN embarques_sm.estado = EXCLUDED.estado THEN embarques_sm.estado_desde
                                   ELSE EXCLUDED.estado_desde END""",
                     [k] + [lin[c] for c in CAMPOS] + [agora, agora, agora])
@@ -630,6 +632,19 @@ def atualizar(conn, tok, manifestos=None, cadastro=None, desde=None, agora=None,
                         WHERE sumiu_em IS NULL AND data_emissao >= %s AND NOT (manifesto = ANY(%s))""",
                     (agora, min(dias), list(manifestos)))
         contagem['sumiu'] = cur.rowcount
+        # 25/11/26 — o relatório 200 diz se o sumiço é cancelamento de verdade, com motivo e quem cancelou
+        import manifestos_200 as _m2
+        # 45 dias para trás (e não só a janela): preenche o motivo dos que sumiram antes desta rodada
+        m200 = _m2.ler(tok, {k: _dia(m.get('data_emissao')) for k, m in manifestos.items()},
+                       min(min(dias), date.today() - timedelta(days=45)))
+        if m200['confiavel']:
+            n_c = 0
+            for k, c in m200['cancelados'].items():
+                rot = _m2.rotulo(c)
+                cur.execute("""UPDATE embarques_sm SET cancelado_ssw = %s, sumiu_em = COALESCE(sumiu_em, %s)
+                                WHERE manifesto = %s AND cancelado_ssw IS DISTINCT FROM %s""", (rot, agora, k, rot))
+                n_c += cur.rowcount
+            contagem['cancelado no SSW (200)'] = n_c
     conn.commit()
     return contagem
 
