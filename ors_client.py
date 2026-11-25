@@ -18,7 +18,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 API_KEY = os.getenv('OPENROUTE_API_KEY', '')
-BASE_URL = 'https://api.openrouteservice.org/v2/directions/driving-hgv'
+# api.openrouteservice.org foi desligado em 24/11/2026 (responde 410 GONE).
+# Mesmo token, mesmo formato — só mudou o host/prefixo.
+BASE_URL = 'https://api.heigit.org/openrouteservice/v2/directions/driving-hgv'
 
 
 class ORSError(Exception):
