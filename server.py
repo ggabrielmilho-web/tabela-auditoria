@@ -1153,6 +1153,9 @@ def _crm_faturar_pelo_ssw(carteira, dados):
             linhas = _crm_montar(carteira, dados, marc)
             n = crm.gravar_faturados(cur, carteira, crm.faturados_pelo_ssw(carteira, linhas, marc))
             n += crm.gravar_desfaturados(cur, carteira, _crm_desfaturados(cur, carteira, linhas, dados))
+            # a fatura nova no lugar da excluída vai para o histórico (26/11/2026) — com o `marc` de antes
+            # dos FATURADO de cima, para a troca ficar registrada também na linha que virou FATURADO agora
+            n += crm.gravar_faturas_novas(cur, carteira, crm.faturas_novas(carteira, linhas, marc))
             crm.gravar_copias(cur, crm.copias_faltando(linhas, marc))   # não muda a tela: fora do `n`
         conn.commit()
     finally:
@@ -1241,7 +1244,8 @@ def _crm_linhas(carteira, forcar=False):
         return _crm_descargas_montar(dados, cd.dados(_crm_dax_dre, _crm_dax_op, forcar=forcar)), dados
     marc = _crm_marcacoes(carteira)
     linhas = _crm_montar(carteira, dados, marc)
-    if ((crm.faturados_pelo_ssw(carteira, linhas, marc) or _crm_tem_desfaturado(carteira, linhas, dados))
+    if ((crm.faturados_pelo_ssw(carteira, linhas, marc) or crm.faturas_novas(carteira, linhas, marc)
+            or _crm_tem_desfaturado(carteira, linhas, dados))
             and _crm_faturar_pelo_ssw(carteira, dados)):
         linhas = _crm_montar(carteira, dados, _crm_marcacoes(carteira))
     elif crm.copias_faltando(linhas, marc):

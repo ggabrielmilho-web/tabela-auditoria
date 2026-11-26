@@ -844,16 +844,30 @@ def marcacoes(cur, carteira):
                           atualizado_por,
                           EXISTS (SELECT 1 FROM crm_doc_log l WHERE l.chave = m.chave
                                      AND l.campo <> '*importacao*' AND NOT l.auto),
-                          COALESCE((SELECT max(em) FROM crm_doc_log l WHERE l.chave = m.chave
-                                       AND l.campo = 'etapa' AND NOT l.auto)
-                                 > (SELECT max(em) FROM crm_doc_log l WHERE l.chave = m.chave
-                                       AND l.campo = 'etapa' AND l.auto), false)
+                          -- "tirou do FATURADO à mão": a última mudança automática foi o FATURADO e
+                          -- uma pessoa mexeu na etapa depois. Se a última automática foi a VOLTA da
+                          -- fatura excluída, ela mexer depois não trava: quando a fatura de verdade
+                          -- sair, o FATURADO vem (26/11/2026 — 42 linhas da Nestlé ficaram fora do
+                          -- automático com a fatura nova já emitida ou paga: qualquer mão depois da volta
+                          -- travava para sempre)
+                          COALESCE((SELECT a.depois = 'FATURADO' AND EXISTS (
+                                           SELECT 1 FROM crm_doc_log h WHERE h.chave = m.chave
+                                              AND h.campo = 'etapa' AND NOT h.auto AND h.em > a.em)
+                                      FROM (SELECT depois, em FROM crm_doc_log a WHERE a.chave = m.chave
+                                               AND a.campo = 'etapa' AND a.auto
+                                             ORDER BY em DESC, id DESC LIMIT 1) a), false),
+                          -- a última fatura que o automático registrou nesta linha (`faturas_novas`)
+                          (SELECT CASE WHEN f.campo = 'fatura' THEN f.depois
+                                       ELSE substring(f.por from 'fatura ([0-9]{5,}-[0-9])') END
+                             FROM crm_doc_log f WHERE f.chave = m.chave AND f.auto
+                              AND (f.campo = 'fatura' OR f.por ~ 'fatura [0-9]{5,}-[0-9]')
+                            ORDER BY f.em DESC, f.id DESC LIMIT 1)
                      FROM crm_doc_marcacao m WHERE carteira = %s""", (carteira,))
     out = {}
-    for (chave, ctrc, cte, etapa, campos, planilha, origem, ssw, quando, por, editado, mao) in cur.fetchall():
+    for (chave, ctrc, cte, etapa, campos, planilha, origem, ssw, quando, por, editado, mao, fat) in cur.fetchall():
         out[chave] = {'chave': chave, 'ctrc': ctrc, 'cte': cte, 'etapa': etapa, 'campos': campos or {},
                       'planilha': planilha, 'origem': origem, 'ssw': ssw, 'atualizado': quando, 'por': por,
-                      'editado': editado, 'mao_depois_do_auto': mao}
+                      'editado': editado, 'mao_depois_do_auto': mao, 'fatura_registrada': fat}
     return out
 
 
@@ -1041,6 +1055,54 @@ def gravar_desfaturados(cur, carteira, itens):
     for l, antes, motivo in itens:
         n += gravar(cur, carteira, [l['chave']], 'etapa', antes, f'{AUTO_POR}: {motivo}', auto=True)
     return n
+
+
+# ── Fatura nova no lugar da excluída (26/11/2026) ────────────────────────────
+# A fatura de antecipação é emitida e excluída; até a fatura de verdade sair, outra pessoa já mexeu na
+# etapa (ou pôs FATURADO à mão). Quando a nova aparece no 441, o histórico registra a troca — a antiga
+# não existe mais no SSW. Só um registro no log (campo `fatura`): a etapa segue as regras de cima.
+
+def _num_fatura(f):
+    return str(f or '').split('-')[0].strip().lstrip('0')
+
+
+def faturas_do_ssw(l):
+    """As faturas em que o SSW mostra o CT-e agora: a em aberto (ou do pagamento parcial) ou as pagas."""
+    fa = l.get('fatura_aberta') or {}
+    if fa.get('fatura'):
+        return [fa['fatura']]
+    if l.get('ssw') == 'pago' and l.get('fonte') == '441':
+        return list(l.get('faturas') or [])
+    return []
+
+
+def faturas_novas(carteira, linhas, marc):
+    """Linhas cuja fatura no SSW não é a última que o automático registrou → [(linha, antiga, nova, como)].
+    Sem fatura registrada (nunca passou pelo automático), nada: não há o que substituir."""
+    if not CARTEIRAS[carteira].get('auto_faturado', True):
+        return []
+    out = []
+    for l in linhas:
+        antiga = (marc.get(l['chave']) or {}).get('fatura_registrada')
+        atuais = faturas_do_ssw(l)
+        if not antiga or not atuais or _num_fatura(antiga) in {_num_fatura(f) for f in atuais}:
+            continue
+        nova = ', '.join(atuais)
+        if l.get('ssw') == 'pago':
+            como = f"paga em {_br(l['pago_em'])}" if l.get('pago_em') else 'paga (pagamento parcial)'
+        else:
+            como = f"em aberto, vence {_br((l.get('fatura_aberta') or {}).get('vencimento'))}"
+        out.append((l, antiga, nova, como))
+    return out
+
+
+def gravar_faturas_novas(cur, carteira, itens):
+    """Registra no histórico a troca de fatura de `faturas_novas`. Devolve quantas registrou."""
+    for l, antiga, nova, como in itens:
+        cur.execute('INSERT INTO crm_doc_log (chave, campo, antes, depois, por, auto) VALUES (%s, %s, %s, %s, %s, true)',
+                    (l['chave'], 'fatura', antiga, nova,
+                     f'{AUTO_POR}: o CT-e não está mais na fatura {antiga}; está na {nova}, {como} (441)'))
+    return len(itens)
 
 
 def ultima_mudanca(cur, chaves, campo):
