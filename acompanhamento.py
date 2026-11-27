@@ -60,9 +60,11 @@ CAMPOS = {
     'agenda': 'data_hora',       # agenda quando o SSW não tem (ou corrigida)
     'ocorrencia': 'texto',       # nº da ocorrência aberta na plataforma do cliente
     'anotacao': 'texto',
+    'descarga': 'valor',         # valor da descarga que a pessoa informa (a coluna VALOR DESCARGA da planilha),
+                                 # por destinatário: num CT-e só do destino (251 de 258 na planilha)
 }
 ROTULO_CAMPO = {'status': 'Status', 'entrega': 'Entrega', 'agenda': 'Agenda',
-                'ocorrencia': 'Ocorrência no cliente', 'anotacao': 'Anotação'}
+                'ocorrencia': 'Ocorrência no cliente', 'anotacao': 'Anotação', 'descarga': 'Descarga informada'}
 
 RE_AGENDA = re.compile(r'AGENDAD[AO]\s+(?:P/|PARA)\s*(\d{2})/(\d{2})/(\d{2,4})(?:\s+(\d{2}):(\d{2}))?', re.I)
 RE_DATA_TXT = re.compile(r'(?:ENTREGUE|REALIZADA)\D{0,15}(\d{2})/(\d{2})/(\d{2,4})', re.I)
@@ -173,7 +175,8 @@ def dax_ctes(ini, fim):
             f"\"reme\", [cliente_remetente], \"dest\", [cliente_destinatario], \"cid\", [cidade_entrega], \"uf\", [uf_entrega], "
             f"\"cid_o\", [cidade_origem_prestacao], \"uf_o\", [uf_origem_prestacao], \"nf\", [numero_nota_fiscal], "
             f"\"frete\", [valor_frete], \"placa\", [placa_cavalo], \"carreta\", [placa_carreta], \"manu\", [ultimo_manifesto], "
-            f"\"obs\", [observacao], \"chave\", [chave_cte], \"peso\", [peso_real_kg], \"placa_col\", [placa_coleta]), "
+            f"\"obs\", [observacao], \"chave\", [chave_cte], \"peso\", [peso_real_kg], \"placa_col\", [placa_coleta], "
+            f"\"outros\", [outros], \"tf\", [tipo_frete]), "
             f"{t}[data_emissao] >= {a}, {t}[data_emissao] <= {b})")
 
 
@@ -217,6 +220,102 @@ def dax_ype_monit(ini):
             f"\"st\", [status_monitoramento], \"r\", [rastreador], \"up\", [ultima_posicao_em]), {t}[lido_em] >= {a})")
 
 
+# ── Descarga (27/11/2026): pago ao chapa × cobrado do cliente, por destinatário ──────────────────────
+# Pago: 477, evento 5100 (CARGA E DESCARGA C/ TERCEIROS), ligado ao CT-e pela NF do histórico (a mesma régua do
+# relatório de segunda, relatorio_5100). Cobrado: o "Outros" do CT-e (clientes que incluem a descarga no CT-e) e
+# os CT-e complementares/RPS com "descarga" na observação, ligados ao CT-e original pela referência que a
+# observação traz (chave, CTRC, nº do CT-e ou NF). "Valor adicional devido ao reajuste do diesel" (Heinz) e
+# diária NÃO são descarga. Medido em 2026: 1.400 cobranças ligadas sozinhas; as em lote sem referência (fatura
+# consolidada, fechamento mensal) ficam para a etapa 2 (associar à mão).
+
+# Regra de cada cliente (planilha PROCESSO REEMBOLSO DESCARGA, 27/11/2026, e o que a operação explicou):
+#   todos     reembolsa tudo                  incluso   parte vai no "Outros" do CT-e; a diferença se pede
+#   acima_500 R$ 500 já vão no frete; reembolsa o que passar   so_cif   só frete CIF (FOB não)   nao   não reembolsa
+REGRAS_DESCARGA = [
+    (r'SANCHEZ', 'Sanchez Cano', 'todos', 'planilha toda segunda-feira', ''),
+    (r'PERNOD', 'Pernod Ricard', 'todos', 'planilha toda sexta-feira',
+     '1ª quinzena paga dentro do mês; 2ª até o dia 15 do mês seguinte'),
+    (r'HEINZ|KRAFT', 'Heinz', 'todos', 'portal OTM, uma a uma', '15 dias após a entrega'),
+    (r'QUIMICA AMPARO|\bYPE\b', 'Ypê', 'incluso', 'parte no CT-e (Outros); a diferença no portal Multi', ''),
+    (r'DOCE MINEIRO', 'Doce Mineiro', 'acima_500', 'o que passar de R$ 500, por e-mail', ''),
+    (r'DOAR ?BELLEZA', 'Doarbelleza', 'todos', 'e-mail, uma a uma', ''),
+    (r'J\.? ?MACEDO', 'J. Macedo', 'nao', '', ''),
+    (r'JC DISTRIB', 'JC Distribuição', 'nao', '', ''),
+    (r'\bSTART\b', 'Start Química', 'so_cif', 'o financeiro gera o CT-e (transferência para Merio não)', ''),
+    (r"L.?OREAL", "L'Oréal", 'todos', 'o financeiro gera o CT-e no fim do mês', ''),
+    (r'SUPER ?PODEROSA', 'Superpoderosa', 'todos', 'e-mail, uma a uma', ''),
+    (r'SUPPLOG|SUPPORTE', 'Supplog', 'todos', 'portal Supporte, uma a uma', '30 dias'),
+    (r'UNILEVER', 'Unilever', 'incluso', 'no CT-e (Outros); a diferença no portal Multi', ''),
+    (r'BERGAMO', 'Bergamo', 'todos', 'portal Lincros, uma a uma', ''),
+    (r'TANGARA', 'Tangará', 'todos', 'e-mail, uma a uma', ''),
+    (r'NESTL|GAROTO', 'Nestlé', 'todos', 'Galileu, uma a uma', 'antes de finalizar a viagem'),
+    (r'LIMA E PERGHER', 'Lima e Pergher', 'so_cif', '', ''),
+]
+DESCARGA_LIMITE_FRETE = 500.0   # Doce Mineiro: o que já vai no frete
+
+
+def regra_descarga(pagador):
+    s = _sem_acento(pagador).upper()
+    for rx, nome, tipo, canal, prazo in REGRAS_DESCARGA:
+        if re.search(rx, s):
+            return {'cliente': nome, 'tipo': tipo, 'canal': canal, 'prazo': prazo}
+    return None
+
+
+RE_COBR_DESCARGA = re.compile(r'DESCARG|DESCARREG|\bCHAPA\b')
+RE_CARREGAMENTO = re.compile(r'CARREGAM|CARREGAMN|TRANSBORD')
+
+
+def dax_cobrancas(ini):
+    """Complementares e RPS com descarga na observação, emitidos desde `ini` (a cobrança vem depois do CT-e)."""
+    a, _ = _dax_datas(ini, ini)
+    t = "'public conhecimentos_emitidos'"
+    cond = (f"({t}[tipo_documento] = \"COMPLEMENTAR FRETE\" || LEFT({t}[tipo_documento], 4) = \"SUBC\") && "
+            f"({t}[data_emissao] >= {a}) && (SEARCH(\"DESCARG\", {t}[observacao], 1, 0) > 0 || "
+            f"SEARCH(\"DESCARREG\", {t}[observacao], 1, 0) > 0 || SEARCH(\"CHAPA\", {t}[observacao], 1, 0) > 0)")
+    return (f"EVALUATE SELECTCOLUMNS(FILTER({t}, {cond}), \"ctrc\", [serie_numero_ctrc], \"tipo\", [tipo_documento], "
+            f"\"emissao\", [data_emissao], \"frete\", [valor_frete], \"obs\", [observacao], \"cnpj_pag\", [cnpj_pagador])")
+
+
+def refs_da_obs(obs):
+    """Referências que a observação de uma cobrança traz → {'chave', 'ctrc', 'cte_num', 'nf'} (listas).
+
+    O SSW quebra a observação a cada 40 caracteres com vírgula — a chave do CT-e original chega partida
+    ("3126010000000000000,1570840000001234100000012"): para a chave, as vírgulas saem."""
+    o = _sem_acento(obs).upper()
+    r = {'chave': re.findall(r'\d{44}', o.replace(',', '')),
+         'ctrc': ['%s%s-%s' % m for m in re.findall(r'\b([A-Z]{3})\s?(\d{6})-(\d)\b', o)]}
+    nums = []
+    for m in re.finditer(r'CT-?ES?\s*:*\s*((?:\d{3,9}\s*(?:[/,E-]|A|ATE)?\s*)+)', o):
+        nums += re.findall(r'\d{3,9}', m[1])
+    r['cte_num'] = nums
+    nfs = []
+    for m in re.finditer(r'\bN\.?\s?F[S\.]?(?:-E)?S?\s*(?:N[°ºO]?\.?)?\s*:*\s*((?:\d{3,9}\s*(?:[/,E-]|A|ATE)?\s*)+)', o):
+        nfs += re.findall(r'\d{3,9}', m[1])
+    for m in re.finditer(r'DESCARGA\s+((?:\d{4,9}\s*(?:[/,E]|A|ATE)?\s*)+)', o):   # "DESCARGA 216866 A 216870 / 216889"
+        nfs += re.findall(r'\d{4,9}', m[1])
+    for a, b in re.findall(r'(\d{4,9})\s+(?:A|ATE)\s+(\d{4,9})', o):
+        a, b = int(a), int(b)
+        if 0 < b - a <= 50:
+            nfs += [str(x) for x in range(a, b + 1)]
+    r['nf'] = list(dict.fromkeys(nfs))
+    return r
+
+
+def pagamentos_5100(dax_dre, ini, fim, hoje=None):
+    """Lançamentos do 5100 de `ini`−10 d até `fim`+75 d (a descarga é paga depois da viagem), cada um com o CT-e
+    que a NF do histórico aponta (`relatorio_5100`)."""
+    import relatorio_5100 as r5
+    hoje = hoje or hoje_brt()
+    a, b = ini - timedelta(days=10), min(hoje, fim + timedelta(days=75))
+    desp, ctes = r5.coletar(None, a, b, dax=dax_dre)
+    _, linhas = r5.montar(desp, ctes)
+    return [{'cte': str(l.get('cte') or '').replace(' ', '').upper(), 'lanc': f"{l.get('numlancto') or ''}",
+             'em': _iso(l.get('emissao')), 'forn': l.get('nome_fornecedor'), 'v': _num(l.get('vlr_final')) or 0.0,
+             'hist': l.get('historico_despesa'), 'pgto': _iso(l.get('data_pgto'))}
+            for l in linhas if l.get('cte')]
+
+
 def _dax_ou_vazio(dax, q):
     """As tabelas da YPE são opcionais: sem elas no BI (ou com erro), a tela segue sem os dados do portal."""
     try:
@@ -239,11 +338,13 @@ def periodo_do_mes(mes, hoje=None):
     return mes, ini, min(prox - timedelta(days=1), hoje)
 
 
-def dados_bi(dax, mes, forcar=False, hoje=None):
-    """BI → {'ctes', 'man', 'm200', 'oc'} do mês (cache de 10 min por mês)."""
+def dados_bi(dax, mes, forcar=False, hoje=None, dax_dre=None):
+    """BI → {'ctes', 'man', 'm200', 'oc', 'ype_*', 'p5100', 'cobr'} do mês (cache de 10 min por mês).
+
+    `dax_dre` lê o dataset do DRE (onde mora o 477); sem ele, a tela segue sem o pago da descarga."""
     mes, ini, fim = periodo_do_mes(mes, hoje)
     c = _CACHE.get(mes)
-    if c and not forcar and time.time() - c['t'] < CACHE_S:
+    if c and not forcar and time.time() - c['t'] < CACHE_S and (c['d'].get('p5100_lido') or not dax_dre):
         return c['d']
     folga = ini - timedelta(days=20)   # manifesto de CT-e do dia 1º pode ser do mês anterior
     d = {'mes': mes, 'ini': ini.isoformat(), 'fim': fim.isoformat(),
@@ -251,7 +352,15 @@ def dados_bi(dax, mes, forcar=False, hoje=None):
          'm200': dax(dax_200(folga)), 'oc': dax(DAX_031),
          'ype_cte': _dax_ou_vazio(dax, DAX_YPE_CTE), 'ype_cargas': _dax_ou_vazio(dax, DAX_YPE_CARGAS),
          'ype_mon': _dax_ou_vazio(dax, dax_ype_monit(folga)),
+         'cobr': _dax_ou_vazio(dax, dax_cobrancas(ini)),
+         'p5100': None,
          'lido_em': datetime.now(timezone(timedelta(hours=-3))).strftime('%d/%m/%Y %H:%M')}
+    if dax_dre:
+        try:
+            d['p5100'] = pagamentos_5100(dax_dre, ini, fim, hoje)
+        except Exception:
+            d['p5100'] = None   # o DRE fora do ar não derruba a tela; o pago da descarga fica vazio
+        d['p5100_lido'] = True   # tentou (mesmo com erro): não relê a cada clique dentro dos 10 min
     _CACHE[mes] = {'t': time.time(), 'd': d}
     return d
 
@@ -359,6 +468,63 @@ def ype_por_chave(d):
     return {ch: out_carga[i] for ch, i in carga_da_chave.items() if i in out_carga}
 
 
+def _ctrc(v):
+    return str(v or '').replace(' ', '').upper()
+
+
+def descargas_por_cte(d, ctes, marc):
+    """{CTRC: {'pago': [...], 'carregamento': [...], 'cobr': [...], 'outros': float, 'tf': 'CP'}} dos CT-e da tela.
+
+    Uma cobrança pode citar vários CT-e (RPS "descarga das NFs 1 / 2 / 3"): o valor se reparte entre os CT-e que
+    ela liga, na proporção do que foi pago (ou informado) em cada um; sem nada, em partes iguais."""
+    por_ctrc = {_ctrc(c.get('ctrc')): c for c in ctes}
+    por_ch, por_num, por_nf = {}, {}, {}
+    for k, c in por_ctrc.items():
+        ch = str(c.get('chave') or '').strip()
+        rz = re.sub(r'\D', '', str(c.get('cnpj_pag') or ''))[:8]
+        if len(ch) == 44:
+            por_ch[ch] = k
+            por_num.setdefault((rz, int(ch[25:34])), []).append(k)
+        for n in re.findall(r'\d+', str(c.get('nf') or '').replace('.0', '')):
+            por_nf.setdefault((rz, int(n)), []).append(k)
+    out = {k: {'pago': [], 'carregamento': [], 'cobr': [], 'outros': _num(c.get('outros')) or 0.0, 'tf': c.get('tf')}
+           for k, c in por_ctrc.items()}
+
+    for p in d.get('p5100') or []:
+        if p['cte'] in out:
+            onde = 'carregamento' if RE_CARREGAMENTO.search(_sem_acento(p['hist']).upper()) else 'pago'
+            out[p['cte']][onde].append({k: p[k] for k in ('lanc', 'em', 'forn', 'v', 'hist', 'pgto')})
+
+    def peso(k):
+        pg = sum(x['v'] for x in out[k]['pago'])
+        if pg:
+            return pg
+        return _num(str(((marc.get(k) or {}).get('campos') or {}).get('descarga') or '').replace(',', '.')) or 0.0
+
+    for c in d.get('cobr') or []:
+        if not RE_COBR_DESCARGA.search(_sem_acento(c.get('obs')).upper()):
+            continue
+        r, eu = refs_da_obs(c.get('obs')), _ctrc(c.get('ctrc'))
+        rz = re.sub(r'\D', '', str(c.get('cnpj_pag') or ''))[:8]
+        alvo, por = [por_ch[x] for x in r['chave'] if x in por_ch] + [x for x in r['ctrc'] if x in out], 'chave/CTRC'
+        if not alvo:
+            alvo, por = [k for n in r['cte_num'] for k in por_num.get((rz, int(n)), [])], 'nº do CT-e'
+        if not alvo:
+            alvo, por = [k for n in r['nf'] for k in por_nf.get((rz, int(n)), [])], 'NF'
+        alvo = [k for k in dict.fromkeys(alvo) if k != eu]
+        if not alvo:
+            continue
+        total = _num(c.get('frete')) or 0.0
+        pesos = {k: peso(k) for k in alvo}
+        soma = sum(pesos.values())
+        for k in alvo:
+            parte = total * (pesos[k] / soma if soma else 1 / len(alvo))
+            out[k]['cobr'].append({'ctrc': eu, 'tipo': c.get('tipo'), 'em': _iso(c.get('emissao')),
+                                   'v': round(parte, 2), 'total': total, 'por': por, 'n': len(alvo),
+                                   'obs': re.sub(r'\s+', ' ', str(c.get('obs') or ''))[:220]})
+    return out
+
+
 def montar(d, marc, crm=None, grupos=None, hoje=None):
     """Dados do BI + marcações → {'ctes': [...], 'viagens': {...}}.
 
@@ -373,6 +539,7 @@ def montar(d, marc, crm=None, grupos=None, hoje=None):
         oc.setdefault(str(o.get('ctrc') or '').replace(' ', '').upper(), []).append(o)
 
     ype = ype_por_chave(d)
+    desc = descargas_por_cte(d, [c for c in d['ctes'] if entra(c)], marc)
 
     ctes, viagens = [], {}
     for c in d['ctes']:
@@ -432,6 +599,9 @@ def montar(d, marc, crm=None, grupos=None, hoje=None):
             'b10': _transporte(c.get('obs')),
             'pedido': pedido_da_obs(c.get('obs')),
             'ype': yp,
+            # descarga: o destinatário da viagem é a unidade (`g`); a regra do cliente decide o que se cobra
+            'desc': dict(desc.get(ctrc) or {}, g=f"{vid}|{raiz_cnpj(c.get('cnpj_pag'), grupos)}|{_sem_acento(c.get('dest')).upper().strip()}",
+                         regra=regra_descarga(c.get('pag'))),
             'ssw': {'agenda': agenda, 'aguardando_agenda': bool(o35) and not o15,
                     'entrega': ent, 'status': sug, 'status_por': por, 'avisos': avisos},
             'crm': k_crm or None,
@@ -589,6 +759,16 @@ def normalizar(campo, valor):
         if tipo == 'data_hora' and m[4]:
             return f'{d}T{m[4]}:{m[5]}'
         return d
+    if tipo == 'valor':
+        v = re.sub(r'[R$\s]', '', s)
+        if re.fullmatch(r'\d{1,3}(\.\d{3})*(,\d{1,2})?|\d+(,\d{1,2})?', v):
+            v = v.replace('.', '').replace(',', '.')
+        elif not re.fullmatch(r'\d+(\.\d{1,2})?', v):
+            raise ValueError('Valor inválido — use 1.234,56.')
+        n = float(v)
+        if n < 0 or n >= 100000:
+            raise ValueError('Valor fora do esperado para uma descarga.')
+        return f'{n:.2f}'
     return s[:300]
 
 

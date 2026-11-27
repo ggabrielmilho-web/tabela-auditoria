@@ -143,6 +143,10 @@
   table.mini td, table.mini th { padding: 4px 6px; border-bottom: 1px solid var(--border); text-align: left; }
   table.mini th { color: var(--text-dim); font-size: 0.64rem; text-transform: uppercase; }
 
+  th.ordena { cursor: pointer; user-select: none; }
+  th.ordena:hover { color: var(--text); }
+  th.ordena.ativa { color: var(--accent); }
+  .seta-ord { font-size: 0.6rem; margin-left: 3px; }
   .info-i { display: inline-flex; align-items: center; justify-content: center; width: 13px; height: 13px; margin-left: 5px; border-radius: 50%; border: 1px solid var(--text-dim); color: var(--text-dim); font-size: 0.55rem; font-weight: 700; font-family: 'DM Sans', sans-serif; text-transform: none; cursor: help; vertical-align: 1px; }
   .info-i:hover, .info-i:focus, .info-i.on { border-color: var(--accent); color: var(--accent); outline: none; }
   .dica { position: fixed; z-index: 1000; max-width: 340px; padding: 10px 12px; border-radius: 9px; background: var(--toast); border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(var(--sombra-rgb),.4); font-size: 0.76rem; line-height: 1.5; color: var(--text); white-space: pre-line; pointer-events: none; }
@@ -223,7 +227,8 @@
   var S = {
     mes: null, dados: null, st: {}, ctes: {}, viagens: {}, porViagem: {},
     filtro: null, busca: '', sel: new Set(), abertas: new Set(), clisAbertos: new Set(),
-    agrupar: pref('acomp:agrupar') === '1', ocultarEntregues: pref('acomp:ocultar') === '1', edit: null
+    agrupar: pref('acomp:agrupar') === '1', ocultarEntregues: pref('acomp:ocultar') === '1', edit: null,
+    ordem: (function () { try { return JSON.parse(pref('acomp:ordem') || 'null'); } catch (e) { return null; } })()
   };
 
   // ── utilidades ──
@@ -365,6 +370,107 @@
   function fechada(cod) { return cod === 'ENTREGUE' || cod === 'RECUSADA'; }
 
   // ── a viagem: junta os CT-e dela ──
+  // ── descarga (27/11/2026): por destinatário — informado × pago no 477 × cobrado do cliente ──
+  var DESC = {
+    a_cobrar: { rot: 'A cobrar', cor: 'vermelho', ordem: 1, d: 'pago (ou informado) e nada cobrado do cliente' },
+    parcial: { rot: 'Cobrada a menor', cor: 'laranja', ordem: 2, d: 'cobrou menos do que foi pago' },
+    sem_regra: { rot: 'Sem regra', cor: 'amarelo', ordem: 3, d: 'cliente fora da planilha de reembolso — não se sabe se reembolsa' },
+    cobrada: { rot: 'Cobrada', cor: 'verde', ordem: 5, d: 'o cobrado cobre o pago' },
+    incluida: { rot: 'No frete', cor: 'verde', ordem: 5, d: 'coberta pelo que já vai no CT-e (Outros / R$ 500 da Doce Mineiro)' },
+    nao_reembolsa: { rot: 'Custo Rizza', cor: 'cinza', ordem: 6, d: 'o cliente não reembolsa (ou frete FOB em cliente que só reembolsa CIF)' }
+  };
+  var REGRA_TXT = { todos: 'reembolsa tudo', incluso: 'parte vai no CT-e (Outros); a diferença se pede', acima_500: 'R$ 500 já vão no frete; reembolsa o que passar',
+                    so_cif: 'reembolsa só frete CIF', nao: 'não reembolsa' };
+  function valorNum(v) { var n = parseFloat(String(v == null ? '' : v).replace(',', '.')); return isFinite(n) ? n : 0; }
+  function somaV(l) { return (l || []).reduce(function (a, x) { return a + (x.v || 0); }, 0); }
+  function temDesc(c) { return c.m.descarga != null && c.m.descarga !== ''; }
+  function descGrupos(cs) {
+    var g = {}, ordem = [];
+    cs.forEach(function (c) {
+      var d = c.desc || {}; if (!d.g) return;
+      if (!g[d.g]) { g[d.g] = { k: d.g, dest: c.dest, cs: [], inf: 0, pago: 0, cobr: 0, outros: 0, regra: d.regra, fob: false, temInf: false }; ordem.push(d.g); }
+      var x = g[d.g];
+      x.cs.push(c); x.inf += valorNum(c.m.descarga); x.pago += somaV(d.pago); x.cobr += somaV(d.cobr); x.outros += d.outros || 0;
+      x.temInf = x.temInf || temDesc(c);
+      if (/^F/.test(d.tf || '')) x.fob = true;
+    });
+    return ordem.map(function (k) { return descCalc(g[k]); }).filter(function (x) { return x.base > 0 || x.cobr > 0; });
+  }
+  // a regra do cliente decide quanto do pago volta: "base" = pago no 477 (ou o informado, enquanto o 477 não chega)
+  function descCalc(x) {
+    var tipo = x.regra ? x.regra.tipo : null;
+    x.base = x.pago > 0 ? x.pago : x.inf;
+    x.incluso = tipo === 'incluso' ? Math.min(x.outros, x.base) : tipo === 'acima_500' ? Math.min(x.base, 500) : 0;
+    x.rec = x.incluso + x.cobr;
+    x.falta = Math.max(0, x.base - x.rec);
+    if (x.base <= 0) x.sit = x.cobr > 0 ? 'cobrada' : null;
+    else if (tipo === 'nao' || (tipo === 'so_cif' && x.fob)) { x.sit = 'nao_reembolsa'; x.falta = 0; }
+    else if (x.falta <= 1) x.sit = x.cobr > 0 ? 'cobrada' : 'incluida';
+    else if (!x.regra) x.sit = 'sem_regra';
+    else x.sit = x.rec > 0 ? 'parcial' : 'a_cobrar';
+    x.difInf = x.temInf && x.pago > 0 && Math.abs(x.inf - x.pago) > 1;
+    x.infSemPago = x.temInf && x.inf > 0 && x.pago <= 0;
+    x.pagoSemInf = x.pago > 0 && !x.temInf;
+    return x;
+  }
+  function descResumo(cs) {
+    var gs = descGrupos(cs), s = { gs: gs, base: 0, pago: 0, inf: 0, cobr: 0, incluso: 0, falta: 0, nDest: 0, nCobr: 0, pior: null,
+                                   difInf: 0, infSemPago: 0, pagoSemInf: 0, custo: 0, semRegra: 0, aCobrar: 0 };
+    gs.forEach(function (x) {
+      s.base += x.base; s.pago += x.pago; s.inf += x.inf; s.cobr += x.cobr; s.incluso += x.incluso;
+      if (x.base > 0) s.nDest++;
+      if (x.sit === 'cobrada' || x.sit === 'incluida') s.nCobr++;
+      if (x.sit && (!s.pior || DESC[x.sit].ordem < DESC[s.pior].ordem)) s.pior = x.sit;
+      if (x.difInf) s.difInf++;
+      if (x.infSemPago) s.infSemPago++;
+      if (x.pagoSemInf) s.pagoSemInf++;
+      if (x.sit === 'nao_reembolsa') s.custo += x.base;
+      if (x.sit === 'sem_regra') s.semRegra += x.falta;
+      if (x.sit === 'a_cobrar' || x.sit === 'parcial') s.aCobrar += x.falta;
+      if (x.sit === 'a_cobrar' || x.sit === 'parcial' || x.sit === 'sem_regra') s.falta += x.falta;
+    });
+    // o caso de descarregar em 3 destinatários e cobrar 2
+    s.parcialDest = s.nDest >= 2 && s.nCobr > 0 && gs.some(function (x) { return x.sit === 'a_cobrar'; });
+    return s;
+  }
+  function descPill(sit, falta, extra) {
+    if (!sit) return '<span class="vazio">—</span>';
+    var x = DESC[sit];
+    return '<span class="pill" style="--cor:' + cor(x.cor) + '" title="' + esc(x.d) + '">' + esc(x.rot)
+      + (falta > 1 && sit !== 'nao_reembolsa' ? '<small>R$ ' + moeda(falta) + '</small>' : '') + '</span>' + (extra || '');
+  }
+  function moedaOu(v) { return v > 0.004 ? moeda(v) : '<span class="vazio">—</span>'; }
+  function blocoDescarga(cs) {
+    var s = descResumo(cs);
+    var pg = [], cb = [], cr = [];
+    cs.forEach(function (c) {
+      var d = c.desc || {};
+      (d.pago || []).forEach(function (p) { pg.push([c, p]); });
+      (d.cobr || []).forEach(function (p) { cb.push([c, p]); });
+      (d.carregamento || []).forEach(function (p) { cr.push([c, p]); });
+    });
+    if (!s.gs.length && !pg.length && !cb.length && !cs.some(temDesc)) return '';
+    var h = '<div class="bloco"><h3>Descarga</h3>';
+    if (s.gs.length) h += '<table class="mini"><tr><th>Destinatário</th><th>Informado</th><th>Pago 477</th><th>No frete</th><th>Cobrado</th><th>Falta</th><th></th></tr>'
+      + s.gs.map(function (x) {
+        return '<tr><td>' + esc(String(x.dest || '').slice(0, 28)) + '</td><td>' + moedaOu(x.inf) + '</td><td>' + moedaOu(x.pago) + '</td><td>' + moedaOu(x.incluso)
+          + '</td><td>' + moedaOu(x.cobr) + '</td><td>' + (x.falta > 1 ? '<b class="atraso">' + moeda(x.falta) + '</b>' : '—') + '</td><td>' + descPill(x.sit, 0) + '</td></tr>';
+      }).join('') + '</table>';
+    var rg = (s.gs[0] || {}).regra || (cs[0].desc || {}).regra;
+    h += '<div class="nota" style="margin-top:6px">' + (rg ? '<b>' + esc(rg.cliente) + ':</b> ' + esc(REGRA_TXT[rg.tipo] || rg.tipo) + (rg.canal ? ' · ' + esc(rg.canal) : '') + (rg.prazo ? ' · prazo: ' + esc(rg.prazo) : '')
+      : 'Cliente fora da planilha de reembolso de descarga — sem regra cadastrada.') + '</div>';
+    if (pg.length) h += '<h3 style="margin-top:10px">Pago ao chapa (477, evento 5100)</h3><table class="mini"><tr><th>Data</th><th>Lanç.</th><th>Fornecedor</th><th>Valor</th><th>CT-e</th></tr>'
+      + pg.map(function (x) { return '<tr title="' + esc(x[1].hist || '') + '"><td>' + dm(x[1].em) + '</td><td class="mono">' + esc(x[1].lanc) + '</td><td>' + esc(String(x[1].forn || '').slice(0, 26)) + '</td><td>' + moeda(x[1].v) + '</td><td class="mono">' + esc(x[0].k) + '</td></tr>'; }).join('') + '</table>';
+    if (cb.length) h += '<h3 style="margin-top:10px">Cobrado do cliente</h3><table class="mini"><tr><th>Doc.</th><th>Tipo</th><th>Emissão</th><th>Valor</th><th>Ligado por</th></tr>'
+      + cb.map(function (x) {
+        var p = x[1];
+        return '<tr title="' + esc(p.obs || '') + '"><td class="mono">' + esc(p.ctrc) + '</td><td>' + esc(String(p.tipo || '').indexOf('COMPL') === 0 ? 'complementar' : 'RPS') + '</td><td>' + dm(p.em) + '</td><td>' + moeda(p.v)
+          + (p.n > 1 ? ' <span class="dim">de ' + moeda(p.total) + '</span>' : '') + '</td><td>' + esc(p.por) + '</td></tr>';
+      }).join('') + '</table>';
+    if (cr.length) h += '<div class="nota" style="margin-top:6px">Carregamento pago no 5100 (não entra na descarga): ' + cr.map(function (x) { return esc(x[0].k) + ' R$ ' + moeda(x[1].v); }).join(' · ') + '</div>';
+    return h + '<div class="nota" style="margin-top:6px">Pago e cobrado ligados sozinhos (NF do histórico do 477; chave, CTRC, nº do CT-e ou NF na observação da cobrança). Cobrança em lote sem referência (fatura consolidada, fechamento do mês) ainda não liga.</div></div>';
+  }
+
   function resumo(vid) {
     var v = S.viagens[vid], cs = S.porViagem[vid] || [];
     var menor = null, todos = {}, ent = 0, aconf = 0, avisos = 0, frete = 0, ultEnt = null, ag = null, clientes = {};
@@ -389,7 +495,8 @@
              avisos: avisos, frete: frete, ultEnt: ultEnt, agenda: ag, cliKey: cl[0], cliNome: cl.length ? clientes[cl[0]].nome : '', nCli: cl.length,
              agendaVencida: !!(ag && ag.v.slice(0, 10) < S.dados.hoje),
              ype: cs.some(function (c) { return c.ype; }), mon: monDe(cs), prazo: prazo,
-             prazoVencido: !!(prazo && prazo.slice(0, 10) < S.dados.hoje && ent < cs.length) };
+             prazoVencido: !!(prazo && prazo.slice(0, 10) < S.dados.hoje && ent < cs.length),
+             desc: descResumo(cs) };
   }
 
   // ── carga ──
@@ -428,7 +535,18 @@
     a_confirmar: { t: 'Entrega a confirmar', cor: 'verde', d: 'o portal da Ypê tem a entrega e ninguém confirmou ainda (a baixa do SSW já entra sozinha)', f: function (r) { return r.aconf > 0; } },
     avisos: { t: 'Avisos do SSW', cor: 'vermelho', d: 'manifesto cancelado no SSW ou data do SSWScan que não confere', f: function (r) { return r.avisos > 0; } },
     sem_sinal: { t: 'Sem sinal (Ypê)', cor: 'vermelho', d: 'portal da Ypê: monitoramento ativo com o rastreador offline agora — sem monitoramento a Ypê não paga diária', f: function (r) { return !!(r.mon && r.mon.estado === 'offline'); } },
-    sinal_caiu: { t: 'Sinal caiu (Ypê)', cor: 'laranja', d: 'portal da Ypê: o rastreador ficou offline em alguma leitura desta viagem', f: function (r) { return !!(r.mon && r.mon.fotos_off); } }
+    sinal_caiu: { t: 'Sinal caiu (Ypê)', cor: 'laranja', d: 'portal da Ypê: o rastreador ficou offline em alguma leitura desta viagem', f: function (r) { return !!(r.mon && r.mon.fotos_off); } },
+    // descarga (grupo próprio de cartões; `v` = o valor que o cartão soma)
+    desc_a_cobrar: { g: 'desc', t: 'A cobrar', cor: 'vermelho', d: 'descarga paga (ou informada) que não foi cobrada do cliente, ou cobrada a menor', f: function (r) { return r.desc.aCobrar > 1; }, v: function (r) { return r.desc.aCobrar; } },
+    desc_parcial_dest: { g: 'desc', t: 'Cobrou só parte dos destinos', cor: 'laranja', d: 'viagem com 2+ destinatários com descarga: uns cobrados, outros não', f: function (r) { return r.desc.parcialDest; }, v: function (r) { return r.desc.aCobrar; } },
+    desc_sem_regra: { g: 'desc', t: 'Cliente sem regra', cor: 'amarelo', d: 'descarga de cliente fora da planilha de reembolso — decidir se cobra', f: function (r) { return r.desc.semRegra > 1; }, v: function (r) { return r.desc.semRegra; } },
+    desc_inf_dif: { g: 'desc', t: 'Informado ≠ pago 477', cor: 'laranja', d: 'o valor informado não bate com o lançado no 477 (erro de digitação ou de lançamento)', f: function (r) { return r.desc.difInf > 0; }, v: function (r) { return r.desc.inf; } },
+    desc_inf_sem_pago: { g: 'desc', t: 'Informado sem pagamento', cor: 'amarelo', d: 'tem valor informado e nenhum lançamento no 477 ligado (pago por fora? NF não escrita no histórico?)', f: function (r) { return r.desc.infSemPago > 0; }, v: function (r) { return r.desc.inf; } },
+    desc_pago_sem_inf: { g: 'desc', t: 'Pago sem informado', cor: 'cinza', d: 'lançado no 477 e ninguém informou o valor na tela', f: function (r) { return r.desc.pagoSemInf > 0; }, v: function (r) { return r.desc.pago; } },
+    desc_custo: { g: 'desc', t: 'Custo Rizza', cor: 'cinza', d: 'descarga que o cliente não reembolsa (regra do cliente ou frete FOB)', f: function (r) { return r.desc.custo > 0; }, v: function (r) { return r.desc.custo; } },
+    desc_ok: { g: 'desc', t: 'Cobrada', cor: 'verde', d: 'toda descarga da viagem foi cobrada (ou já veio no frete, ou o cliente não reembolsa) e o informado bate com o pago no 477',
+               f: function (r) { return r.desc.nDest > 0 && r.desc.gs.every(function (x) { return !x.base || x.sit === 'cobrada' || x.sit === 'incluida' || x.sit === 'nao_reembolsa'; }) && !r.desc.difInf && !r.desc.infSemPago; },
+               v: function (r) { return r.desc.cobr + r.desc.incluso; } }
   };
   function casaBusca(r) {
     if (!S.busca) return true;
@@ -461,14 +579,57 @@
       if (sa !== sb) return sa - sb;
       return (a.v.emissao_man || '').localeCompare(b.v.emissao_man || '');
     });
+    // ordem escolhida clicando no cabeçalho (27/11/2026): por cima da padrão; vazio sempre no fim
+    if (S.ordem && ORDEM[S.ordem.col]) {
+      var fk = ORDEM[S.ordem.col].k, sinal = S.ordem.dir === 'desc' ? -1 : 1;
+      var pos = new Map(out.map(function (r, i) { return [r, i]; }));
+      out.sort(function (a, b) {
+        var x = fk(a), y = fk(b), vx = x === null || x === undefined || x === '', vy = y === null || y === undefined || y === '';
+        if (vx || vy) return vx === vy ? pos.get(a) - pos.get(b) : (vx ? 1 : -1);
+        var c = typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), 'pt-BR', { numeric: true, sensitivity: 'base' });
+        return c ? c * sinal : pos.get(a) - pos.get(b);
+      });
+    }
     return out;
   }
+  // a chave de cada coluna para ordenar (na viagem). `num`: o 1º clique ordena do maior para o menor
+  function primeiro(cs, f) { for (var i = 0; i < cs.length; i++) { var v = f(cs[i]); if (v) return v; } return ''; }
+  function numOuVazio(v) { return v > 0.004 ? v : null; }
+  var ORDEM = {
+    'Viagem / CT-e': { k: function (r) { return r.v.manifesto || ''; } },
+    'Status': { k: function (r) { return (S.st[r.status] || {}).ordem; }, num: false },
+    'Cliente': { k: function (r) { return r.cliNome; } },
+    'Destinatário': { k: function (r) { return primeiro(r.cs, function (c) { return c.dest; }); } },
+    'Pedido': { k: function (r) { return primeiro(r.cs, function (c) { var p = pedidoDe(c); return p && p.p; }); } },
+    'Rota': { k: function (r) { return r.v.orig200 || primeiro(r.cs, function (c) { return c.cid_o; }); } },
+    'Cavalo · motorista': { k: function (r) { return r.v.placa; } },
+    'Status embarque': { k: function (r) { return r.v.mapa ? (MAPA[r.v.mapa.status] || { rot: r.v.mapa.status }).rot : ''; } },
+    'Monitoramento': { k: function (r) { return r.mon && MON[r.mon.estado] ? MON[r.mon.estado].ordem : null; }, num: false },
+    'Saída': { k: function (r) { return r.v.saida; } },
+    'Previsão': { k: function (r) { return r.v.prev; } },
+    'Prazo cliente': { k: function (r) { return r.prazo; } },
+    'Chegada': { k: function (r) { return r.v.chegada; } },
+    'Agenda': { k: function (r) { return r.agenda ? r.agenda.v : ''; } },
+    'Entrega': { k: function (r) { return r.ultEnt; } },
+    'Documentos (CRM)': { k: function (r) { return primeiro(r.cs, function (c) { return c.crm && c.crm.rot; }); } },
+    'Custo extra': { k: function (r) { return numOuVazio(r.cs.reduce(function (a, c) { return a + ((c.crm || {}).custos || []).reduce(function (b, x) { return b + (x.valor || 0); }, 0); }, 0)); }, num: true },
+    'Descarga': { k: function (r) { return numOuVazio(r.desc.falta) || (r.desc.pior ? 0.001 : null); }, num: true },
+    'Desc. informada': { k: function (r) { return numOuVazio(r.desc.inf); }, num: true },
+    'Desc. paga (477)': { k: function (r) { return numOuVazio(r.desc.pago); }, num: true },
+    'Desc. no frete': { k: function (r) { return numOuVazio(r.desc.incluso); }, num: true },
+    'Desc. cobrada': { k: function (r) { return numOuVazio(r.desc.cobr); }, num: true },
+    'Frete': { k: function (r) { return r.frete; }, num: true },
+    'Ocorrência no cliente': { k: function (r) { return primeiro(r.cs, function (c) { return c.m.ocorrencia; }); } },
+    'Anotação': { k: function (r) { return primeiro(r.cs, function (c) { return c.m.anotacao; }); } }
+  };
 
   // ── topo: indicadores e cartões ──
   function topo(todas) {
-    var nC = 0, fr = 0, and = 0, aconf = 0, aconfV = 0, atr = 0;
+    var nC = 0, fr = 0, and = 0, aconf = 0, aconfV = 0, atr = 0, dCob = 0, dCobV = 0, dPago = 0;
     todas.forEach(function (r) {
       nC += r.cs.length; fr += r.frete;
+      if (r.desc.aCobrar > 1) { dCob += r.desc.aCobrar; dCobV++; }
+      dPago += r.desc.pago;
       if (r.entregues < r.cs.length) and++;
       if (r.aconf) { aconf += r.aconf; aconfV++; }
       if (r.v.atrasada && !fechada(r.status)) atr++;
@@ -477,7 +638,8 @@
       ['Viagens no mês', todas.length, plural(nC, 'CT-e', 'CT-e') + ' · R$ ' + moedaK(fr)],
       ['Em andamento', and, 'viagens com CT-e ainda não entregue'],
       ['Entregas a confirmar', aconf, 'entregas do portal da Ypê em ' + plural(aconfV, 'viagem', 'viagens') + ' — um clique confirma'],
-      ['Atrasadas', atr, 'previsão de chegada vencida, sem chegada no SSW']
+      ['Atrasadas', atr, 'previsão de chegada vencida, sem chegada no SSW'],
+      ['Descarga a cobrar', 'R$ ' + moedaK(dCob), plural(dCobV, 'viagem', 'viagens') + ' · pago ao chapa no mês R$ ' + moedaK(dPago)]
     ];
     $('kpis').innerHTML = k.map(function (x) {
       return '<div class="kpi"><div class="l">' + esc(x[0]) + '</div><div class="v">' + esc(x[1]) + '</div><div class="s">' + esc(x[2]) + '</div></div>';
@@ -491,8 +653,16 @@
     });
     h += '<div class="cards-sep">Pede atenção</div>';
     Object.keys(FILTROS).forEach(function (id) {
-      var f = FILTROS[id], n = todas.filter(f.f).length;
+      var f = FILTROS[id]; if (f.g) return;
+      var n = todas.filter(f.f).length;
       h += card(id, f.t, f.cor, n, plural(n, 'viagem', 'viagens'), f.d);
+    });
+    h += '<div class="cards-sep">Descarga</div>';
+    Object.keys(FILTROS).forEach(function (id) {
+      var f = FILTROS[id]; if (f.g !== 'desc') return;
+      var rs = todas.filter(f.f), v = rs.reduce(function (a, r) { return a + (f.v ? f.v(r) : 0); }, 0);
+      // o número grande é a quantidade de viagens; embaixo, o valor (o texto inteiro não cabe no cartão)
+      h += card(id, f.t, f.cor, rs.length, rs.length ? 'R$ ' + moedaK(v) : '—', f.d + ' — ' + plural(rs.length, 'viagem', 'viagens'));
     });
     $('cards').innerHTML = h;
   }
@@ -506,7 +676,7 @@
   // mostrava o cliente e o CT-e o destinatário, e pareciam se contradizer (Química Amparo → Martins, 26/11/2026)
   // Monitoramento e Prazo cliente (27/11/2026): do portal da Ypê; nos outros clientes ficam vazios por enquanto
   // Status embarque (27/11/2026): o status da carga no Embarques (o worker lê o GPS) — clicar abre o mapa
-  var COLS = ['Viagem / CT-e', 'Status', 'Cliente', 'Destinatário', 'Pedido', 'Rota', 'Cavalo · motorista', 'Status embarque', 'Monitoramento', 'Saída', 'Previsão', 'Prazo cliente', 'Chegada', 'Agenda', 'Entrega', 'Documentos (CRM)', 'Custo extra', 'Frete', 'Ocorrência no cliente', 'Anotação'];
+  var COLS = ['Viagem / CT-e', 'Status', 'Cliente', 'Destinatário', 'Pedido', 'Rota', 'Cavalo · motorista', 'Status embarque', 'Monitoramento', 'Saída', 'Previsão', 'Prazo cliente', 'Chegada', 'Agenda', 'Entrega', 'Documentos (CRM)', 'Custo extra', 'Descarga', 'Desc. informada', 'Desc. paga (477)', 'Desc. no frete', 'Desc. cobrada', 'Frete', 'Ocorrência no cliente', 'Anotação'];
 
   // o "i" de cada coluna: de onde vem o dado (pedido de 27/11/2026)
   var DICAS = {
@@ -527,6 +697,11 @@
     'Entrega': 'A da planilha TRACKING (selo planilha) ou a marcada na tela vale sempre.\nSem nada, entra a baixa do SSW (ocorrência 01, selo SSW, SSWMobile ou SSWScan). SSWScan com a data da emissão não vale: aparece "⚠ conferir".\nYpê: a entrega do portal entra como sugestão "a confirmar" — o ✓ grava.\nNa viagem: entregues/total e a data da última.',
     'Documentos (CRM)': 'Etapa do CT-e no CRM - Documentos (canhoto, fatura…). Só leitura aqui.',
     'Custo extra': 'Custos lançados no CRM - Documentos (descarga, diária…). Só leitura aqui.',
+    'Descarga': 'Situação da descarga, por destinatário da viagem: pago ao chapa (477) ou informado × o que voltou do cliente (o que já vai no frete + complementar/RPS), pela regra do cliente da planilha de reembolso.\nA cobrar · Cobrada a menor · Cobrada · No frete · Custo Rizza (não reembolsa / FOB) · Sem regra (cliente fora da planilha).\nNa viagem: a pior situação, a falta e quantos destinos foram cobrados.',
+    'Desc. informada': 'Valor da descarga informado na tela (a coluna VALOR DESCARGA da planilha TRACKING veio na importação). Por destinatário: num CT-e só do destino. Clique no CT-e para digitar.',
+    'Desc. paga (477)': 'Lançamentos do evento 5100 (CARGA E DESCARGA C/ TERCEIROS) do 477, ligados ao CT-e pela NF escrita no histórico — a mesma régua do relatório de segunda. Carregamento fica fora. Lançamento sem NF no histórico não liga (vai para a etapa 2: associar à mão).',
+    'Desc. no frete': 'O que da descarga já volta no próprio CT-e: o Outros do CT-e (Ypê, Unilever) ou os R$ 500 da Doce Mineiro. Nos outros clientes, vazio.',
+    'Desc. cobrada': 'CT-e complementar ou RPS com "descarga" na observação, ligado sozinho ao CT-e pela referência que a observação traz (chave, CTRC, nº do CT-e ou NF). Cobrança de vários CT-e se reparte. Fatura consolidada / fechamento do mês sem referência ainda não liga. Diesel e diária não contam.',
     'Frete': 'Valor do frete do CT-e no SSW (relatório 455). Na viagem, a soma.',
     'Ocorrência no cliente': 'Digitado: o nº da ocorrência aberta na plataforma do cliente.\nNa Química Amparo a planilha TRACKING usava esta coluna para o nº do pedido do cliente — veio na importação.',
     'Anotação': 'Digitado. O que a planilha TRACKING tinha fora da lista (descarga, diária, status escritos de outro jeito) veio como "Planilha: …".'
@@ -636,6 +811,11 @@
       + edCell('v', v.v, 'entrega', entregaV(r), 'clique para marcar a entrega' + todos)
       + '<td>' + docsV(r.cs) + '</td>'
       + '<td class="num">' + custos(r.cs) + '</td>'
+      + '<td>' + descPill(r.desc.pior, r.desc.falta, r.desc.nDest > 1 ? ' <span class="dim" title="destinatários com descarga · cobrados">' + r.desc.nCobr + '/' + r.desc.nDest + ' dest</span>' : '') + '</td>'
+      + '<td class="num" title="edite no CT-e (abra a viagem)">' + moedaOu(r.desc.inf) + '</td>'
+      + '<td class="num">' + moedaOu(r.desc.pago) + '</td>'
+      + '<td class="num">' + moedaOu(r.desc.incluso) + '</td>'
+      + '<td class="num">' + moedaOu(r.desc.cobr) + '</td>'
       + '<td class="num">' + moeda(r.frete) + '</td>'
       + edCell('v', v.v, 'ocorrencia', comumOuVarios(r.cs, 'ocorrencia'), 'nº da ocorrência aberta na plataforma do cliente' + todos, 'txt')
       + edCell('v', v.v, 'anotacao', comumOuVarios(r.cs, 'anotacao'), 'anotação' + todos, 'txt')
@@ -671,6 +851,11 @@
       + edCell('c', c.k, 'entrega', ent, 'clique para digitar a data da entrega')
       + '<td>' + (c.crm ? '<span class="pill" style="--cor:' + cor(c.crm.cor) + '" title="' + esc(c.crm.carteira) + '">' + esc(c.crm.rot) + '</span>' : '<span class="vazio">—</span>') + '</td>'
       + '<td class="num">' + custos([c]) + '</td>'
+      + '<td>' + descPill((descGrupos(S.porViagem[v.v] || []).filter(function (x) { return x.k === (c.desc || {}).g; })[0] || {}).sit) + '</td>'
+      + edCell('c', c.k, 'descarga', temDesc(c) ? moeda(valorNum(c.m.descarga)) + ((c.fontes || {}).descarga === PLANILHA ? '<span class="selo">planilha</span>' : '') : '<span class="vazio">—</span>', 'valor da descarga informado — clique para digitar (por destinatário: num CT-e só do destino)', 'num')
+      + '<td class="num">' + moedaOu(somaV((c.desc || {}).pago)) + '</td>'
+      + '<td class="num">' + moedaOu(((c.desc || {}).regra || {}).tipo === 'incluso' ? (c.desc.outros || 0) : 0) + '</td>'
+      + '<td class="num">' + moedaOu(somaV((c.desc || {}).cobr)) + '</td>'
       + '<td class="num">' + moeda(c.frete) + '</td>'
       + edCell('c', c.k, 'ocorrencia', c.m.ocorrencia ? esc(c.m.ocorrencia) : '<span class="vazio">—</span>', 'nº da ocorrência aberta na plataforma do cliente', 'txt')
       + edCell('c', c.k, 'anotacao', c.m.anotacao ? esc(c.m.anotacao) : '<span class="vazio">—</span>', 'anotação', 'txt')
@@ -691,7 +876,9 @@
     var tab = $('tabela');
     tab.classList.toggle('em-cli', S.agrupar);
     tab.querySelector('thead').innerHTML = '<tr>' + COLS.map(function (c) {
-      return '<th' + (c === 'Custo extra' || c === 'Frete' ? ' style="text-align:right"' : '') + '>' + esc(c)
+      var ord = S.ordem && S.ordem.col === c ? (S.ordem.dir === 'desc' ? ' ▼' : ' ▲') : '';
+      return '<th' + (ORDEM[c] ? ' data-ord="' + esc(c) + '" class="ordena' + (ord ? ' ativa' : '') + '" title="Clique para ordenar"' : '')
+        + (c === 'Custo extra' || c === 'Frete' || /^Desc\. /.test(c) ? ' style="text-align:right"' : '') + '>' + esc(c) + (ord ? '<span class="seta-ord">' + ord + '</span>' : '')
         + (DICAS[c] ? '<span class="info-i" data-dica="' + esc(c) + '" tabindex="0" aria-label="De onde vem: ' + esc(c) + '">i</span>' : '') + '</th>';
     }).join('') + '</tr>';
     var h = '', n = 0;
@@ -742,6 +929,7 @@
     if (campo === 'status') return '<select class="editor" id="edValor">' + '<option value="">(tirar a marcação — volta o sugerido)</option>'
       + S.dados.status.map(function (s) { return '<option value="' + s.cod + '"' + (s.cod === atual ? ' selected' : '') + '>' + esc(s.rot) + '</option>'; }).join('') + '</select>';
     if (campo === 'entrega') return '<input class="editor" id="edValor" type="date" value="' + esc((atual || '').slice(0, 10)) + '">';
+    if (campo === 'descarga') return '<input class="editor" id="edValor" type="text" inputmode="decimal" placeholder="0,00" style="width:110px" value="' + esc(atual ? valorNum(atual).toFixed(2).replace('.', ',') : '') + '">';
     if (campo === 'agenda') return '<input class="editor" id="edValor" type="datetime-local" value="' + esc(atual && atual.length > 10 ? atual : (atual ? atual + 'T08:00' : '')) + '">';
     return '<input class="editor" id="edValor" type="text" maxlength="300" value="' + esc(atual || '') + '" style="min-width:220px">';
   }
@@ -848,6 +1036,7 @@
     h += '<div class="bloco"><h3>Veículo</h3>' + kv([['Cavalo', v.placa], ['Carreta', v.carreta], ['Motorista', v.mot], ['Proprietário', v.prop], ['Situação no SSW', v.sit200], ['Origem → destino (200)', (v.orig200 || '?') + ' → ' + (v.dest200 || '?')],
       ['Status embarque', v.mapa ? mapaPill(v) + ' <span class="dim">' + esc(mapaInfo(v.mapa).tit.split('\n')[0].replace(/^Embarques: [^—]*— ?/, '')) + '</span>' : '', true]]) + '</div>';
     h += blocoYpe(r.cs);
+    h += blocoDescarga(r.cs);
     h += '<div class="bloco"><h3>' + plural(r.cs.length, 'CT-e', 'CT-e') + '</h3><table class="mini"><tr><th>CTRC</th><th>Destinatário</th><th>Status</th><th>Entrega</th></tr>' + r.cs.map(function (c) {
       var s = statusDe(c), e = entregaDe(c);
       return '<tr><td class="mono"><a href="#" data-gav-c="' + esc(c.k) + '" style="color:var(--accent)">' + esc(c.k) + '</a></td><td>' + esc(c.dest) + '</td><td>' + pillStatus(s.cod, s.sug) + '</td><td>' + (e ? dm(e.data) + (seloOrigem(e) ? ' <span class="selo">' + esc(seloOrigem(e)) + (e.conf ? '' : ' · a confirmar') + '</span>' : '') : '—') + '</td></tr>';
@@ -872,6 +1061,7 @@
       ['Entrega', e ? dmy(e.data) + ' (' + origemEnt(e) + ')' : '—'],
       ['Ocorrência no cliente', c.m.ocorrencia || '—'], ['Anotação', c.m.anotacao || '—'], ['Última mudança', c.por ? c.por : '']]) + '</div>';
     base += blocoYpe([c]);
+    base += blocoDescarga([c]);
     if (c.crm) base += '<div class="bloco"><h3>Documentos (CRM - Documentos)</h3>' + kv([['Carteira', c.crm.carteira], ['Etapa', '<span class="pill" style="--cor:' + cor(c.crm.cor) + '">' + esc(c.crm.rot) + '</span>', true],
       ['Custo extra', (c.crm.custos || []).length ? c.crm.custos.map(function (x) { return x.tipo + ' R$ ' + moeda(x.valor) + (x.status ? ' (' + x.status + ')' : ''); }).join(' · ') : '—']]) + '<div class="nota" style="margin-top:6px">Só leitura aqui — a etapa e o custo extra se mudam no <a href="/crm-documentos" style="color:var(--accent)">CRM - Documentos</a>.</div></div>';
     gaveta(c.k, esc(c.cliente) + ' · NF ' + esc(c.nf), base + '<div class="bloco"><h3>Ocorrências no SSW e histórico</h3><div class="nota">carregando…</div></div>');
@@ -881,7 +1071,7 @@
         return '<li><b>' + o.cod + ' · ' + esc(o.rot) + '</b><div>' + esc(o.texto || '') + '</div><div class="q">' + esc(dmh(o.em.replace(' ', 'T'))) + '</div></li>';
       }).join('') + '</ul>' : '<div class="nota">Nenhuma ocorrência de agenda ou entrega no SSW para este CT-e.</div>') + '</div>';
       h += '<div class="bloco"><h3>Histórico</h3>' + (j.historico && j.historico.length ? '<ul class="hist">' + j.historico.map(function (x) {
-        var f = x.campo === 'status' ? function (v) { return (S.st[v] || {}).rot || v; } : x.campo === 'entrega' ? dmy : x.campo === 'agenda' ? dmh : function (v) { return v; };
+        var f = x.campo === 'status' ? function (v) { return (S.st[v] || {}).rot || v; } : x.campo === 'entrega' ? dmy : x.campo === 'agenda' ? dmh : x.campo === 'descarga' ? function (v) { return 'R$ ' + moeda(valorNum(v)); } : function (v) { return v; };
         return '<li>' + esc(S.dados.rotulos[x.campo] || x.campo) + ': ' + esc(x.antes ? f(x.antes) : '—') + ' → ' + esc(x.depois ? f(x.depois) : '—') + '<div class="q">' + esc(x.em) + ' · ' + esc(x.por || '') + '</div></li>';
       }).join('') + '</ul>' : '<div class="nota">Ninguém marcou nada neste CT-e ainda.</div>') + '</div>';
       $('gavCorpo').innerHTML = base + h;
@@ -892,7 +1082,8 @@
   function baixarPlanilha() {
     var cab = ['Numero CTRC', 'Tipo do Documento', 'Data emissão', 'Cliente (pagador)', 'Remetente', 'Destinatário', 'Cidade entrega', 'UF', 'Nota fiscal', 'Pedido', 'Valor frete', 'B10',
       'Manifesto', 'Placa cavalo', 'Motorista', 'Saída', 'Previsão', 'Chegada', 'Agenda', 'Agenda (fonte)', 'Data entrega', 'Entrega (fonte)', 'Status', 'Ocorrência no cliente', 'Anotação', 'Etapa CRM', 'Custo extra',
-      'Carga Ypê', 'Prazo cliente', 'Monitoramento', 'Status embarque'];
+      'Carga Ypê', 'Prazo cliente', 'Monitoramento', 'Status embarque',
+      'Descarga informada', 'Descarga paga 477', 'Descarga no frete', 'Descarga cobrada', 'Situação descarga (destinatário)'];
     var linhas = [cab];
     visiveis().forEach(function (r) {
       r.cs.forEach(function (c) {
@@ -904,7 +1095,9 @@
           e ? dmy(e.data) : '', origemEnt(e), (S.st[s.cod] || {}).rot + (s.sug ? ' (sugerido)' : ''), c.m.ocorrencia || '', c.m.anotacao || '',
           c.crm ? c.crm.rot : '', cx ? moeda(cx) : '',
           y.carga || '', y.prazo ? dmh(y.prazo) : '', mo ? (MON[mo.estado] || {}).rot + (mo.fotos_off ? ' (offline em ' + mo.fotos_off + ' leituras)' : '') : '',
-          v.mapa ? (MAPA[v.mapa.status] || { rot: v.mapa.status }).rot : '']);
+          v.mapa ? (MAPA[v.mapa.status] || { rot: v.mapa.status }).rot : '',
+          temDesc(c) ? moeda(valorNum(c.m.descarga)) : '', moeda(somaV((c.desc || {}).pago)), ((c.desc || {}).regra || {}).tipo === 'incluso' ? moeda(c.desc.outros || 0) : '',
+          moeda(somaV((c.desc || {}).cobr)), (function () { var g = r.desc.gs.filter(function (x) { return x.k === (c.desc || {}).g; })[0]; return g && g.sit ? DESC[g.sit].rot : ''; })()]);
       });
     });
     var csv = '﻿' + linhas.map(function (l) { return l.map(function (x) { x = String(x == null ? '' : x); return /[;"\n]/.test(x) ? '"' + x.replace(/"/g, '""') + '"' : x; }).join(';'); }).join('\r\n');
@@ -946,6 +1139,13 @@
     // clicar/tocar sempre abre (no celular o toque também dispara o mouseover antes); fecha clicando fora
     if (ii) { ev.preventDefault(); mostrarDica(ii); return; }
     if (!$('dica').hidden) esconderDica();
+    if ((el = t.closest('thead th[data-ord]'))) {   // 1º clique ordena, 2º inverte, 3º volta à ordem padrão
+      var col = el.dataset.ord, num = ORDEM[col].num, ini = num ? 'desc' : 'asc';
+      if (!S.ordem || S.ordem.col !== col) S.ordem = { col: col, dir: ini };
+      else if (S.ordem.dir === ini) S.ordem = { col: col, dir: ini === 'asc' ? 'desc' : 'asc' };
+      else S.ordem = null;
+      pref('acomp:ordem', JSON.stringify(S.ordem)); render(); return;
+    }
     if (S.edit && !S.edit.td.contains(t)) salvarEditor(false);
     var el;
     if ((el = t.closest('[data-filtro]'))) { S.filtro = S.filtro === el.dataset.filtro ? null : el.dataset.filtro; render(); return; }

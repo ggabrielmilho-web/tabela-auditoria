@@ -1297,7 +1297,8 @@ def api_acompanhamento():
     import acompanhamento as ac
     import crm_documentos as crm
     try:
-        d = ac.dados_bi(_crm_dax_op, request.args.get('mes'), forcar=request.args.get('forcar') == '1')
+        d = ac.dados_bi(_crm_dax_op, request.args.get('mes'), forcar=request.args.get('forcar') == '1',
+                        dax_dre=_crm_dax_dre)   # o 477 (pago da descarga) mora no dataset do DRE
         chaves = [str(c.get('ctrc') or '').replace(' ', '').upper() for c in d['ctes']]
         mans = list({ac.chave_man(c.get('manu')) for c in d['ctes']} - {None})
         marc, crm_k, cargas = _acomp_db(lambda cur: (ac.marcacoes(cur, chaves), ac.crm_dos_ctes(cur, chaves, crm.CARTEIRAS),
@@ -1341,7 +1342,7 @@ def api_acompanhamento_cte():
     k = str(request.args.get('k') or '').replace(' ', '').upper()
     try:
         hist = _acomp_db(lambda cur: ac.historico(cur, k))
-        d = ac.dados_bi(_crm_dax_op, request.args.get('mes'))
+        d = ac.dados_bi(_crm_dax_op, request.args.get('mes'), dax_dre=_crm_dax_dre)
         return jsonify({'ok': True, 'historico': hist, 'ocorrencias': ac.ocorrencias_do_cte(d, k)})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500

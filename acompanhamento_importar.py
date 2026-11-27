@@ -13,6 +13,7 @@ NF, frete, placa, a B10) NÃO é importado — a tela lê do SSW. Só o que o do
                                     REAGENDA, TRANSITO/CHEGANDO, PERCA DE AGENDAMENTO, RECUSADA/DEVOLV…);
                                     o resto (64 jeitos de escrever: datas, nomes, "at 176860") vai para a anotação
     OCORRÊNCIA .................... ocorrência no cliente
+    VALOR DESCARGA ................ descarga informada (o número; 27/11/2026) e também a anotação
     VALOR DESCARGA, DIÁRIA,
     STATUS fora da lista .......... anotação ("Planilha: …"), para não se perder
     MOTORISTA ..................... não entra: a tela mostra o motorista do manifesto do SSW
@@ -152,6 +153,12 @@ def ler(caminho):
             if oc:
                 m['ocorrencia'] = oc[:300]
             # o MOTORISTA da planilha (primeiro nome) não entra: a tela mostra o do manifesto do SSW
+            # VALOR DESCARGA numérico também vira o campo `descarga` (27/11/2026): = o pago ao chapa no 477 em
+            # 1.060 de 1.159 entregas. Ele lançava por destinatário, num CT-e só. Acima de R$ 20 mil é erro de
+            # digitação (houve um de R$ 450.775): fica só na anotação, como ele escreveu.
+            vd = g('VALOR DESCARGA')
+            if isinstance(vd, (int, float)) and not isinstance(vd, bool) and 0 < vd < 20000:
+                m['descarga'] = f'{vd:.2f}'
             for col, rot in (('VALOR DESCARGA', 'descarga'), ('DIÁRIA', 'diária')):
                 v = _txt(g(col))
                 if v:
