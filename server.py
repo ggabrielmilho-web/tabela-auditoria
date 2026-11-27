@@ -1293,12 +1293,14 @@ def acompanhamento_page():
 @app.route('/api/acompanhamento')
 @page_required('acompanhamento')
 def api_acompanhamento():
-    """?mes=AAAA-MM&forcar=1 → CT-e do mês (regra do dono da planilha) com o que o SSW diz e o que foi marcado."""
+    """?mes=AAAA-MM[,AAAA-MM…]&forcar=1 → CT-e do(s) mês(es) (regra do dono da planilha) com o que o SSW diz e o
+    que foi marcado."""
     import acompanhamento as ac
     import crm_documentos as crm
     try:
-        d = ac.dados_bi(_crm_dax_op, request.args.get('mes'), forcar=request.args.get('forcar') == '1',
-                        dax_dre=_crm_dax_dre)   # o 477 (pago da descarga) mora no dataset do DRE
+        d = ac.dados_periodo(_crm_dax_op, ac.meses_do_pedido(request.args.get('mes')),
+                             forcar=request.args.get('forcar') == '1',
+                             dax_dre=_crm_dax_dre)   # o 477 (pago da descarga) mora no dataset do DRE
         chaves = [str(c.get('ctrc') or '').replace(' ', '').upper() for c in d['ctes']]
         mans = list({ac.chave_man(c.get('manu')) for c in d['ctes']} - {None})
         marc, crm_k, cargas, vinc = _acomp_db(lambda cur: (ac.marcacoes(cur, chaves), ac.crm_dos_ctes(cur, chaves, crm.CARTEIRAS),
@@ -1307,7 +1309,7 @@ def api_acompanhamento():
         for v in r['viagens'].values():   # mapa, ficha e status embarque da viagem: a carga do Embarques
             v['mapa'] = cargas.get(re.sub(r'[^A-Z0-9]', '', (v['manifesto'] or '').upper()))
             v['carga_id'] = v['mapa']['id'] if v['mapa'] else None
-        return jsonify({'ok': True, 'mes': d['mes'], 'ini': d['ini'], 'fim': d['fim'], 'lido_em': d['lido_em'],
+        return jsonify({'ok': True, 'mes': d['mes'], 'meses': d['meses'], 'ini': d['ini'], 'fim': d['fim'], 'lido_em': d['lido_em'],
                         'hoje': ac.hoje_brt().isoformat(), 'status': ac.STATUS, 'rotulos': ac.ROTULO_CAMPO,
                         'ctes': r['ctes'], 'viagens': r['viagens']})
     except Exception as e:
@@ -1342,7 +1344,7 @@ def api_acompanhamento_cte():
     k = str(request.args.get('k') or '').replace(' ', '').upper()
     try:
         hist = _acomp_db(lambda cur: ac.historico(cur, k))
-        d = ac.dados_bi(_crm_dax_op, request.args.get('mes'), dax_dre=_crm_dax_dre)
+        d = ac.dados_bi(_crm_dax_op, ac.meses_do_pedido(request.args.get('mes'))[-1], dax_dre=_crm_dax_dre)   # o 031 é um só
         return jsonify({'ok': True, 'historico': hist, 'ocorrencias': ac.ocorrencias_do_cte(d, k)})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
@@ -1402,11 +1404,11 @@ def api_acompanhamento_desc_buscar():
 @app.route('/api/acompanhamento/descarga/soltas')
 @page_required('acompanhamento')
 def api_acompanhamento_desc_soltas():
-    """?mes= → caixa de entrada: cobranças de descarga e pagamentos 5100 do mês que não ligam a CT-e nenhum."""
+    """?mes=AAAA-MM[,…] → caixa de entrada: cobranças de descarga e pagamentos 5100 do período que não ligam a CT-e nenhum."""
     import time as _t
     import acompanhamento as ac
     try:
-        d = ac.dados_bi(_crm_dax_op, request.args.get('mes'), dax_dre=_crm_dax_dre)
+        d = ac.dados_periodo(_crm_dax_op, ac.meses_do_pedido(request.args.get('mes')), dax_dre=_crm_dax_dre)
         c = _ACOMP_SOLTAS.get(d['mes'])
         if not c or _t.time() - c['t'] > ac.CACHE_S:
             ini = ac.date.fromisoformat(d['ini'])

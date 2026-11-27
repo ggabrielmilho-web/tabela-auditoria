@@ -28,17 +28,46 @@
   .mes { display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: 8px; background: var(--surface2); overflow: hidden; }
   .mes button { background: none; border: none; color: var(--text-dim); padding: 6px 10px; cursor: pointer; font-size: 0.9rem; }
   .mes button:hover { color: var(--accent); }
-  .mes span { font-size: 0.8rem; font-weight: 600; padding: 0 6px; min-width: 112px; text-align: center; }
+  .mes #mesRot { font-size: 0.8rem; font-weight: 600; padding: 6px 6px; min-width: 112px; text-align: center; color: var(--text); font-family: 'DM Sans', sans-serif; }
+  .mes-wrap { position: relative; display: inline-block; }
+  .mes-pop { position: absolute; top: calc(100% + 6px); right: 0; z-index: 60; width: 260px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.35); }
+  .mp-ano { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; font-size: 0.85rem; }
+  .mp-ano button { background: none; border: 1px solid var(--border); color: var(--text-dim); border-radius: 6px; padding: 2px 9px; cursor: pointer; }
+  .mp-ano button:disabled { opacity: .35; cursor: default; }
+  .mp-grade { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; }
+  .mp-grade button { padding: 6px 0; border-radius: 6px; border: 1px solid var(--border); background: var(--surface2); color: var(--text); cursor: pointer; font-size: 0.78rem; font-family: 'DM Sans', sans-serif; }
+  .mp-grade button:hover:not(:disabled) { border-color: var(--accent); }
+  .mp-grade button.on { background: var(--accent); border-color: var(--accent); color: var(--sobre-accent); font-weight: 700; }
+  .mp-grade button:disabled { opacity: .35; cursor: default; }
+  .mp-rapido { display: flex; gap: 5px; margin-top: 8px; flex-wrap: wrap; }
+  .mp-rapido button { flex: 1; padding: 4px 6px; font-size: 0.7rem; }
+  .mp-nota { font-size: 0.68rem; color: var(--text-dim); margin: 8px 0; line-height: 1.4; }
+  .mp-acoes { display: flex; justify-content: space-between; align-items: center; gap: 6px; font-size: 0.74rem; color: var(--text-dim); }
 
   .erro { padding: 12px 14px; border-radius: 10px; font-size: 0.82rem; margin-bottom: 14px; background: rgba(var(--red-rgb),0.08); border: 1px solid rgba(var(--red-rgb),0.28); color: var(--red-txt2); }
   .carregando { display: flex; gap: 12px; align-items: center; padding: 40px; justify-content: center; color: var(--text-dim); }
   .spinner { width: 26px; height: 26px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; }
 
-  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; margin-bottom: 12px; }
+  /* 8 indicadores: 4 da operação + 4 da descarga — numa linha na tela larga, duas de 4 na menor */
+  .kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
+  @media (min-width: 1600px) { .kpis { grid-template-columns: repeat(8, minmax(0, 1fr)); } }
   .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; }
   .kpi .l { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); font-weight: 700; }
   .kpi .v { font-size: 1.2rem; font-weight: 700; font-family: 'JetBrains Mono', monospace; margin-top: 3px; }
   .kpi .s { font-size: 0.68rem; color: var(--text-dim); margin-top: 2px; }
+  .kpi .v.neg { color: var(--red); }
+  .cli-wrap { position: relative; display: inline-block; }
+  #btnClientes.on { border-color: var(--accent); color: var(--accent); background: rgba(var(--accent-rgb),.1); }
+  .cli-pop { position: absolute; top: calc(100% + 6px); left: 0; z-index: 60; width: 380px; max-width: calc(100vw - 32px); background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.35); }
+  .cli-pop input[type=search] { width: 100%; padding: 6px 9px; background: var(--surface2); border: 1px solid var(--border); border-radius: 7px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 0.8rem; }
+  .cli-lista { max-height: 340px; overflow: auto; margin: 8px 0; }
+  .cli-lista label { display: flex; gap: 8px; align-items: center; padding: 5px 4px; border-radius: 6px; font-size: 0.78rem; cursor: pointer; }
+  .cli-lista label:hover { background: var(--surface2); }
+  .cli-lista label .n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cli-lista label .q { font-size: 0.68rem; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; white-space: nowrap; }
+  .cli-acoes { display: flex; justify-content: space-between; gap: 6px; font-size: 0.72rem; color: var(--text-dim); align-items: center; }
+  .kpi .v.pos { color: var(--green); }
+  .kpi.desc { border-top: 3px solid var(--accent); cursor: help; }
 
   .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 8px; margin-bottom: 14px; }
   .card { background: var(--surface); border: 1px solid var(--border); border-top: 3px solid var(--cor, var(--c-cinza)); border-radius: 9px; padding: 9px 11px; cursor: pointer; transition: all .12s; text-align: left; color: var(--text); font-family: 'DM Sans', sans-serif; }
@@ -175,7 +204,16 @@
       <div class="meta" id="meta">—</div>
     </div>
     <div class="acoes-topo">
-      <span class="mes"><button id="mesAnt" title="Mês anterior">‹</button><span id="mesRot">—</span><button id="mesProx" title="Próximo mês">›</button></span>
+      <span class="mes-wrap">
+        <span class="mes"><button id="mesAnt" title="Mês anterior">‹</button><button id="mesRot" title="Escolher um ou mais meses">—</button><button id="mesProx" title="Próximo mês">›</button></span>
+        <div class="mes-pop" id="mesPop" hidden>
+          <div class="mp-ano"><button data-mp-ano="-1" title="Ano anterior">‹</button><b id="mpAno"></b><button data-mp-ano="1" title="Próximo ano">›</button></div>
+          <div class="mp-grade" id="mpGrade"></div>
+          <div class="mp-rapido"><button class="btn-sm" data-mp-rap="1">Este mês</button><button class="btn-sm" data-mp-rap="3">Últimos 3</button><button class="btn-sm" data-mp-rap="ano">Ano todo</button></div>
+          <div class="mp-nota">Clique para marcar ou desmarcar (até 12 meses). Shift + clique marca o intervalo.</div>
+          <div class="mp-acoes"><span id="mpConta"></span><button class="btn-sm primary" id="mpAplicar">Aplicar</button></div>
+        </div>
+      </span>
       <button class="btn-sm" id="btnAtualizar" title="Lê de novo o SSW no Power BI">⟳ Atualizar do SSW</button>
       <button class="btn-sm primary" id="btnPlanilha" title="Um CT-e por linha, como a planilha TRACKING">⬇ Baixar planilha</button>
       <span data-nav-menu data-nav-style="btn-anchor" data-nav-active="acompanhamento"></span>
@@ -188,6 +226,14 @@
 
   <div class="barra">
     <input class="busca" id="busca" placeholder="Buscar CTRC, NF, manifesto, placa, motorista, cliente, cidade, B10…">
+    <span class="cli-wrap">
+      <button class="btn-sm" id="btnClientes" title="Trabalhar só com alguns clientes: filtra a tabela, os cartões e os totais (fica salvo neste navegador)">Clientes: todos ▾</button>
+      <div class="cli-pop" id="cliPop" hidden>
+        <input type="search" id="cliBusca" placeholder="Buscar cliente…">
+        <div class="cli-lista" id="cliLista"></div>
+        <div class="cli-acoes"><span id="cliConta"></span><span><button class="link" id="cliMarcar">marcar os da busca</button> · <button class="link" id="cliLimpar">todos os clientes</button></span></div>
+      </div>
+    </span>
     <span class="toggle" id="tgCliente" title="Junta as viagens por cliente (raiz do CNPJ do pagador, grupos econômicos juntos)"><span class="sw"></span>Agrupar por cliente</span>
     <span class="toggle" id="tgEntregues" title="Esconde as viagens com todos os CT-e entregues"><span class="sw"></span>Ocultar entregues</span>
     <button class="link" id="btnAbrirTodas">abrir todas</button>
@@ -229,10 +275,12 @@
   var MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
   var MAX_VIAGENS = 600;
   var S = {
-    mes: null, dados: null, st: {}, ctes: {}, viagens: {}, porViagem: {},
+    mes: null, meses: [], dados: null, st: {}, ctes: {}, viagens: {}, porViagem: {},
     filtro: null, busca: '', sel: new Set(), abertas: new Set(), clisAbertos: new Set(),
     agrupar: pref('acomp:agrupar') === '1', ocultarEntregues: pref('acomp:ocultar') === '1', edit: null,
-    ordem: (function () { try { return JSON.parse(pref('acomp:ordem') || 'null'); } catch (e) { return null; } })()
+    ordem: (function () { try { return JSON.parse(pref('acomp:ordem') || 'null'); } catch (e) { return null; } })(),
+    // clientes escolhidos por quem usa (27/11/2026): {chave: nome}; vazio = todos. Fica no navegador da pessoa.
+    clientes: (function () { try { return JSON.parse(pref('acomp:clientes') || '{}') || {}; } catch (e) { return {}; } })()
   };
 
   // ── utilidades ──
@@ -551,18 +599,48 @@
     var h = '<div class="nota" style="margin-bottom:10px">' + (tipo === 'cobr' ? 'Complementares e RPS de descarga emitidos no mês que não ligaram a CT-e nenhum (sem referência na observação, ou a referência não achou o CT-e). Cobrança em lote se reparte: vincule um pedaço em cada CT-e.'
       : 'Lançamentos do 5100 do mês sem NF no histórico (ou NF que não achou CT-e). Carregamento aparece marcado — não é descarga.') + '</div>';
     if (!l) h += '<div class="nota">carregando…</div>';
-    else if (!l.length) h += '<div class="nota">Nada solto neste mês.</div>';
+    else if (!l.length) h += '<div class="nota">Nada solto neste período.</div>';
     else h += '<table class="mini"><tr><th>Documento</th><th>Emissão</th><th>Valor</th><th>Vincular no CT-e</th><th>Valor</th><th></th></tr>' + l.map(function (x, i) {
       var doc = tipo === 'cobr' ? x.doc : x.lanc, tot = tipo === 'cobr' ? x.total : x.v, falta = tot - (x.vinculado || 0);
       return '<tr title="' + esc(tipo === 'cobr' ? (x.desc || '') + '\n' + x.motivo : (x.forn || '') + ' — ' + (x.hist || '')) + '"><td class="mono">' + esc(doc) + (x.carregamento ? ' <span class="selo">carregamento</span>' : '') + '</td><td>' + dm(x.em) + '</td><td>' + moeda(tot)
         + (x.vinculado ? ' <span class="dim">falta ' + moeda(falta) + '</span>' : '') + '</td><td><input class="cx-cte" data-i="' + i + '" placeholder="UDI000000-0" style="width:110px"></td>'
         + '<td><input class="cx-valor" data-i="' + i + '" value="' + esc(moeda(falta)) + '" style="width:90px"></td><td><button class="btn-sm" data-cx-vinc="' + i + '">Vincular</button></td></tr>';
     }).join('') + '</table>';
-    gaveta(tipo === 'cobr' ? 'Cobranças sem viagem' : 'Pagamentos sem viagem', 'Caixa de entrada da descarga · ' + rotMes(S.mes), h);
+    gaveta(tipo === 'cobr' ? 'Cobranças sem viagem' : 'Pagamentos sem viagem', 'Caixa de entrada da descarga · ' + rotPeriodo(S.meses), h);
   }
 
+  // cliente = raiz do CNPJ do pagador (grupo econômico junto), a mesma chave do "Agrupar por cliente"
+  function cliKeyDe(c) { return c.raiz || ('nome:' + c.cliente); }
+  function nCliSel() { return Object.keys(S.clientes).length; }
+  function cliOk(c) { return !nCliSel() || S.clientes.hasOwnProperty(cliKeyDe(c)); }
+  function salvarClientes() { pref('acomp:clientes', JSON.stringify(S.clientes)); }
+  function rotuloClientes() {
+    var n = nCliSel(), b = $('btnClientes');
+    b.textContent = 'Clientes: ' + (!n ? 'todos' : n === 1 ? S.clientes[Object.keys(S.clientes)[0]] : n + ' escolhidos') + ' ▾';
+    b.classList.toggle('on', n > 0);
+  }
+  function desenharClientes() {
+    var q = semAcento($('cliBusca').value).trim(), m = {};
+    Object.keys(S.ctes).forEach(function (k) {
+      var c = S.ctes[k], ck = cliKeyDe(c);
+      var x = m[ck] = m[ck] || { k: ck, nome: c.cliente || '(sem cliente)', frete: 0, vs: {} };
+      x.frete += c.frete || 0; x.vs[c.v] = 1;
+    });
+    Object.keys(S.clientes).forEach(function (ck) { if (!m[ck]) m[ck] = { k: ck, nome: S.clientes[ck], frete: 0, vs: {}, fora: true }; });
+    var l = Object.keys(m).map(function (k) { return m[k]; }).filter(function (x) { return !q || semAcento(x.nome).indexOf(q) >= 0; });
+    l.sort(function (a, b) { return (S.clientes.hasOwnProperty(b.k) - S.clientes.hasOwnProperty(a.k)) || b.frete - a.frete; });
+    S.cliVisiveis = l;
+    $('cliLista').innerHTML = l.length ? l.map(function (x) {
+      var nv = Object.keys(x.vs).length;
+      return '<label title="' + esc(x.nome) + '"><input type="checkbox" data-cli="' + esc(x.k) + '"' + (S.clientes.hasOwnProperty(x.k) ? ' checked' : '') + '><span class="n">' + esc(x.nome) + '</span><span class="q">'
+        + (x.fora ? 'sem CT-e no período' : plural(nv, 'viagem', 'viagens') + ' · R$ ' + moedaK(x.frete)) + '</span></label>';
+    }).join('') : '<div class="nota">Nenhum cliente com esse nome no período.</div>';
+    $('cliConta').textContent = nCliSel() ? plural(nCliSel(), 'escolhido', 'escolhidos') : 'todos os clientes';
+  }
+  function mudouClientes() { salvarClientes(); rotuloClientes(); S.abertas.clear(); render(); }
+
   function resumo(vid) {
-    var v = S.viagens[vid], cs = S.porViagem[vid] || [];
+    var v = S.viagens[vid], cs = (S.porViagem[vid] || []).filter(cliOk);
     var menor = null, todos = {}, ent = 0, aconf = 0, avisos = 0, frete = 0, ultEnt = null, ag = null, clientes = {};
     cs.forEach(function (c) {
       var s = statusDe(c), o = S.st[s.cod] || { ordem: 9 };
@@ -593,15 +671,49 @@
   function mesAtual() { var h = new Date(); return h.getFullYear() + '-' + String(h.getMonth() + 1).padStart(2, '0'); }
   function somaMes(m, n) { var a = +m.slice(0, 4), b = +m.slice(5) - 1 + n; a += Math.floor(b / 12); b = ((b % 12) + 12) % 12; return a + '-' + String(b + 1).padStart(2, '0'); }
   function rotMes(m) { return MESES[+m.slice(5) - 1] + '/' + m.slice(0, 4); }
+  function rotCurto(m) { return MESES[+m.slice(5) - 1].slice(0, 3) + '/' + m.slice(2, 4); }
+  function seguidos(ms) { return ms.every(function (m, i) { return !i || somaMes(ms[i - 1], 1) === m; }); }
+  // um mês: "setembro/2026"; seguidos: "set/26 a nov/26"; salteados: "set/26, nov/26" (ou "5 meses")
+  function rotPeriodo(ms) {
+    if (ms.length === 1) return rotMes(ms[0]);
+    if (seguidos(ms)) return rotCurto(ms[0]) + ' a ' + rotCurto(ms[ms.length - 1]);
+    return ms.length <= 3 ? ms.map(rotCurto).join(', ') : ms.length + ' meses';
+  }
+  function trocarMeses(ms) {
+    ms = Array.from(new Set(ms)).filter(function (m) { return m <= mesAtual(); }).sort().slice(-12);
+    if (!ms.length) ms = [mesAtual()];
+    S.meses = ms; S.mes = ms.join(','); S.abertas.clear(); S.soltas = null;
+    carregar();
+  }
+  // seletor de meses (vários, salteados ou não)
+  function abrirMesPop() {
+    S.mp = { sel: new Set(S.meses), ano: +S.meses[S.meses.length - 1].slice(0, 4), ult: null };
+    desenharMesPop(); $('mesPop').hidden = false;
+  }
+  function desenharMesPop() {
+    var mp = S.mp, atual = mesAtual();
+    $('mpAno').textContent = mp.ano;
+    $('mpGrade').innerHTML = MESES.map(function (n, i) {
+      var m = mp.ano + '-' + String(i + 1).padStart(2, '0');
+      return '<button data-mp-mes="' + m + '"' + (mp.sel.has(m) ? ' class="on"' : '') + (m > atual ? ' disabled' : '') + '>' + n.slice(0, 3) + '</button>';
+    }).join('');
+    $('mesPop').querySelector('[data-mp-ano="1"]').disabled = mp.ano >= +atual.slice(0, 4);
+    var ms = Array.from(mp.sel).sort();
+    $('mpConta').textContent = ms.length ? plural(ms.length, 'mês', 'meses') + (ms.length > 12 ? ' — máx. 12' : '') : 'nenhum mês';
+    $('mpAplicar').disabled = !ms.length || ms.length > 12;
+  }
 
   function carregar(forcar) {
     $('btnAtualizar').disabled = true;
     $('erro').hidden = true;
-    $('mesRot').textContent = rotMes(S.mes);
-    $('mesProx').disabled = S.mes >= mesAtual();
+    $('mesRot').textContent = rotPeriodo(S.meses);
+    $('mesRot').title = 'Escolher um ou mais meses' + (S.meses.length > 1 ? '\n' + S.meses.map(rotMes).join(', ') : '');
+    $('mesProx').disabled = S.meses[S.meses.length - 1] >= mesAtual();
+    var pedido = S.mes;
     fetch('/api/acompanhamento?mes=' + S.mes + (forcar ? '&forcar=1' : ''))
       .then(function (r) { return r.json(); })
       .then(function (j) {
+        if (pedido !== S.mes) return;   // trocou o período no meio: vale a resposta do pedido novo
         $('btnAtualizar').disabled = false;
         if (!j.ok) throw new Error(j.error || 'erro');
         S.dados = j; S.st = {}; j.status.forEach(function (s) { S.st[s.cod] = s; });
@@ -609,10 +721,11 @@
         j.ctes.forEach(function (c) { S.ctes[c.k] = c; (S.porViagem[c.v] = S.porViagem[c.v] || []).push(c); });
         S.sel.clear();
         if (!$('gaveta').hidden) setTimeout(abrirGavetaDe, 0);
-        $('meta').textContent = 'CT-e emitidos de ' + dmy(j.ini) + ' a ' + dmy(j.fim) + ' · sem complementar, substituto e RPS · SSW lido às ' + j.lido_em.slice(11);
+        $('meta').textContent = 'CT-e emitidos ' + (seguidos(j.meses) ? 'de ' + dmy(j.ini) + ' a ' + dmy(j.fim) : 'em ' + j.meses.map(rotMes).join(', ')) + ' · sem complementar, substituto e RPS · SSW lido às ' + j.lido_em.slice(11);
         tudo();
       })
       .catch(function (e) {
+        if (pedido !== S.mes) return;
         $('btnAtualizar').disabled = false;
         $('erro').textContent = 'Não consegui ler o SSW: ' + e.message; $('erro').hidden = false;
         $('tabela').querySelector('tbody').innerHTML = '';
@@ -653,6 +766,7 @@
     var out = [];
     Object.keys(S.viagens).forEach(function (vid) {
       var r = resumo(vid);
+      if (!r.cs.length) return;   // nenhum CT-e dos clientes escolhidos
       if (S.ocultarEntregues && r.entregues === r.cs.length) return;
       if (S.filtro) {
         if (FILTROS[S.filtro]) { if (!FILTROS[S.filtro].f(r)) return; }
@@ -717,24 +831,33 @@
 
   // ── topo: indicadores e cartões ──
   function topo(todas) {
-    var nC = 0, fr = 0, and = 0, aconf = 0, aconfV = 0, atr = 0, dCob = 0, dCobV = 0, dPago = 0;
+    var nC = 0, fr = 0, and = 0, aconf = 0, aconfV = 0, atr = 0, dCob = 0, dCobV = 0, dPago = 0, dFrete = 0, dComp = 0, dCusto = 0;
     todas.forEach(function (r) {
       nC += r.cs.length; fr += r.frete;
       if (r.desc.aCobrar > 1) { dCob += r.desc.aCobrar; dCobV++; }
-      dPago += r.desc.pago;
+      dPago += r.desc.pago; dFrete += r.desc.incluso; dComp += r.desc.cobr; dCusto += r.desc.custo;
       if (r.entregues < r.cs.length) and++;
       if (r.aconf) { aconf += r.aconf; aconfV++; }
       if (r.v.atrasada && !fechada(r.status)) atr++;
     });
+    var dRec = dFrete + dComp, dDif = dRec - dPago;
     var k = [
-      ['Viagens no mês', todas.length, plural(nC, 'CT-e', 'CT-e') + ' · R$ ' + moedaK(fr)],
+      ['Viagens no ' + (S.meses.length > 1 ? 'período' : 'mês'), todas.length, plural(nC, 'CT-e', 'CT-e') + ' · R$ ' + moedaK(fr)],
       ['Em andamento', and, 'viagens com CT-e ainda não entregue'],
       ['Entregas a confirmar', aconf, 'entregas do portal da Ypê em ' + plural(aconfV, 'viagem', 'viagens') + ' — um clique confirma'],
       ['Atrasadas', atr, 'previsão de chegada vencida, sem chegada no SSW'],
-      ['Descarga a cobrar', 'R$ ' + moedaK(dCob), plural(dCobV, 'viagem', 'viagens') + ' · pago ao chapa no mês R$ ' + moedaK(dPago)]
+      ['Descarga a cobrar', 'R$ ' + moedaK(dCob), plural(dCobV, 'viagem', 'viagens') + ' com falta, pela regra do cliente', 'desc',
+       'O que falta cobrar do cliente, pela regra da planilha de reembolso (não entra o custo Rizza nem cliente sem regra).'],
+      ['Descarga paga (477)', 'R$ ' + moedaK(dPago), 'pago ao chapa (5100) nas viagens ' + (S.meses.length > 1 ? 'do período' : 'do mês'), 'desc',
+       'Soma do 477, evento 5100 (carga e descarga com terceiros), ligado aos CT-e da tela pela NF do histórico ou vinculado à mão. Carregamento não entra.'],
+      ['Descarga cobrada (455)', 'R$ ' + moedaK(dRec), 'no frete R$ ' + moedaK(dFrete) + ' · complementar/RPS R$ ' + moedaK(dComp), 'desc',
+       'O que voltou do cliente nos CT-e do 455: o que já vai no frete (Outros da Ypê/Unilever, R$ 500 da Doce Mineiro) + os complementares e RPS de descarga ligados às viagens.\nÉ o cobrado (emitido), não a baixa do recebimento.'],
+      ['Diferença', (dDif < -0.5 ? '− ' : '') + 'R$ ' + moedaK(Math.abs(dDif)), (dPago > 0 ? Math.round(dRec / dPago * 100) + '% do pago voltou' : 'sem pagamento no 477') + ' · custo Rizza R$ ' + moedaK(dCusto), 'desc',
+       'Cobrado (455) − pago (477). Negativo = a Rizza pagou mais do que cobrou.\nParte é custo Rizza de propósito (cliente que não reembolsa, ou FOB em cliente que só reembolsa CIF) — o card "Descarga a cobrar" mostra só o que dá para cobrar.',
+       dDif < -0.5 ? 'neg' : 'pos']
     ];
     $('kpis').innerHTML = k.map(function (x) {
-      return '<div class="kpi"><div class="l">' + esc(x[0]) + '</div><div class="v">' + esc(x[1]) + '</div><div class="s">' + esc(x[2]) + '</div></div>';
+      return '<div class="kpi' + (x[3] ? ' ' + x[3] : '') + '"' + (x[4] ? ' title="' + esc(x[4]) + '"' : '') + '><div class="l">' + esc(x[0]) + '</div><div class="v' + (x[5] ? ' ' + x[5] : '') + '">' + esc(x[1]) + '</div><div class="s">' + esc(x[2]) + '</div></div>';
     }).join('');
 
     var h = '';
@@ -962,7 +1085,7 @@
 
   function render() {
     var todas = [];
-    Object.keys(S.viagens).forEach(function (vid) { todas.push(resumo(vid)); });
+    Object.keys(S.viagens).forEach(function (vid) { var r = resumo(vid); if (r.cs.length) todas.push(r); });
     topo(todas);
     var rows = visiveis();
     var nC = rows.reduce(function (a, r) { return a + r.cs.length; }, 0);
@@ -1168,7 +1291,7 @@
     if (c.crm) base += '<div class="bloco"><h3>Documentos (CRM - Documentos)</h3>' + kv([['Carteira', c.crm.carteira], ['Etapa', '<span class="pill" style="--cor:' + cor(c.crm.cor) + '">' + esc(c.crm.rot) + '</span>', true],
       ['Custo extra', (c.crm.custos || []).length ? c.crm.custos.map(function (x) { return x.tipo + ' R$ ' + moeda(x.valor) + (x.status ? ' (' + x.status + ')' : ''); }).join(' · ') : '—']]) + '<div class="nota" style="margin-top:6px">Só leitura aqui — a etapa e o custo extra se mudam no <a href="/crm-documentos" style="color:var(--accent)">CRM - Documentos</a>.</div></div>';
     gaveta(c.k, esc(c.cliente) + ' · NF ' + esc(c.nf), base + '<div class="bloco"><h3>Ocorrências no SSW e histórico</h3><div class="nota">carregando…</div></div>');
-    fetch('/api/acompanhamento/cte?k=' + encodeURIComponent(k) + '&mes=' + S.mes).then(function (r) { return r.json(); }).then(function (j) {
+    fetch('/api/acompanhamento/cte?k=' + encodeURIComponent(k) + '&mes=' + S.meses[S.meses.length - 1]).then(function (r) { return r.json(); }).then(function (j) {
       if ($('gavTitulo').textContent !== k) return;
       var h = '<div class="bloco"><h3>Ocorrências no SSW</h3>' + (j.ocorrencias && j.ocorrencias.length ? '<ul class="hist">' + j.ocorrencias.map(function (o) {
         return '<li><b>' + o.cod + ' · ' + esc(o.rot) + '</b><div>' + esc(o.texto || '') + '</div><div class="q">' + esc(dmh(o.em.replace(' ', 'T'))) + '</div></li>';
@@ -1206,7 +1329,7 @@
     var csv = '﻿' + linhas.map(function (l) { return l.map(function (x) { x = String(x == null ? '' : x); return /[;"\n]/.test(x) ? '"' + x.replace(/"/g, '""') + '"' : x; }).join(';'); }).join('\r\n');
     var a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-    a.download = 'acompanhamento-' + S.mes + '.csv';
+    a.download = 'acompanhamento-' + S.meses.join('_') + '.csv';
     document.body.appendChild(a); a.click(); a.remove();
   }
 
@@ -1291,8 +1414,50 @@
   $('btnFecharTodas').addEventListener('click', function () { S.abertas.clear(); S.clisAbertos.clear(); render(); });
   $('btnAtualizar').addEventListener('click', function () { carregar(true); });
   $('btnPlanilha').addEventListener('click', baixarPlanilha);
-  $('mesAnt').addEventListener('click', function () { S.mes = somaMes(S.mes, -1); S.abertas.clear(); S.soltas = null; carregar(); });
-  $('mesProx').addEventListener('click', function () { if (S.mes < mesAtual()) { S.mes = somaMes(S.mes, 1); S.abertas.clear(); S.soltas = null; carregar(); } });
+  // as setas andam o período inteiro um mês (set+out → out+nov)
+  $('mesAnt').addEventListener('click', function () { trocarMeses(S.meses.map(function (m) { return somaMes(m, -1); })); });
+  $('mesProx').addEventListener('click', function () { if (S.meses[S.meses.length - 1] < mesAtual()) trocarMeses(S.meses.map(function (m) { return somaMes(m, 1); })); });
+  $('mesRot').addEventListener('click', function (ev) { ev.stopPropagation(); if ($('mesPop').hidden) abrirMesPop(); else $('mesPop').hidden = true; });
+  $('mesPop').addEventListener('click', function (ev) {
+    ev.stopPropagation();
+    var t = ev.target, mp = S.mp, el;
+    if ((el = t.closest('[data-mp-ano]'))) { if (!el.disabled) { mp.ano += +el.dataset.mpAno; desenharMesPop(); } return; }
+    if ((el = t.closest('[data-mp-mes]'))) {
+      var m = el.dataset.mpMes;
+      if (ev.shiftKey && mp.ult) {   // intervalo entre o último clicado e este
+        var a = mp.ult < m ? mp.ult : m, b = mp.ult < m ? m : mp.ult;
+        for (var x = a; x <= b; x = somaMes(x, 1)) mp.sel.add(x);
+      } else if (mp.sel.has(m)) mp.sel.delete(m); else mp.sel.add(m);
+      mp.ult = m; desenharMesPop(); return;
+    }
+    if ((el = t.closest('[data-mp-rap]'))) {
+      var r = el.dataset.mpRap, at = mesAtual(); mp.sel.clear();
+      if (r === 'ano') { for (var y = mp.ano + '-01'; y <= at && y.slice(0, 4) === String(mp.ano); y = somaMes(y, 1)) mp.sel.add(y); }
+      else { for (var i = 0; i < +r; i++) mp.sel.add(somaMes(at, -i)); mp.ano = +at.slice(0, 4); }
+      desenharMesPop(); return;
+    }
+    if (t.id === 'mpAplicar' && !t.disabled) { $('mesPop').hidden = true; trocarMeses(Array.from(mp.sel)); }
+  });
+  document.addEventListener('click', function () { $('mesPop').hidden = true; $('cliPop').hidden = true; });
+  // clientes: marcar/desmarcar aplica na hora
+  $('btnClientes').addEventListener('click', function (ev) {
+    ev.stopPropagation();
+    if (!$('cliPop').hidden) { $('cliPop').hidden = true; return; }
+    $('cliBusca').value = ''; desenharClientes(); $('cliPop').hidden = false; $('cliBusca').focus();
+  });
+  $('cliPop').addEventListener('click', function (ev) {
+    ev.stopPropagation();
+    if (ev.target.id === 'cliLimpar') { S.clientes = {}; mudouClientes(); desenharClientes(); }
+    if (ev.target.id === 'cliMarcar') { (S.cliVisiveis || []).forEach(function (x) { S.clientes[x.k] = x.nome; }); mudouClientes(); desenharClientes(); }
+  });
+  $('cliPop').addEventListener('change', function (ev) {
+    var k = ev.target.dataset.cli; if (k === undefined) return;
+    var x = (S.cliVisiveis || []).filter(function (y) { return y.k === k; })[0];
+    if (ev.target.checked) S.clientes[k] = x ? x.nome : k; else delete S.clientes[k];
+    mudouClientes(); $('cliConta').textContent = nCliSel() ? plural(nCliSel(), 'escolhido', 'escolhidos') : 'todos os clientes';
+  });
+  $('cliBusca').addEventListener('input', desenharClientes);
+  $('cliBusca').addEventListener('keydown', function (ev) { if (ev.key === 'Escape') $('cliPop').hidden = true; });
   $('gavFechar').addEventListener('click', function () { $('gaveta').hidden = true; S.vinc = null; S.gav = null; });
   document.addEventListener('keydown', function (ev) { if (ev.key === 'Enter' && ev.target.id === 'vincQ') buscarVinculo(); });
   document.addEventListener('change', function (ev) { if (ev.target.id === 'vincTipo' && S.vinc) { S.vinc.tipo = ev.target.value; S.vinc.docs = null; abrirGavetaDe(); } });
@@ -1312,7 +1477,8 @@
   $('loteConfirmar').addEventListener('click', function () { confirmar(Array.from(S.sel)); });
   $('loteLimpar').addEventListener('click', function () { S.sel.clear(); render(); });
 
-  S.mes = mesAtual();
+  S.meses = [mesAtual()]; S.mes = S.meses[0];
+  rotuloClientes();
   carregar();
 })();
 </script>

@@ -374,6 +374,49 @@ def dados_bi(dax, mes, forcar=False, hoje=None, dax_dre=None):
     return d
 
 
+MAX_MESES = 12
+
+
+def meses_do_pedido(arg, hoje=None):
+    """'2026-09,2026-11' → ['2026-09', '2026-11'] (ordenado, sem repetir, sem mês futuro, até 12). Vazio = mês atual."""
+    atual = (hoje or hoje_brt()).strftime('%Y-%m')
+    ms = sorted({m for m in str(arg or '').split(',') if re.fullmatch(r'\d{4}-(0[1-9]|1[0-2])', m.strip()) and m <= atual})
+    return ms[-MAX_MESES:] or [atual]
+
+
+def no_periodo(em, d):
+    """A data cai num dos meses escolhidos (a seleção pode pular meses: set + nov)?"""
+    em = em or ''
+    return d['ini'] <= em[:10] <= d['fim'] and em[:7] in d.get('meses', [d['mes']])
+
+
+def dados_periodo(dax, meses, forcar=False, hoje=None, dax_dre=None):
+    """Vários meses (27/11/2026): junta o `dados_bi` de cada mês (cada um com o seu cache de 10 min).
+
+    Manifestos, 200, YPE, 031 e cobranças são lidos "desde" o começo do mês (sem fim): os do mês mais antigo já
+    cobrem os outros. O 5100 de cada mês tem a janela dele (−10 d / +75 d) e as janelas se sobrepõem: um lançamento
+    lido em dois meses entra uma vez só."""
+    ds = [dados_bi(dax, m, forcar, hoje, dax_dre) for m in meses]
+    if len(ds) == 1:
+        return dict(ds[0], meses=[ds[0]['mes']])
+    d = dict(ds[0], mes=','.join(x['mes'] for x in ds), meses=[x['mes'] for x in ds], fim=ds[-1]['fim'],
+             ctes=[c for x in ds for c in x['ctes']], lido_em=ds[-1]['lido_em'])
+    if any(x.get('p5100') is not None for x in ds):
+        # o mesmo lançamento pode achar o CT-e na janela de um mês e não na do outro (a janela de CT-e do
+        # relatorio_5100 acompanha o mês): a chave não leva o CT-e, e fica a leitura que achou mais CT-e
+        junto = {}
+        for x in ds:
+            aqui = {}
+            for l in x.get('p5100') or []:
+                aqui.setdefault((l['lanc'], l['em'], l['v'], l['hist']), []).append(l)
+            for k, ls in aqui.items():
+                antes = junto.get(k)
+                if not antes or (len(ls), sum(1 for l in ls if l['cte'])) > (len(antes), sum(1 for l in antes if l['cte'])):
+                    junto[k] = ls
+        d['p5100'] = [l for ls in junto.values() for l in ls]
+    return d
+
+
 # ── Montagem ──────────────────────────────────────────────────────────────────
 
 def _num(v):
@@ -1060,14 +1103,13 @@ def buscar_documentos(dax, dax_dre, tipo, q, hoje=None):
 
 
 def documentos_soltos(d, vinc, ctes_janela):
-    """Caixa de entrada do mês: cobranças de descarga emitidas no mês que não ligam a CT-e nenhum (nem à mão), e
+    """Caixa de entrada do período (um ou vários meses): cobranças de descarga emitidas no mês que não ligam a CT-e nenhum (nem à mão), e
     pagamentos 5100 do mês sem CT-e (NF fora do histórico) e sem vínculo à mão."""
-    ini, fim = d['ini'], d['fim']
     idx = IndiceCtes(ctes_janela)
     cob = []
     for c in d.get('cobr') or []:
         em = _iso(c.get('emissao')) or ''
-        if not (ini <= em <= fim) or not eh_cobranca_descarga(c):
+        if not no_periodo(em, d) or not eh_cobranca_descarga(c):
             continue
         doc = _ctrc(c.get('ctrc'))
         total = _num(c.get('frete')) or 0.0
@@ -1080,7 +1122,7 @@ def documentos_soltos(d, vinc, ctes_janela):
                     'motivo': 'sem referência na observação' if not any(refs_da_obs(c.get('obs')).values()) else 'a referência não achou CT-e'})
     pag = []
     for p in d.get('p5100') or []:
-        if not (ini <= (p.get('em') or '') <= fim) or p['cte'] or ('pago', p['lanc']) in vinc['manual']:
+        if not no_periodo(p.get('em'), d) or p['cte'] or ('pago', p['lanc']) in vinc['manual']:
             continue
         pag.append(dict(p, carregamento=bool(RE_CARREGAMENTO.search(_sem_acento(p['hist']).upper()))))
     return {'cobr': sorted(cob, key=lambda x: -x['total']), 'pago': sorted(pag, key=lambda x: -x['v'])}
