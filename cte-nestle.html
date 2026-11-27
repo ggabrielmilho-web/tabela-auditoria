@@ -80,6 +80,14 @@
   .rolagem { overflow-x: auto; }
   .hist td { vertical-align: top; }
   .chips { display: flex; gap: 4px; flex-wrap: wrap; max-width: 520px; }
+  .filtros { display: flex; gap: 10px 16px; align-items: center; flex-wrap: wrap; padding: 10px 16px; border-bottom: 1px solid var(--border); }
+  .filtros label { display: inline-flex; gap: 6px; align-items: center; font-size: 0.76rem; color: var(--text-dim); }
+  .filtros input { padding: 5px 8px; background: var(--surface2); border: 1px solid var(--border); border-radius: 7px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 0.78rem; color-scheme: dark; }
+  html[data-tema="claro"] .filtros input { color-scheme: light; }
+  .filtros input#fCte { width: 130px; font-family: 'JetBrains Mono', monospace; }
+  .filtros .link { background: none; border: none; color: var(--accent); cursor: pointer; font-size: 0.76rem; font-family: 'DM Sans', sans-serif; }
+  .filtros .link:hover { text-decoration: underline; }
+  .pill.achou { outline: 2px solid var(--accent); outline-offset: 1px; }
   .vazio { padding: 18px 16px; color: var(--text-dim); font-size: 0.82rem; }
   a.baixar { color: var(--accent); text-decoration: none; font-size: 0.8rem; white-space: nowrap; }
   a.baixar:hover { text-decoration: underline; }
@@ -118,6 +126,13 @@
       <h2>Arquivos gerados</h2>
       <span class="meta">Ao gerar, cada CT-e passa para <b>EXPORTADO</b> na coluna Ticket B2B da aba Nestlé do
         CRM - Documentos; quem e quando ficam no histórico da linha.</span>
+    </div>
+    <div class="filtros">
+      <label>De <input type="date" id="fDe"></label>
+      <label>Até <input type="date" id="fAte"></label>
+      <label>CT-e <input type="text" id="fCte" inputmode="numeric" placeholder="nº do CT-e" autocomplete="off"></label>
+      <button class="link" id="fLimpar" hidden>limpar filtro</button>
+      <span class="meta" id="fInfo"></span>
     </div>
     <div id="hist"><div class="vazio"><span class="spin"></span>Carregando…</div></div>
   </div>
@@ -364,13 +379,20 @@
 
   // ── histórico dos arquivos gerados ──
   var diasAguardar = 60;
+  // filtro da lista (27/11/2026): dia em que o arquivo foi gerado e nº do CT-e — no servidor, para achar além dos 100 últimos
+  function filtro() {
+    var cte = ($('fCte').value || '').replace(/\D/g, '').replace(/^0+/, '');
+    return { de: $('fDe').value, ate: $('fAte').value, cte: cte };
+  }
   function chipCte(c, expirado) {
+    var f = filtro();
     var rot = esc(c.numero) + (c.complementar ? ' (compl.)' : ''), cls, tit;
+    var achou = f.cte && String(c.numero).indexOf(f.cte) === 0;
     if (c.situacao === 'marcado') { cls = 'ok'; tit = 'EXPORTADO no CRM — ' + (c.crm || ''); }
     else if (c.situacao === 'ambiguo') { cls = 'bad'; tit = 'O nº do CT-e aparece em mais de uma linha do CRM com o mesmo frete: marque à mão'; }
     else if (expirado) { cls = 'dim'; tit = 'Não apareceu na aba Nestlé do CRM em ' + diasAguardar + ' dias (pagador fora da carteira?)'; }
     else { cls = 'warn'; tit = 'Aguardando: o CT-e ainda não está no 455 do BI — é marcado quando chegar'; }
-    return '<span class="pill ' + cls + ' mono" title="' + esc(tit) + '">' + rot + '</span>';
+    return '<span class="pill ' + cls + (achou ? ' achou' : '') + ' mono" title="' + esc(tit) + '">' + rot + '</span>';
   }
   function resumoCrm(a) {
     var n = a.ctes.length, m = 0, amb = 0, ag = 0;
@@ -382,8 +404,12 @@
     if (amb) out.push('<span class="pill bad">' + amb + ' ambíguo(s) — marcar à mão</span>');
     return out.join(' ');
   }
-  function desenharHistorico(arqs) {
-    if (!arqs.length) { $('hist').innerHTML = '<div class="vazio">Nenhum arquivo gerado ainda.</div>'; return; }
+  function desenharHistorico(arqs, j) {
+    var f = filtro(), tem = !!(f.de || f.ate || f.cte);
+    $('fLimpar').hidden = !tem;
+    $('fInfo').textContent = tem ? arqs.length + (arqs.length === 1 ? ' arquivo' : ' arquivos') + ' com o filtro'
+      + (j && arqs.length >= j.limite ? ' (mostrando os ' + j.limite + ' mais novos)' : '') : '';
+    if (!arqs.length) { $('hist').innerHTML = '<div class="vazio">' + (tem ? 'Nenhum arquivo com esse filtro.' : 'Nenhum arquivo gerado ainda.') + '</div>'; return; }
     $('hist').innerHTML = '<div class="rolagem"><table><thead><tr><th>Gerado em</th><th>Por</th><th>CT-e</th>' +
       '<th class="num">Notas</th><th class="num">Frete</th><th>CRM</th><th></th></tr></thead><tbody>' +
       arqs.map(function (a) {
@@ -400,17 +426,27 @@
         '</tr>';
       }).join('') + '</tbody></table></div>';
   }
+  var seqHist = 0;
   function carregarHistorico() {
-    return fetch('/api/cte-nestle/historico', { credentials: 'same-origin' })
+    var f = filtro(), q = [], seq = ++seqHist;
+    if (f.de) q.push('de=' + f.de);
+    if (f.ate) q.push('ate=' + f.ate);
+    if (f.cte) q.push('cte=' + encodeURIComponent(f.cte));
+    return fetch('/api/cte-nestle/historico' + (q.length ? '?' + q.join('&') : ''), { credentials: 'same-origin' })
       .then(function (r) { return r.json(); })
       .then(function (j) {
         if (!j.ok) throw new Error(j.error || 'Erro ao ler o histórico.');
+        if (seq !== seqHist) return j.arquivos;            // chegou uma resposta mais nova: esta não desenha
         diasAguardar = j.dias_aguardar || diasAguardar;
-        desenharHistorico(j.arquivos);
+        desenharHistorico(j.arquivos, j);
         return j.arquivos;
       })
       .catch(function (e) { $('hist').innerHTML = '<div class="vazio">' + esc(e.message) + '</div>'; return []; });
   }
+  var tFiltro = null;
+  ['fDe', 'fAte'].forEach(function (id) { $(id).addEventListener('change', function () { carregarHistorico(); }); });
+  $('fCte').addEventListener('input', function () { clearTimeout(tFiltro); tFiltro = setTimeout(carregarHistorico, 300); });
+  $('fLimpar').addEventListener('click', function () { $('fDe').value = ''; $('fAte').value = ''; $('fCte').value = ''; carregarHistorico(); });
   // Depois do Gerar: a marca no CRM vem em segundo plano (ler a carteira pode levar ~40 s com o BI frio).
   // Relê o histórico algumas vezes enquanto o arquivo novo tiver CT-e aguardando.
   var acompanhando = null;

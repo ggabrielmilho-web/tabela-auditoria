@@ -604,6 +604,7 @@ _COLS_455 = (f'"ctrc", {_T455}[serie_numero_ctrc], "cte", {_T455}[serie_numero_c
              f'"frete", {_T455}[valor_frete], "outros", {_T455}[outros], "nf", {_T455}[numero_nota_fiscal], '
              f'"uf_o", {_T455}[uf_origem_prestacao], '
              f'"rem", {_T455}[cliente_remetente], "dest", {_T455}[cliente_destinatario], '
+             f'"cid_r", {_T455}[cidade_remetente], "uf_r", {_T455}[uf_remetente], '
              f'"cid_d", {_T455}[cidade_destinatario], "uf_d", {_T455}[uf_destinatario], '
              f'"baixa", {_T455}[tipo_baixa], "liq", {_T455}[data_liquidacao], "imp", {_T455}[data_importacao], '
              f'"obs", LEFT({_T455}[observacao], 300)')
@@ -874,7 +875,7 @@ def marcacoes(cur, carteira):
 # O que se copia do 455 para a marcação (coluna `ssw`): o bastante para a linha cancelada no SSW
 # continuar dizendo o que era.
 CAMPOS_COPIA_SSW = ('emissao', 'emissao_455', 'frete', 'outros', 'nf', 'uf_o', 'doc', 'pagador', 'cnpj',
-                    'remetente', 'destinatario', 'destino')
+                    'remetente', 'origem_rem', 'destinatario', 'destino')
 
 
 def base_ssw(linha):
@@ -1187,6 +1188,78 @@ _RE_PO = re.compile(r'\bPO\s*-?\s*(\d{6,})', re.I)
 _RE_TRANSPORTE = re.compile(r'\bB\s?(10\d{6,8})\b', re.I)
 
 
+# ── Tipo frete pela observação do CT-e (26/11/2026) ──────────────────────────
+# Pedido dela: o Tipo frete vazio vem preenchido com o que a observação do CT-e diz; o que ela marcou não
+# muda, e ela troca quando quiser (a carga que vira devolução depois). O "PROD PREDOMIN" do DACTE seria a
+# fonte ideal, mas não chega em nada que a tela lê (no 455 do BI, mercadoria/espécie = "001-DIVERSOS" em
+# todo CT-e). Medido contra os 6.115 CT-e com tipo marcado (2025–26): a observação dá o tipo em 85% e,
+# quando dá, acerta 96% (Nestlé 93%, Química 100%, Unilever 98%). Sem pista (só a B10…), fica vazio — não
+# chuta. O fraco: "TROCA DE NOTA" (ela marca ora Produto, ora Troca de nota para o mesmo texto).
+# Não grava nada: é sugestão na linha (`tipo_sug`); vira marcação quando ela escolhe.
+
+_TIPO_OCORRENCIA = [   # "OCORRENCIA: <motivo>:" — o que o SSW escreve no CT-e complementar
+    (r'DRED|DEMORA PARA DESCARREGAR', 'ESTADIA'), (r'DIARIA', 'DIARIA'), (r'REENTREGA', 'REENTREGA'),
+    (r'ARMAZENAGEM', 'ARMAZENAGEM'), (r'PEDAGIO', 'PEDAGIO'), (r'DEVOLU', 'DEVOLUÇÃO'), (r'DESCARGA', 'DESCARGA'),
+]
+_TIPO_COMPLEMENTO = [  # complemento escrito à mão ("… CARREGAMENTO DE PALLETS", "MOTIVO: estadia")
+    (r'CARREGAMENTO DE PAL+E?T|CARGA\s*/?\s*E?\s*DESCARG', 'CARGA DESCARGA/PALLET'), (r'ESTADIA', 'ESTADIA DESTINO'),
+    (r'DESCARGA', 'DESCARGA'), (r'PEDAGIO', 'PEDAGIO'), (r'DIARIA', 'DIARIA'), (r'REENTREGA', 'REENTREGA'),
+    (r'ARMAZENAGEM', 'ARMAZENAGEM'), (r'DEVOLU', 'DEVOLUÇÃO'),
+]
+_TIPO_CARGA = [
+    (r'\bRECALL\b', 'RECALL'), (r'TROCA DE NOTA', 'TROCA DE NOTA'),
+    (r'DEV(?:OLUCAO|OL|\.)?\s*PARCIAL', 'DEVOLUÇÃO PARCIAL'), (r'DEV(?:OLUCAO|OL|\.)?\s*TOTAL', 'DEVOLUÇÃO TOTAL'),
+    (r'PRODUTOS? BONS? X PAL', 'INDENIZADO/PRODUTO BOM'), (r'\bDEVOLUCAO\b|\bDEV\.\s', 'DEVOLUÇÃO'),
+]
+
+
+def _pallet_de_carga(o):
+    """O 1º "PALLET(S)" que fala da CARGA — não a nota do pallet ("NFE PALLETS 123", "NF-E(S) DE PALLET:")."""
+    for m in re.finditer(r'\bPAL+E?T(?:E?S)?\b', o):
+        antes, depois = o[max(0, m.start() - 14):m.start()], o[m.end():m.end() + 4]
+        if re.search(r'NF|NOTA|CHAVE', antes) or re.match(r'\s*[:=#\d]', depois):
+            continue
+        return m
+    return None
+
+
+def tipo_da_obs(doc, obs):
+    """(tipo de TIPOS_FRETE, trecho da observação que o dá) ou (None, None) quando ela não diz."""
+    o, d = _sem_acento(obs).upper(), _sem_acento(doc).upper()
+    m = re.search(r'OCORRENCIA:\s*([^:]{2,60}):', o)
+    if m:
+        for pad, t in _TIPO_OCORRENCIA:
+            if re.search(pad, m[1]):
+                return t, 'OCORRENCIA: ' + m[1].strip()
+    if 'COMPLEMENTAR' in d or re.search(r'\bCOMPL\.', o):
+        for pad, t in _TIPO_COMPLEMENTO:
+            mm = re.search(pad, o)
+            if mm:
+                return t, mm[0]
+        return None, None
+    for pad, t in _TIPO_CARGA:
+        mm = re.search(pad, o)
+        if mm:
+            return t, mm[0]
+    # "INDENIZADOS X PALLETS" (indenizado) × "PALLETS X INDENIZADOS" (pallets): vale o que vem primeiro
+    mi, mp = re.search(r'INDENIZAD', o), _pallet_de_carga(o)
+    if mi and (not mp or mi.start() < mp.start()):
+        return 'INDENIZADO', 'INDENIZADOS'
+    if mp and 'PEDIDO' not in o:
+        ini = o.rfind(',', 0, mp.start()) + 1                  # o pedaço da observação (entre vírgulas) que fala do pallet
+        fim = o.find(',', mp.end())
+        return 'PALLETS', o[ini:fim if fim >= 0 else None].strip(' ,-')[:60]
+    if re.match(r'\s*DT\s*:?\s*\d', o):
+        return 'PRODUTO', 'DT (documento de transporte)'
+    if re.search(r'PEDIDO DE COMPRA|\bPEDIDO\s*:?\s*\d', o):
+        return 'PRODUTO', 'PEDIDO'
+    if 'NUM CTRL' in o:
+        return 'PRODUTO', 'Num Ctrl'
+    if re.search(r'CAPA:.*MAPA:', o):
+        return 'BEBIDAS', 'CAPA/MAPA'
+    return None, None
+
+
 def transporte_da_obs(obs):
     """Observação do CT-e → 'B101234567' (ou 'B10…, B10…' com mais de uma carga), ou None."""
     s = str(obs or '').upper()
@@ -1322,6 +1395,7 @@ def montar_linhas(carteira, ce_rows, pagamentos, marc, hoje=None, abertas=None, 
     abertas_ok = abertas is not None
     cfg = CARTEIRAS[carteira]
     desde = cfg['desde']
+    tem_tipo = any(c['id'] == 'tipo' and c.get('opcoes') is TIPOS_FRETE for c in cfg['campos'])
     compl = complementos_ssw(ce_rows) if any(c['tipo'] == 'custos' for c in cfg['campos']) else {}
     subst = substitutos_ssw(ce_rows)
     # observação de cada CT-e: o complemento de frete da Unilever herda a DT do CT-e que ele complementa
@@ -1357,6 +1431,8 @@ def montar_linhas(carteira, ce_rows, pagamentos, marc, hoje=None, abertas=None, 
                     'outros': ce.get('outros'),
                     'doc': ce.get('doc'), 'pagador': ce.get('pagador'), 'cnpj': ce.get('pag'),
                     'remetente': ce.get('rem'), 'destinatario': ce.get('dest'),
+                    # a cidade do remetente na gaveta (pedido dela, 26/11/2026)
+                    'origem_rem': '/'.join(x for x in (ce.get('cid_r'), ce.get('uf_r')) if x),
                     'destino': '/'.join(x for x in (ce.get('cid_d'), ce.get('uf_d')) if x),
                     'obs': ce.get('obs'), 'lido_455': _iso(ce.get('imp'))}
         else:
@@ -1367,6 +1443,7 @@ def montar_linhas(carteira, ce_rows, pagamentos, marc, hoje=None, abertas=None, 
                     'frete': p.get('frete') or c.get('frete'), 'outros': c.get('outros'), 'doc': c.get('doc'),
                     'pagador': p.get('cliente') or c.get('pagador'), 'cnpj': p.get('cnpj') or c.get('cnpj'),
                     'remetente': c.get('remetente'), 'destinatario': c.get('destinatario'),
+                    'origem_rem': c.get('origem_rem'),
                     'destino': c.get('destino'), 'obs': p.get('obs'), 'lido_455': None}
         # Linha manual (fora do 455) com CTRC de verdade — nota de serviço de descarga, CT-e
         # antigo — ainda pode ter sido paga numa fatura do 441.
@@ -1400,7 +1477,13 @@ def montar_linhas(carteira, ce_rows, pagamentos, marc, hoje=None, abertas=None, 
         if nfs_editavel:
             nfs = campos_m.get('nfs') or ((p.get('original') or {}).get(cfg['col_cte']))
             nfs = str(nfs).strip() if nfs not in (None, '') else None
-        linha = dict(base, chave=k, etapa=etapa, campos=campos_m, nfs=nfs, nfs_editavel=nfs_editavel,
+        # Tipo frete vazio: a sugestão pela observação do CT-e (não grava; ela escolhe e aí vale o dela)
+        tipo_sug = None
+        if tem_tipo and not campos_m.get('tipo') and base.get('obs'):
+            t, trecho = tipo_da_obs(base.get('doc'), base['obs'])
+            if t in TIPOS_FRETE:
+                tipo_sug = {'tipo': t, 'trecho': trecho}
+        linha = dict(base, chave=k, etapa=etapa, campos=campos_m, nfs=nfs, nfs_editavel=nfs_editavel, tipo_sug=tipo_sug,
                      manual=ce is None, nota_linha=p.get('nota_linha') if ce is None else None,
                      do_historico=k in do_historico, compl_ssw=compl.get(k) or [],
                      transporte=transporte_da_linha(cfg, base['obs'], base.get('doc'), originais),

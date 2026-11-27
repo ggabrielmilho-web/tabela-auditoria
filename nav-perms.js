@@ -46,6 +46,9 @@
     // As fotos de canhoto que os motoristas mandam pelo celular (09/11/26). Aba própria: quem confere
     // canhoto (CRM, faturamento) nem sempre tem Embarques. 📷 é Emoji 1.0 (glifo no Windows 10).
     { id: 'canhotos',      page: 'canhotos',      href: '/canhotos',          label: '📷 Canhotos' },
+    // A planilha TRACKING (26/11/26): a viagem com os CT-e dentro — agenda, saída, chegada e entrega do SSW,
+    // o status e a confirmação da entrega com quem acompanha. 📍 é Emoji 1.0 (glifo no Windows 10).
+    { id: 'acompanhamento', page: 'acompanhamento', href: '/acompanhamento',  label: '📍 Acompanhamento' },
     // Junto da família de rastreamento, não perto do DRE: é segurança
     // operacional, não financeiro.
     { id: 'pgr',           page: 'pgr',           href: '/pgr',               label: '🚦 PGR' },
@@ -105,7 +108,7 @@
   // Grupos da barra E dos cards do /inicio — uma lista só, para os dois não divergirem
   // no dia em que alguém mover uma aba de grupo.
   var GRUPOS = [
-    { nome: 'Operação',   abas: ['torre', 'viagem', 'canhotos', 'embarques', 'ordens', 'semordem', 'sm', 'mapa', 'pgr', 'jornada', 'ciot', 'veiculos', 'verda'] },
+    { nome: 'Operação',   abas: ['torre', 'acompanhamento', 'viagem', 'canhotos', 'embarques', 'ordens', 'semordem', 'sm', 'mapa', 'pgr', 'jornada', 'ciot', 'veiculos', 'verda'] },
     { nome: 'RH',         abas: ['rh_admissoes'] },
     { nome: 'Comercial',  abas: ['tarifas', 'faturamento', 'contratos'] },
     { nome: 'Financeiro', abas: ['auditoria', 'dre', 'projecao', 'despesas', 'conhecimentos', 'contabil', 'contas_receber', 'comissoes', 'pagamentos_ctrb', 'fechamento_autonomos', 'crm_documentos', 'cte_nestle'] },

@@ -68,6 +68,9 @@
   td.custos { cursor: pointer; }
   td.custos:hover { box-shadow: inset 0 -1px 0 rgba(var(--accent-rgb),.6); }
   td.custos .pill { margin-right: 4px; }
+  /* Tipo frete sugerido pela observação do CT-e: tracejado = ninguém marcou ainda */
+  .tipo-sug { border-bottom: 1px dashed var(--text-dim); color: var(--text-dim); }
+  .tag-obs { font-size: 0.58rem; font-weight: 700; color: var(--text-dim); border: 1px solid var(--border); border-radius: 3px; padding: 0 3px; margin-left: 5px; vertical-align: 1px; }
   td.farol { cursor: pointer; font-size: 0.78rem; }
   td.farol .luz { display: inline-block; width: 11px; height: 11px; border-radius: 50%; vertical-align: -1px; margin-right: 6px; }
   .modal .caixa.largo { width: min(980px, 100%); max-height: 84vh; overflow: auto; }
@@ -399,6 +402,8 @@
   function valorDaColuna(l, f) {
     if (f.tipo === 'custos') return resumoCustos(custosDe(l));
     if (f.tipo === 'farol') return l.campos[f.id] ? 'Validado' : 'A validar';
+    // Tipo frete vazio: o que a observação do CT-e diz (sugestão — entra no filtro e no Excel como valor)
+    if (f.id === 'tipo' && !l.campos.tipo && l.tipo_sug) return l.tipo_sug.tipo;
     return l.campos[f.id] || '';
   }
 
@@ -728,6 +733,10 @@
             : '<span class="vazio">—</span>' + (sug ? ' <span class="marca" title="o SSW tem ' + sug + ' complemento(s) que citam este CT-e">SSW ' + sug + '</span>' : ''))
           + (outros.length ? ' <span class="marca">+' + outros.length + ' no CT-e</span>' : '')
           + '</td>';
+      }
+      if (f && f.id === 'tipo' && !l.campos.tipo && l.tipo_sug) {
+        return '<td class="ed txt curta" data-ed="tipo" data-k="' + esc(l.chave) + '" title="' + esc('Da observação do CT-e: «' + l.tipo_sug.trecho + '» — clique para escolher (o que você marcar passa a valer)') + '">'
+          + '<span class="tipo-sug">' + esc(l.tipo_sug.tipo) + '</span><span class="tag-obs">obs</span></td>';
       }
       if (f) {
         var v = l.campos[f.id];
@@ -1185,7 +1194,7 @@
       ['Emissão no SSW', l.emissao_455 && l.emissao_455 !== l.emissao
         ? dm(l.emissao_455) + ' — a tela usa a data de autorização do CT-e (' + dm(l.emissao) + ')' : ''],
       ['Documento', l.doc], ['Pagador', (l.pagador || '') + (l.cnpj ? ' · ' + l.cnpj : '')],
-      ['Remetente', l.remetente], ['Destinatário', l.destinatario], ['Destino', l.destino],
+      ['Remetente', l.remetente], ['Cidade do remetente', l.origem_rem], ['Destinatário', l.destinatario], ['Destino', l.destino],
       ['NF', l.nf], ['Outros (R$ no CT-e)', l.outros ? moeda(l.outros) : ''], ['UF origem', l.uf_o], ['Vencimento', l.vencimento ? dm(l.vencimento) + ' (emissão + ' + S.cfg.prazo_dias + ' dias)' : ''],
       ['Observação', l.obs],
       ['Leitura', l.do_historico ? 'vem do 455 histórico (dataset do DRE, desde 2021): o 455 que a tela lê todo dia começa em 02/01/2025 e não tem este CT-e' : '']

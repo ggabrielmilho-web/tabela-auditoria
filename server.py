@@ -179,7 +179,7 @@ PAGINAS_VALIDAS = {'auditoria', 'tarifas', 'embarques', 'reuniao', 'dre',
                    'despesas', 'conhecimentos', 'faturamento', 'contratos', 'veiculos',
                    'pgr', 'contabil', 'verda', 'jornada', 'ciot', 'projecao', 'crm_documentos', 'cte_nestle',
                    'contas_receber', 'comissoes', 'canhotos', 'fechamento_autonomos', 'pagamentos_ctrb',
-                   'rh_admissoes'}
+                   'rh_admissoes', 'acompanhamento'}
 # O de-para aba → rota e a ordem de preferência viviam aqui para escolher em qual
 # aba o usuário caía no login. Não existem mais: quem escolhe é ele, na /inicio.
 # As rotas de cada aba são declaradas uma vez só, no `ABAS` do nav-perms.js.
@@ -1258,6 +1258,92 @@ def _crm_linhas(carteira, forcar=False):
         except Exception as e:   # a marca fica para a próxima leitura; a aba não cai por ela
             print(f'[cte-nestle] marca no CRM falhou: {e}', flush=True)
     return linhas, dados
+
+
+# ── Acompanhamento (a planilha TRACKING, 26/11/2026) ──
+# A viagem (último manifesto) com os CT-e dentro: o SSW traz agenda, saída, chegada e a entrega sugerida;
+# a pessoa classifica o status e confirma a entrega. A lógica mora em acompanhamento.py.
+
+_ACOMP_TABELAS = {'ok': False}
+
+
+def _acomp_db(fn):
+    import acompanhamento as ac
+    conn = get_db()
+    try:
+        with conn.cursor() as cur:
+            if not _ACOMP_TABELAS['ok']:
+                ac.garantir_tabelas(cur)
+                _ACOMP_TABELAS['ok'] = True
+            r = fn(cur)
+        conn.commit()
+        return r
+    finally:
+        conn.close()
+
+
+@app.route('/acompanhamento')
+@page_required('acompanhamento')
+def acompanhamento_page():
+    resp = send_from_directory('.', 'acompanhamento.html')
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+@app.route('/api/acompanhamento')
+@page_required('acompanhamento')
+def api_acompanhamento():
+    """?mes=AAAA-MM&forcar=1 → CT-e do mês (regra do dono da planilha) com o que o SSW diz e o que foi marcado."""
+    import acompanhamento as ac
+    import crm_documentos as crm
+    try:
+        d = ac.dados_bi(_crm_dax_op, request.args.get('mes'), forcar=request.args.get('forcar') == '1')
+        chaves = [str(c.get('ctrc') or '').replace(' ', '').upper() for c in d['ctes']]
+        mans = list({ac.chave_man(c.get('manu')) for c in d['ctes']} - {None})
+        marc, crm_k, cargas = _acomp_db(lambda cur: (ac.marcacoes(cur, chaves), ac.crm_dos_ctes(cur, chaves, crm.CARTEIRAS),
+                                                     ac.cargas_dos_manifestos(cur, mans)))
+        r = ac.montar(d, marc, crm_k, GRUPOS_ECONOMICOS)
+        for v in r['viagens'].values():   # mapa e ficha da viagem: a carga do Embarques
+            v['carga_id'] = cargas.get(re.sub(r'[^A-Z0-9]', '', (v['manifesto'] or '').upper()))
+        return jsonify({'ok': True, 'mes': d['mes'], 'ini': d['ini'], 'fim': d['fim'], 'lido_em': d['lido_em'],
+                        'hoje': ac.hoje_brt().isoformat(), 'status': ac.STATUS, 'rotulos': ac.ROTULO_CAMPO,
+                        'ctes': r['ctes'], 'viagens': r['viagens']})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/acompanhamento/marcar', methods=['POST'])
+@page_required('acompanhamento')
+def api_acompanhamento_marcar():
+    """{chaves: [CTRC…], campo, valor} → grava nos CT-e (a viagem manda todos os dela). Devolve o de antes."""
+    import acompanhamento as ac
+    d = request.get_json(silent=True) or {}
+    chaves, campo = d.get('chaves') or [], d.get('campo')
+    if not isinstance(chaves, list) or not chaves or len(chaves) > 3000 or not all(isinstance(k, str) for k in chaves):
+        return jsonify({'ok': False, 'error': 'Nenhum CT-e escolhido.'}), 400
+    try:
+        valor = ac.normalizar(campo, d.get('valor'))
+        por = session.get('nome') or 'usuário'
+        antes = _acomp_db(lambda cur: ac.gravar(cur, chaves, campo, valor, por))
+        return jsonify({'ok': True, 'mudou': len(antes), 'antes': antes, 'valor': valor, 'por': por})
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/acompanhamento/cte')
+@page_required('acompanhamento')
+def api_acompanhamento_cte():
+    """?k=CTRC&mes= → histórico das marcações e as ocorrências do SSW (gaveta)."""
+    import acompanhamento as ac
+    k = str(request.args.get('k') or '').replace(' ', '').upper()
+    try:
+        hist = _acomp_db(lambda cur: ac.historico(cur, k))
+        d = ac.dados_bi(_crm_dax_op, request.args.get('mes'))
+        return jsonify({'ok': True, 'historico': hist, 'ocorrencias': ac.ocorrencias_do_cte(d, k)})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
 
 
 @app.route('/crm-documentos')
@@ -3217,17 +3303,23 @@ def _cte_nestle_marcar_pendentes(linhas):
 @app.route('/api/cte-nestle/historico')
 @page_required('cte_nestle')
 def api_cte_nestle_historico():
-    """Os últimos arquivos gerados, com os CT-e e a situação da marca no CRM."""
+    """Os últimos arquivos gerados, com os CT-e e a situação da marca no CRM.
+    ?de=AAAA-MM-DD&ate=AAAA-MM-DD&cte=NNN filtram (dia em que foi gerado; nº do CT-e, inteiro ou o começo)."""
     import nestle_txt as nt
+    a = request.args
+    data = lambda k: a.get(k) if re.fullmatch(r'\d{4}-\d{2}-\d{2}', a.get(k) or '') else None
+    cte = re.sub(r'\D', '', a.get('cte') or '').lstrip('0') or None
+    filtrado = bool(data('de') or data('ate') or cte)
     conn = get_db()
     try:
         with conn.cursor() as cur:
             _cte_nestle_tabelas(cur)
-            arqs = nt.historico(cur)
+            arqs = nt.historico(cur, limite=500 if filtrado else 100, de=data('de'), ate=data('ate'), cte=cte)
         conn.commit()
     finally:
         conn.close()
-    return jsonify({'ok': True, 'arquivos': arqs, 'dias_aguardar': nt.DIAS_AGUARDAR})
+    return jsonify({'ok': True, 'arquivos': arqs, 'dias_aguardar': nt.DIAS_AGUARDAR, 'filtrado': filtrado,
+                    'limite': 500 if filtrado else 100})
 
 
 @app.route('/api/cte-nestle/arquivo/<int:aid>')

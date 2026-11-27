@@ -1,0 +1,797 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Acompanhamento — Rizza Log</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%2338bdf8'/%3E%3Ctext x='50' y='72' font-family='Arial,sans-serif' font-size='68' font-weight='900' text-anchor='middle' fill='%230a0e17'%3ER%3C/text%3E%3C/svg%3E">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/tema.css">
+<script>try{if(localStorage.getItem("rizza:tema")==="claro")document.documentElement.dataset.tema="claro"}catch(e){}</script>
+<script src="/tema.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .mono { font-family: 'JetBrains Mono', monospace; }
+  .dashboard { padding: 22px; margin: 0 auto; }
+  .top-bar { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 14px; flex-wrap: wrap; gap: 12px; }
+  .top-bar h1 { font-size: 1.4rem; font-weight: 700; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .meta { font-size: 0.74rem; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; margin-top: 4px; line-height: 1.5; }
+  .acoes-topo { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .btn-sm { padding: 7px 14px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); font-weight: 500; font-size: 0.8rem; border-radius: 8px; cursor: pointer; transition: all 0.15s; font-family: 'DM Sans', sans-serif; white-space: nowrap; }
+  .btn-sm:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-sm.primary { background: var(--accent); color: var(--sobre-accent); border-color: var(--accent); font-weight: 700; }
+  .btn-sm.primary:hover { color: var(--sobre-accent); filter: brightness(1.1); }
+  .btn-sm:disabled { opacity: .5; cursor: wait; }
+  .mes { display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: 8px; background: var(--surface2); overflow: hidden; }
+  .mes button { background: none; border: none; color: var(--text-dim); padding: 6px 10px; cursor: pointer; font-size: 0.9rem; }
+  .mes button:hover { color: var(--accent); }
+  .mes span { font-size: 0.8rem; font-weight: 600; padding: 0 6px; min-width: 112px; text-align: center; }
+
+  .erro { padding: 12px 14px; border-radius: 10px; font-size: 0.82rem; margin-bottom: 14px; background: rgba(var(--red-rgb),0.08); border: 1px solid rgba(var(--red-rgb),0.28); color: var(--red-txt2); }
+  .carregando { display: flex; gap: 12px; align-items: center; padding: 40px; justify-content: center; color: var(--text-dim); }
+  .spinner { width: 26px; height: 26px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; }
+
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; margin-bottom: 12px; }
+  .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; }
+  .kpi .l { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); font-weight: 700; }
+  .kpi .v { font-size: 1.2rem; font-weight: 700; font-family: 'JetBrains Mono', monospace; margin-top: 3px; }
+  .kpi .s { font-size: 0.68rem; color: var(--text-dim); margin-top: 2px; }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 8px; margin-bottom: 14px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-top: 3px solid var(--cor, var(--c-cinza)); border-radius: 9px; padding: 9px 11px; cursor: pointer; transition: all .12s; text-align: left; color: var(--text); font-family: 'DM Sans', sans-serif; }
+  .card:hover { background: var(--surface2); }
+  .card.ativo { background: var(--surface2); box-shadow: 0 0 0 1px var(--cor, var(--accent)) inset; }
+  .card.zero { opacity: .45; }
+  .card .t { font-size: 0.72rem; font-weight: 700; color: var(--cor, var(--text)); }
+  .card .n { font-size: 1.15rem; font-weight: 700; font-family: 'JetBrains Mono', monospace; margin-top: 2px; }
+  .card .r { font-size: 0.66rem; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cards-sep { grid-column: 1 / -1; font-size: 0.66rem; text-transform: uppercase; letter-spacing: .07em; color: var(--text-dim); font-weight: 700; margin-top: 4px; }
+
+  .barra { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+  .busca { padding: 7px 10px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 0.8rem; min-width: 260px; flex: 0 1 360px; }
+  .toggle { display: inline-flex; align-items: center; gap: 7px; font-size: 0.78rem; color: var(--text-dim); cursor: pointer; user-select: none; }
+  .toggle .sw { width: 30px; height: 17px; border-radius: 999px; background: var(--surface2); border: 1px solid var(--border); position: relative; transition: all .15s; }
+  .toggle .sw::after { content: ''; position: absolute; top: 2px; left: 2px; width: 11px; height: 11px; border-radius: 50%; background: var(--text-dim); transition: all .15s; }
+  .toggle.on { color: var(--text); }
+  .toggle.on .sw { background: rgba(var(--accent-rgb),.25); border-color: var(--accent); }
+  .toggle.on .sw::after { left: 15px; background: var(--accent); }
+  .info { font-size: 0.76rem; color: var(--text-dim); margin-left: auto; font-family: 'JetBrains Mono', monospace; }
+  .chip-filtro { display: inline-flex; gap: 6px; align-items: center; font-size: 0.74rem; padding: 4px 9px; border-radius: 999px; background: rgba(var(--accent-rgb),.12); border: 1px solid rgba(var(--accent-rgb),.35); color: var(--accent); }
+  .chip-filtro button { background: none; border: none; color: inherit; cursor: pointer; font-size: .85rem; }
+  .link { background: none; border: none; color: var(--accent); cursor: pointer; font-size: 0.76rem; font-family: 'DM Sans', sans-serif; }
+  .link:hover { text-decoration: underline; }
+
+  .lote { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 9px 12px; margin-bottom: 8px; border-radius: 9px; background: rgba(var(--accent-rgb),.08); border: 1px solid rgba(var(--accent-rgb),.3); font-size: 0.8rem; }
+  .lote select, .lote input, .editor { padding: 5px 8px; background: var(--bg); border: 1px solid var(--accent); border-radius: 6px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 0.78rem; color-scheme: dark; }
+  html[data-tema="claro"] .lote select, html[data-tema="claro"] .lote input, html[data-tema="claro"] .editor { color-scheme: light; }
+
+  .tabela-box { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: auto; max-height: calc(100vh - 140px); }
+  table.dados { width: 100%; border-collapse: collapse; font-size: 0.77rem; }
+  table.dados thead th { position: sticky; top: 0; z-index: 2; background: var(--cab-tabela); text-align: left; padding: 8px 9px; font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); font-weight: 700; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  table.dados tbody td { padding: 6px 9px; border-bottom: 1px solid rgba(var(--border-rgb),0.6); vertical-align: middle; white-space: nowrap; }
+  table.dados tbody tr:hover td { background: rgba(var(--surface2-rgb),.55); }
+  table.dados tbody tr.sel td { background: rgba(var(--accent-rgb),.07); }
+  table.dados tbody tr.div td:first-child { box-shadow: inset 3px 0 0 var(--red); }
+  td.num { text-align: right; font-family: 'JetBrains Mono', monospace; }
+  td.dim, .dim { color: var(--text-dim); }
+  td.txt { max-width: max(200px, 11vw); overflow: hidden; text-overflow: ellipsis; }
+  td.ed { cursor: text; }
+  td.ed:hover { box-shadow: inset 0 -1px 0 rgba(var(--accent-rgb),.6); }
+  .vazio { color: var(--slate-700); }
+  td.chave { font-family: 'JetBrains Mono', monospace; }
+  td.chave input { vertical-align: middle; margin-right: 6px; cursor: pointer; }
+  td.chave a { color: var(--accent); text-decoration: none; }
+  td.chave a:hover { text-decoration: underline; }
+
+  /* árvore: cliente ▸ viagem ▸ CT-e */
+  tr.cli td { background: var(--surface-grupo); cursor: pointer; font-weight: 600; border-bottom: 1px solid var(--border); }
+  tr.cli:hover td { background: var(--surface-grupo-hover) !important; }
+  tr.cli .gnome { color: var(--text); }
+  tr.cli .gmeta { color: var(--text-dim); font-family: 'JetBrains Mono', monospace; font-weight: 500; font-size: 0.72rem; margin-left: 10px; }
+  tr.cli input { vertical-align: middle; margin-right: 6px; cursor: pointer; }
+  .seta { display: inline-block; width: 14px; color: var(--text-dim); transition: transform .15s; cursor: pointer; }
+  .aberto > td .seta, tr.aberto .seta { transform: rotate(90deg); }
+  tr.via td { border-bottom: 1px solid rgba(var(--border-rgb),0.9); }
+  tr.via td.chave { font-weight: 600; }
+  .ncte { font-size: 0.66rem; color: var(--text-dim); margin-left: 6px; font-weight: 500; }
+  td.chave a.sem-man { color: var(--text-dim); font-style: italic; font-family: 'DM Sans', sans-serif; font-weight: 500; }
+  a.mapa-lk { margin-left: 7px; text-decoration: none !important; font-size: 0.8rem; opacity: .75; }
+  a.mapa-lk:hover { opacity: 1; }
+  .mapa-lk.off { opacity: .4; filter: grayscale(1); cursor: help; letter-spacing: 8px; margin-left: 10px; }
+  tr.cte td { background: rgba(var(--surface2-rgb),.22); }
+  tr.cte td.chave { padding-left: 38px; }
+  .em-cli tr.via td.chave { padding-left: 24px; }
+  .em-cli tr.cte td.chave { padding-left: 58px; }
+
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 5px; font-size: 0.68rem; font-weight: 700; white-space: nowrap; color: var(--cor); background: color-mix(in srgb, var(--cor) 15%, transparent); }
+  .pill.sug { background: transparent; outline: 1px dashed var(--cor); outline-offset: -1px; font-weight: 600; }
+  .pill small { font-weight: 500; opacity: .85; margin-left: 4px; }
+  .selo { font-size: 0.6rem; font-weight: 700; color: var(--text-dim); border: 1px solid var(--border); border-radius: 3px; padding: 0 3px; margin-left: 5px; vertical-align: 1px; }
+  .sugerida { border-bottom: 1px dashed var(--text-dim); }
+  .ok-btn { margin-left: 6px; padding: 0 6px; border-radius: 5px; border: 1px solid rgba(var(--green-rgb),.5); background: rgba(var(--green-rgb),.1); color: var(--green); cursor: pointer; font-size: 0.7rem; font-weight: 700; }
+  .ok-btn:hover { background: rgba(var(--green-rgb),.22); }
+  .atraso { color: var(--red); font-weight: 600; }
+  .alerta { color: var(--orange); }
+  .aviso-i { color: var(--red); margin-left: 5px; cursor: help; }
+  .mais { padding: 12px; text-align: center; color: var(--text-dim); font-size: 0.78rem; }
+
+  .gaveta { position: fixed; top: 0; right: 0; bottom: 0; width: min(560px, 100vw); background: var(--gaveta); border-left: 1px solid var(--border); z-index: 950; display: flex; flex-direction: column; box-shadow: -12px 0 30px rgba(var(--sombra-rgb),.4); }
+  .gaveta-cab { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; padding: 16px 18px 12px; border-bottom: 1px solid var(--border); }
+  .gaveta-cab h2 { font-size: 1.05rem; font-family: 'JetBrains Mono', monospace; }
+  .gaveta-cab .sub { font-size: 0.76rem; color: var(--text-dim); margin-top: 3px; }
+  .gaveta-corpo { overflow: auto; padding: 14px 18px 30px; }
+  .bloco { margin-bottom: 16px; }
+  .bloco h3 { font-size: 0.66rem; text-transform: uppercase; letter-spacing: .07em; color: var(--text-dim); margin-bottom: 7px; }
+  .kv { display: grid; grid-template-columns: 150px 1fr; gap: 4px 12px; font-size: 0.78rem; }
+  .kv dt { color: var(--text-dim); }
+  .kv dd { word-break: break-word; }
+  .hist { list-style: none; font-size: 0.76rem; }
+  .hist li { padding: 6px 0 6px 10px; border-left: 2px solid var(--border); margin-bottom: 4px; line-height: 1.45; }
+  .hist .q { color: var(--text-dim); font-size: 0.7rem; font-family: 'JetBrains Mono', monospace; }
+  .aviso-div { font-size: 0.78rem; line-height: 1.5; padding: 8px 10px; border-radius: 7px; margin-bottom: 6px; background: rgba(var(--red-rgb),.07); border-left: 3px solid var(--red); }
+  .nota { font-size: 0.74rem; color: var(--text-dim); line-height: 1.5; }
+  .linha-tempo { list-style: none; font-size: 0.78rem; }
+  .linha-tempo li { display: grid; grid-template-columns: 18px 130px 1fr; gap: 6px; padding: 5px 0; align-items: baseline; }
+  .linha-tempo .p { width: 9px; height: 9px; border-radius: 50%; background: var(--border); margin-top: 3px; }
+  .linha-tempo li.feito .p { background: var(--green); }
+  .linha-tempo li.atr .p { background: var(--red); }
+  .linha-tempo .d { font-family: 'JetBrains Mono', monospace; color: var(--text-dim); font-size: 0.72rem; }
+  table.mini { font-size: 0.74rem; border-collapse: collapse; width: 100%; }
+  table.mini td, table.mini th { padding: 4px 6px; border-bottom: 1px solid var(--border); text-align: left; }
+  table.mini th { color: var(--text-dim); font-size: 0.64rem; text-transform: uppercase; }
+
+  .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--toast); border: 1px solid var(--accent); color: var(--text); padding: 9px 16px; border-radius: 9px; font-size: 0.8rem; z-index: 999; box-shadow: 0 8px 24px rgba(var(--sombra-rgb),.4); }
+  .toast.erro { border-color: var(--red); }
+
+  @media (max-width: 700px) {
+    .dashboard { padding: 14px 16px; }
+    .busca { min-width: 0; flex: 1 1 100%; }
+    .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .info { margin-left: 0; }
+    .kv { grid-template-columns: 110px 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="dashboard">
+  <div class="top-bar">
+    <div>
+      <h1>Acompanhamento</h1>
+      <div class="meta" id="meta">—</div>
+    </div>
+    <div class="acoes-topo">
+      <span class="mes"><button id="mesAnt" title="Mês anterior">‹</button><span id="mesRot">—</span><button id="mesProx" title="Próximo mês">›</button></span>
+      <button class="btn-sm" id="btnAtualizar" title="Lê de novo o SSW no Power BI">⟳ Atualizar do SSW</button>
+      <button class="btn-sm primary" id="btnPlanilha" title="Um CT-e por linha, como a planilha TRACKING">⬇ Baixar planilha</button>
+      <span data-nav-menu data-nav-style="btn-anchor" data-nav-active="acompanhamento"></span>
+    </div>
+  </div>
+
+  <div id="erro" class="erro" hidden></div>
+  <div class="kpis" id="kpis"></div>
+  <div class="cards" id="cards"></div>
+
+  <div class="barra">
+    <input class="busca" id="busca" placeholder="Buscar CTRC, NF, manifesto, placa, motorista, cliente, cidade, B10…">
+    <span class="toggle" id="tgCliente" title="Junta as viagens por cliente (raiz do CNPJ do pagador, grupos econômicos juntos)"><span class="sw"></span>Agrupar por cliente</span>
+    <span class="toggle" id="tgEntregues" title="Esconde as viagens com todos os CT-e entregues"><span class="sw"></span>Ocultar entregues</span>
+    <button class="link" id="btnAbrirTodas">abrir todas</button>
+    <button class="link" id="btnFecharTodas">fechar todas</button>
+    <span id="chips"></span>
+    <span class="info" id="info"></span>
+  </div>
+
+  <div class="lote" id="lote" hidden>
+    <b id="loteN"></b>
+    <span>— mudar</span><select id="loteCampo"></select>
+    <span>para</span><span id="loteValorBox"></span>
+    <button class="btn-sm primary" id="loteAplicar">Aplicar</button>
+    <button class="btn-sm" id="loteConfirmar" title="Grava como entrega a data que o SSW sugere, nos CT-e selecionados que têm sugestão">✓ Confirmar entregas sugeridas</button>
+    <button class="btn-sm" id="loteLimpar">Limpar seleção</button>
+  </div>
+
+  <div class="tabela-box">
+    <table class="dados" id="tabela"><thead></thead><tbody><tr><td><div class="carregando"><div class="spinner"></div>Lendo o SSW…</div></td></tr></tbody></table>
+    <div class="mais" id="mais" hidden></div>
+  </div>
+</div>
+
+<aside class="gaveta" id="gaveta" hidden>
+  <div class="gaveta-cab">
+    <div><h2 id="gavTitulo"></h2><div class="sub" id="gavSub"></div></div>
+    <button class="btn-sm" id="gavFechar">✕</button>
+  </div>
+  <div class="gaveta-corpo" id="gavCorpo"></div>
+</aside>
+<div class="toast" id="toast" hidden></div>
+
+<script src="/nav-perms.js"></script>
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+  var MAX_VIAGENS = 600;
+  var S = {
+    mes: null, dados: null, st: {}, ctes: {}, viagens: {}, porViagem: {},
+    filtro: null, busca: '', sel: new Set(), abertas: new Set(), clisAbertos: new Set(),
+    agrupar: pref('acomp:agrupar') === '1', ocultarEntregues: pref('acomp:ocultar') === '1', edit: null
+  };
+
+  // ── utilidades ──
+  function pref(k, v) {
+    try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; }
+  }
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function moeda(v) { return (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+  function moedaK(v) { v = Number(v) || 0; return v >= 1e6 ? (v / 1e6).toLocaleString('pt-BR', { maximumFractionDigits: 2 }) + ' mi' : v >= 1e3 ? (v / 1e3).toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + ' mil' : moeda(v); }
+  function dm(iso) { return iso ? iso.slice(8, 10) + '/' + iso.slice(5, 7) : ''; }
+  function dmh(iso) { if (!iso) return ''; var h = iso.length > 10 ? ' ' + iso.slice(11, 16) : ''; return dm(iso) + h; }
+  function dmy(iso) { return iso ? iso.slice(8, 10) + '/' + iso.slice(5, 7) + '/' + iso.slice(0, 4) : ''; }
+  function semAcento(s) { return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase(); }
+  function plural(n, a, b) { return n + ' ' + (n === 1 ? a : b); }
+  function cor(c) { return 'var(--c-' + (c || 'cinza') + ')'; }
+  function toast(msg, erro) {
+    var t = $('toast'); t.textContent = msg; t.className = 'toast' + (erro ? ' erro' : ''); t.hidden = false;
+    clearTimeout(toast._t); toast._t = setTimeout(function () { t.hidden = true; }, erro ? 6000 : 2600);
+  }
+  function primeiroNome(s) { return String(s || '').split(' ').slice(0, 2).join(' '); }
+
+  // ── o efetivo de cada CT-e (marcado vence o sugerido) ──
+  function statusDe(c) {
+    if (c.m.status) return { cod: c.m.status, sug: false };
+    if (c.m.entrega) return { cod: 'ENTREGUE', sug: false };
+    return { cod: c.ssw.status, sug: true, por: c.ssw.status_por };
+  }
+  function entregaDe(c) {
+    if (c.m.entrega) return { data: c.m.entrega, conf: true };
+    var e = c.ssw.entrega;
+    if (e && e.data) return { data: e.data, conf: false, fonte: e.fonte };
+    return null;
+  }
+  function agendaDe(c) {
+    if (c.m.agenda) return { v: c.m.agenda, ssw: false };
+    if (c.ssw.agenda) return { v: c.ssw.agenda, ssw: true };
+    return null;
+  }
+  function aConfirmar(c) { return !c.m.entrega && c.ssw.entrega && c.ssw.entrega.data; }
+  function fechada(cod) { return cod === 'ENTREGUE' || cod === 'RECUSADA'; }
+
+  // ── a viagem: junta os CT-e dela ──
+  function resumo(vid) {
+    var v = S.viagens[vid], cs = S.porViagem[vid] || [];
+    var menor = null, todos = {}, ent = 0, aconf = 0, avisos = 0, frete = 0, ultEnt = null, ag = null, clientes = {};
+    cs.forEach(function (c) {
+      var s = statusDe(c), o = S.st[s.cod] || { ordem: 9 };
+      todos[s.cod] = (todos[s.cod] || 0) + 1;
+      if (!menor || o.ordem < S.st[menor.cod].ordem) menor = s;
+      if (fechada(s.cod)) ent++;
+      if (aConfirmar(c)) aconf++;
+      avisos += c.ssw.avisos.length;
+      frete += c.frete || 0;
+      var e = entregaDe(c); if (e && (!ultEnt || e.data > ultEnt)) ultEnt = e.data;
+      var a = agendaDe(c); if (a && !fechada(s.cod) && (!ag || a.v < ag.v)) ag = a;
+      var ck = c.raiz || ('nome:' + c.cliente);
+      clientes[ck] = clientes[ck] || { nome: c.cliente, frete: 0 }; clientes[ck].frete += c.frete || 0;
+    });
+    var cl = Object.keys(clientes).sort(function (a, b) { return clientes[b].frete - clientes[a].frete; });
+    var unico = Object.keys(todos).length === 1;
+    var sug = cs.every(function (c) { return statusDe(c).sug; });
+    return { v: v, cs: cs, status: menor ? menor.cod : 'CARREGANDO', unico: unico, sug: sug, porStatus: todos, entregues: ent, aconf: aconf,
+             avisos: avisos, frete: frete, ultEnt: ultEnt, agenda: ag, cliKey: cl[0], cliNome: cl.length ? clientes[cl[0]].nome : '', nCli: cl.length,
+             agendaVencida: !!(ag && ag.v.slice(0, 10) < S.dados.hoje) };
+  }
+
+  // ── carga ──
+  function mesAtual() { var h = new Date(); return h.getFullYear() + '-' + String(h.getMonth() + 1).padStart(2, '0'); }
+  function somaMes(m, n) { var a = +m.slice(0, 4), b = +m.slice(5) - 1 + n; a += Math.floor(b / 12); b = ((b % 12) + 12) % 12; return a + '-' + String(b + 1).padStart(2, '0'); }
+  function rotMes(m) { return MESES[+m.slice(5) - 1] + '/' + m.slice(0, 4); }
+
+  function carregar(forcar) {
+    $('btnAtualizar').disabled = true;
+    $('erro').hidden = true;
+    $('mesRot').textContent = rotMes(S.mes);
+    $('mesProx').disabled = S.mes >= mesAtual();
+    fetch('/api/acompanhamento?mes=' + S.mes + (forcar ? '&forcar=1' : ''))
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        $('btnAtualizar').disabled = false;
+        if (!j.ok) throw new Error(j.error || 'erro');
+        S.dados = j; S.st = {}; j.status.forEach(function (s) { S.st[s.cod] = s; });
+        S.ctes = {}; S.porViagem = {}; S.viagens = j.viagens;
+        j.ctes.forEach(function (c) { S.ctes[c.k] = c; (S.porViagem[c.v] = S.porViagem[c.v] || []).push(c); });
+        S.sel.clear();
+        $('meta').textContent = 'CT-e emitidos de ' + dmy(j.ini) + ' a ' + dmy(j.fim) + ' · sem complementar, substituto e RPS · SSW lido às ' + j.lido_em.slice(11);
+        tudo();
+      })
+      .catch(function (e) {
+        $('btnAtualizar').disabled = false;
+        $('erro').textContent = 'Não consegui ler o SSW: ' + e.message; $('erro').hidden = false;
+        $('tabela').querySelector('tbody').innerHTML = '';
+      });
+  }
+
+  // ── filtros ──
+  var FILTROS = {
+    atrasadas: { t: 'Atrasadas', cor: 'vermelho', d: 'previsão de chegada passou e o SSW não registrou a chegada', f: function (r) { return r.v.atrasada && !fechada(r.status); } },
+    agenda_vencida: { t: 'Agenda vencida', cor: 'laranja', d: 'a agenda passou e a entrega não foi registrada', f: function (r) { return r.agendaVencida; } },
+    a_confirmar: { t: 'Entrega a confirmar', cor: 'verde', d: 'o SSW tem a baixa de entrega e ninguém confirmou ainda', f: function (r) { return r.aconf > 0; } },
+    avisos: { t: 'Avisos do SSW', cor: 'vermelho', d: 'manifesto cancelado no SSW ou data do SSWScan que não confere', f: function (r) { return r.avisos > 0; } }
+  };
+  function casaBusca(r) {
+    if (!S.busca) return true;
+    var q = semAcento(S.busca), v = r.v;
+    var alvo = [v.manifesto, v.placa, v.carreta, v.mot, v.dest200, v.orig200].concat(r.cs.map(function (c) {
+      return [c.k, c.nf, c.cliente, c.dest, c.cid, c.b10, c.pedido, c.placa, c.m.ocorrencia, c.m.anotacao].join(' ');
+    })).join(' ');
+    return semAcento(alvo).indexOf(q) >= 0;
+  }
+  function visiveis() {
+    var out = [];
+    Object.keys(S.viagens).forEach(function (vid) {
+      var r = resumo(vid);
+      if (S.ocultarEntregues && r.entregues === r.cs.length) return;
+      if (S.filtro) {
+        if (FILTROS[S.filtro]) { if (!FILTROS[S.filtro].f(r)) return; }
+        else if (r.status !== S.filtro) return;
+      }
+      if (!casaBusca(r)) return;
+      out.push(r);
+    });
+    // o que pede atenção primeiro: menos adiantada, depois a mais antiga
+    out.sort(function (a, b) {
+      var oa = S.st[a.status].ordem, ob = S.st[b.status].ordem;
+      if (fechada(a.status) && fechada(b.status)) return (b.ultEnt || '').localeCompare(a.ultEnt || '');
+      if (oa !== ob) return oa - ob;
+      // CT-e sem manifesto (coleta sem viagem no SSW) no fim do grupo: não têm o que acompanhar no SSW
+      var sa = a.v.manifesto ? 0 : 1, sb = b.v.manifesto ? 0 : 1;
+      if (sa !== sb) return sa - sb;
+      return (a.v.emissao_man || '').localeCompare(b.v.emissao_man || '');
+    });
+    return out;
+  }
+
+  // ── topo: indicadores e cartões ──
+  function topo(todas) {
+    var nC = 0, fr = 0, and = 0, aconf = 0, aconfV = 0, atr = 0;
+    todas.forEach(function (r) {
+      nC += r.cs.length; fr += r.frete;
+      if (r.entregues < r.cs.length) and++;
+      if (r.aconf) { aconf += r.aconf; aconfV++; }
+      if (r.v.atrasada && !fechada(r.status)) atr++;
+    });
+    var k = [
+      ['Viagens no mês', todas.length, plural(nC, 'CT-e', 'CT-e') + ' · R$ ' + moedaK(fr)],
+      ['Em andamento', and, 'viagens com CT-e ainda não entregue'],
+      ['Entregas a confirmar', aconf, 'baixas do SSW em ' + plural(aconfV, 'viagem', 'viagens') + ' — um clique confirma'],
+      ['Atrasadas', atr, 'previsão de chegada vencida, sem chegada no SSW']
+    ];
+    $('kpis').innerHTML = k.map(function (x) {
+      return '<div class="kpi"><div class="l">' + esc(x[0]) + '</div><div class="v">' + esc(x[1]) + '</div><div class="s">' + esc(x[2]) + '</div></div>';
+    }).join('');
+
+    var h = '';
+    S.dados.status.forEach(function (s) {
+      var rs = todas.filter(function (r) { return r.status === s.cod; });
+      var fr = rs.reduce(function (a, r) { return a + r.frete; }, 0);
+      h += card(s.cod, s.rot, s.cor, rs.length, rs.length ? 'R$ ' + moedaK(fr) : '—', 'viagens cujo CT-e menos adiantado está em "' + s.rot + '"');
+    });
+    h += '<div class="cards-sep">Pede atenção</div>';
+    Object.keys(FILTROS).forEach(function (id) {
+      var f = FILTROS[id], n = todas.filter(f.f).length;
+      h += card(id, f.t, f.cor, n, plural(n, 'viagem', 'viagens'), f.d);
+    });
+    $('cards').innerHTML = h;
+  }
+  function card(id, t, c, n, r, tit) {
+    return '<button class="card' + (S.filtro === id ? ' ativo' : '') + (n ? '' : ' zero') + '" data-filtro="' + id + '" style="--cor:' + cor(c) + '" title="' + esc(tit) + '">'
+      + '<div class="t">' + esc(t) + '</div><div class="n">' + n + '</div><div class="r">' + esc(r) + '</div></button>';
+  }
+
+  // ── tabela ──
+  // Cliente (quem paga, o pagador do CT-e) e Destinatário (onde entrega) em colunas separadas: juntas, a viagem
+  // mostrava o cliente e o CT-e o destinatário, e pareciam se contradizer (Química Amparo → Martins, 26/11/2026)
+  var COLS = ['Viagem / CT-e', 'Status', 'Cliente', 'Destinatário', 'Pedido', 'Rota', 'Cavalo · motorista', 'Saída', 'Previsão', 'Chegada', 'Agenda', 'Entrega', 'Documentos (CRM)', 'Custo extra', 'Frete', 'Ocorrência no cliente', 'Anotação'];
+
+  function pillStatus(cod, sug, extra, tit) {
+    var s = S.st[cod] || { rot: cod, cor: 'cinza' };
+    return '<span class="pill' + (sug ? ' sug' : '') + '" style="--cor:' + cor(s.cor) + '" title="' + esc(tit || (sug ? 'sugerido pelo SSW — clique para classificar' : 'marcado')) + '">' + esc(s.rot) + (extra ? '<small>' + extra + '</small>' : '') + '</span>';
+  }
+  function chk(attr, on, tit) { return '<input type="checkbox" ' + attr + (on ? ' checked' : '') + (tit ? ' title="' + esc(tit) + '"' : '') + '>'; }
+  function selDe(cs) { var n = cs.filter(function (c) { return S.sel.has(c.k); }).length; return n && n === cs.length; }
+  function edCell(nivel, chave, campo, conteudo, tit, cls) {
+    return '<td class="ed ' + (cls || '') + '" data-ed="' + campo + '" data-nivel="' + nivel + '" data-k="' + esc(chave) + '" title="' + esc(tit || 'clique para mudar') + '">' + conteudo + '</td>';
+  }
+  function rotaV(r) {
+    var o = r.v.orig200 || (r.cs[0] ? (r.cs[0].cid_o || '') + '/' + (r.cs[0].uf_o || '') : '');
+    var ds = {}; r.cs.forEach(function (c) { ds[(c.cid || '?') + '/' + (c.uf || '')] = 1; });
+    var l = Object.keys(ds);
+    return esc(o.replace(/\/.*$/, '')) + ' → ' + esc(l[0] ? l[0].replace(/\/.*$/, '') : '?') + (l.length > 1 ? ' <span class="dim">+' + (l.length - 1) + '</span>' : '');
+  }
+  // o pedido do cliente, lido da observação do CT-e ("PEDIDO DE COMPRA …", "PEDIDO …", "O.C. …")
+  function pedidoV(cs) {
+    var ps = {}; cs.forEach(function (c) { if (c.pedido) ps[c.pedido] = 1; });
+    var k = Object.keys(ps);
+    if (!k.length) return '<span class="vazio">—</span>';
+    if (k.length === 1) return '<span title="pedido na observação do CT-e">' + esc(k[0]) + '</span>';
+    return '<span class="dim" title="' + esc(k.slice(0, 12).join(' · ')) + '">' + k.length + ' pedidos</span>';
+  }
+  function destV(cs) {
+    var ds = {}; cs.forEach(function (c) { ds[c.dest || '?'] = 1; });
+    var k = Object.keys(ds);
+    if (k.length === 1) return '<span title="' + esc(k[0]) + '">' + esc(k[0]) + '</span>';
+    return '<span class="dim" title="' + esc(k.slice(0, 12).join(' · ') + (k.length > 12 ? ' …' : '')) + '">' + k.length + ' destinatários</span>';
+  }
+  function docsV(cs) {
+    var et = {}, com = 0;
+    cs.forEach(function (c) { if (c.crm) { com++; var k = c.crm.rot; et[k] = et[k] || { n: 0, cor: c.crm.cor }; et[k].n++; } });
+    if (!com) return '<span class="vazio">—</span>';
+    var ks = Object.keys(et);
+    if (ks.length === 1) return '<span class="pill" style="--cor:' + cor(et[ks[0]].cor) + '">' + esc(ks[0]) + (cs.length > 1 ? '<small>' + com + '/' + cs.length + '</small>' : '') + '</span>';
+    return ks.slice(0, 2).map(function (k) { return '<span class="pill" style="--cor:' + cor(et[k].cor) + '">' + esc(k) + '<small>' + et[k].n + '</small></span>'; }).join(' ') + (ks.length > 2 ? ' <span class="dim">+' + (ks.length - 2) + '</span>' : '');
+  }
+  function custos(cs) {
+    var v = 0, n = 0, tipos = {};
+    cs.forEach(function (c) { ((c.crm || {}).custos || []).forEach(function (x) { v += x.valor || 0; n++; tipos[x.tipo] = 1; }); });
+    return n ? '<span title="' + esc(Object.keys(tipos).join(', ') + ' — lançado no CRM - Documentos') + '">R$ ' + moeda(v) + '</span>' : '<span class="vazio">—</span>';
+  }
+  function entregaV(r) {
+    var conf = r.aconf ? ' <span class="selo">a confirmar ' + r.aconf + '</span><button class="ok-btn" data-confv="' + esc(r.v.v) + '" title="Confirmar as ' + r.aconf + ' entrega(s) que o SSW registrou nesta viagem, cada uma com a data dela">✓</button>' : '';
+    if (r.entregues === r.cs.length && r.ultEnt) return dm(r.ultEnt) + conf;
+    if (!r.entregues) return r.aconf ? conf.slice(1) : '<span class="vazio">—</span>';
+    return '<span class="mono">' + r.entregues + '/' + r.cs.length + '</span>' + (r.ultEnt ? ' <span class="dim">últ. ' + dm(r.ultEnt) + '</span>' : '') + conf;
+  }
+  function agendaTxt(a, aguardando) {
+    if (a) return (a.ssw ? '<span class="sugerida" title="agenda da ocorrência 15 do SSW">' : '<span>') + dmh(a.v) + '</span>' + (a.ssw ? '<span class="selo">SSW</span>' : '');
+    if (aguardando) return '<span class="alerta" title="ocorrência 35 no SSW">aguardando cliente</span>';
+    return '<span class="vazio">—</span>';
+  }
+  function comumOuVarios(cs, campo) {
+    var vs = {}; cs.forEach(function (c) { vs[c.m[campo] || ''] = 1; });
+    var k = Object.keys(vs);
+    if (k.length === 1) return k[0] ? esc(k[0]) : '<span class="vazio">—</span>';
+    return '<span class="dim">' + (k.length - (vs[''] ? 1 : 0)) + ' diferentes</span>';
+  }
+
+  function linhaViagem(r) {
+    var v = r.v, aberta = S.abertas.has(v.v), cls = ['via'];
+    if (aberta) cls.push('aberto');
+    if (r.avisos) cls.push('div');
+    if (r.cs.some(function (c) { return S.sel.has(c.k); })) cls.push('sel');
+    var nome = v.manifesto || (r.cs.length === 1 ? r.cs[0].k : 'sem manifesto');
+    var extraSt = r.unico ? '' : r.entregues + '/' + r.cs.length + ' entregues';
+    var n = r.cs.length, todos = n > 1 ? ' — vale para os ' + n + ' CT-e da viagem' : '';
+    // por que a data está vazia: sem manifesto não há 200; com manifesto, o 200 ainda não leu (BI desde 25/10/2026)
+    var porqueVazio = !v.manifesto ? 'CT-e sem manifesto no SSW: sem saída, previsão e chegada'
+      : 'o relatório 200 do SSW não tem este manifesto (ainda não leu, ou é anterior ao que está no BI)';
+    var vazio = '<span class="vazio" title="' + esc(porqueVazio) + '">—</span>';
+    var prev = v.prev ? (v.atrasada && !fechada(r.status) ? '<span class="atraso" title="previsão vencida sem chegada no SSW">' + dmh(v.prev) + '</span>' : dmh(v.prev)) : vazio;
+    return '<tr class="' + cls.join(' ') + '" data-v="' + esc(v.v) + '">'
+      + '<td class="chave">' + chk('data-selv="' + esc(v.v) + '"', selDe(r.cs), 'Selecionar os CT-e da viagem') + '<span class="seta" data-abre="' + esc(v.v) + '">▸</span>'
+      + '<a href="#" data-gav-v="' + esc(v.v) + '"' + (v.manifesto ? '' : ' class="sem-man" title="CT-e sem manifesto no SSW — agrupados pela placa da coleta e o dia"') + '>' + esc(nome) + '</a><span class="ncte">' + plural(r.cs.length, 'CT-e', 'CT-e') + '</span>'
+      + (v.carga_id ? '<a class="mapa-lk" href="/embarques/cargas/' + v.carga_id + '/mapa" target="_blank" rel="noopener" title="Mapa da viagem (rastreamento do Embarques)">🗺️</a>'
+                    + '<a class="mapa-lk" href="/viagem/' + v.carga_id + '" target="_blank" rel="noopener" title="Ficha da viagem">🛣️</a>'
+         : v.manifesto ? '<span class="mapa-lk off" title="Sem mapa e sem ficha: o Embarques ainda não abriu a carga do manifesto ' + esc(v.manifesto) + ' (o robô abre todo dia a partir do manifesto)">🗺️🛣️</span>' : '')
+      + (r.avisos ? '<span class="aviso-i" title="' + r.avisos + ' aviso(s) do SSW — abra a viagem">⚠</span>' : '') + '</td>'
+      + edCell('v', v.v, 'status', pillStatus(r.status, r.sug, extraSt, (r.sug ? 'sugerido pelo SSW: ' + (r.cs[0].ssw.status_por || '') + ' — clique para classificar' : 'clique para mudar') + todos))
+      + '<td class="txt" title="' + esc(r.cliNome) + '">' + esc(r.cliNome) + (r.nCli > 1 ? ' <span class="dim">+' + (r.nCli - 1) + '</span>' : '') + '</td>'
+      + '<td class="txt">' + destV(r.cs) + '</td>'
+      + '<td class="mono txt">' + pedidoV(r.cs) + '</td>'
+      + '<td>' + rotaV(r) + '</td>'
+      + '<td class="txt"><span class="mono">' + esc(v.placa || '') + '</span> <span class="dim">' + esc(primeiroNome(v.mot)) + '</span></td>'
+      + '<td>' + (v.saida ? dmh(v.saida) : vazio) + '</td>'
+      + '<td>' + prev + '</td>'
+      + '<td>' + (v.chegada ? dmh(v.chegada) : vazio) + '</td>'
+      + edCell('v', v.v, 'agenda', r.agenda ? agendaTxt(r.agenda) + (r.agendaVencida ? ' <span class="atraso" title="agenda passou sem entrega">!</span>' : '') : '<span class="vazio">—</span>', 'clique para marcar a agenda' + todos)
+      + edCell('v', v.v, 'entrega', entregaV(r), 'clique para marcar a entrega' + todos)
+      + '<td>' + docsV(r.cs) + '</td>'
+      + '<td class="num">' + custos(r.cs) + '</td>'
+      + '<td class="num">' + moeda(r.frete) + '</td>'
+      + edCell('v', v.v, 'ocorrencia', comumOuVarios(r.cs, 'ocorrencia'), 'nº da ocorrência aberta na plataforma do cliente' + todos, 'txt')
+      + edCell('v', v.v, 'anotacao', comumOuVarios(r.cs, 'anotacao'), 'anotação' + todos, 'txt')
+      + '</tr>';
+  }
+
+  function linhaCte(c, v) {
+    var s = statusDe(c), e = entregaDe(c), cls = ['cte'];
+    if (c.ssw.avisos.length) cls.push('div');
+    if (S.sel.has(c.k)) cls.push('sel');
+    var ent;
+    if (e && e.conf) ent = '<b>' + dm(e.data) + '</b>';
+    else if (e) ent = '<span class="sugerida" title="baixa de entrega no SSW (' + esc(e.fonte) + ') — confirme se estiver certo">' + dm(e.data) + '</span><span class="selo">' + esc(e.fonte) + '</span><button class="ok-btn" data-conf="' + esc(c.k) + '" title="Confirmar a entrega em ' + dmy(e.data) + '">✓</button>';
+    else if (c.ssw.entrega && c.ssw.entrega.aviso) ent = '<span class="alerta" title="' + esc(c.ssw.entrega.aviso) + '">⚠ conferir</span>';
+    else ent = '<span class="vazio">—</span>';
+    return '<tr class="' + cls.join(' ') + '" data-k="' + esc(c.k) + '">'
+      + '<td class="chave">' + chk('data-sel="' + esc(c.k) + '"', S.sel.has(c.k)) + '<a href="#" data-gav-c="' + esc(c.k) + '">' + esc(c.k) + '</a>'
+      + '<span class="ncte">NF ' + esc(c.nf) + (c.b10 ? ' · ' + esc(c.b10) : '') + '</span>'
+      + (c.ssw.avisos.length ? '<span class="aviso-i" title="' + esc(c.ssw.avisos.join(' · ')) + '">⚠</span>' : '') + '</td>'
+      + edCell('c', c.k, 'status', pillStatus(s.cod, s.sug, '', s.sug ? 'sugerido: ' + s.por + ' — clique para classificar' : 'clique para mudar'))
+      + '<td class="txt dim" title="' + esc(c.cliente) + '">' + esc(c.cliente) + '</td>'
+      + '<td class="txt" title="' + esc(c.dest) + '">' + esc(c.dest) + '</td>'
+      + '<td class="mono txt">' + (c.pedido ? esc(c.pedido) : '<span class="vazio">—</span>') + '</td>'
+      + '<td class="dim">' + esc(c.cid || '') + '/' + esc(c.uf || '') + '</td>'
+      + '<td></td><td></td><td></td><td></td>'
+      + edCell('c', c.k, 'agenda', agendaTxt(agendaDe(c), c.ssw.aguardando_agenda))
+      + edCell('c', c.k, 'entrega', ent, 'clique para digitar a data da entrega')
+      + '<td>' + (c.crm ? '<span class="pill" style="--cor:' + cor(c.crm.cor) + '" title="' + esc(c.crm.carteira) + '">' + esc(c.crm.rot) + '</span>' : '<span class="vazio">—</span>') + '</td>'
+      + '<td class="num">' + custos([c]) + '</td>'
+      + '<td class="num">' + moeda(c.frete) + '</td>'
+      + edCell('c', c.k, 'ocorrencia', c.m.ocorrencia ? esc(c.m.ocorrencia) : '<span class="vazio">—</span>', 'nº da ocorrência aberta na plataforma do cliente', 'txt')
+      + edCell('c', c.k, 'anotacao', c.m.anotacao ? esc(c.m.anotacao) : '<span class="vazio">—</span>', 'anotação', 'txt')
+      + '</tr>';
+  }
+
+  function render() {
+    var todas = [];
+    Object.keys(S.viagens).forEach(function (vid) { todas.push(resumo(vid)); });
+    topo(todas);
+    var rows = visiveis();
+    var nC = rows.reduce(function (a, r) { return a + r.cs.length; }, 0);
+    $('info').textContent = plural(rows.length, 'viagem', 'viagens') + ' · ' + plural(nC, 'CT-e', 'CT-e');
+    $('chips').innerHTML = S.filtro ? '<span class="chip-filtro">' + esc((FILTROS[S.filtro] || S.st[S.filtro] || {}).t || (S.st[S.filtro] || {}).rot) + '<button data-limpa="1" title="Tirar o filtro">✕</button></span>' : '';
+    $('tgCliente').classList.toggle('on', S.agrupar);
+    $('tgEntregues').classList.toggle('on', S.ocultarEntregues);
+
+    var tab = $('tabela');
+    tab.classList.toggle('em-cli', S.agrupar);
+    tab.querySelector('thead').innerHTML = '<tr>' + COLS.map(function (c) { return '<th' + (c === 'Custo extra' || c === 'Frete' ? ' style="text-align:right"' : '') + '>' + esc(c) + '</th>'; }).join('') + '</tr>';
+    var h = '', n = 0;
+    function viagemComFilhos(r) {
+      h += linhaViagem(r); n++;
+      if (S.abertas.has(r.v.v)) r.cs.slice().sort(function (a, b) { return (a.k).localeCompare(b.k); }).forEach(function (c) { h += linhaCte(c, r.v); });
+    }
+    if (S.agrupar) {
+      var g = {}, ordem = [];
+      rows.forEach(function (r) {
+        var k = r.cliKey || '(sem cliente)';
+        if (!g[k]) { g[k] = { nome: r.cliNome || '(sem cliente)', raiz: (r.cliKey || '').indexOf('nome:') === 0 ? '' : r.cliKey, rs: [] }; ordem.push(k); }
+        g[k].rs.push(r);
+      });
+      ordem.sort(function (a, b) { return g[a].nome.localeCompare(g[b].nome, 'pt-BR', { sensitivity: 'base' }); });
+      ordem.forEach(function (k) {
+        var x = g[k], ab = S.clisAbertos.has(k), cs = [];
+        x.rs.forEach(function (r) { cs = cs.concat(r.cs); });
+        var and = x.rs.filter(function (r) { return r.entregues < r.cs.length; }).length;
+        var aconf = x.rs.reduce(function (a, r) { return a + r.aconf; }, 0);
+        var fr = x.rs.reduce(function (a, r) { return a + r.frete; }, 0);
+        h += '<tr class="cli' + (ab ? ' aberto' : '') + '" data-cli="' + esc(k) + '"><td colspan="' + COLS.length + '">'
+          + chk('data-selcli="' + esc(k) + '"', selDe(cs), 'Selecionar todos os CT-e do cliente') + '<span class="seta">▸</span><span class="gnome">' + esc(x.nome) + '</span>'
+          + '<span class="gmeta">' + (x.raiz ? 'raiz ' + esc(x.raiz) + ' · ' : '') + plural(x.rs.length, 'viagem', 'viagens') + ' · ' + plural(cs.length, 'CT-e', 'CT-e') + ' · R$ ' + moeda(fr)
+          + ' · ' + and + ' em andamento' + (aconf ? ' · ' + aconf + ' a confirmar' : '') + '</span></td></tr>';
+        if (ab) x.rs.forEach(function (r) { if (n < MAX_VIAGENS) viagemComFilhos(r); });
+      });
+    } else {
+      rows.slice(0, MAX_VIAGENS).forEach(viagemComFilhos);
+    }
+    tab.querySelector('tbody').innerHTML = h || '<tr><td colspan="' + COLS.length + '" class="mais">Nenhuma viagem com esse filtro.</td></tr>';
+    $('mais').hidden = S.agrupar || rows.length <= MAX_VIAGENS;
+    $('mais').textContent = 'Mostrando ' + MAX_VIAGENS + ' de ' + rows.length + ' viagens — use a busca ou os cartões.';
+    lote();
+  }
+  function tudo() { render(); }
+
+  // ── seleção e lote ──
+  function ctesDaViagem(vid) { return S.porViagem[vid] || []; }
+  function ctesDoCliente(k) {
+    var out = [];
+    visiveis().forEach(function (r) { if ((r.cliKey || '(sem cliente)') === k) out = out.concat(r.cs); });
+    return out;
+  }
+  function marcar(cs, on) { cs.forEach(function (c) { if (on) S.sel.add(c.k); else S.sel.delete(c.k); }); }
+  var LOTE_CAMPOS = [['status', 'Status'], ['agenda', 'Agenda'], ['entrega', 'Entrega'], ['ocorrencia', 'Ocorrência no cliente'], ['anotacao', 'Anotação']];
+  function editorValor(campo, atual) {
+    if (campo === 'status') return '<select class="editor" id="edValor">' + '<option value="">(tirar a marcação — volta o sugerido)</option>'
+      + S.dados.status.map(function (s) { return '<option value="' + s.cod + '"' + (s.cod === atual ? ' selected' : '') + '>' + esc(s.rot) + '</option>'; }).join('') + '</select>';
+    if (campo === 'entrega') return '<input class="editor" id="edValor" type="date" value="' + esc((atual || '').slice(0, 10)) + '">';
+    if (campo === 'agenda') return '<input class="editor" id="edValor" type="datetime-local" value="' + esc(atual && atual.length > 10 ? atual : (atual ? atual + 'T08:00' : '')) + '">';
+    return '<input class="editor" id="edValor" type="text" maxlength="300" value="' + esc(atual || '') + '" style="min-width:220px">';
+  }
+  function lote() {
+    var n = S.sel.size;
+    $('lote').hidden = !n;
+    if (!n) return;
+    var vs = {}; S.sel.forEach(function (k) { if (S.ctes[k]) vs[S.ctes[k].v] = 1; });
+    $('loteN').textContent = plural(n, 'CT-e selecionado', 'CT-e selecionados') + ' em ' + plural(Object.keys(vs).length, 'viagem', 'viagens');
+    if (!$('loteCampo').options.length) {
+      $('loteCampo').innerHTML = LOTE_CAMPOS.map(function (x) { return '<option value="' + x[0] + '">' + esc(x[1]) + '</option>'; }).join('');
+      $('loteValorBox').innerHTML = editorValor('status').replace('id="edValor"', 'id="loteValor"');
+    }
+    var nConf = 0; S.sel.forEach(function (k) { if (S.ctes[k] && aConfirmar(S.ctes[k])) nConf++; });
+    $('loteConfirmar').disabled = !nConf;
+    $('loteConfirmar').textContent = '✓ Confirmar ' + plural(nConf, 'entrega sugerida', 'entregas sugeridas');
+  }
+
+  // ── gravar ──
+  function gravar(chaves, campo, valor, okMsg) {
+    return fetch('/api/acompanhamento/marcar', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chaves: chaves, campo: campo, valor: valor }) })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (!j.ok) throw new Error(j.error || 'não gravou');
+        chaves.forEach(function (k) {
+          var c = S.ctes[k]; if (!c) return;
+          if (j.valor == null) delete c.m[campo]; else c.m[campo] = j.valor;
+          c.por = j.por;
+        });
+        render();
+        toast(okMsg || ((S.dados.rotulos[campo] || campo) + ' gravado em ' + plural(j.mudou, 'CT-e', 'CT-e') + (j.mudou < chaves.length ? ' (os outros já estavam assim)' : '')));
+        return j;
+      })
+      .catch(function (e) { toast('Não gravou: ' + e.message, true); });
+  }
+  function confirmar(chaves) {
+    // cada CT-e com a data dele: agrupa por data para gravar em poucas chamadas
+    var porData = {};
+    chaves.forEach(function (k) { var c = S.ctes[k]; if (c && aConfirmar(c)) (porData[c.ssw.entrega.data] = porData[c.ssw.entrega.data] || []).push(k); });
+    var ds = Object.keys(porData), total = 0;
+    if (!ds.length) return;
+    var p = Promise.resolve();
+    ds.forEach(function (d) { p = p.then(function () { return gravar(porData[d], 'entrega', d, ' ').then(function (j) { if (j) total += j.mudou; }); }); });
+    p.then(function () { toast(plural(total, 'entrega confirmada', 'entregas confirmadas') + ' com a data do SSW'); });
+  }
+
+  // ── edição na célula ──
+  function abrirEditor(td) {
+    fecharEditor();
+    var campo = td.dataset.ed, nivel = td.dataset.nivel, k = td.dataset.k;
+    var cs = nivel === 'v' ? ctesDaViagem(k) : [S.ctes[k]];
+    var atual = '';
+    if (cs.length) {
+      var c0 = cs[0];
+      if (campo === 'status') atual = c0.m.status || '';
+      else if (campo === 'entrega') { var e = entregaDe(c0); atual = e ? e.data : ''; }
+      else if (campo === 'agenda') { var a = agendaDe(c0); atual = a ? a.v : ''; }
+      else atual = c0.m[campo] || '';
+      if (nivel === 'v' && cs.some(function (c) { return (c.m[campo] || '') !== (c0.m[campo] || ''); })) atual = campo === 'status' ? '' : atual;
+    }
+    S.edit = { td: td, html: td.innerHTML, campo: campo, cs: cs };
+    td.innerHTML = editorValor(campo, atual) + (nivel === 'v' && cs.length > 1 ? ' <span class="dim">→ ' + cs.length + ' CT-e</span>' : '');
+    var el = $('edValor'); el.focus();
+    S.edit.inicial = el.value;
+    if (el.tagName === 'SELECT') el.addEventListener('change', function () { salvarEditor(true); });
+    el.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter') { ev.preventDefault(); salvarEditor(true); }
+      if (ev.key === 'Escape') fecharEditor();
+    });
+    el.addEventListener('blur', function () { setTimeout(function () { if (S.edit && S.edit.td === td && document.activeElement !== el) salvarEditor(false); }, 120); });
+  }
+  function fecharEditor() { if (S.edit) { S.edit.td.innerHTML = S.edit.html; S.edit = null; } }
+  // `explicito`: Enter ou escolha na lista. Clicar fora só grava se o valor mudou — a agenda e a entrega abrem
+  // com a sugestão do SSW, e sair delas sem mexer não pode virar marcação.
+  function salvarEditor(explicito) {
+    if (!S.edit) return;
+    var e = S.edit, v = $('edValor') ? $('edValor').value : '';
+    if (!explicito && v === e.inicial) { fecharEditor(); return; }
+    S.edit = null;
+    gravar(e.cs.map(function (c) { return c.k; }), e.campo, v);
+  }
+
+  // ── gaveta ──
+  function gaveta(titulo, sub, corpo) { $('gavTitulo').textContent = titulo; $('gavSub').innerHTML = sub; $('gavCorpo').innerHTML = corpo; $('gaveta').hidden = false; }
+  function kv(pares) { return '<dl class="kv">' + pares.filter(function (p) { return p[1] !== '' && p[1] != null; }).map(function (p) { return '<dt>' + esc(p[0]) + '</dt><dd>' + (p[2] ? p[1] : esc(p[1])) + '</dd>'; }).join('') + '</dl>'; }
+  function abrirViagem(vid) {
+    var r = resumo(vid), v = r.v;
+    var passos = [
+      ['Manifesto emitido', v.emissao_man, !!v.emissao_man],
+      ['Saída', v.saida, !!v.saida],
+      ['Previsão de chegada', v.prev, false, v.atrasada && !fechada(r.status)],
+      ['Chegada (SSW 200)', v.chegada, !!v.chegada],
+      ['Agenda', r.agenda ? r.agenda.v : null, false, r.agendaVencida],
+      ['Entregas', r.ultEnt, r.entregues === r.cs.length, false, r.entregues + '/' + r.cs.length + ' CT-e']
+    ];
+    var h = '';
+    var avs = []; r.cs.forEach(function (c) { c.ssw.avisos.forEach(function (a) { avs.push(c.k + ': ' + a); }); });
+    if (avs.length) h += '<div class="bloco">' + avs.map(function (a) { return '<div class="aviso-div">' + esc(a) + '</div>'; }).join('') + '</div>';
+    h += '<div class="bloco"><h3>Linha do tempo</h3><ul class="linha-tempo">' + passos.map(function (p) {
+      return '<li class="' + (p[3] ? 'atr' : p[2] ? 'feito' : '') + '"><span class="p"></span><span>' + esc(p[0]) + '</span><span class="d">' + (p[1] ? dmh(p[1]) : '—') + (p[4] ? ' · ' + esc(p[4]) : '') + (p[3] ? ' · <b class="atraso">vencida</b>' : '') + '</span></li>';
+    }).join('') + '</ul></div>';
+    h += '<div class="bloco"><h3>Veículo</h3>' + kv([['Cavalo', v.placa], ['Carreta', v.carreta], ['Motorista', v.mot], ['Proprietário', v.prop], ['Situação no SSW', v.sit200], ['Origem → destino (200)', (v.orig200 || '?') + ' → ' + (v.dest200 || '?')]]) + '</div>';
+    h += '<div class="bloco"><h3>' + plural(r.cs.length, 'CT-e', 'CT-e') + '</h3><table class="mini"><tr><th>CTRC</th><th>Destinatário</th><th>Status</th><th>Entrega</th></tr>' + r.cs.map(function (c) {
+      var s = statusDe(c), e = entregaDe(c);
+      return '<tr><td class="mono"><a href="#" data-gav-c="' + esc(c.k) + '" style="color:var(--accent)">' + esc(c.k) + '</a></td><td>' + esc(c.dest) + '</td><td>' + pillStatus(s.cod, s.sug) + '</td><td>' + (e ? dm(e.data) + (e.conf ? '' : ' <span class="selo">' + esc(e.fonte) + '</span>') : '—') + '</td></tr>';
+    }).join('') + '</table></div>';
+    if (v.manifesto) h += '<div class="bloco" style="display:flex;gap:8px;flex-wrap:wrap">'
+      + (v.carga_id ? '<a class="btn-sm" href="/embarques/cargas/' + v.carga_id + '/mapa" target="_blank" rel="noopener">🗺️ Mapa da viagem ↗</a>'
+                      + '<a class="btn-sm" href="/viagem/' + v.carga_id + '" target="_blank" rel="noopener">🛣️ Ficha da viagem ↗</a>'
+                    : '<span class="nota">Sem mapa e sem ficha: o Embarques ainda não abriu a carga deste manifesto.</span>')
+      + '</div>';
+    gaveta(v.manifesto || 'CT-e sem manifesto', esc((v.orig200 || '') + (v.dest200 ? ' → ' + v.dest200 : '')) + ' · ' + esc(v.placa || '') + ' · ' + esc(v.mot || ''), h);
+  }
+  function abrirCte(k) {
+    var c = S.ctes[k]; if (!c) return;
+    var s = statusDe(c), e = entregaDe(c), a = agendaDe(c);
+    var base = '';
+    if (c.ssw.avisos.length) base += '<div class="bloco">' + c.ssw.avisos.map(function (x) { return '<div class="aviso-div">' + esc(x) + '</div>'; }).join('') + '</div>';
+    base += '<div class="bloco"><h3>CT-e</h3>' + kv([['Emissão', dmy(c.emissao)], ['Tipo', c.tipo], ['Cliente (pagador)', c.cliente], ['Raiz do CNPJ', c.raiz], ['Remetente', c.reme], ['Destinatário', c.dest],
+      ['Entrega em', (c.cid || '') + '/' + (c.uf || '')], ['Nota fiscal', c.nf], ['Pedido', c.pedido], ['Carga (B10)', c.b10], ['Frete', 'R$ ' + moeda(c.frete)], ['Peso', c.peso ? c.peso.toLocaleString('pt-BR') + ' kg' : ''], ['Viagem', c.v.indexOf('SEM:') === 0 ? 'sem manifesto' : c.v]]) + '</div>';
+    base += '<div class="bloco"><h3>Acompanhamento</h3>' + kv([
+      ['Status', pillStatus(s.cod, s.sug) + (s.sug ? ' <span class="dim">' + esc(s.por) + '</span>' : ''), true],
+      ['Agenda', a ? dmh(a.v) + (a.ssw ? ' (SSW, ocorrência 15)' : ' (marcada)') : (c.ssw.aguardando_agenda ? 'aguardando o cliente (ocorrência 35)' : '—')],
+      ['Entrega', e ? dmy(e.data) + (e.conf ? ' (confirmada)' : ' (SSW ' + e.fonte + ', a confirmar)') : '—'],
+      ['Ocorrência no cliente', c.m.ocorrencia || '—'], ['Anotação', c.m.anotacao || '—'], ['Última mudança', c.por ? c.por : '']]) + '</div>';
+    if (c.crm) base += '<div class="bloco"><h3>Documentos (CRM - Documentos)</h3>' + kv([['Carteira', c.crm.carteira], ['Etapa', '<span class="pill" style="--cor:' + cor(c.crm.cor) + '">' + esc(c.crm.rot) + '</span>', true],
+      ['Custo extra', (c.crm.custos || []).length ? c.crm.custos.map(function (x) { return x.tipo + ' R$ ' + moeda(x.valor) + (x.status ? ' (' + x.status + ')' : ''); }).join(' · ') : '—']]) + '<div class="nota" style="margin-top:6px">Só leitura aqui — a etapa e o custo extra se mudam no <a href="/crm-documentos" style="color:var(--accent)">CRM - Documentos</a>.</div></div>';
+    gaveta(c.k, esc(c.cliente) + ' · NF ' + esc(c.nf), base + '<div class="bloco"><h3>Ocorrências no SSW e histórico</h3><div class="nota">carregando…</div></div>');
+    fetch('/api/acompanhamento/cte?k=' + encodeURIComponent(k) + '&mes=' + S.mes).then(function (r) { return r.json(); }).then(function (j) {
+      if ($('gavTitulo').textContent !== k) return;
+      var h = '<div class="bloco"><h3>Ocorrências no SSW</h3>' + (j.ocorrencias && j.ocorrencias.length ? '<ul class="hist">' + j.ocorrencias.map(function (o) {
+        return '<li><b>' + o.cod + ' · ' + esc(o.rot) + '</b><div>' + esc(o.texto || '') + '</div><div class="q">' + esc(dmh(o.em.replace(' ', 'T'))) + '</div></li>';
+      }).join('') + '</ul>' : '<div class="nota">Nenhuma ocorrência de agenda ou entrega no SSW para este CT-e.</div>') + '</div>';
+      h += '<div class="bloco"><h3>Histórico</h3>' + (j.historico && j.historico.length ? '<ul class="hist">' + j.historico.map(function (x) {
+        var f = x.campo === 'status' ? function (v) { return (S.st[v] || {}).rot || v; } : x.campo === 'entrega' ? dmy : x.campo === 'agenda' ? dmh : function (v) { return v; };
+        return '<li>' + esc(S.dados.rotulos[x.campo] || x.campo) + ': ' + esc(x.antes ? f(x.antes) : '—') + ' → ' + esc(x.depois ? f(x.depois) : '—') + '<div class="q">' + esc(x.em) + ' · ' + esc(x.por || '') + '</div></li>';
+      }).join('') + '</ul>' : '<div class="nota">Ninguém marcou nada neste CT-e ainda.</div>') + '</div>';
+      $('gavCorpo').innerHTML = base + h;
+    });
+  }
+
+  // ── planilha (um CT-e por linha, como a TRACKING) ──
+  function baixarPlanilha() {
+    var cab = ['Numero CTRC', 'Tipo do Documento', 'Data emissão', 'Cliente (pagador)', 'Remetente', 'Destinatário', 'Cidade entrega', 'UF', 'Nota fiscal', 'Pedido', 'Valor frete', 'B10',
+      'Manifesto', 'Placa cavalo', 'Motorista', 'Saída', 'Previsão', 'Chegada', 'Agenda', 'Agenda (fonte)', 'Data entrega', 'Entrega (fonte)', 'Status', 'Ocorrência no cliente', 'Anotação', 'Etapa CRM', 'Custo extra'];
+    var linhas = [cab];
+    visiveis().forEach(function (r) {
+      r.cs.forEach(function (c) {
+        var s = statusDe(c), e = entregaDe(c), a = agendaDe(c), v = r.v;
+        var cx = ((c.crm || {}).custos || []).reduce(function (t, x) { return t + (x.valor || 0); }, 0);
+        linhas.push([c.k, c.tipo, dmy(c.emissao), c.cliente, c.reme, c.dest, c.cid, c.uf, c.nf, c.pedido || '', moeda(c.frete), c.b10 || '',
+          v.manifesto || '', v.placa, v.mot || '', dmh(v.saida), dmh(v.prev), dmh(v.chegada), a ? dmh(a.v) : '', a ? (a.ssw ? 'SSW' : 'marcada') : '',
+          e ? dmy(e.data) : '', e ? (e.conf ? 'confirmada' : 'SSW ' + e.fonte) : '', (S.st[s.cod] || {}).rot + (s.sug ? ' (sugerido)' : ''), c.m.ocorrencia || '', c.m.anotacao || '',
+          c.crm ? c.crm.rot : '', cx ? moeda(cx) : '']);
+      });
+    });
+    var csv = '﻿' + linhas.map(function (l) { return l.map(function (x) { x = String(x == null ? '' : x); return /[;"\n]/.test(x) ? '"' + x.replace(/"/g, '""') + '"' : x; }).join(';'); }).join('\r\n');
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    a.download = 'acompanhamento-' + S.mes + '.csv';
+    document.body.appendChild(a); a.click(); a.remove();
+  }
+
+  // ── eventos ──
+  document.addEventListener('click', function (ev) {
+    var t = ev.target;
+    if (S.edit && !S.edit.td.contains(t)) salvarEditor(false);
+    var el;
+    if ((el = t.closest('[data-filtro]'))) { S.filtro = S.filtro === el.dataset.filtro ? null : el.dataset.filtro; render(); return; }
+    if (t.closest('[data-limpa]')) { S.filtro = null; render(); return; }
+    if (t.matches('[data-conf]')) { ev.stopPropagation(); confirmar([t.dataset.conf]); return; }
+    if (t.matches('[data-confv]')) { ev.stopPropagation(); confirmar(ctesDaViagem(t.dataset.confv).map(function (c) { return c.k; })); return; }
+    if (t.matches('input[data-sel]')) { marcar([S.ctes[t.dataset.sel]], t.checked); render(); return; }
+    if (t.matches('input[data-selv]')) { marcar(ctesDaViagem(t.dataset.selv), t.checked); render(); return; }
+    if (t.matches('input[data-selcli]')) { ev.stopPropagation(); marcar(ctesDoCliente(t.dataset.selcli), t.checked); render(); return; }
+    if ((el = t.closest('[data-gav-v]'))) { ev.preventDefault(); abrirViagem(el.dataset.gavV); return; }
+    if ((el = t.closest('[data-gav-c]'))) { ev.preventDefault(); abrirCte(el.dataset.gavC); return; }
+    if ((el = t.closest('td.ed')) && !t.closest('.editor')) { if (!S.edit || S.edit.td !== el) abrirEditor(el); return; }
+    if ((el = t.closest('tr.cli'))) { var k = el.dataset.cli; if (S.clisAbertos.has(k)) S.clisAbertos.delete(k); else S.clisAbertos.add(k); render(); return; }
+    if ((el = t.closest('tr.via')) && !t.closest('a, input, button, .editor')) { var v = el.dataset.v; if (S.abertas.has(v)) S.abertas.delete(v); else S.abertas.add(v); render(); return; }
+  });
+  $('busca').addEventListener('input', function () { clearTimeout(S._b); var v = this.value; S._b = setTimeout(function () { S.busca = v.trim(); render(); }, 180); });
+  $('tgCliente').addEventListener('click', function () { S.agrupar = !S.agrupar; pref('acomp:agrupar', S.agrupar ? '1' : '0'); render(); });
+  $('tgEntregues').addEventListener('click', function () { S.ocultarEntregues = !S.ocultarEntregues; pref('acomp:ocultar', S.ocultarEntregues ? '1' : '0'); render(); });
+  $('btnAbrirTodas').addEventListener('click', function () {
+    visiveis().forEach(function (r) { S.abertas.add(r.v.v); if (S.agrupar) S.clisAbertos.add(r.cliKey || '(sem cliente)'); }); render();
+  });
+  $('btnFecharTodas').addEventListener('click', function () { S.abertas.clear(); S.clisAbertos.clear(); render(); });
+  $('btnAtualizar').addEventListener('click', function () { carregar(true); });
+  $('btnPlanilha').addEventListener('click', baixarPlanilha);
+  $('mesAnt').addEventListener('click', function () { S.mes = somaMes(S.mes, -1); S.abertas.clear(); carregar(); });
+  $('mesProx').addEventListener('click', function () { if (S.mes < mesAtual()) { S.mes = somaMes(S.mes, 1); S.abertas.clear(); carregar(); } });
+  $('gavFechar').addEventListener('click', function () { $('gaveta').hidden = true; });
+  document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape' && !S.edit) $('gaveta').hidden = true; });
+  $('loteCampo').addEventListener('change', function () { $('loteValorBox').innerHTML = editorValor(this.value).replace('id="edValor"', 'id="loteValor"'); });
+  $('loteAplicar').addEventListener('click', function () {
+    var campo = $('loteCampo').value, v = $('loteValor').value;
+    gravar(Array.from(S.sel), campo, v);
+  });
+  $('loteConfirmar').addEventListener('click', function () { confirmar(Array.from(S.sel)); });
+  $('loteLimpar').addEventListener('click', function () { S.sel.clear(); render(); });
+
+  S.mes = mesAtual();
+  carregar();
+})();
+</script>
+</body>
+</html>

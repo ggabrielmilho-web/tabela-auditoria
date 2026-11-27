@@ -523,11 +523,25 @@ def gravar_situacao(cur, id_cte, situacao, crm_chave=None):
                 (situacao, crm_chave, situacao, id_cte))
 
 
-def historico(cur, limite=100):
-    """Os últimos arquivos gerados, com os CT-e de cada um e a situação da marca no CRM."""
-    cur.execute("""SELECT id, nome, to_char(gerado_em AT TIME ZONE 'America/Sao_Paulo', 'DD/MM/YYYY HH24:MI'),
-                          gerado_por, n_linhas, gerado_em < now() - make_interval(days => %s)
-                     FROM cte_nestle_arquivo ORDER BY gerado_em DESC, id DESC LIMIT %s""", (DIAS_AGUARDAR, limite))
+def historico(cur, limite=100, de=None, ate=None, cte=None):
+    """Os últimos arquivos gerados, com os CT-e de cada um e a situação da marca no CRM.
+    Filtro (pedido dela, 27/11/2026): `de`/`ate` = dia em que o arquivo foi gerado (AAAA-MM-DD, Brasília) e
+    `cte` = nº do CT-e (inteiro ou o começo dele) — o arquivo entra se tiver um CT-e assim."""
+    onde, args = [], [DIAS_AGUARDAR]
+    if de:
+        onde.append("(gerado_em AT TIME ZONE 'America/Sao_Paulo')::date >= %s")
+        args.append(de)
+    if ate:
+        onde.append("(gerado_em AT TIME ZONE 'America/Sao_Paulo')::date <= %s")
+        args.append(ate)
+    if cte:
+        onde.append("id IN (SELECT arquivo_id FROM cte_nestle_arquivo_cte WHERE numero::text LIKE %s)")
+        args.append(cte + '%')
+    args.append(limite)
+    cur.execute(f"""SELECT id, nome, to_char(gerado_em AT TIME ZONE 'America/Sao_Paulo', 'DD/MM/YYYY HH24:MI'),
+                           gerado_por, n_linhas, gerado_em < now() - make_interval(days => %s)
+                      FROM cte_nestle_arquivo {('WHERE ' + ' AND '.join(onde)) if onde else ''}
+                     ORDER BY gerado_em DESC, id DESC LIMIT %s""", args)
     arqs = [{'id': i, 'nome': n, 'em': e, 'por': p, 'linhas': nl, 'expirado': x, 'ctes': []}
             for i, n, e, p, nl, x in cur.fetchall()]
     if not arqs:
