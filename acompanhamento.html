@@ -68,6 +68,14 @@
   .cli-acoes { display: flex; justify-content: space-between; gap: 6px; font-size: 0.72rem; color: var(--text-dim); align-items: center; }
   .kpi .v.pos { color: var(--green); }
   .kpi.desc { border-top: 3px solid var(--accent); cursor: help; }
+  .kpi[data-kpi] { cursor: pointer; transition: background .12s; }
+  .kpi[data-kpi]:hover { background: var(--surface2); }
+  .kpi[data-kpi] .l::after { content: ' ›'; color: var(--accent); }
+  .gaveta.larga { width: min(1040px, 100vw); }
+  .lista-tot { display: flex; gap: 18px; flex-wrap: wrap; align-items: baseline; margin-bottom: 10px; font-size: 0.8rem; }
+  .lista-tot b { font-family: 'JetBrains Mono', monospace; font-size: 1rem; }
+  table.mini td.num, table.mini th.num { text-align: right; white-space: nowrap; }
+  table.mini td.cort { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 8px; margin-bottom: 14px; }
   .card { background: var(--surface); border: 1px solid var(--border); border-top: 3px solid var(--cor, var(--c-cinza)); border-radius: 9px; padding: 9px 11px; cursor: pointer; transition: all .12s; text-align: left; color: var(--text); font-family: 'DM Sans', sans-serif; }
@@ -558,7 +566,7 @@
     }).join('') + '</table>';
     return h + '</div>';
   }
-  function abrirGavetaDe() { if (S.gav && S.gav.tipo === 'v') abrirViagem(S.gav.k); else if (S.gav && S.gav.tipo === 'c') abrirCte(S.gav.k); }
+  function abrirGavetaDe() { if (S.gav && S.gav.tipo === 'v') abrirViagem(S.gav.k); else if (S.gav && S.gav.tipo === 'c') abrirCte(S.gav.k); else if (S.gav && S.gav.tipo === 'kpi') abrirListaDescarga(S.gav.k); }
   function postJson(url, body) {
     return fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(function (r) { return r.json().then(function (j) { j._st = r.status; return j; }); });
   }
@@ -831,6 +839,7 @@
 
   // ── topo: indicadores e cartões ──
   function topo(todas) {
+    S.todas = todas;
     var nC = 0, fr = 0, and = 0, aconf = 0, aconfV = 0, atr = 0, dCob = 0, dCobV = 0, dPago = 0, dFrete = 0, dComp = 0, dCusto = 0;
     todas.forEach(function (r) {
       nC += r.cs.length; fr += r.frete;
@@ -849,15 +858,15 @@
       ['Descarga a cobrar', 'R$ ' + moedaK(dCob), plural(dCobV, 'viagem', 'viagens') + ' com falta, pela regra do cliente', 'desc',
        'O que falta cobrar do cliente, pela regra da planilha de reembolso (não entra o custo Rizza nem cliente sem regra).'],
       ['Descarga paga (477)', 'R$ ' + moedaK(dPago), 'pago ao chapa (5100) nas viagens ' + (S.meses.length > 1 ? 'do período' : 'do mês'), 'desc',
-       'Soma do 477, evento 5100 (carga e descarga com terceiros), ligado aos CT-e da tela pela NF do histórico ou vinculado à mão. Carregamento não entra.'],
+       'Soma do 477, evento 5100 (carga e descarga com terceiros), ligado aos CT-e da tela pela NF do histórico ou vinculado à mão. Carregamento não entra.\nClique para ver a lista.', '', 'pago'],
       ['Descarga cobrada (455)', 'R$ ' + moedaK(dRec), 'no frete R$ ' + moedaK(dFrete) + ' · complementar/RPS R$ ' + moedaK(dComp), 'desc',
-       'O que voltou do cliente nos CT-e do 455: o que já vai no frete (Outros da Ypê/Unilever, R$ 500 da Doce Mineiro) + os complementares e RPS de descarga ligados às viagens.\nÉ o cobrado (emitido), não a baixa do recebimento.'],
+       'O que voltou do cliente nos CT-e do 455: o que já vai no frete (Outros da Ypê/Unilever, R$ 500 da Doce Mineiro) + os complementares e RPS de descarga ligados às viagens.\nÉ o cobrado (emitido), não a baixa do recebimento.\nClique para ver a lista.', '', 'cobr'],
       ['Diferença', (dDif < -0.5 ? '− ' : '') + 'R$ ' + moedaK(Math.abs(dDif)), (dPago > 0 ? Math.round(dRec / dPago * 100) + '% do pago voltou' : 'sem pagamento no 477') + ' · custo Rizza R$ ' + moedaK(dCusto), 'desc',
        'Cobrado (455) − pago (477). Negativo = a Rizza pagou mais do que cobrou.\nParte é custo Rizza de propósito (cliente que não reembolsa, ou FOB em cliente que só reembolsa CIF) — o card "Descarga a cobrar" mostra só o que dá para cobrar.',
        dDif < -0.5 ? 'neg' : 'pos']
     ];
     $('kpis').innerHTML = k.map(function (x) {
-      return '<div class="kpi' + (x[3] ? ' ' + x[3] : '') + '"' + (x[4] ? ' title="' + esc(x[4]) + '"' : '') + '><div class="l">' + esc(x[0]) + '</div><div class="v' + (x[5] ? ' ' + x[5] : '') + '">' + esc(x[1]) + '</div><div class="s">' + esc(x[2]) + '</div></div>';
+      return '<div class="kpi' + (x[3] ? ' ' + x[3] : '') + '"' + (x[4] ? ' title="' + esc(x[4]) + '"' : '') + (x[6] ? ' data-kpi="' + x[6] + '"' : '') + '><div class="l">' + esc(x[0]) + '</div><div class="v' + (x[5] ? ' ' + x[5] : '') + '">' + esc(x[1]) + '</div><div class="s">' + esc(x[2]) + '</div></div>';
     }).join('');
 
     var h = '';
@@ -1235,7 +1244,55 @@
   }
 
   // ── gaveta ──
-  function gaveta(titulo, sub, corpo) { $('gavTitulo').textContent = titulo; $('gavSub').innerHTML = sub; $('gavCorpo').innerHTML = corpo; $('gaveta').hidden = false; }
+  function gaveta(titulo, sub, corpo, larga) { $('gavTitulo').textContent = titulo; $('gavSub').innerHTML = sub; $('gavCorpo').innerHTML = corpo; $('gaveta').classList.toggle('larga', !!larga); $('gaveta').hidden = false; }
+
+  // ── lista que abre no clique dos cards "Descarga paga (477)" e "Descarga cobrada (455)" (27/11/2026) ──
+  // Montada das mesmas viagens dos cards (período + clientes escolhidos): o total da lista é o do card.
+  var EVENTO_5100 = 'CARGA E DESCARGA C/ TERCEIROS';
+  function rotViagem(r) { return r.v.manifesto || 'sem manifesto'; }
+  function lkViagem(r) { return '<a href="#" data-gav-v="' + esc(r.v.v) + '">' + esc(rotViagem(r)) + '</a>'; }
+  function lkCte(k) { return '<a href="#" class="mono" data-gav-c="' + esc(k) + '">' + esc(k) + '</a>'; }
+  function abrirListaDescarga(tipo) {
+    S.gav = { tipo: 'kpi', k: tipo };
+    var todas = S.todas || [], h = '', per = rotPeriodo(S.meses) + (nCliSel() ? ' · ' + plural(nCliSel(), 'cliente escolhido', 'clientes escolhidos') : '');
+    if (tipo === 'pago') {
+      var l = [];
+      todas.forEach(function (r) { r.cs.forEach(function (c) { ((c.desc || {}).pago || []).forEach(function (x) { l.push({ x: x, c: c, r: r }); }); }); });
+      l.sort(function (a, b) { return (a.x.em || '').localeCompare(b.x.em || '') || b.x.v - a.x.v; });
+      var tot = l.reduce(function (a, y) { return a + (y.x.v || 0); }, 0);
+      h += '<div class="lista-tot"><span>Total <b>R$ ' + moeda(tot) + '</b></span><span>' + plural(l.length, 'lançamento', 'lançamentos') + '</span>'
+        + '<a class="link" href="/dre/despesas?meses=' + encodeURIComponent(S.meses.join(',')) + '&evento=' + encodeURIComponent(EVENTO_5100) + '" target="_blank" rel="noopener">abrir na aba Despesas ↗</a></div>'
+        + '<div class="nota" style="margin-bottom:8px">O 5100 ligado às viagens da tela (pela NF do histórico ou vinculado à mão). A aba Despesas mostra o 5100 inteiro pela competência — inclusive o que não ligou a viagem nenhuma (está nos "Pagamentos sem viagem") e o de viagem de outro mês.</div>';
+      h += l.length ? '<table class="mini"><tr><th>Lançamento</th><th>Emissão</th><th>Pago em</th><th>Fornecedor</th><th class="num">Valor</th><th>CT-e</th><th>Viagem</th><th>Cliente</th><th>Ligado</th></tr>' + l.map(function (y) {
+        var x = y.x;
+        return '<tr title="' + esc(x.hist || '') + '"><td class="mono">' + esc(x.lanc) + '</td><td>' + dm(x.em) + '</td><td>' + dm(x.pgto) + '</td><td class="cort">' + esc(x.forn || '') + '</td><td class="num">' + moeda(x.v)
+          + '</td><td>' + lkCte(y.c.k) + '</td><td>' + lkViagem(y.r) + '</td><td class="cort">' + esc(y.c.cliente) + '</td><td class="dim">' + esc(x.manual ? 'à mão' : 'NF') + '</td></tr>';
+      }).join('') + '</table>' : '<div class="nota">Nenhum pagamento de descarga nas viagens do período.</div>';
+      gaveta('Descargas pagas (477)', 'Evento 5100 · ' + esc(per), h, true);
+      return;
+    }
+    // cobradas: complementar/RPS do 455 ligados às viagens + o que já vai no frete do CT-e
+    var comp = [], frete = [];
+    todas.forEach(function (r) {
+      r.cs.forEach(function (c) { ((c.desc || {}).cobr || []).forEach(function (x) { comp.push({ x: x, c: c, r: r }); }); });
+      (r.desc.gs || []).forEach(function (g) { if (g.incluso > 0.004) frete.push({ g: g, r: r }); });
+    });
+    comp.sort(function (a, b) { return (a.x.em || '').localeCompare(b.x.em || '') || b.x.v - a.x.v; });
+    var tc = comp.reduce(function (a, y) { return a + (y.x.v || 0); }, 0), tf = frete.reduce(function (a, y) { return a + y.g.incluso; }, 0);
+    var ndoc = {}; comp.forEach(function (y) { ndoc[y.x.ctrc] = 1; });
+    h += '<div class="lista-tot"><span>Total <b>R$ ' + moeda(tc + tf) + '</b></span><span>complementar/RPS R$ ' + moeda(tc) + ' (' + plural(Object.keys(ndoc).length, 'documento', 'documentos') + ')</span><span>no frete R$ ' + moeda(tf) + '</span></div>';
+    h += '<div class="bloco"><h3>Complementar e RPS de descarga (455)</h3>' + (comp.length ? '<table class="mini"><tr><th>Documento</th><th>Tipo</th><th>Emissão</th><th class="num">Valor na viagem</th><th>CT-e da viagem</th><th>Viagem</th><th>Cliente</th><th>Ligado por</th></tr>' + comp.map(function (y) {
+      var x = y.x, parte = x.n > 1 && x.total ? ' <span class="dim">de ' + moeda(x.total) + '</span>' : '';
+      return '<tr title="' + esc(x.obs || '') + '"><td class="mono">' + esc(x.ctrc) + '</td><td class="cort" style="max-width:110px">' + esc(x.tipo || '') + '</td><td>' + dm(x.em) + '</td><td class="num">' + moeda(x.v) + parte
+        + '</td><td>' + lkCte(y.c.k) + '</td><td>' + lkViagem(y.r) + '</td><td class="cort">' + esc(y.c.cliente) + '</td><td class="dim cort" style="max-width:150px">' + esc(x.por || '') + '</td></tr>';
+    }).join('') + '</table>' : '<div class="nota">Nenhum complementar/RPS de descarga ligado às viagens do período.</div>') + '</div>';
+    h += '<div class="bloco"><h3>Já no frete do CT-e</h3><div class="nota" style="margin-bottom:6px">Ypê e Unilever: o "Outros" do CT-e (até o pago). Doce Mineiro: os R$ 500 que vão no frete.</div>' + (frete.length ? '<table class="mini"><tr><th>CT-e</th><th>Destinatário</th><th>Cliente</th><th>Regra</th><th class="num">No frete</th><th>Viagem</th></tr>' + frete.map(function (y) {
+      var g = y.g;
+      return '<tr><td>' + g.cs.map(function (c) { return lkCte(c.k); }).join(' ') + '</td><td class="cort">' + esc(g.dest || '') + '</td><td class="cort">' + esc(g.cs[0].cliente) + '</td><td class="dim">'
+        + esc(g.regra ? g.regra.cliente + (g.regra.tipo === 'acima_500' ? ' (R$ 500)' : ' (Outros)') : '') + '</td><td class="num">' + moeda(g.incluso) + '</td><td>' + lkViagem(y.r) + '</td></tr>';
+    }).join('') + '</table>' : '<div class="nota">Nada no frete neste período.</div>') + '</div>';
+    gaveta('Descargas cobradas (455)', esc(per), h, true);
+  }
   function kv(pares) { return '<dl class="kv">' + pares.filter(function (p) { return p[1] !== '' && p[1] != null; }).map(function (p) { return '<dt>' + esc(p[0]) + '</dt><dd>' + (p[2] ? p[1] : esc(p[1])) + '</dd>'; }).join('') + '</dl>'; }
   function abrirViagem(vid) {
     if (!S.viagens[vid]) return;
@@ -1375,6 +1432,7 @@
     if (S.edit && !S.edit.td.contains(t)) salvarEditor(false);
     var el;
     if ((el = t.closest('[data-caixa]'))) { abrirCaixa(el.dataset.caixa); return; }
+    if ((el = t.closest('[data-kpi]'))) { abrirListaDescarga(el.dataset.kpi); return; }
     if ((el = t.closest('[data-vinc-g]'))) { S.vinc = { g: el.dataset.vincG, tipo: 'cobr' }; abrirGavetaDe(); setTimeout(function () { if ($('vincQ')) $('vincQ').focus(); }, 0); return; }
     if (t.id === 'vincFechar') { S.vinc = null; abrirGavetaDe(); return; }
     if (t.id === 'vincBuscar') { buscarVinculo(); return; }
