@@ -143,6 +143,10 @@
   table.mini td, table.mini th { padding: 4px 6px; border-bottom: 1px solid var(--border); text-align: left; }
   table.mini th { color: var(--text-dim); font-size: 0.64rem; text-transform: uppercase; }
 
+  .info-i { display: inline-flex; align-items: center; justify-content: center; width: 13px; height: 13px; margin-left: 5px; border-radius: 50%; border: 1px solid var(--text-dim); color: var(--text-dim); font-size: 0.55rem; font-weight: 700; font-family: 'DM Sans', sans-serif; text-transform: none; cursor: help; vertical-align: 1px; }
+  .info-i:hover, .info-i:focus, .info-i.on { border-color: var(--accent); color: var(--accent); outline: none; }
+  .dica { position: fixed; z-index: 1000; max-width: 340px; padding: 10px 12px; border-radius: 9px; background: var(--toast); border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(var(--sombra-rgb),.4); font-size: 0.76rem; line-height: 1.5; color: var(--text); white-space: pre-line; pointer-events: none; }
+  .dica b { display: block; font-size: 0.66rem; text-transform: uppercase; letter-spacing: .06em; color: var(--text-dim); margin-bottom: 4px; }
   .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--toast); border: 1px solid var(--accent); color: var(--text); padding: 9px 16px; border-radius: 9px; font-size: 0.8rem; z-index: 999; box-shadow: 0 8px 24px rgba(var(--sombra-rgb),.4); }
   .toast.erro { border-color: var(--red); }
 
@@ -189,7 +193,7 @@
     <span>— mudar</span><select id="loteCampo"></select>
     <span>para</span><span id="loteValorBox"></span>
     <button class="btn-sm primary" id="loteAplicar">Aplicar</button>
-    <button class="btn-sm" id="loteConfirmar" title="Grava como entrega a data que o SSW sugere, nos CT-e selecionados que têm sugestão">✓ Confirmar entregas sugeridas</button>
+    <button class="btn-sm" id="loteConfirmar" title="Grava como entrega a data que o portal da Ypê sugere, nos CT-e selecionados que têm sugestão">✓ Confirmar entregas sugeridas</button>
     <button class="btn-sm" id="loteLimpar">Limpar seleção</button>
   </div>
 
@@ -207,6 +211,7 @@
   <div class="gaveta-corpo" id="gavCorpo"></div>
 </aside>
 <div class="toast" id="toast" hidden></div>
+<div class="dica" id="dica" hidden></div>
 
 <script src="/nav-perms.js"></script>
 <script>
@@ -241,23 +246,122 @@
   function primeiroNome(s) { return String(s || '').split(' ').slice(0, 2).join(' '); }
 
   // ── o efetivo de cada CT-e (marcado vence o sugerido) ──
+  // Entrega (27/11/2026): a da planilha TRACKING ou a marcada na tela vale; sem nada, a baixa do SSW (oc. 01) entra
+  // direto com o selo da fonte. A do portal da Ypê segue como sugestão a confirmar (a baixa manual deles é o dia do
+  // clique, às vezes dias depois).
+  var PLANILHA = 'Planilha TRACKING';
+  function ehPortal(f) { return String(f || '').indexOf('Portal') === 0; }
   function statusDe(c) {
-    if (c.m.status) return { cod: c.m.status, sug: false };
-    if (c.m.entrega) return { cod: 'ENTREGUE', sug: false };
+    if (c.m.status) return { cod: c.m.status, sug: false, origem: (c.fontes || {}).status === PLANILHA ? 'planilha' : 'marcada' };
+    if (c.m.entrega) return { cod: 'ENTREGUE', sug: false, origem: (c.fontes || {}).entrega === PLANILHA ? 'planilha' : 'marcada' };
+    var e = c.ssw.entrega;
+    if (e && e.data && !ehPortal(e.fonte)) return { cod: 'ENTREGUE', sug: false, origem: 'ssw', por: c.ssw.status_por };
     return { cod: c.ssw.status, sug: true, por: c.ssw.status_por };
   }
   function entregaDe(c) {
-    if (c.m.entrega) return { data: c.m.entrega, conf: true };
+    if (c.m.entrega) return { data: c.m.entrega, conf: true, origem: (c.fontes || {}).entrega === PLANILHA ? 'planilha' : 'marcada', por: (c.fontes || {}).entrega };
     var e = c.ssw.entrega;
-    if (e && e.data) return { data: e.data, conf: false, fonte: e.fonte };
+    if (e && e.data) return { data: e.data, conf: !ehPortal(e.fonte), origem: ehPortal(e.fonte) ? 'portal' : 'ssw', fonte: e.fonte };
     return null;
   }
+  // de onde veio a entrega, em texto (célula, gaveta e planilha)
+  function origemEnt(e) {
+    if (!e) return '';
+    if (e.origem === 'planilha') return 'planilha TRACKING';
+    if (e.origem === 'marcada') return 'marcada' + (e.por ? ' por ' + e.por : '');
+    return ondeEnt(e.fonte).slice(3) + (e.conf ? '' : ', a confirmar');
+  }
+  function seloOrigem(e) { return e.origem === 'planilha' ? 'planilha' : e.origem === 'marcada' ? '' : seloEnt(e.fonte); }
   function agendaDe(c) {
     if (c.m.agenda) return { v: c.m.agenda, ssw: false };
     if (c.ssw.agenda) return { v: c.ssw.agenda, ssw: true };
     return null;
   }
-  function aConfirmar(c) { return !c.m.entrega && c.ssw.entrega && c.ssw.entrega.data; }
+  function aConfirmar(c) { return !c.m.entrega && c.ssw.entrega && c.ssw.entrega.data && ehPortal(c.ssw.entrega.fonte); }
+  // de onde veio a entrega sugerida: SSW (SSW, SSWScan, SSWMobile) ou o portal da Ypê
+  function ondeEnt(f) { f = String(f || ''); return f.indexOf('Portal') === 0 ? 'no ' + f : f === 'SSW' || !f ? 'no SSW' : 'no SSW (' + f + ')'; }
+  function seloEnt(f) { f = String(f || ''); return f.indexOf('Portal') === 0 ? (f.indexOf('manual') > 0 ? 'Ypê manual' : 'Ypê') : f; }
+  // o pedido do cliente: da observação do CT-e ou, na Ypê, do portal deles
+  function pedidoDe(c) { return c.pedido ? { p: c.pedido, f: 'obs' } : (c.ype && c.ype.pedido ? { p: c.ype.pedido, f: 'Ypê' } : null); }
+
+  // ── monitoramento (portal da Ypê): sem monitoramento ativo a Ypê não paga diária ──
+  var MON = {
+    offline: { rot: 'Sem sinal', cor: 'vermelho', ordem: 1 },
+    sem_posicao: { rot: 'Sem posição', cor: 'laranja', ordem: 2 },
+    online: { rot: 'Monitorado', cor: 'verde', ordem: 3 },
+    sem_monitoramento: { rot: 'Sem monitoramento', cor: 'laranja', ordem: 4 },
+    finalizado: { rot: 'Finalizado', cor: 'cinza', ordem: 5 }
+  };
+  function horas(a, b) { if (!a || !b) return null; var h = (new Date(b) - new Date(a)) / 36e5; return isFinite(h) ? h : null; }
+  function txtHoras(h) { return h == null ? '' : h < 1 ? Math.max(1, Math.round(h * 60)) + ' min' : h < 48 ? Math.round(h) + ' h' : Math.round(h / 24) + ' d'; }
+  // o pior estado entre os CT-e da viagem (cargas diferentes da Ypê podem ir no mesmo manifesto)
+  function monDe(cs) {
+    var m = null;
+    cs.forEach(function (c) { var x = c.ype && c.ype.mon; if (x && MON[x.estado] && (!m || MON[x.estado].ordem < MON[m.estado].ordem)) m = x; });
+    return m;
+  }
+  function monTitulo(m) {
+    var t = 'Portal da Ypê — ' + (m.status || '?') + ', rastreador ' + (m.estado === 'online' ? 'online' : m.estado === 'offline' ? 'OFFLINE' : m.estado === 'sem_posicao' ? 'sem posição' : '—');
+    t += '\nfoto de ' + dmh(m.foto) + (m.posicao ? ' · última posição ' + dmh(m.posicao) : '');
+    if (m.fotos_off) t += '\noffline em ' + m.fotos_off + ' de ' + m.fotos_ativo + ' fotos com monitoramento ativo (' + dmh(m.primeira_off) + (m.ultima_off !== m.primeira_off ? ' a ' + dmh(m.ultima_off) : '') + ')';
+    return t + '\nSem monitoramento ativo a Ypê não paga diária.';
+  }
+  function monPill(m, temYpe) {
+    if (!m) return temYpe ? '<span class="vazio" title="carga da Ypê sem foto do monitoramento (anterior à primeira leitura do portal)">sem foto</span>'
+                          : '<span class="vazio" title="por enquanto, só as cargas da Ypê (portal MultiTMS)">—</span>';
+    var s = MON[m.estado] || { rot: m.estado, cor: 'cinza' };
+    var extra = m.estado === 'offline' ? txtHoras(horas(m.posicao, m.foto)) : '';
+    var caiu = m.fotos_off && m.estado !== 'offline' ? ' <span class="aviso-i" title="o sinal caiu no caminho">⚠</span>' : '';
+    return '<span class="pill" style="--cor:' + cor(s.cor) + '" title="' + esc(monTitulo(m)) + '">' + esc(s.rot) + (extra ? '<small>' + esc(extra) + '</small>' : '') + '</span>' + caiu;
+  }
+  // ── status embarque: o status da carga no Embarques (o worker do rastreamento muda pelo GPS) ──
+  var MAPA = {
+    'Aberta': { rot: 'Na origem', cor: 'cinza' },
+    'Em rota': { rot: 'Em rota', cor: 'azul' },
+    'No destino': { rot: 'No destino', cor: 'ciano' },
+    'Desengatada': { rot: 'Desengatada', cor: 'amarelo' },
+    'Continuada': { rot: 'Continuada', cor: 'cinza' },
+    'Entregue': { rot: 'Entregue', cor: 'verde' }
+  };
+  function agoraIso() { var d = new Date(); return new Date(d - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 16); }
+  function cidade(s) { return String(s || '').replace(/\/[A-Z]{2}$/, ''); }
+  function mapaInfo(mp) {
+    var s = MAPA[mp.status] || { rot: mp.status, cor: 'cinza' }, extra = '', tit = 'Embarques: ' + mp.status;
+    var dest1 = cidade(String(mp.destinos || '').split(' · ')[0]);
+    if (mp.status === 'Aberta') { extra = cidade(mp.origem); tit += ' — aguardando a saída de ' + (mp.origem || '?'); }
+    else if (mp.status === 'Em rota') { extra = dest1 ? '→ ' + dest1 : ''; tit += (mp.saida ? ' — saiu de ' + (mp.origem || '?') + ' em ' + dmh(mp.saida) : '') + ' para ' + (mp.destinos || '?'); }
+    else if (mp.status === 'No destino') { extra = txtHoras(horas(mp.no_local, agoraIso())); tit += ' — em ' + (mp.destinos || '?') + (mp.no_local ? ' desde ' + dmh(mp.no_local) : ''); }
+    else if (mp.status === 'Desengatada') { tit += ' — carreta deixada' + (mp.desengate_local ? ' (' + mp.desengate_local + ')' : '') + (mp.desengate ? ' em ' + dmh(mp.desengate) : ''); }
+    else if (mp.status === 'Continuada') { tit += ' — a mercadoria seguiu em outra carga' + (mp.continua_em ? ' (#' + mp.continua_em + ')' : ''); }
+    else if (mp.status === 'Entregue') { extra = mp.conclusao ? dm(mp.conclusao) : ''; tit += (mp.conclusao ? ' em ' + dmh(mp.conclusao) : '') + ' — ' + (mp.destinos || ''); }
+    return { s: s, extra: extra, tit: tit + '\nclique para abrir o mapa da viagem' };
+  }
+  function mapaPill(v) {
+    var mp = v.mapa;
+    if (!mp) return v.manifesto ? '<span class="vazio" title="o Embarques ainda não abriu a carga do manifesto ' + esc(v.manifesto) + ' (o robô abre todo dia a partir do manifesto)">—</span>'
+                                : '<span class="vazio" title="CT-e sem manifesto: sem carga no Embarques">—</span>';
+    var i = mapaInfo(mp);
+    return '<a class="pill" style="--cor:' + cor(i.s.cor) + ';text-decoration:none" href="/embarques/cargas/' + mp.id + '/mapa" target="_blank" rel="noopener" title="' + esc(i.tit) + '">'
+      + esc(i.s.rot) + (i.extra ? '<small>' + esc(i.extra) + '</small>' : '') + '</a>';
+  }
+  function cargasYpe(cs) { var ids = {}; cs.forEach(function (c) { if (c.ype) ids[c.ype.id] = 1; }); return Object.keys(ids).length; }
+  function prazoDe(cs) {
+    var p = null; cs.forEach(function (c) { var x = c.ype && c.ype.prazo; if (x && (!p || x < p)) p = x; }); return p;
+  }
+  function blocoYpe(cs) {
+    var y = null; cs.forEach(function (c) { if (c.ype && (!y || c.ype.id > y.id)) y = c.ype; });
+    if (!y) return '';
+    var ids = {}; cs.forEach(function (c) { if (c.ype) ids[c.ype.carga] = 1; });
+    var m = y.mon, mt = '—';
+    if (m) mt = monPill(m, true) + ' <span class="dim">foto ' + esc(dmh(m.foto)) + (m.posicao ? ' · posição ' + esc(dmh(m.posicao)) : '') + '</span>';
+    return '<div class="bloco"><h3>Portal da Ypê (MultiTMS)</h3>' + kv([
+      ['Carga', Object.keys(ids).join(', ')], ['Situação no portal', y.situacao], ['Pedido do cliente', y.pedido],
+      ['Prazo da Ypê', y.prazo ? dmh(y.prazo) : ''], ['Início da viagem', y.inicio ? dmh(y.inicio) : ''],
+      ['Entrega no portal', y.entrega ? dmh(y.entrega) + (y.baixa_manual ? ' (baixa manual — o dia do clique)' : '') : 'não realizada'],
+      ['Monitoramento', mt, true],
+      ['Fotos do monitoramento', m ? m.fotos + ' (' + m.fotos_ativo + ' com monitoramento ativo' + (m.fotos_off ? ', <b class="atraso">' + m.fotos_off + ' offline</b>' : '') + ')' : '', true]
+    ]) + '<div class="nota" style="margin-top:6px">Lido do portal 6×/dia, nos horários do intradiário. Sem monitoramento ativo a Ypê não paga diária.</div></div>';
+  }
   function fechada(cod) { return cod === 'ENTREGUE' || cod === 'RECUSADA'; }
 
   // ── a viagem: junta os CT-e dela ──
@@ -280,9 +384,12 @@
     var cl = Object.keys(clientes).sort(function (a, b) { return clientes[b].frete - clientes[a].frete; });
     var unico = Object.keys(todos).length === 1;
     var sug = cs.every(function (c) { return statusDe(c).sug; });
+    var prazo = prazoDe(cs);
     return { v: v, cs: cs, status: menor ? menor.cod : 'CARREGANDO', unico: unico, sug: sug, porStatus: todos, entregues: ent, aconf: aconf,
              avisos: avisos, frete: frete, ultEnt: ultEnt, agenda: ag, cliKey: cl[0], cliNome: cl.length ? clientes[cl[0]].nome : '', nCli: cl.length,
-             agendaVencida: !!(ag && ag.v.slice(0, 10) < S.dados.hoje) };
+             agendaVencida: !!(ag && ag.v.slice(0, 10) < S.dados.hoje),
+             ype: cs.some(function (c) { return c.ype; }), mon: monDe(cs), prazo: prazo,
+             prazoVencido: !!(prazo && prazo.slice(0, 10) < S.dados.hoje && ent < cs.length) };
   }
 
   // ── carga ──
@@ -318,14 +425,17 @@
   var FILTROS = {
     atrasadas: { t: 'Atrasadas', cor: 'vermelho', d: 'previsão de chegada passou e o SSW não registrou a chegada', f: function (r) { return r.v.atrasada && !fechada(r.status); } },
     agenda_vencida: { t: 'Agenda vencida', cor: 'laranja', d: 'a agenda passou e a entrega não foi registrada', f: function (r) { return r.agendaVencida; } },
-    a_confirmar: { t: 'Entrega a confirmar', cor: 'verde', d: 'o SSW tem a baixa de entrega e ninguém confirmou ainda', f: function (r) { return r.aconf > 0; } },
-    avisos: { t: 'Avisos do SSW', cor: 'vermelho', d: 'manifesto cancelado no SSW ou data do SSWScan que não confere', f: function (r) { return r.avisos > 0; } }
+    a_confirmar: { t: 'Entrega a confirmar', cor: 'verde', d: 'o portal da Ypê tem a entrega e ninguém confirmou ainda (a baixa do SSW já entra sozinha)', f: function (r) { return r.aconf > 0; } },
+    avisos: { t: 'Avisos do SSW', cor: 'vermelho', d: 'manifesto cancelado no SSW ou data do SSWScan que não confere', f: function (r) { return r.avisos > 0; } },
+    sem_sinal: { t: 'Sem sinal (Ypê)', cor: 'vermelho', d: 'portal da Ypê: monitoramento ativo com o rastreador offline agora — sem monitoramento a Ypê não paga diária', f: function (r) { return !!(r.mon && r.mon.estado === 'offline'); } },
+    sinal_caiu: { t: 'Sinal caiu (Ypê)', cor: 'laranja', d: 'portal da Ypê: o rastreador ficou offline em alguma leitura desta viagem', f: function (r) { return !!(r.mon && r.mon.fotos_off); } }
   };
   function casaBusca(r) {
     if (!S.busca) return true;
     var q = semAcento(S.busca), v = r.v;
     var alvo = [v.manifesto, v.placa, v.carreta, v.mot, v.dest200, v.orig200].concat(r.cs.map(function (c) {
-      return [c.k, c.nf, c.cliente, c.dest, c.cid, c.b10, c.pedido, c.placa, c.m.ocorrencia, c.m.anotacao].join(' ');
+      return [c.k, c.nf, c.cliente, c.dest, c.cid, c.b10, c.pedido, c.placa, c.m.ocorrencia, c.m.anotacao,
+              c.ype ? c.ype.pedido + ' ' + c.ype.carga : ''].join(' ');
     })).join(' ');
     return semAcento(alvo).indexOf(q) >= 0;
   }
@@ -366,7 +476,7 @@
     var k = [
       ['Viagens no mês', todas.length, plural(nC, 'CT-e', 'CT-e') + ' · R$ ' + moedaK(fr)],
       ['Em andamento', and, 'viagens com CT-e ainda não entregue'],
-      ['Entregas a confirmar', aconf, 'baixas do SSW em ' + plural(aconfV, 'viagem', 'viagens') + ' — um clique confirma'],
+      ['Entregas a confirmar', aconf, 'entregas do portal da Ypê em ' + plural(aconfV, 'viagem', 'viagens') + ' — um clique confirma'],
       ['Atrasadas', atr, 'previsão de chegada vencida, sem chegada no SSW']
     ];
     $('kpis').innerHTML = k.map(function (x) {
@@ -394,8 +504,33 @@
   // ── tabela ──
   // Cliente (quem paga, o pagador do CT-e) e Destinatário (onde entrega) em colunas separadas: juntas, a viagem
   // mostrava o cliente e o CT-e o destinatário, e pareciam se contradizer (Química Amparo → Martins, 26/11/2026)
-  var COLS = ['Viagem / CT-e', 'Status', 'Cliente', 'Destinatário', 'Pedido', 'Rota', 'Cavalo · motorista', 'Saída', 'Previsão', 'Chegada', 'Agenda', 'Entrega', 'Documentos (CRM)', 'Custo extra', 'Frete', 'Ocorrência no cliente', 'Anotação'];
+  // Monitoramento e Prazo cliente (27/11/2026): do portal da Ypê; nos outros clientes ficam vazios por enquanto
+  // Status embarque (27/11/2026): o status da carga no Embarques (o worker lê o GPS) — clicar abre o mapa
+  var COLS = ['Viagem / CT-e', 'Status', 'Cliente', 'Destinatário', 'Pedido', 'Rota', 'Cavalo · motorista', 'Status embarque', 'Monitoramento', 'Saída', 'Previsão', 'Prazo cliente', 'Chegada', 'Agenda', 'Entrega', 'Documentos (CRM)', 'Custo extra', 'Frete', 'Ocorrência no cliente', 'Anotação'];
 
+  // o "i" de cada coluna: de onde vem o dado (pedido de 27/11/2026)
+  var DICAS = {
+    'Viagem / CT-e': 'A viagem é o ÚLTIMO MANIFESTO do CT-e no SSW (a mesma âncora do Embarques) e abre os CT-e dela. CT-e sem manifesto ficam juntos pela placa da coleta e o dia.\n🗺️ mapa e 🛣️ ficha: a carga que o Embarques abriu para o manifesto (apagados = ainda não abriu).\nEntram todos os CT-e do mês, menos complementar, substituto e RPS (fica o RPS da Nestlé em Contagem).',
+    'Status': 'Cheio = marcado na tela ou vindo da planilha TRACKING (vale sempre). Com entrega (planilha, marcada ou baixa do SSW) = Entregue.\nTracejado = sugerido pelo SSW: chegada do manifesto no relatório 200 → No cliente; saída no 200 → Em trânsito; senão Carregando.\nNa viagem aparece o status do CT-e menos adiantado.',
+    'Cliente': 'Quem paga o frete: o pagador do CT-e no SSW (relatório 455).\n"Agrupar por cliente" junta pela raiz do CNPJ e pelos grupos econômicos.',
+    'Destinatário': 'Destinatário do CT-e no SSW (relatório 455). Na viagem com vários, mostra quantos.',
+    'Pedido': 'Pedido do cliente lido na observação do CT-e no SSW ("PEDIDO DE COMPRA", "PEDIDO", "O.C.").\nYpê: sem pedido na observação, o Nº do Pedido Cliente do portal MultiTMS (selo Ypê).',
+    'Rota': 'Origem: relatório 200 do SSW (sem ele, a cidade de origem da prestação do CT-e). Destino: cidade de entrega dos CT-e (+N = outras cidades).',
+    'Cavalo · motorista': 'Do manifesto no SSW (916). Sem manifesto, a placa da coleta — e não há motorista (ele só existe no manifesto).',
+    'Status embarque': 'Status da carga no Embarques, mudado pelo robô do rastreamento (GPS): Na origem; Em rota (saiu da origem); No destino (60 min parado na cidade da descarga); Desengatada; Continuada (seguiu em outra carga); Entregue.\nClique na etiqueta para abrir o mapa. Vazio = o Embarques ainda não abriu a carga do manifesto.',
+    'Monitoramento': 'Só Ypê, por enquanto: portal MultiTMS, lido 6×/dia nos horários do intradiário.\nMonitorado = monitoramento ativo e rastreador online. Sem sinal = ativo e rastreador offline (há quanto tempo da última posição). ⚠ = o sinal caiu em alguma leitura desta viagem.\nSem monitoramento ativo a Ypê não paga diária. O histórico começa em 27/11/2026.',
+    'Saída': 'Saída do manifesto no relatório 200 do SSW (data e hora).',
+    'Previsão': 'Previsão de chegada do manifesto no relatório 200 do SSW. Vermelho = passou e o SSW não registrou a chegada.',
+    'Prazo cliente': 'Só Ypê, por enquanto: a previsão de entrega que a Ypê cobra (portal MultiTMS). Vermelho = venceu sem entrega.',
+    'Chegada': 'Chegada do manifesto no relatório 200 do SSW (data e hora).',
+    'Agenda': 'Marcada na tela ou vinda da planilha TRACKING vale. Sem ela, a ocorrência 15 do SSW ("ENTREGA AGENDADA P/ …", selo SSW).\n"aguardando cliente" = ocorrência 35 do SSW. "!" = a agenda passou sem entrega.',
+    'Entrega': 'A da planilha TRACKING (selo planilha) ou a marcada na tela vale sempre.\nSem nada, entra a baixa do SSW (ocorrência 01, selo SSW, SSWMobile ou SSWScan). SSWScan com a data da emissão não vale: aparece "⚠ conferir".\nYpê: a entrega do portal entra como sugestão "a confirmar" — o ✓ grava.\nNa viagem: entregues/total e a data da última.',
+    'Documentos (CRM)': 'Etapa do CT-e no CRM - Documentos (canhoto, fatura…). Só leitura aqui.',
+    'Custo extra': 'Custos lançados no CRM - Documentos (descarga, diária…). Só leitura aqui.',
+    'Frete': 'Valor do frete do CT-e no SSW (relatório 455). Na viagem, a soma.',
+    'Ocorrência no cliente': 'Digitado: o nº da ocorrência aberta na plataforma do cliente.\nNa Química Amparo a planilha TRACKING usava esta coluna para o nº do pedido do cliente — veio na importação.',
+    'Anotação': 'Digitado. O que a planilha TRACKING tinha fora da lista (descarga, diária, status escritos de outro jeito) veio como "Planilha: …".'
+  };
   function pillStatus(cod, sug, extra, tit) {
     var s = S.st[cod] || { rot: cod, cor: 'cinza' };
     return '<span class="pill' + (sug ? ' sug' : '') + '" style="--cor:' + cor(s.cor) + '" title="' + esc(tit || (sug ? 'sugerido pelo SSW — clique para classificar' : 'marcado')) + '">' + esc(s.rot) + (extra ? '<small>' + extra + '</small>' : '') + '</span>';
@@ -411,13 +546,22 @@
     var l = Object.keys(ds);
     return esc(o.replace(/\/.*$/, '')) + ' → ' + esc(l[0] ? l[0].replace(/\/.*$/, '') : '?') + (l.length > 1 ? ' <span class="dim">+' + (l.length - 1) + '</span>' : '');
   }
-  // o pedido do cliente, lido da observação do CT-e ("PEDIDO DE COMPRA …", "PEDIDO …", "O.C. …")
+  // o pedido do cliente: da observação do CT-e ("PEDIDO DE COMPRA …", "PEDIDO …", "O.C. …") ou do portal da Ypê
+  function pedidoTxt(p) {
+    if (!p) return '<span class="vazio">—</span>';
+    return p.f === 'Ypê' ? '<span title="Nº do pedido do cliente no portal da Ypê">' + esc(p.p) + '</span><span class="selo">Ypê</span>'
+                         : '<span title="pedido na observação do CT-e">' + esc(p.p) + '</span>';
+  }
   function pedidoV(cs) {
-    var ps = {}; cs.forEach(function (c) { if (c.pedido) ps[c.pedido] = 1; });
+    var ps = {}; cs.forEach(function (c) { var p = pedidoDe(c); if (p) ps[p.p] = p; });
     var k = Object.keys(ps);
     if (!k.length) return '<span class="vazio">—</span>';
-    if (k.length === 1) return '<span title="pedido na observação do CT-e">' + esc(k[0]) + '</span>';
+    if (k.length === 1) return pedidoTxt(ps[k[0]]);
     return '<span class="dim" title="' + esc(k.slice(0, 12).join(' · ')) + '">' + k.length + ' pedidos</span>';
+  }
+  function prazoTxt(p, vencido) {
+    if (!p) return '<span class="vazio" title="por enquanto, só as cargas da Ypê (previsão de entrega no portal deles)">—</span>';
+    return '<span class="' + (vencido ? 'atraso' : '') + '" title="previsão de entrega que a Ypê cobra (portal MultiTMS)' + (vencido ? ' — vencida sem entrega' : '') + '">' + dmh(p) + '</span>';
   }
   function destV(cs) {
     var ds = {}; cs.forEach(function (c) { ds[c.dest || '?'] = 1; });
@@ -439,7 +583,7 @@
     return n ? '<span title="' + esc(Object.keys(tipos).join(', ') + ' — lançado no CRM - Documentos') + '">R$ ' + moeda(v) + '</span>' : '<span class="vazio">—</span>';
   }
   function entregaV(r) {
-    var conf = r.aconf ? ' <span class="selo">a confirmar ' + r.aconf + '</span><button class="ok-btn" data-confv="' + esc(r.v.v) + '" title="Confirmar as ' + r.aconf + ' entrega(s) que o SSW registrou nesta viagem, cada uma com a data dela">✓</button>' : '';
+    var conf = r.aconf ? ' <span class="selo">a confirmar ' + r.aconf + '</span><button class="ok-btn" data-confv="' + esc(r.v.v) + '" title="Confirmar as ' + r.aconf + ' entrega(s) que o portal da Ypê registrou nesta viagem, cada uma com a data dela">✓</button>' : '';
     if (r.entregues === r.cs.length && r.ultEnt) return dm(r.ultEnt) + conf;
     if (!r.entregues) return r.aconf ? conf.slice(1) : '<span class="vazio">—</span>';
     return '<span class="mono">' + r.entregues + '/' + r.cs.length + '</span>' + (r.ultEnt ? ' <span class="dim">últ. ' + dm(r.ultEnt) + '</span>' : '') + conf;
@@ -482,8 +626,11 @@
       + '<td class="mono txt">' + pedidoV(r.cs) + '</td>'
       + '<td>' + rotaV(r) + '</td>'
       + '<td class="txt"><span class="mono">' + esc(v.placa || '') + '</span> <span class="dim">' + esc(primeiroNome(v.mot)) + '</span></td>'
+      + '<td>' + mapaPill(v) + '</td>'
+      + '<td>' + monPill(r.mon, r.ype) + '</td>'
       + '<td>' + (v.saida ? dmh(v.saida) : vazio) + '</td>'
       + '<td>' + prev + '</td>'
+      + '<td>' + prazoTxt(r.prazo, r.prazoVencido) + '</td>'
       + '<td>' + (v.chegada ? dmh(v.chegada) : vazio) + '</td>'
       + edCell('v', v.v, 'agenda', r.agenda ? agendaTxt(r.agenda) + (r.agendaVencida ? ' <span class="atraso" title="agenda passou sem entrega">!</span>' : '') : '<span class="vazio">—</span>', 'clique para marcar a agenda' + todos)
       + edCell('v', v.v, 'entrega', entregaV(r), 'clique para marcar a entrega' + todos)
@@ -500,20 +647,26 @@
     if (c.ssw.avisos.length) cls.push('div');
     if (S.sel.has(c.k)) cls.push('sel');
     var ent;
-    if (e && e.conf) ent = '<b>' + dm(e.data) + '</b>';
-    else if (e) ent = '<span class="sugerida" title="baixa de entrega no SSW (' + esc(e.fonte) + ') — confirme se estiver certo">' + dm(e.data) + '</span><span class="selo">' + esc(e.fonte) + '</span><button class="ok-btn" data-conf="' + esc(c.k) + '" title="Confirmar a entrega em ' + dmy(e.data) + '">✓</button>';
+    if (e && e.conf) ent = '<b title="entrega: ' + esc(origemEnt(e)) + '">' + dm(e.data) + '</b>' + (seloOrigem(e) ? '<span class="selo">' + esc(seloOrigem(e)) + '</span>' : '');
+    else if (e) ent = '<span class="sugerida" title="baixa de entrega ' + esc(ondeEnt(e.fonte)) + ' — confirme se estiver certo">' + dm(e.data) + '</span><span class="selo">' + esc(seloEnt(e.fonte)) + '</span><button class="ok-btn" data-conf="' + esc(c.k) + '" title="Confirmar a entrega em ' + dmy(e.data) + '">✓</button>';
     else if (c.ssw.entrega && c.ssw.entrega.aviso) ent = '<span class="alerta" title="' + esc(c.ssw.entrega.aviso) + '">⚠ conferir</span>';
     else ent = '<span class="vazio">—</span>';
     return '<tr class="' + cls.join(' ') + '" data-k="' + esc(c.k) + '">'
       + '<td class="chave">' + chk('data-sel="' + esc(c.k) + '"', S.sel.has(c.k)) + '<a href="#" data-gav-c="' + esc(c.k) + '">' + esc(c.k) + '</a>'
       + '<span class="ncte">NF ' + esc(c.nf) + (c.b10 ? ' · ' + esc(c.b10) : '') + '</span>'
       + (c.ssw.avisos.length ? '<span class="aviso-i" title="' + esc(c.ssw.avisos.join(' · ')) + '">⚠</span>' : '') + '</td>'
-      + edCell('c', c.k, 'status', pillStatus(s.cod, s.sug, '', s.sug ? 'sugerido: ' + s.por + ' — clique para classificar' : 'clique para mudar'))
+      + edCell('c', c.k, 'status', pillStatus(s.cod, s.sug, '', s.sug ? 'sugerido: ' + s.por + ' — clique para classificar'
+          : (s.origem === 'planilha' ? 'da planilha TRACKING' : s.origem === 'ssw' ? 'pela baixa de entrega no SSW (' + (s.por || '') + ')' : 'marcado') + ' — clique para mudar'))
       + '<td class="txt dim" title="' + esc(c.cliente) + '">' + esc(c.cliente) + '</td>'
       + '<td class="txt" title="' + esc(c.dest) + '">' + esc(c.dest) + '</td>'
-      + '<td class="mono txt">' + (c.pedido ? esc(c.pedido) : '<span class="vazio">—</span>') + '</td>'
+      + '<td class="mono txt">' + pedidoTxt(pedidoDe(c)) + '</td>'
       + '<td class="dim">' + esc(c.cid || '') + '/' + esc(c.uf || '') + '</td>'
-      + '<td></td><td></td><td></td><td></td>'
+      + '<td></td><td></td>'
+      // o monitoramento é da carga da Ypê: no CT-e só aparece quando a viagem leva mais de uma carga deles
+      + '<td>' + (c.ype && c.ype.mon && v && cargasYpe(S.porViagem[v.v] || []) > 1 ? monPill(c.ype.mon, true) : '') + '</td>'
+      + '<td></td><td></td>'
+      + '<td>' + (c.ype && c.ype.prazo ? prazoTxt(c.ype.prazo, c.ype.prazo.slice(0, 10) < S.dados.hoje && !fechada(s.cod)) : '') + '</td>'
+      + '<td></td>'
       + edCell('c', c.k, 'agenda', agendaTxt(agendaDe(c), c.ssw.aguardando_agenda))
       + edCell('c', c.k, 'entrega', ent, 'clique para digitar a data da entrega')
       + '<td>' + (c.crm ? '<span class="pill" style="--cor:' + cor(c.crm.cor) + '" title="' + esc(c.crm.carteira) + '">' + esc(c.crm.rot) + '</span>' : '<span class="vazio">—</span>') + '</td>'
@@ -537,7 +690,10 @@
 
     var tab = $('tabela');
     tab.classList.toggle('em-cli', S.agrupar);
-    tab.querySelector('thead').innerHTML = '<tr>' + COLS.map(function (c) { return '<th' + (c === 'Custo extra' || c === 'Frete' ? ' style="text-align:right"' : '') + '>' + esc(c) + '</th>'; }).join('') + '</tr>';
+    tab.querySelector('thead').innerHTML = '<tr>' + COLS.map(function (c) {
+      return '<th' + (c === 'Custo extra' || c === 'Frete' ? ' style="text-align:right"' : '') + '>' + esc(c)
+        + (DICAS[c] ? '<span class="info-i" data-dica="' + esc(c) + '" tabindex="0" aria-label="De onde vem: ' + esc(c) + '">i</span>' : '') + '</th>';
+    }).join('') + '</tr>';
     var h = '', n = 0;
     function viagemComFilhos(r) {
       h += linhaViagem(r); n++;
@@ -630,7 +786,7 @@
     if (!ds.length) return;
     var p = Promise.resolve();
     ds.forEach(function (d) { p = p.then(function () { return gravar(porData[d], 'entrega', d, ' ').then(function (j) { if (j) total += j.mudou; }); }); });
-    p.then(function () { toast(plural(total, 'entrega confirmada', 'entregas confirmadas') + ' com a data do SSW'); });
+    p.then(function () { toast(plural(total, 'entrega confirmada', 'entregas confirmadas') + ' com a data do portal'); });
   }
 
   // ── edição na célula ──
@@ -682,16 +838,19 @@
       ['Agenda', r.agenda ? r.agenda.v : null, false, r.agendaVencida],
       ['Entregas', r.ultEnt, r.entregues === r.cs.length, false, r.entregues + '/' + r.cs.length + ' CT-e']
     ];
+    if (r.prazo) passos.splice(4, 0, ['Prazo da Ypê', r.prazo, false, r.prazoVencido]);
     var h = '';
     var avs = []; r.cs.forEach(function (c) { c.ssw.avisos.forEach(function (a) { avs.push(c.k + ': ' + a); }); });
     if (avs.length) h += '<div class="bloco">' + avs.map(function (a) { return '<div class="aviso-div">' + esc(a) + '</div>'; }).join('') + '</div>';
     h += '<div class="bloco"><h3>Linha do tempo</h3><ul class="linha-tempo">' + passos.map(function (p) {
       return '<li class="' + (p[3] ? 'atr' : p[2] ? 'feito' : '') + '"><span class="p"></span><span>' + esc(p[0]) + '</span><span class="d">' + (p[1] ? dmh(p[1]) : '—') + (p[4] ? ' · ' + esc(p[4]) : '') + (p[3] ? ' · <b class="atraso">vencida</b>' : '') + '</span></li>';
     }).join('') + '</ul></div>';
-    h += '<div class="bloco"><h3>Veículo</h3>' + kv([['Cavalo', v.placa], ['Carreta', v.carreta], ['Motorista', v.mot], ['Proprietário', v.prop], ['Situação no SSW', v.sit200], ['Origem → destino (200)', (v.orig200 || '?') + ' → ' + (v.dest200 || '?')]]) + '</div>';
+    h += '<div class="bloco"><h3>Veículo</h3>' + kv([['Cavalo', v.placa], ['Carreta', v.carreta], ['Motorista', v.mot], ['Proprietário', v.prop], ['Situação no SSW', v.sit200], ['Origem → destino (200)', (v.orig200 || '?') + ' → ' + (v.dest200 || '?')],
+      ['Status embarque', v.mapa ? mapaPill(v) + ' <span class="dim">' + esc(mapaInfo(v.mapa).tit.split('\n')[0].replace(/^Embarques: [^—]*— ?/, '')) + '</span>' : '', true]]) + '</div>';
+    h += blocoYpe(r.cs);
     h += '<div class="bloco"><h3>' + plural(r.cs.length, 'CT-e', 'CT-e') + '</h3><table class="mini"><tr><th>CTRC</th><th>Destinatário</th><th>Status</th><th>Entrega</th></tr>' + r.cs.map(function (c) {
       var s = statusDe(c), e = entregaDe(c);
-      return '<tr><td class="mono"><a href="#" data-gav-c="' + esc(c.k) + '" style="color:var(--accent)">' + esc(c.k) + '</a></td><td>' + esc(c.dest) + '</td><td>' + pillStatus(s.cod, s.sug) + '</td><td>' + (e ? dm(e.data) + (e.conf ? '' : ' <span class="selo">' + esc(e.fonte) + '</span>') : '—') + '</td></tr>';
+      return '<tr><td class="mono"><a href="#" data-gav-c="' + esc(c.k) + '" style="color:var(--accent)">' + esc(c.k) + '</a></td><td>' + esc(c.dest) + '</td><td>' + pillStatus(s.cod, s.sug) + '</td><td>' + (e ? dm(e.data) + (seloOrigem(e) ? ' <span class="selo">' + esc(seloOrigem(e)) + (e.conf ? '' : ' · a confirmar') + '</span>' : '') : '—') + '</td></tr>';
     }).join('') + '</table></div>';
     if (v.manifesto) h += '<div class="bloco" style="display:flex;gap:8px;flex-wrap:wrap">'
       + (v.carga_id ? '<a class="btn-sm" href="/embarques/cargas/' + v.carga_id + '/mapa" target="_blank" rel="noopener">🗺️ Mapa da viagem ↗</a>'
@@ -706,12 +865,13 @@
     var base = '';
     if (c.ssw.avisos.length) base += '<div class="bloco">' + c.ssw.avisos.map(function (x) { return '<div class="aviso-div">' + esc(x) + '</div>'; }).join('') + '</div>';
     base += '<div class="bloco"><h3>CT-e</h3>' + kv([['Emissão', dmy(c.emissao)], ['Tipo', c.tipo], ['Cliente (pagador)', c.cliente], ['Raiz do CNPJ', c.raiz], ['Remetente', c.reme], ['Destinatário', c.dest],
-      ['Entrega em', (c.cid || '') + '/' + (c.uf || '')], ['Nota fiscal', c.nf], ['Pedido', c.pedido], ['Carga (B10)', c.b10], ['Frete', 'R$ ' + moeda(c.frete)], ['Peso', c.peso ? c.peso.toLocaleString('pt-BR') + ' kg' : ''], ['Viagem', c.v.indexOf('SEM:') === 0 ? 'sem manifesto' : c.v]]) + '</div>';
+      ['Entrega em', (c.cid || '') + '/' + (c.uf || '')], ['Nota fiscal', c.nf], ['Pedido', pedidoDe(c) ? pedidoDe(c).p + (pedidoDe(c).f === 'Ypê' ? ' (portal da Ypê)' : '') : ''], ['Carga (B10)', c.b10], ['Frete', 'R$ ' + moeda(c.frete)], ['Peso', c.peso ? c.peso.toLocaleString('pt-BR') + ' kg' : ''], ['Viagem', c.v.indexOf('SEM:') === 0 ? 'sem manifesto' : c.v]]) + '</div>';
     base += '<div class="bloco"><h3>Acompanhamento</h3>' + kv([
       ['Status', pillStatus(s.cod, s.sug) + (s.sug ? ' <span class="dim">' + esc(s.por) + '</span>' : ''), true],
       ['Agenda', a ? dmh(a.v) + (a.ssw ? ' (SSW, ocorrência 15)' : ' (marcada)') : (c.ssw.aguardando_agenda ? 'aguardando o cliente (ocorrência 35)' : '—')],
-      ['Entrega', e ? dmy(e.data) + (e.conf ? ' (confirmada)' : ' (SSW ' + e.fonte + ', a confirmar)') : '—'],
+      ['Entrega', e ? dmy(e.data) + ' (' + origemEnt(e) + ')' : '—'],
       ['Ocorrência no cliente', c.m.ocorrencia || '—'], ['Anotação', c.m.anotacao || '—'], ['Última mudança', c.por ? c.por : '']]) + '</div>';
+    base += blocoYpe([c]);
     if (c.crm) base += '<div class="bloco"><h3>Documentos (CRM - Documentos)</h3>' + kv([['Carteira', c.crm.carteira], ['Etapa', '<span class="pill" style="--cor:' + cor(c.crm.cor) + '">' + esc(c.crm.rot) + '</span>', true],
       ['Custo extra', (c.crm.custos || []).length ? c.crm.custos.map(function (x) { return x.tipo + ' R$ ' + moeda(x.valor) + (x.status ? ' (' + x.status + ')' : ''); }).join(' · ') : '—']]) + '<div class="nota" style="margin-top:6px">Só leitura aqui — a etapa e o custo extra se mudam no <a href="/crm-documentos" style="color:var(--accent)">CRM - Documentos</a>.</div></div>';
     gaveta(c.k, esc(c.cliente) + ' · NF ' + esc(c.nf), base + '<div class="bloco"><h3>Ocorrências no SSW e histórico</h3><div class="nota">carregando…</div></div>');
@@ -731,16 +891,20 @@
   // ── planilha (um CT-e por linha, como a TRACKING) ──
   function baixarPlanilha() {
     var cab = ['Numero CTRC', 'Tipo do Documento', 'Data emissão', 'Cliente (pagador)', 'Remetente', 'Destinatário', 'Cidade entrega', 'UF', 'Nota fiscal', 'Pedido', 'Valor frete', 'B10',
-      'Manifesto', 'Placa cavalo', 'Motorista', 'Saída', 'Previsão', 'Chegada', 'Agenda', 'Agenda (fonte)', 'Data entrega', 'Entrega (fonte)', 'Status', 'Ocorrência no cliente', 'Anotação', 'Etapa CRM', 'Custo extra'];
+      'Manifesto', 'Placa cavalo', 'Motorista', 'Saída', 'Previsão', 'Chegada', 'Agenda', 'Agenda (fonte)', 'Data entrega', 'Entrega (fonte)', 'Status', 'Ocorrência no cliente', 'Anotação', 'Etapa CRM', 'Custo extra',
+      'Carga Ypê', 'Prazo cliente', 'Monitoramento', 'Status embarque'];
     var linhas = [cab];
     visiveis().forEach(function (r) {
       r.cs.forEach(function (c) {
         var s = statusDe(c), e = entregaDe(c), a = agendaDe(c), v = r.v;
         var cx = ((c.crm || {}).custos || []).reduce(function (t, x) { return t + (x.valor || 0); }, 0);
-        linhas.push([c.k, c.tipo, dmy(c.emissao), c.cliente, c.reme, c.dest, c.cid, c.uf, c.nf, c.pedido || '', moeda(c.frete), c.b10 || '',
+        var y = c.ype || {}, mo = y.mon;
+        linhas.push([c.k, c.tipo, dmy(c.emissao), c.cliente, c.reme, c.dest, c.cid, c.uf, c.nf, pedidoDe(c) ? pedidoDe(c).p : '', moeda(c.frete), c.b10 || '',
           v.manifesto || '', v.placa, v.mot || '', dmh(v.saida), dmh(v.prev), dmh(v.chegada), a ? dmh(a.v) : '', a ? (a.ssw ? 'SSW' : 'marcada') : '',
-          e ? dmy(e.data) : '', e ? (e.conf ? 'confirmada' : 'SSW ' + e.fonte) : '', (S.st[s.cod] || {}).rot + (s.sug ? ' (sugerido)' : ''), c.m.ocorrencia || '', c.m.anotacao || '',
-          c.crm ? c.crm.rot : '', cx ? moeda(cx) : '']);
+          e ? dmy(e.data) : '', origemEnt(e), (S.st[s.cod] || {}).rot + (s.sug ? ' (sugerido)' : ''), c.m.ocorrencia || '', c.m.anotacao || '',
+          c.crm ? c.crm.rot : '', cx ? moeda(cx) : '',
+          y.carga || '', y.prazo ? dmh(y.prazo) : '', mo ? (MON[mo.estado] || {}).rot + (mo.fotos_off ? ' (offline em ' + mo.fotos_off + ' leituras)' : '') : '',
+          v.mapa ? (MAPA[v.mapa.status] || { rot: v.mapa.status }).rot : '']);
       });
     });
     var csv = '﻿' + linhas.map(function (l) { return l.map(function (x) { x = String(x == null ? '' : x); return /[;"\n]/.test(x) ? '"' + x.replace(/"/g, '""') + '"' : x; }).join(';'); }).join('\r\n');
@@ -750,9 +914,38 @@
     document.body.appendChild(a); a.click(); a.remove();
   }
 
+  // ── o "i" dos cabeçalhos: passar o mouse (ou tocar/focar) mostra de onde vem o dado ──
+  function mostrarDica(el) {
+    var d = $('dica'), nome = el.dataset.dica;
+    d.innerHTML = '<b>' + esc(nome) + '</b>' + esc(DICAS[nome] || '');
+    d.hidden = false;
+    var r = el.getBoundingClientRect(), w = d.offsetWidth, h = d.offsetHeight;
+    var x = Math.max(8, Math.min(r.left - 12, window.innerWidth - w - 8));
+    var y = r.bottom + 8 + h > window.innerHeight ? Math.max(8, r.top - h - 8) : r.bottom + 8;
+    d.style.left = x + 'px'; d.style.top = y + 'px';
+    document.querySelectorAll('.info-i.on').forEach(function (x) { x.classList.remove('on'); });
+    el.classList.add('on');
+  }
+  function esconderDica() { $('dica').hidden = true; document.querySelectorAll('.info-i.on').forEach(function (x) { x.classList.remove('on'); }); }
+  document.addEventListener('mouseover', function (ev) { var el = ev.target.closest && ev.target.closest('.info-i'); if (el) mostrarDica(el); });
+  document.addEventListener('mouseout', function (ev) { if (ev.target.closest && ev.target.closest('.info-i')) esconderDica(); });
+  document.addEventListener('focusin', function (ev) { if (ev.target.matches && ev.target.matches('.info-i')) mostrarDica(ev.target); });
+  document.addEventListener('focusout', function (ev) { if (ev.target.matches && ev.target.matches('.info-i')) esconderDica(); });
+  // rolar a tabela leva o "i" junto: o balão acompanha (some se o "i" sair da tela)
+  document.querySelector('.tabela-box').addEventListener('scroll', function () {
+    var el = document.querySelector('.info-i.on');
+    if (!el || $('dica').hidden) return;
+    var r = el.getBoundingClientRect();
+    if (r.right < 0 || r.left > window.innerWidth) esconderDica(); else mostrarDica(el);
+  }, { passive: true });
+
   // ── eventos ──
   document.addEventListener('click', function (ev) {
     var t = ev.target;
+    var ii = t.closest('.info-i');
+    // clicar/tocar sempre abre (no celular o toque também dispara o mouseover antes); fecha clicando fora
+    if (ii) { ev.preventDefault(); mostrarDica(ii); return; }
+    if (!$('dica').hidden) esconderDica();
     if (S.edit && !S.edit.td.contains(t)) salvarEditor(false);
     var el;
     if ((el = t.closest('[data-filtro]'))) { S.filtro = S.filtro === el.dataset.filtro ? null : el.dataset.filtro; render(); return; }

@@ -1303,8 +1303,9 @@ def api_acompanhamento():
         marc, crm_k, cargas = _acomp_db(lambda cur: (ac.marcacoes(cur, chaves), ac.crm_dos_ctes(cur, chaves, crm.CARTEIRAS),
                                                      ac.cargas_dos_manifestos(cur, mans)))
         r = ac.montar(d, marc, crm_k, GRUPOS_ECONOMICOS)
-        for v in r['viagens'].values():   # mapa e ficha da viagem: a carga do Embarques
-            v['carga_id'] = cargas.get(re.sub(r'[^A-Z0-9]', '', (v['manifesto'] or '').upper()))
+        for v in r['viagens'].values():   # mapa, ficha e status embarque da viagem: a carga do Embarques
+            v['mapa'] = cargas.get(re.sub(r'[^A-Z0-9]', '', (v['manifesto'] or '').upper()))
+            v['carga_id'] = v['mapa']['id'] if v['mapa'] else None
         return jsonify({'ok': True, 'mes': d['mes'], 'ini': d['ini'], 'fim': d['fim'], 'lido_em': d['lido_em'],
                         'hoje': ac.hoje_brt().isoformat(), 'status': ac.STATUS, 'rotulos': ac.ROTULO_CAMPO,
                         'ctes': r['ctes'], 'viagens': r['viagens']})
