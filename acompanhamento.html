@@ -143,6 +143,10 @@
   table.mini td, table.mini th { padding: 4px 6px; border-bottom: 1px solid var(--border); text-align: left; }
   table.mini th { color: var(--text-dim); font-size: 0.64rem; text-transform: uppercase; }
 
+  .vinc-form { margin: 8px 0; padding: 9px 10px; border: 1px solid rgba(var(--accent-rgb),.35); border-radius: 8px; background: rgba(var(--accent-rgb),.05); }
+  .vinc-linha { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; font-size: 0.76rem; }
+  .vinc-form select, .vinc-form input, .gaveta input.cx-cte, .gaveta input.cx-valor { padding: 4px 7px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 0.76rem; }
+  button.desv { color: var(--red); }
   th.ordena { cursor: pointer; user-select: none; }
   th.ordena:hover { color: var(--text); }
   th.ordena.ativa { color: var(--accent); }
@@ -375,6 +379,7 @@
     a_cobrar: { rot: 'A cobrar', cor: 'vermelho', ordem: 1, d: 'pago (ou informado) e nada cobrado do cliente' },
     parcial: { rot: 'Cobrada a menor', cor: 'laranja', ordem: 2, d: 'cobrou menos do que foi pago' },
     sem_regra: { rot: 'Sem regra', cor: 'amarelo', ordem: 3, d: 'cliente fora da planilha de reembolso — não se sabe se reembolsa' },
+    a_mais: { rot: 'Cobrada a mais', cor: 'indigo', ordem: 4, d: 'possível duplicidade: 2+ documentos de cobrança no mesmo destinatário e o cobrado passa do pago além do imposto (10%)' },
     cobrada: { rot: 'Cobrada', cor: 'verde', ordem: 5, d: 'o cobrado cobre o pago' },
     incluida: { rot: 'No frete', cor: 'verde', ordem: 5, d: 'coberta pelo que já vai no CT-e (Outros / R$ 500 da Doce Mineiro)' },
     nao_reembolsa: { rot: 'Custo Rizza', cor: 'cinza', ordem: 6, d: 'o cliente não reembolsa (ou frete FOB em cliente que só reembolsa CIF)' }
@@ -391,6 +396,7 @@
       if (!g[d.g]) { g[d.g] = { k: d.g, dest: c.dest, cs: [], inf: 0, pago: 0, cobr: 0, outros: 0, regra: d.regra, fob: false, temInf: false }; ordem.push(d.g); }
       var x = g[d.g];
       x.cs.push(c); x.inf += valorNum(c.m.descarga); x.pago += somaV(d.pago); x.cobr += somaV(d.cobr); x.outros += d.outros || 0;
+      x.docs = x.docs || {}; (d.cobr || []).forEach(function (q) { x.docs[q.ctrc] = 1; });
       x.temInf = x.temInf || temDesc(c);
       if (/^F/.test(d.tf || '')) x.fob = true;
     });
@@ -405,7 +411,7 @@
     x.falta = Math.max(0, x.base - x.rec);
     if (x.base <= 0) x.sit = x.cobr > 0 ? 'cobrada' : null;
     else if (tipo === 'nao' || (tipo === 'so_cif' && x.fob)) { x.sit = 'nao_reembolsa'; x.falta = 0; }
-    else if (x.falta <= 1) x.sit = x.cobr > 0 ? 'cobrada' : 'incluida';
+    else if (x.falta <= 1) x.sit = Object.keys(x.docs || {}).length >= 2 && x.rec > x.base * 1.10 + 1 ? 'a_mais' : x.cobr > 0 ? 'cobrada' : 'incluida';
     else if (!x.regra) x.sit = 'sem_regra';
     else x.sit = x.rec > 0 ? 'parcial' : 'a_cobrar';
     x.difInf = x.temInf && x.pago > 0 && Math.abs(x.inf - x.pago) > 1;
@@ -415,11 +421,12 @@
   }
   function descResumo(cs) {
     var gs = descGrupos(cs), s = { gs: gs, base: 0, pago: 0, inf: 0, cobr: 0, incluso: 0, falta: 0, nDest: 0, nCobr: 0, pior: null,
-                                   difInf: 0, infSemPago: 0, pagoSemInf: 0, custo: 0, semRegra: 0, aCobrar: 0 };
+                                   difInf: 0, infSemPago: 0, pagoSemInf: 0, custo: 0, semRegra: 0, aCobrar: 0, dup: 0 };
     gs.forEach(function (x) {
       s.base += x.base; s.pago += x.pago; s.inf += x.inf; s.cobr += x.cobr; s.incluso += x.incluso;
       if (x.base > 0) s.nDest++;
-      if (x.sit === 'cobrada' || x.sit === 'incluida') s.nCobr++;
+      if (x.sit === 'cobrada' || x.sit === 'incluida' || x.sit === 'a_mais') s.nCobr++;
+      if (x.sit === 'a_mais') s.dup += x.rec - x.base;
       if (x.sit && (!s.pior || DESC[x.sit].ordem < DESC[s.pior].ordem)) s.pior = x.sit;
       if (x.difInf) s.difInf++;
       if (x.infSemPago) s.infSemPago++;
@@ -440,6 +447,14 @@
       + (falta > 1 && sit !== 'nao_reembolsa' ? '<small>R$ ' + moeda(falta) + '</small>' : '') + '</span>' + (extra || '');
   }
   function moedaOu(v) { return v > 0.004 ? moeda(v) : '<span class="vazio">—</span>'; }
+  // o valor cobrado e o nº do(s) documento(s) que cobraram — para conferir
+  function cobradaTxt(cs) {
+    var v = 0, docs = {}, tit = [];
+    cs.forEach(function (c) { ((c.desc || {}).cobr || []).forEach(function (x) { v += x.v || 0; if (!docs[x.ctrc]) tit.push(x.ctrc + ' · R$ ' + moeda(x.total || x.v) + ' · ' + x.por + (x.obs ? '\n' + x.obs : '')); docs[x.ctrc] = 1; }); });
+    var k = Object.keys(docs);
+    if (!k.length) return '<span class="vazio">—</span>';
+    return '<span title="' + esc(tit.join('\n\n')) + '">' + moeda(v) + ' <span class="dim mono">' + (k.length === 1 ? esc(k[0]) : k.length + ' docs') + '</span></span>';
+  }
   function blocoDescarga(cs) {
     var s = descResumo(cs);
     var pg = [], cb = [], cr = [];
@@ -449,26 +464,101 @@
       (d.cobr || []).forEach(function (p) { cb.push([c, p]); });
       (d.carregamento || []).forEach(function (p) { cr.push([c, p]); });
     });
-    if (!s.gs.length && !pg.length && !cb.length && !cs.some(temDesc)) return '';
+    var grupos = descGrupos(cs).length ? s.gs : [];
+    // destinatários sem nada ainda também podem receber um vínculo
+    var todos = {}; cs.forEach(function (c) { var g = (c.desc || {}).g; if (g && !todos[g]) todos[g] = { k: g, dest: c.dest, cs: [] }; if (g) todos[g].cs.push(c); });
     var h = '<div class="bloco"><h3>Descarga</h3>';
-    if (s.gs.length) h += '<table class="mini"><tr><th>Destinatário</th><th>Informado</th><th>Pago 477</th><th>No frete</th><th>Cobrado</th><th>Falta</th><th></th></tr>'
-      + s.gs.map(function (x) {
-        return '<tr><td>' + esc(String(x.dest || '').slice(0, 28)) + '</td><td>' + moedaOu(x.inf) + '</td><td>' + moedaOu(x.pago) + '</td><td>' + moedaOu(x.incluso)
-          + '</td><td>' + moedaOu(x.cobr) + '</td><td>' + (x.falta > 1 ? '<b class="atraso">' + moeda(x.falta) + '</b>' : '—') + '</td><td>' + descPill(x.sit, 0) + '</td></tr>';
+    h += '<table class="mini"><tr><th>Destinatário</th><th>Informado</th><th>Pago 477</th><th>No frete</th><th>Cobrado</th><th>Falta</th><th></th><th></th></tr>'
+      + Object.keys(todos).map(function (gk) {
+        var x = grupos.filter(function (y) { return y.k === gk; })[0] || { inf: 0, pago: 0, incluso: 0, cobr: 0, falta: 0 };
+        return '<tr><td>' + esc(String(todos[gk].dest || '').slice(0, 28)) + '</td><td>' + moedaOu(x.inf) + '</td><td>' + moedaOu(x.pago) + '</td><td>' + moedaOu(x.incluso)
+          + '</td><td>' + moedaOu(x.cobr) + '</td><td>' + (x.falta > 1 ? '<b class="atraso">' + moeda(x.falta) + '</b>' : '—') + '</td><td>' + descPill(x.sit, 0) + '</td>'
+          + '<td><button class="link" data-vinc-g="' + esc(gk) + '" title="Vincular uma cobrança (complementar/RPS) ou um pagamento do 477 a este destinatário">+ vincular</button></td></tr>';
       }).join('') + '</table>';
+    if (S.vinc && todos[S.vinc.g]) h += formVinculo(todos[S.vinc.g]);
     var rg = (s.gs[0] || {}).regra || (cs[0].desc || {}).regra;
     h += '<div class="nota" style="margin-top:6px">' + (rg ? '<b>' + esc(rg.cliente) + ':</b> ' + esc(REGRA_TXT[rg.tipo] || rg.tipo) + (rg.canal ? ' · ' + esc(rg.canal) : '') + (rg.prazo ? ' · prazo: ' + esc(rg.prazo) : '')
       : 'Cliente fora da planilha de reembolso de descarga — sem regra cadastrada.') + '</div>';
-    if (pg.length) h += '<h3 style="margin-top:10px">Pago ao chapa (477, evento 5100)</h3><table class="mini"><tr><th>Data</th><th>Lanç.</th><th>Fornecedor</th><th>Valor</th><th>CT-e</th></tr>'
-      + pg.map(function (x) { return '<tr title="' + esc(x[1].hist || '') + '"><td>' + dm(x[1].em) + '</td><td class="mono">' + esc(x[1].lanc) + '</td><td>' + esc(String(x[1].forn || '').slice(0, 26)) + '</td><td>' + moeda(x[1].v) + '</td><td class="mono">' + esc(x[0].k) + '</td></tr>'; }).join('') + '</table>';
-    if (cb.length) h += '<h3 style="margin-top:10px">Cobrado do cliente</h3><table class="mini"><tr><th>Doc.</th><th>Tipo</th><th>Emissão</th><th>Valor</th><th>Ligado por</th></tr>'
+    if (pg.length) h += '<h3 style="margin-top:10px">Pago ao chapa (477, evento 5100)</h3><table class="mini"><tr><th>Data</th><th>Lanç.</th><th>Fornecedor</th><th>Valor</th><th>CT-e</th><th>Ligado por</th><th></th></tr>'
+      + pg.map(function (x) {
+        return '<tr title="' + esc(x[1].hist || '') + '"><td>' + dm(x[1].em) + '</td><td class="mono">' + esc(x[1].lanc) + '</td><td>' + esc(String(x[1].forn || '').slice(0, 24)) + '</td><td>' + moeda(x[1].v) + '</td><td class="mono">' + esc(x[0].k)
+          + '</td><td>' + esc(x[1].por || '') + '</td><td><button class="link desv" data-desv="pago" data-doc="' + esc(x[1].lanc) + '" data-cte="' + esc(x[0].k) + '" title="Desvincular deste CT-e">✕</button></td></tr>';
+      }).join('') + '</table>';
+    if (cb.length) h += '<h3 style="margin-top:10px">Cobrado do cliente</h3><table class="mini"><tr><th>Documento</th><th>Tipo</th><th>Emissão</th><th>Valor</th><th>Refere-se a</th><th>Ligado por</th><th></th></tr>'
       + cb.map(function (x) {
         var p = x[1];
         return '<tr title="' + esc(p.obs || '') + '"><td class="mono">' + esc(p.ctrc) + '</td><td>' + esc(String(p.tipo || '').indexOf('COMPL') === 0 ? 'complementar' : 'RPS') + '</td><td>' + dm(p.em) + '</td><td>' + moeda(p.v)
-          + (p.n > 1 ? ' <span class="dim">de ' + moeda(p.total) + '</span>' : '') + '</td><td>' + esc(p.por) + '</td></tr>';
+          + (p.total && Math.abs(p.total - p.v) > 0.01 ? ' <span class="dim">de ' + moeda(p.total) + '</span>' : '') + '</td><td class="mono">' + esc(x[0].k) + '</td><td>' + esc(p.por) + '</td>'
+          + '<td><button class="link desv" data-desv="cobr" data-doc="' + esc(p.ctrc) + '" data-cte="' + esc(x[0].k) + '" title="Desvincular deste CT-e">✕</button></td></tr>';
       }).join('') + '</table>';
     if (cr.length) h += '<div class="nota" style="margin-top:6px">Carregamento pago no 5100 (não entra na descarga): ' + cr.map(function (x) { return esc(x[0].k) + ' R$ ' + moeda(x[1].v); }).join(' · ') + '</div>';
-    return h + '<div class="nota" style="margin-top:6px">Pago e cobrado ligados sozinhos (NF do histórico do 477; chave, CTRC, nº do CT-e ou NF na observação da cobrança). Cobrança em lote sem referência (fatura consolidada, fechamento do mês) ainda não liga.</div></div>';
+    return h + '<div class="nota" style="margin-top:6px">Ligado sozinho: o pagamento pela NF do histórico do 477; a cobrança pela referência da observação (chave, CTRC, nº do CT-e ou NF). O que estiver errado: ✕ desvincula (vai para a caixa de entrada); "+ vincular" liga à mão.</div></div>';
+  }
+  // o formulário de vincular, dentro da gaveta
+  function formVinculo(g) {
+    var f = S.vinc;
+    var h = '<div class="vinc-form"><div class="vinc-linha"><b>Vincular a ' + esc(String(g.dest || '').slice(0, 30)) + '</b>'
+      + '<select id="vincTipo"><option value="cobr"' + (f.tipo === 'cobr' ? ' selected' : '') + '>Cobrança (complementar / RPS)</option><option value="pago"' + (f.tipo === 'pago' ? ' selected' : '') + '>Pagamento do 477 (5100)</option></select>'
+      + '<input id="vincQ" placeholder="' + (f.tipo === 'pago' ? 'nº do lançamento ou NF' : 'CTRC, nº do CT-e ou NF') + '" value="' + esc(f.q || '') + '">'
+      + '<button class="btn-sm" id="vincBuscar">Buscar</button><button class="link" id="vincFechar">fechar</button></div>'
+      + '<div class="vinc-linha"><span class="dim">no CT-e</span><select id="vincCte">' + g.cs.map(function (c) { return '<option>' + esc(c.k) + '</option>'; }).join('') + '</select></div>';
+    if (f.carregando) h += '<div class="nota">procurando…</div>';
+    else if (f.docs && !f.docs.length) h += '<div class="nota">Nada encontrado no último ano.</div>';
+    else if (f.docs) h += '<table class="mini">' + f.docs.map(function (d, i) {
+      return '<tr title="' + esc(d.desc || '') + '"><td class="mono">' + esc(d.doc) + '</td><td>' + dm(d.em) + '</td><td>' + esc(String(d.forn || d.cliente || '').slice(0, 22)) + '</td><td>R$ ' + moeda(d.total) + (d.descarga === false ? ' <span class="selo" title="a observação não fala em descarga">?</span>' : '') + '</td>'
+        + '<td><input class="vinc-valor" data-i="' + i + '" value="' + esc(moeda(d.total)) + '" style="width:90px"></td><td><button class="btn-sm" data-vinc-doc="' + i + '">Vincular</button></td></tr>';
+    }).join('') + '</table>';
+    return h + '</div>';
+  }
+  function abrirGavetaDe() { if (S.gav && S.gav.tipo === 'v') abrirViagem(S.gav.k); else if (S.gav && S.gav.tipo === 'c') abrirCte(S.gav.k); }
+  function postJson(url, body) {
+    return fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(function (r) { return r.json().then(function (j) { j._st = r.status; return j; }); });
+  }
+  // vincular: se o documento já está em outro CT-e, avisa e pergunta se desvincula de lá
+  function vincular(body, depois) {
+    return postJson('/api/acompanhamento/descarga/vincular', body).then(function (j) {
+      if (j._st === 409 && j.conflito) {
+        var onde = j.conflito.map(function (x) { return '• ' + x.cte + (x.valor ? ' (R$ ' + moeda(x.valor) + ')' : '') + (x.como === 'auto' ? ' — ligado sozinho' : ' — vinculado à mão'); }).join('\n');
+        if (!confirm(j.doc + ' (R$ ' + moeda(j.total) + ') já está vinculado em:\n' + onde + '\n\nDeseja desvincular de lá e vincular em ' + body.cte + '?')) return;
+        return vincular(Object.assign({}, body, { substituir: true }), depois);
+      }
+      if (!j.ok) throw new Error(j.error || 'não vinculou');
+      toast('Vinculado ' + j.doc + ' em ' + body.cte + (j.movidos && j.movidos.length ? ' (desvinculado de ' + j.movidos.join(', ') + ')' : ''));
+      S.soltas = null; if (depois) depois(); carregar();
+    }).catch(function (e) { toast('Não vinculou: ' + e.message, true); });
+  }
+  function desvincular(tipo, doc, cte) {
+    if (!confirm('Desvincular ' + (tipo === 'pago' ? 'o pagamento ' : 'a cobrança ') + doc + ' do CT-e ' + cte + '?\nEla vai para a caixa de entrada e a ligação automática não volta.')) return;
+    postJson('/api/acompanhamento/descarga/desvincular', { tipo: tipo, doc: doc, cte: cte }).then(function (j) {
+      if (!j.ok) throw new Error(j.error || 'não desvinculou');
+      toast(doc + ' desvinculado de ' + cte); S.soltas = null; carregar();
+    }).catch(function (e) { toast('Não desvinculou: ' + e.message, true); });
+  }
+  // caixa de entrada: cobranças e pagamentos do mês que não ligam a nenhum CT-e
+  function carregarSoltas() {
+    if (S.soltas || S.soltasCarregando) return;
+    S.soltasCarregando = true;
+    var mes = S.mes;
+    fetch('/api/acompanhamento/descarga/soltas?mes=' + mes).then(function (r) { return r.json(); }).then(function (j) {
+      S.soltasCarregando = false;
+      if (mes !== S.mes) { render(); return; }   // trocou de mês no meio: descarta e busca o mês novo
+      if (j.ok) { S.soltas = j; render(); if (S.gav && S.gav.tipo === 'caixa') abrirCaixa(S.gav.k); }
+    }).catch(function () { S.soltasCarregando = false; });
+  }
+  function abrirCaixa(tipo) {
+    S.gav = { tipo: 'caixa', k: tipo };
+    var l = S.soltas ? S.soltas[tipo] : null;
+    var h = '<div class="nota" style="margin-bottom:10px">' + (tipo === 'cobr' ? 'Complementares e RPS de descarga emitidos no mês que não ligaram a CT-e nenhum (sem referência na observação, ou a referência não achou o CT-e). Cobrança em lote se reparte: vincule um pedaço em cada CT-e.'
+      : 'Lançamentos do 5100 do mês sem NF no histórico (ou NF que não achou CT-e). Carregamento aparece marcado — não é descarga.') + '</div>';
+    if (!l) h += '<div class="nota">carregando…</div>';
+    else if (!l.length) h += '<div class="nota">Nada solto neste mês.</div>';
+    else h += '<table class="mini"><tr><th>Documento</th><th>Emissão</th><th>Valor</th><th>Vincular no CT-e</th><th>Valor</th><th></th></tr>' + l.map(function (x, i) {
+      var doc = tipo === 'cobr' ? x.doc : x.lanc, tot = tipo === 'cobr' ? x.total : x.v, falta = tot - (x.vinculado || 0);
+      return '<tr title="' + esc(tipo === 'cobr' ? (x.desc || '') + '\n' + x.motivo : (x.forn || '') + ' — ' + (x.hist || '')) + '"><td class="mono">' + esc(doc) + (x.carregamento ? ' <span class="selo">carregamento</span>' : '') + '</td><td>' + dm(x.em) + '</td><td>' + moeda(tot)
+        + (x.vinculado ? ' <span class="dim">falta ' + moeda(falta) + '</span>' : '') + '</td><td><input class="cx-cte" data-i="' + i + '" placeholder="UDI000000-0" style="width:110px"></td>'
+        + '<td><input class="cx-valor" data-i="' + i + '" value="' + esc(moeda(falta)) + '" style="width:90px"></td><td><button class="btn-sm" data-cx-vinc="' + i + '">Vincular</button></td></tr>';
+    }).join('') + '</table>';
+    gaveta(tipo === 'cobr' ? 'Cobranças sem viagem' : 'Pagamentos sem viagem', 'Caixa de entrada da descarga · ' + rotMes(S.mes), h);
   }
 
   function resumo(vid) {
@@ -518,6 +608,7 @@
         S.ctes = {}; S.porViagem = {}; S.viagens = j.viagens;
         j.ctes.forEach(function (c) { S.ctes[c.k] = c; (S.porViagem[c.v] = S.porViagem[c.v] || []).push(c); });
         S.sel.clear();
+        if (!$('gaveta').hidden) setTimeout(abrirGavetaDe, 0);
         $('meta').textContent = 'CT-e emitidos de ' + dmy(j.ini) + ' a ' + dmy(j.fim) + ' · sem complementar, substituto e RPS · SSW lido às ' + j.lido_em.slice(11);
         tudo();
       })
@@ -544,8 +635,9 @@
     desc_inf_sem_pago: { g: 'desc', t: 'Informado sem pagamento', cor: 'amarelo', d: 'tem valor informado e nenhum lançamento no 477 ligado (pago por fora? NF não escrita no histórico?)', f: function (r) { return r.desc.infSemPago > 0; }, v: function (r) { return r.desc.inf; } },
     desc_pago_sem_inf: { g: 'desc', t: 'Pago sem informado', cor: 'cinza', d: 'lançado no 477 e ninguém informou o valor na tela', f: function (r) { return r.desc.pagoSemInf > 0; }, v: function (r) { return r.desc.pago; } },
     desc_custo: { g: 'desc', t: 'Custo Rizza', cor: 'cinza', d: 'descarga que o cliente não reembolsa (regra do cliente ou frete FOB)', f: function (r) { return r.desc.custo > 0; }, v: function (r) { return r.desc.custo; } },
+    desc_dup: { g: 'desc', t: 'Possível duplicidade', cor: 'indigo', d: 'mesmo destinatário com 2+ documentos de cobrança e o cobrado acima do pago além do imposto', f: function (r) { return r.desc.dup > 0; }, v: function (r) { return r.desc.dup; } },
     desc_ok: { g: 'desc', t: 'Cobrada', cor: 'verde', d: 'toda descarga da viagem foi cobrada (ou já veio no frete, ou o cliente não reembolsa) e o informado bate com o pago no 477',
-               f: function (r) { return r.desc.nDest > 0 && r.desc.gs.every(function (x) { return !x.base || x.sit === 'cobrada' || x.sit === 'incluida' || x.sit === 'nao_reembolsa'; }) && !r.desc.difInf && !r.desc.infSemPago; },
+               f: function (r) { return r.desc.nDest > 0 && r.desc.gs.every(function (x) { return !x.base || x.sit === 'cobrada' || x.sit === 'incluida' || x.sit === 'nao_reembolsa'; }) && !r.desc.difInf && !r.desc.infSemPago && !r.desc.dup; },
                v: function (r) { return r.desc.cobr + r.desc.incluso; } }
   };
   function casaBusca(r) {
@@ -664,7 +756,13 @@
       // o número grande é a quantidade de viagens; embaixo, o valor (o texto inteiro não cabe no cartão)
       h += card(id, f.t, f.cor, rs.length, rs.length ? 'R$ ' + moedaK(v) : '—', f.d + ' — ' + plural(rs.length, 'viagem', 'viagens'));
     });
+    ['cobr', 'pago'].forEach(function (tp) {
+      var l = S.soltas ? S.soltas[tp] : null, v = (l || []).reduce(function (a, x) { return a + (tp === 'cobr' ? x.total - (x.vinculado || 0) : x.v); }, 0);
+      h += '<button class="card' + (l && !l.length ? ' zero' : '') + '" data-caixa="' + tp + '" style="--cor:' + cor('cinza') + '" title="' + (tp === 'cobr' ? 'complementares e RPS de descarga do mês que não ligaram a nenhum CT-e — clique para vincular' : 'lançamentos do 5100 do mês sem CT-e (NF fora do histórico) — clique para vincular') + '">'
+        + '<div class="t">' + (tp === 'cobr' ? 'Cobranças sem viagem' : 'Pagamentos sem viagem') + '</div><div class="n">' + (l ? l.length : '…') + '</div><div class="r">' + (l ? (l.length ? 'R$ ' + moedaK(v) : '—') : 'carregando') + '</div></button>';
+    });
     $('cards').innerHTML = h;
+    carregarSoltas();
   }
   function card(id, t, c, n, r, tit) {
     return '<button class="card' + (S.filtro === id ? ' ativo' : '') + (n ? '' : ' zero') + '" data-filtro="' + id + '" style="--cor:' + cor(c) + '" title="' + esc(tit) + '">'
@@ -701,7 +799,7 @@
     'Desc. informada': 'Valor da descarga informado na tela (a coluna VALOR DESCARGA da planilha TRACKING veio na importação). Por destinatário: num CT-e só do destino. Clique no CT-e para digitar.',
     'Desc. paga (477)': 'Lançamentos do evento 5100 (CARGA E DESCARGA C/ TERCEIROS) do 477, ligados ao CT-e pela NF escrita no histórico — a mesma régua do relatório de segunda. Carregamento fica fora. Lançamento sem NF no histórico não liga (vai para a etapa 2: associar à mão).',
     'Desc. no frete': 'O que da descarga já volta no próprio CT-e: o Outros do CT-e (Ypê, Unilever) ou os R$ 500 da Doce Mineiro. Nos outros clientes, vazio.',
-    'Desc. cobrada': 'CT-e complementar ou RPS com "descarga" na observação, ligado sozinho ao CT-e pela referência que a observação traz (chave, CTRC, nº do CT-e ou NF). Cobrança de vários CT-e se reparte. Fatura consolidada / fechamento do mês sem referência ainda não liga. Diesel e diária não contam.',
+    'Desc. cobrada': 'CT-e complementar ou RPS com "descarga" na observação, ligado sozinho ao CT-e pela referência que a observação traz (chave, CTRC, nº do CT-e ou NF). Cobrança de vários CT-e se reparte. Ao lado do valor, o nº do documento que cobrou (passe o mouse para ver a observação e por onde ligou). O que não ligou fica na caixa "Cobranças sem viagem" — vincule pela gaveta da viagem ou pela caixa. Diesel e diária não contam.',
     'Frete': 'Valor do frete do CT-e no SSW (relatório 455). Na viagem, a soma.',
     'Ocorrência no cliente': 'Digitado: o nº da ocorrência aberta na plataforma do cliente.\nNa Química Amparo a planilha TRACKING usava esta coluna para o nº do pedido do cliente — veio na importação.',
     'Anotação': 'Digitado. O que a planilha TRACKING tinha fora da lista (descarga, diária, status escritos de outro jeito) veio como "Planilha: …".'
@@ -815,7 +913,7 @@
       + '<td class="num" title="edite no CT-e (abra a viagem)">' + moedaOu(r.desc.inf) + '</td>'
       + '<td class="num">' + moedaOu(r.desc.pago) + '</td>'
       + '<td class="num">' + moedaOu(r.desc.incluso) + '</td>'
-      + '<td class="num">' + moedaOu(r.desc.cobr) + '</td>'
+      + '<td class="num">' + cobradaTxt(r.cs) + '</td>'
       + '<td class="num">' + moeda(r.frete) + '</td>'
       + edCell('v', v.v, 'ocorrencia', comumOuVarios(r.cs, 'ocorrencia'), 'nº da ocorrência aberta na plataforma do cliente' + todos, 'txt')
       + edCell('v', v.v, 'anotacao', comumOuVarios(r.cs, 'anotacao'), 'anotação' + todos, 'txt')
@@ -855,7 +953,7 @@
       + edCell('c', c.k, 'descarga', temDesc(c) ? moeda(valorNum(c.m.descarga)) + ((c.fontes || {}).descarga === PLANILHA ? '<span class="selo">planilha</span>' : '') : '<span class="vazio">—</span>', 'valor da descarga informado — clique para digitar (por destinatário: num CT-e só do destino)', 'num')
       + '<td class="num">' + moedaOu(somaV((c.desc || {}).pago)) + '</td>'
       + '<td class="num">' + moedaOu(((c.desc || {}).regra || {}).tipo === 'incluso' ? (c.desc.outros || 0) : 0) + '</td>'
-      + '<td class="num">' + moedaOu(somaV((c.desc || {}).cobr)) + '</td>'
+      + '<td class="num">' + cobradaTxt([c]) + '</td>'
       + '<td class="num">' + moeda(c.frete) + '</td>'
       + edCell('c', c.k, 'ocorrencia', c.m.ocorrencia ? esc(c.m.ocorrencia) : '<span class="vazio">—</span>', 'nº da ocorrência aberta na plataforma do cliente', 'txt')
       + edCell('c', c.k, 'anotacao', c.m.anotacao ? esc(c.m.anotacao) : '<span class="vazio">—</span>', 'anotação', 'txt')
@@ -1017,6 +1115,9 @@
   function gaveta(titulo, sub, corpo) { $('gavTitulo').textContent = titulo; $('gavSub').innerHTML = sub; $('gavCorpo').innerHTML = corpo; $('gaveta').hidden = false; }
   function kv(pares) { return '<dl class="kv">' + pares.filter(function (p) { return p[1] !== '' && p[1] != null; }).map(function (p) { return '<dt>' + esc(p[0]) + '</dt><dd>' + (p[2] ? p[1] : esc(p[1])) + '</dd>'; }).join('') + '</dl>'; }
   function abrirViagem(vid) {
+    if (!S.viagens[vid]) return;
+    if (!S.gav || S.gav.k !== vid) S.vinc = null;
+    S.gav = { tipo: 'v', k: vid };
     var r = resumo(vid), v = r.v;
     var passos = [
       ['Manifesto emitido', v.emissao_man, !!v.emissao_man],
@@ -1050,6 +1151,8 @@
   }
   function abrirCte(k) {
     var c = S.ctes[k]; if (!c) return;
+    if (!S.gav || S.gav.k !== k) S.vinc = null;
+    S.gav = { tipo: 'c', k: k };
     var s = statusDe(c), e = entregaDe(c), a = agendaDe(c);
     var base = '';
     if (c.ssw.avisos.length) base += '<div class="bloco">' + c.ssw.avisos.map(function (x) { return '<div class="aviso-div">' + esc(x) + '</div>'; }).join('') + '</div>';
@@ -1148,6 +1251,24 @@
     }
     if (S.edit && !S.edit.td.contains(t)) salvarEditor(false);
     var el;
+    if ((el = t.closest('[data-caixa]'))) { abrirCaixa(el.dataset.caixa); return; }
+    if ((el = t.closest('[data-vinc-g]'))) { S.vinc = { g: el.dataset.vincG, tipo: 'cobr' }; abrirGavetaDe(); setTimeout(function () { if ($('vincQ')) $('vincQ').focus(); }, 0); return; }
+    if (t.id === 'vincFechar') { S.vinc = null; abrirGavetaDe(); return; }
+    if (t.id === 'vincBuscar') { buscarVinculo(); return; }
+    if ((el = t.closest('[data-vinc-doc]'))) {
+      var dv = S.vinc.docs[+el.dataset.vincDoc], val = (document.querySelector('.vinc-valor[data-i="' + el.dataset.vincDoc + '"]') || {}).value;
+      vincular({ tipo: S.vinc.tipo, doc: dv.doc, cte: $('vincCte').value, valor: valorNum(String(val || '').replace(/\./g, '')) || null }, function () { S.vinc = null; });
+      return;
+    }
+    if ((el = t.closest('[data-desv]'))) { desvincular(el.dataset.desv, el.dataset.doc, el.dataset.cte); return; }
+    if ((el = t.closest('[data-cx-vinc]'))) {
+      var i = el.dataset.cxVinc, tp = S.gav.k, x = S.soltas[tp][+i];
+      var cte = String((document.querySelector('.cx-cte[data-i="' + i + '"]') || {}).value || '').trim().toUpperCase();
+      var vv = valorNum(String((document.querySelector('.cx-valor[data-i="' + i + '"]') || {}).value || '').replace(/\./g, ''));
+      if (!/^[A-Z]{3}\s?\d{6}-\d$/.test(cte)) { toast('Digite o CTRC do CT-e (ex.: UDI000000-0)', true); return; }
+      vincular({ tipo: tp, doc: tp === 'cobr' ? x.doc : x.lanc, cte: cte, valor: vv || null });
+      return;
+    }
     if ((el = t.closest('[data-filtro]'))) { S.filtro = S.filtro === el.dataset.filtro ? null : el.dataset.filtro; render(); return; }
     if (t.closest('[data-limpa]')) { S.filtro = null; render(); return; }
     if (t.matches('[data-conf]')) { ev.stopPropagation(); confirmar([t.dataset.conf]); return; }
@@ -1170,9 +1291,18 @@
   $('btnFecharTodas').addEventListener('click', function () { S.abertas.clear(); S.clisAbertos.clear(); render(); });
   $('btnAtualizar').addEventListener('click', function () { carregar(true); });
   $('btnPlanilha').addEventListener('click', baixarPlanilha);
-  $('mesAnt').addEventListener('click', function () { S.mes = somaMes(S.mes, -1); S.abertas.clear(); carregar(); });
-  $('mesProx').addEventListener('click', function () { if (S.mes < mesAtual()) { S.mes = somaMes(S.mes, 1); S.abertas.clear(); carregar(); } });
-  $('gavFechar').addEventListener('click', function () { $('gaveta').hidden = true; });
+  $('mesAnt').addEventListener('click', function () { S.mes = somaMes(S.mes, -1); S.abertas.clear(); S.soltas = null; carregar(); });
+  $('mesProx').addEventListener('click', function () { if (S.mes < mesAtual()) { S.mes = somaMes(S.mes, 1); S.abertas.clear(); S.soltas = null; carregar(); } });
+  $('gavFechar').addEventListener('click', function () { $('gaveta').hidden = true; S.vinc = null; S.gav = null; });
+  document.addEventListener('keydown', function (ev) { if (ev.key === 'Enter' && ev.target.id === 'vincQ') buscarVinculo(); });
+  document.addEventListener('change', function (ev) { if (ev.target.id === 'vincTipo' && S.vinc) { S.vinc.tipo = ev.target.value; S.vinc.docs = null; abrirGavetaDe(); } });
+  function buscarVinculo() {
+    var q = ($('vincQ') || {}).value || ''; if (q.trim().length < 3) { toast('Digite ao menos 3 caracteres', true); return; }
+    S.vinc.q = q; S.vinc.carregando = true; S.vinc.docs = null; abrirGavetaDe();
+    fetch('/api/acompanhamento/descarga/buscar?tipo=' + S.vinc.tipo + '&q=' + encodeURIComponent(q)).then(function (r) { return r.json(); }).then(function (j) {
+      if (!S.vinc) return; S.vinc.carregando = false; S.vinc.docs = j.ok ? j.docs : []; if (!j.ok) toast('Busca falhou: ' + j.error, true); abrirGavetaDe();
+    });
+  }
   document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape' && !S.edit) $('gaveta').hidden = true; });
   $('loteCampo').addEventListener('change', function () { $('loteValorBox').innerHTML = editorValor(this.value).replace('id="edValor"', 'id="loteValor"'); });
   $('loteAplicar').addEventListener('click', function () {

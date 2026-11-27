@@ -310,10 +310,19 @@ def pagamentos_5100(dax_dre, ini, fim, hoje=None):
     a, b = ini - timedelta(days=10), min(hoje, fim + timedelta(days=75))
     desp, ctes = r5.coletar(None, a, b, dax=dax_dre)
     _, linhas = r5.montar(desp, ctes)
-    return [{'cte': str(l.get('cte') or '').replace(' ', '').upper(), 'lanc': f"{l.get('numlancto') or ''}",
-             'em': _iso(l.get('emissao')), 'forn': l.get('nome_fornecedor'), 'v': _num(l.get('vlr_final')) or 0.0,
-             'hist': l.get('historico_despesa'), 'pgto': _iso(l.get('data_pgto'))}
-            for l in linhas if l.get('cte')]
+    # todos, também os sem CT-e (NF fora do histórico): são a caixa "pagamentos sem viagem" e o vínculo à mão
+    return [_pagamento(l) for l in linhas]
+
+
+def chave_lanc(numlancto, parcela):
+    """O lançamento do 477 é número + parcela ('123456/01')."""
+    return f"{str(numlancto or '').strip()}/{str(parcela or '01').strip() or '01'}"
+
+
+def _pagamento(l):
+    return {'cte': str(l.get('cte') or '').replace(' ', '').upper(), 'lanc': chave_lanc(l.get('numlancto'), l.get('parcela')),
+            'em': _iso(l.get('emissao')), 'forn': l.get('nome_fornecedor'), 'v': _num(l.get('vlr_final')) or 0.0,
+            'hist': l.get('historico_despesa'), 'pgto': _iso(l.get('data_pgto'))}
 
 
 def _dax_ou_vazio(dax, q):
@@ -472,28 +481,62 @@ def _ctrc(v):
     return str(v or '').replace(' ', '').upper()
 
 
-def descargas_por_cte(d, ctes, marc):
+class IndiceCtes:
+    """CT-e por CTRC, chave, (raiz do pagador, nº do CT-e) e (raiz, NF) — para achar a que CT-e uma cobrança se refere."""
+
+    def __init__(self, ctes):
+        self.por_ctrc = {_ctrc(c.get('ctrc')): c for c in ctes}
+        self.por_ch, self.por_num, self.por_nf = {}, {}, {}
+        for k, c in self.por_ctrc.items():
+            ch = str(c.get('chave') or '').strip()
+            rz = _raiz8(c.get('cnpj_pag'))
+            if len(ch) == 44:
+                self.por_ch[ch] = k
+                self.por_num.setdefault((rz, int(ch[25:34])), []).append(k)
+            for n in re.findall(r'\d+', str(c.get('nf') or '').replace('.0', '')):
+                self.por_nf.setdefault((rz, int(n)), []).append(k)
+
+    def alvos(self, doc):
+        """Cobrança (complementar/RPS) → ([CTRC dos CT-e que ela cita], por onde ligou). A referência mais segura vence."""
+        r, eu, rz = refs_da_obs(doc.get('obs')), _ctrc(doc.get('ctrc')), _raiz8(doc.get('cnpj_pag'))
+        alvo, por = [self.por_ch[x] for x in r['chave'] if x in self.por_ch] + [x for x in r['ctrc'] if x in self.por_ctrc], 'chave/CTRC'
+        if not alvo:
+            alvo, por = [k for n in r['cte_num'] for k in self.por_num.get((rz, int(n)), [])], 'nº do CT-e'
+        if not alvo:
+            alvo, por = [k for n in r['nf'] for k in self.por_nf.get((rz, int(n)), [])], 'NF'
+        return [k for k in dict.fromkeys(alvo) if k != eu], por
+
+
+def _raiz8(cnpj):
+    return re.sub(r'\D', '', str(cnpj or ''))[:8]
+
+
+def eh_cobranca_descarga(doc):
+    return bool(RE_COBR_DESCARGA.search(_sem_acento(doc.get('obs')).upper()))
+
+
+def _obs_curta(v):
+    return re.sub(r'\s+', ' ', str(v or ''))[:220]
+
+
+def descargas_por_cte(d, ctes, marc, vinc=None):
     """{CTRC: {'pago': [...], 'carregamento': [...], 'cobr': [...], 'outros': float, 'tf': 'CP'}} dos CT-e da tela.
 
-    Uma cobrança pode citar vários CT-e (RPS "descarga das NFs 1 / 2 / 3"): o valor se reparte entre os CT-e que
-    ela liga, na proporção do que foi pago (ou informado) em cada um; sem nada, em partes iguais."""
-    por_ctrc = {_ctrc(c.get('ctrc')): c for c in ctes}
-    por_ch, por_num, por_nf = {}, {}, {}
-    for k, c in por_ctrc.items():
-        ch = str(c.get('chave') or '').strip()
-        rz = re.sub(r'\D', '', str(c.get('cnpj_pag') or ''))[:8]
-        if len(ch) == 44:
-            por_ch[ch] = k
-            por_num.setdefault((rz, int(ch[25:34])), []).append(k)
-        for n in re.findall(r'\d+', str(c.get('nf') or '').replace('.0', '')):
-            por_nf.setdefault((rz, int(n)), []).append(k)
+    Automático: o 5100 pela NF do histórico; a cobrança pela referência da observação. Uma cobrança que cita vários
+    CT-e se reparte na proporção do pago (ou informado) em cada um; sem nada, em partes iguais.
+    À mão (`vinc`, etapa 2): o vínculo feito na tela entra com o valor dado; o que a pessoa desvinculou fica
+    bloqueado (o automático não liga de novo); um pagamento vinculado à mão sai do automático; numa cobrança,
+    o automático só reparte o que sobra do total depois dos vínculos à mão."""
+    vinc = vinc or {'manual': {}, 'bloq': set(), 'snap': {}}
+    man, bloq = vinc['manual'], vinc['bloq']
+    idx = IndiceCtes(ctes)
     out = {k: {'pago': [], 'carregamento': [], 'cobr': [], 'outros': _num(c.get('outros')) or 0.0, 'tf': c.get('tf')}
-           for k, c in por_ctrc.items()}
+           for k, c in idx.por_ctrc.items()}
 
     for p in d.get('p5100') or []:
-        if p['cte'] in out:
+        if p['cte'] in out and ('pago', p['lanc']) not in man and ('pago', p['lanc'], p['cte']) not in bloq:
             onde = 'carregamento' if RE_CARREGAMENTO.search(_sem_acento(p['hist']).upper()) else 'pago'
-            out[p['cte']][onde].append({k: p[k] for k in ('lanc', 'em', 'forn', 'v', 'hist', 'pgto')})
+            out[p['cte']][onde].append(dict({k: p[k] for k in ('lanc', 'em', 'forn', 'v', 'hist', 'pgto')}, por='NF do histórico'))
 
     def peso(k):
         pg = sum(x['v'] for x in out[k]['pago'])
@@ -502,30 +545,39 @@ def descargas_por_cte(d, ctes, marc):
         return _num(str(((marc.get(k) or {}).get('campos') or {}).get('descarga') or '').replace(',', '.')) or 0.0
 
     for c in d.get('cobr') or []:
-        if not RE_COBR_DESCARGA.search(_sem_acento(c.get('obs')).upper()):
+        if not eh_cobranca_descarga(c):
             continue
-        r, eu = refs_da_obs(c.get('obs')), _ctrc(c.get('ctrc'))
-        rz = re.sub(r'\D', '', str(c.get('cnpj_pag') or ''))[:8]
-        alvo, por = [por_ch[x] for x in r['chave'] if x in por_ch] + [x for x in r['ctrc'] if x in out], 'chave/CTRC'
-        if not alvo:
-            alvo, por = [k for n in r['cte_num'] for k in por_num.get((rz, int(n)), [])], 'nº do CT-e'
-        if not alvo:
-            alvo, por = [k for n in r['nf'] for k in por_nf.get((rz, int(n)), [])], 'NF'
-        alvo = [k for k in dict.fromkeys(alvo) if k != eu]
-        if not alvo:
-            continue
+        eu = _ctrc(c.get('ctrc'))
+        alvo, por = idx.alvos(c)
+        alvo = [k for k in alvo if ('cobr', eu, k) not in bloq]
         total = _num(c.get('frete')) or 0.0
+        resto = max(0.0, total - sum((man.get(('cobr', eu)) or {}).values()))
+        if not alvo or resto <= 0.004:
+            continue
         pesos = {k: peso(k) for k in alvo}
         soma = sum(pesos.values())
         for k in alvo:
-            parte = total * (pesos[k] / soma if soma else 1 / len(alvo))
+            parte = resto * (pesos[k] / soma if soma else 1 / len(alvo))
             out[k]['cobr'].append({'ctrc': eu, 'tipo': c.get('tipo'), 'em': _iso(c.get('emissao')),
-                                   'v': round(parte, 2), 'total': total, 'por': por, 'n': len(alvo),
-                                   'obs': re.sub(r'\s+', ' ', str(c.get('obs') or ''))[:220]})
+                                   'v': round(parte, 2), 'total': total, 'por': por, 'n': len(alvo), 'obs': _obs_curta(c.get('obs'))})
+
+    # vínculos à mão: o retrato do documento foi guardado na hora de vincular (pode ser de outro mês)
+    for (tipo, doc), ctes_v in man.items():
+        for k, x in ctes_v.items():
+            if k not in out:
+                continue
+            s = vinc['snap'].get((tipo, doc, k)) or {}
+            por_m = 'à mão' + (f" — {s.get('por')}" if s.get('por') else '')
+            if tipo == 'pago':
+                out[k]['pago'].append({'lanc': doc, 'em': s.get('em_doc'), 'forn': s.get('forn'), 'v': x, 'hist': s.get('desc'),
+                                       'pgto': None, 'por': por_m, 'manual': True})
+            else:
+                out[k]['cobr'].append({'ctrc': doc, 'tipo': s.get('doc_tipo'), 'em': s.get('em_doc'), 'v': x,
+                                       'total': s.get('total'), 'por': por_m, 'n': len(ctes_v), 'obs': s.get('desc'), 'manual': True})
     return out
 
 
-def montar(d, marc, crm=None, grupos=None, hoje=None):
+def montar(d, marc, crm=None, grupos=None, hoje=None, vinc=None):
     """Dados do BI + marcações → {'ctes': [...], 'viagens': {...}}.
 
     Cada CT-e leva o que o SSW diz (`ssw`: agenda, entrega sugerida, status sugerido, avisos) e o que a
@@ -539,7 +591,7 @@ def montar(d, marc, crm=None, grupos=None, hoje=None):
         oc.setdefault(str(o.get('ctrc') or '').replace(' ', '').upper(), []).append(o)
 
     ype = ype_por_chave(d)
-    desc = descargas_por_cte(d, [c for c in d['ctes'] if entra(c)], marc)
+    desc = descargas_por_cte(d, [c for c in d['ctes'] if entra(c)], marc, vinc)
 
     ctes, viagens = [], {}
     for c in d['ctes']:
@@ -644,6 +696,22 @@ CREATE TABLE IF NOT EXISTS acomp_log (
     em     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS acomp_log_chave ON acomp_log (chave, em);
+-- descarga, etapa 2 (27/11/2026): vínculo feito à mão (com o retrato do documento) e o automático desfeito
+CREATE TABLE IF NOT EXISTS acomp_desc_vinculo (
+    tipo     TEXT NOT NULL,            -- 'cobr' (complementar/RPS) ou 'pago' (lançamento do 477)
+    doc      TEXT NOT NULL,            -- CTRC da cobrança ou 'lançamento/parcela'
+    cte      TEXT NOT NULL,            -- o CT-e (destinatário) a que foi vinculado
+    valor    NUMERIC(14,2) NOT NULL,
+    total    NUMERIC(14,2),            -- valor do documento
+    doc_tipo TEXT, em_doc DATE, forn TEXT, descr TEXT,
+    por      TEXT, em TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (tipo, doc, cte)
+);
+CREATE TABLE IF NOT EXISTS acomp_desc_bloqueio (
+    tipo TEXT NOT NULL, doc TEXT NOT NULL, cte TEXT NOT NULL,
+    por  TEXT, em TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (tipo, doc, cte)
+);
 """
 
 
@@ -810,3 +878,216 @@ def ocorrencias_do_cte(d, chave):
             'texto': o.get('compl')}
            for o in d['oc'] if str(o.get('ctrc') or '').replace(' ', '').upper() == chave]
     return sorted(out, key=lambda x: x['em'], reverse=True)
+
+
+# ── Descarga, etapa 2: vincular / desvincular à mão (27/11/2026) ─────────────────────────────────────
+# Cada mudança vai para o acomp_log do CT-e (campo 'descarga_vinculo'). Conflito (o documento já está ligado em
+# outro CT-e e o valor passaria do total; o pagamento já está em outro CT-e): a tela avisa e, se a pessoa
+# confirmar, desvincula do outro (o vínculo à mão sai; o automático vira bloqueio) e vincula aqui.
+
+def vinculos_descarga(cur):
+    """{'manual': {(tipo, doc): {cte: valor}}, 'bloq': {(tipo, doc, cte)}, 'snap': {(tipo, doc, cte): {...}}}."""
+    cur.execute("""SELECT tipo, doc, cte, valor, total, doc_tipo, em_doc, forn, descr, por,
+                          to_char(em AT TIME ZONE 'America/Sao_Paulo', 'DD/MM HH24:MI') FROM acomp_desc_vinculo""")
+    man, snap = {}, {}
+    for tipo, doc, cte, valor, total, dt, emd, forn, descr, por, em in cur.fetchall():
+        man.setdefault((tipo, doc), {})[cte] = float(valor)
+        snap[(tipo, doc, cte)] = {'total': float(total) if total is not None else None, 'doc_tipo': dt,
+                                  'em_doc': emd.isoformat() if emd else None, 'forn': forn, 'desc': descr, 'por': por, 'em': em}
+    cur.execute('SELECT tipo, doc, cte FROM acomp_desc_bloqueio')
+    return {'manual': man, 'bloq': {tuple(r) for r in cur.fetchall()}, 'snap': snap}
+
+
+_T = "'public conhecimentos_emitidos'"
+_D477 = "'public consulta_despesas_477'"
+
+
+def doc_cobranca(dax, ctrc):
+    """A cobrança (complementar/RPS) pelo CTRC, no BI → dict ou None."""
+    r = dax(f'EVALUATE SELECTCOLUMNS(FILTER({_T}, {_T}[serie_numero_ctrc] = "{_ctrc(ctrc)}"), "ctrc", [serie_numero_ctrc], '
+            f'"tipo", [tipo_documento], "emissao", [data_emissao], "frete", [valor_frete], "obs", [observacao], '
+            f'"cnpj_pag", [cnpj_pagador], "pag", [cliente_pagador])')
+    return r[0] if r else None
+
+
+def _ctes_da_raiz(dax, raiz, ini, fim):
+    """CT-e de um pagador (raiz do CNPJ) num período — para achar a que CT-e a cobrança se refere."""
+    a, b = _dax_datas(ini, fim)
+    return dax(f'EVALUATE SELECTCOLUMNS(FILTER({_T}, LEFT({_T}[cnpj_pagador], 8) = "{raiz}" && {_T}[data_emissao] >= {a} && '
+               f'{_T}[data_emissao] <= {b}), "ctrc", [serie_numero_ctrc], "chave", [chave_cte], "nf", [numero_nota_fiscal], '
+               f'"cnpj_pag", [cnpj_pagador])')
+
+
+def alvos_automaticos(dax, doc):
+    """A que CT-e o automático ligaria a cobrança (procura na raiz do pagador, 150 dias antes do documento)."""
+    em = date.fromisoformat(_iso(doc.get('emissao')) or hoje_brt().isoformat())
+    ctes = _ctes_da_raiz(dax, _raiz8(doc.get('cnpj_pag')), em - timedelta(days=150), em)
+    return IndiceCtes(ctes).alvos(doc)[0]
+
+
+def doc_pagamento(dax_dre, lanc):
+    """O lançamento do 477 ('123456/01') → o pagamento, com o CT-e que a NF do histórico aponta (régua do relatorio_5100)."""
+    import relatorio_5100 as r5
+    num, _, parc = str(lanc).partition('/')
+    num = re.sub(r'\D', '', num)
+    if not num:
+        return None
+    r = dax_dre(f'EVALUATE FILTER(ALL({_D477}), {_D477}[numlancto] = "{num}" && {_D477}[evento] = "{r5.EVENTO}")')
+    r = [x for x in r if not parc or str(x.get('parcela') or '01').strip() == parc.strip()] or r
+    if not r:
+        return None
+    x = r[0]
+    em = date.fromisoformat(_iso(x.get('emissao')))
+    a, b = em - timedelta(days=r5.FOLGA_CTE_DIAS), em + timedelta(days=2)
+    ctes = dax_dre(f'EVALUATE SELECTCOLUMNS(FILTER(ALL({r5.C}), {r5.C}[data_emissao] >= {r5._dax_data(a)} && '
+                   f'{r5.C}[data_emissao] <= {r5._dax_data(b)}), "ctrc",{r5.C}[serie_numero_ctrc], "cte_num",{r5.C}[serie_numero_cte], '
+                   f'"nf",{r5.C}[numero_nota_fiscal], "cli_rem",{r5.C}[cliente_remetente], "pagador",{r5.C}[cliente_pagador], '
+                   f'"emissao",{r5.C}[data_emissao])')
+    return _pagamento(dict(x, **r5.escolher_cte(x.get('historico_despesa'), x.get('emissao'), r5.indexar_ctes(ctes))))
+
+
+def _registrar(cur, cte, antes, depois, por):
+    cur.execute('INSERT INTO acomp_log (chave, campo, antes, depois, por) VALUES (%s, %s, %s, %s, %s)',
+                (cte, 'descarga_vinculo', antes, depois, por))
+
+
+def _brl(v):
+    return f'{v:,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')
+
+
+def _rot(tipo, doc, valor=None):
+    return ('cobrança ' if tipo == 'cobr' else 'pagamento 477 ') + doc + (f' R$ {_brl(valor)}' if valor is not None else '')
+
+
+def ligacoes_atuais(cur, dax, tipo, doc, info):
+    """Onde o documento está ligado hoje: [{'cte', 'valor', 'como': 'manual'|'auto'}]."""
+    v = vinculos_descarga(cur)
+    out = [{'cte': k, 'valor': x, 'como': 'manual'} for k, x in (v['manual'].get((tipo, doc)) or {}).items()]
+    if tipo == 'cobr':
+        if not v['manual'].get((tipo, doc)):   # com vínculo à mão, o automático só reparte a sobra — não conta aqui
+            for k in alvos_automaticos(dax, info):
+                if (tipo, doc, k) not in v['bloq']:
+                    out.append({'cte': k, 'valor': None, 'como': 'auto'})
+    elif info.get('cte') and (tipo, doc) not in v['manual'] and (tipo, doc, info['cte']) not in v['bloq']:
+        out.append({'cte': info['cte'], 'valor': info.get('v'), 'como': 'auto'})
+    return out
+
+
+def vincular(cur, dax, dax_dre, tipo, doc, cte, valor, por, substituir=False):
+    """Vincula `doc` ao CT-e `cte` com `valor` (None = o total). → {'ok': True, ...} ou {'conflito': [...]} (nada gravado)."""
+    cte = _ctrc(cte)
+    if not re.fullmatch(r'[A-Z]{3}\d{6}-\d', cte):
+        raise ValueError('CT-e inválido.')
+    if tipo == 'cobr':
+        info = doc_cobranca(dax, doc)
+        if not info:
+            raise ValueError(f'Cobrança {doc} não encontrada no SSW (BI).')
+        doc, total = _ctrc(info['ctrc']), _num(info.get('frete')) or 0.0
+        snap = (info.get('tipo'), _iso(info.get('emissao')), None, _obs_curta(info.get('obs')))
+    elif tipo == 'pago':
+        info = doc_pagamento(dax_dre, doc)
+        if not info:
+            raise ValueError(f'Lançamento {doc} não encontrado no 477 (evento 5100).')
+        doc, total = info['lanc'], info['v']
+        snap = ('477/5100', info.get('em'), info.get('forn'), (info.get('hist') or '')[:220])
+    else:
+        raise ValueError('Tipo inválido.')
+    valor = total if valor in (None, '') else float(valor)
+    if valor <= 0:
+        raise ValueError('Valor tem de ser maior que zero.')
+    outros = [x for x in ligacoes_atuais(cur, dax, tipo, doc, info) if x['cte'] != cte]
+    if tipo == 'pago':
+        conflito = outros
+    else:
+        ja = sum(x['valor'] for x in outros if x['como'] == 'manual')
+        conflito = outros if any(x['como'] == 'auto' for x in outros) or ja + valor > total + 0.01 else []
+    if conflito and not substituir:
+        return {'conflito': conflito, 'total': total, 'doc': doc}
+    for x in conflito:   # a pessoa confirmou: sai do outro CT-e
+        if x['como'] == 'manual':
+            cur.execute('DELETE FROM acomp_desc_vinculo WHERE tipo = %s AND doc = %s AND cte = %s', (tipo, doc, x['cte']))
+        else:
+            cur.execute('INSERT INTO acomp_desc_bloqueio (tipo, doc, cte, por) VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING',
+                        (tipo, doc, x['cte'], por))
+        _registrar(cur, x['cte'], _rot(tipo, doc, x['valor']), f'desvinculado (foi para {cte})', por)
+    cur.execute('DELETE FROM acomp_desc_bloqueio WHERE tipo = %s AND doc = %s AND cte = %s', (tipo, doc, cte))
+    cur.execute("""INSERT INTO acomp_desc_vinculo (tipo, doc, cte, valor, total, doc_tipo, em_doc, forn, descr, por)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                   ON CONFLICT (tipo, doc, cte) DO UPDATE SET valor = EXCLUDED.valor, por = EXCLUDED.por, em = now()""",
+                (tipo, doc, cte, round(valor, 2), round(total, 2), *snap, por))
+    _registrar(cur, cte, None, 'vinculou ' + _rot(tipo, doc, valor), por)
+    return {'ok': True, 'doc': doc, 'total': total, 'movidos': [x['cte'] for x in conflito]}
+
+
+def desvincular(cur, tipo, doc, cte, por):
+    """Tira o documento do CT-e: o vínculo à mão sai; o automático vira bloqueio (não liga de novo)."""
+    if tipo not in ('cobr', 'pago'):
+        raise ValueError('Tipo inválido.')
+    cte, doc = _ctrc(cte), str(doc).strip().upper()
+    cur.execute('DELETE FROM acomp_desc_vinculo WHERE tipo = %s AND doc = %s AND cte = %s RETURNING valor', (tipo, doc, cte))
+    r = cur.fetchone()
+    if not r:
+        cur.execute('INSERT INTO acomp_desc_bloqueio (tipo, doc, cte, por) VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING',
+                    (tipo, doc, cte, por))
+    _registrar(cur, cte, _rot(tipo, doc, float(r[0]) if r else None), 'desvinculado', por)
+
+
+def buscar_documentos(dax, dax_dre, tipo, q, hoje=None):
+    """Busca para vincular: cobrança pelo CTRC, nº do CT-e ou NF na observação; pagamento pelo lançamento ou NF no
+    histórico. Último ano, até 25 resultados."""
+    q = re.sub(r'[^\w\-/ ]', '', str(q or '')).strip().upper()
+    if len(q) < 3:
+        return []
+    hoje = hoje or hoje_brt()
+    a, _ = _dax_datas(hoje - timedelta(days=365), hoje)
+    if tipo == 'cobr':
+        alvo = (f'{_T}[serie_numero_ctrc] = "{_ctrc(q)}"' if re.fullmatch(r'[A-Z]{3}\s?\d{6}-\d', q)
+                else f'SEARCH("{q}", {_T}[observacao], 1, 0) > 0')
+        r = dax(f'EVALUATE TOPN(25, SELECTCOLUMNS(FILTER({_T}, ({_T}[tipo_documento] = "COMPLEMENTAR FRETE" || '
+                f'LEFT({_T}[tipo_documento], 4) = "SUBC") && {_T}[data_emissao] >= {a} && {alvo}), "ctrc", [serie_numero_ctrc], '
+                f'"tipo", [tipo_documento], "emissao", [data_emissao], "frete", [valor_frete], "obs", [observacao], '
+                f'"pag", [cliente_pagador]), [emissao], DESC)')
+        return [{'doc': _ctrc(x['ctrc']), 'tipo': x.get('tipo'), 'em': _iso(x.get('emissao')), 'total': _num(x.get('frete')) or 0.0,
+                 'desc': _obs_curta(x.get('obs')), 'cliente': x.get('pag'), 'descarga': eh_cobranca_descarga(x)} for x in r]
+    num = q.split('/')[0].strip()
+    alvo = (f'{_D477}[numlancto] = "{num}"' if re.fullmatch(r'\d{4,8}(/\d+)?', q)
+            else f'SEARCH("{q}", {_D477}[historico_despesa], 1, 0) > 0')
+    r = dax_dre(f'EVALUATE TOPN(25, FILTER(ALL({_D477}), {_D477}[evento] = "5100" && {_D477}[emissao] >= {a} && ({alvo} || '
+                f'SEARCH("{num}", {_D477}[historico_despesa], 1, 0) > 0)), {_D477}[emissao], DESC)')
+    return [{'doc': chave_lanc(x.get('numlancto'), x.get('parcela')), 'tipo': '477/5100', 'em': _iso(x.get('emissao')),
+             'total': _num(x.get('vlr_final')) or 0.0, 'desc': (x.get('historico_despesa') or '')[:220], 'forn': x.get('nome_fornecedor')}
+            for x in r]
+
+
+def documentos_soltos(d, vinc, ctes_janela):
+    """Caixa de entrada do mês: cobranças de descarga emitidas no mês que não ligam a CT-e nenhum (nem à mão), e
+    pagamentos 5100 do mês sem CT-e (NF fora do histórico) e sem vínculo à mão."""
+    ini, fim = d['ini'], d['fim']
+    idx = IndiceCtes(ctes_janela)
+    cob = []
+    for c in d.get('cobr') or []:
+        em = _iso(c.get('emissao')) or ''
+        if not (ini <= em <= fim) or not eh_cobranca_descarga(c):
+            continue
+        doc = _ctrc(c.get('ctrc'))
+        total = _num(c.get('frete')) or 0.0
+        ja = sum((vinc['manual'].get(('cobr', doc)) or {}).values())
+        alvo = [k for k in idx.alvos(c)[0] if ('cobr', doc, k) not in vinc['bloq']]
+        if alvo or ja >= total - 0.01:
+            continue
+        cob.append({'doc': doc, 'tipo': c.get('tipo'), 'em': em, 'total': total, 'vinculado': round(ja, 2),
+                    'desc': _obs_curta(c.get('obs')), 'raiz': _raiz8(c.get('cnpj_pag')),
+                    'motivo': 'sem referência na observação' if not any(refs_da_obs(c.get('obs')).values()) else 'a referência não achou CT-e'})
+    pag = []
+    for p in d.get('p5100') or []:
+        if not (ini <= (p.get('em') or '') <= fim) or p['cte'] or ('pago', p['lanc']) in vinc['manual']:
+            continue
+        pag.append(dict(p, carregamento=bool(RE_CARREGAMENTO.search(_sem_acento(p['hist']).upper()))))
+    return {'cobr': sorted(cob, key=lambda x: -x['total']), 'pago': sorted(pag, key=lambda x: -x['v'])}
+
+
+def dax_ctes_janela(ini, fim):
+    """CT-e (só o que liga uma cobrança) de vários meses — a caixa de entrada procura o CT-e fora do mês da tela."""
+    a, b = _dax_datas(ini, fim)
+    return (f'EVALUATE CALCULATETABLE(SELECTCOLUMNS({_T}, "ctrc", [serie_numero_ctrc], "chave", [chave_cte], '
+            f'"nf", [numero_nota_fiscal], "cnpj_pag", [cnpj_pagador]), {_T}[data_emissao] >= {a}, {_T}[data_emissao] <= {b})')

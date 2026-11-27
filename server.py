@@ -1301,9 +1301,9 @@ def api_acompanhamento():
                         dax_dre=_crm_dax_dre)   # o 477 (pago da descarga) mora no dataset do DRE
         chaves = [str(c.get('ctrc') or '').replace(' ', '').upper() for c in d['ctes']]
         mans = list({ac.chave_man(c.get('manu')) for c in d['ctes']} - {None})
-        marc, crm_k, cargas = _acomp_db(lambda cur: (ac.marcacoes(cur, chaves), ac.crm_dos_ctes(cur, chaves, crm.CARTEIRAS),
-                                                     ac.cargas_dos_manifestos(cur, mans)))
-        r = ac.montar(d, marc, crm_k, GRUPOS_ECONOMICOS)
+        marc, crm_k, cargas, vinc = _acomp_db(lambda cur: (ac.marcacoes(cur, chaves), ac.crm_dos_ctes(cur, chaves, crm.CARTEIRAS),
+                                                           ac.cargas_dos_manifestos(cur, mans), ac.vinculos_descarga(cur)))
+        r = ac.montar(d, marc, crm_k, GRUPOS_ECONOMICOS, vinc=vinc)
         for v in r['viagens'].values():   # mapa, ficha e status embarque da viagem: a carga do Embarques
             v['mapa'] = cargas.get(re.sub(r'[^A-Z0-9]', '', (v['manifesto'] or '').upper()))
             v['carga_id'] = v['mapa']['id'] if v['mapa'] else None
@@ -1344,6 +1344,76 @@ def api_acompanhamento_cte():
         hist = _acomp_db(lambda cur: ac.historico(cur, k))
         d = ac.dados_bi(_crm_dax_op, request.args.get('mes'), dax_dre=_crm_dax_dre)
         return jsonify({'ok': True, 'historico': hist, 'ocorrencias': ac.ocorrencias_do_cte(d, k)})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+# Descarga, etapa 2 (27/11/2026): vincular / desvincular cobrança e pagamento à mão; busca; caixa de entrada.
+_ACOMP_SOLTAS = {}
+
+
+@app.route('/api/acompanhamento/descarga/vincular', methods=['POST'])
+@page_required('acompanhamento')
+def api_acompanhamento_desc_vincular():
+    """{tipo: cobr|pago, doc, cte, valor?, substituir?} → {'ok'} ou {'conflito': [...]} (409, nada gravado)."""
+    import acompanhamento as ac
+    d = request.get_json(silent=True) or {}
+    try:
+        por = session.get('nome') or 'usuário'
+        r = _acomp_db(lambda cur: ac.vincular(cur, _crm_dax_op, _crm_dax_dre, d.get('tipo'), str(d.get('doc') or ''),
+                                              str(d.get('cte') or ''), d.get('valor'), por, bool(d.get('substituir'))))
+        if 'conflito' in r:
+            return jsonify(dict(r, ok=False, error='O documento já está vinculado em outro CT-e.')), 409
+        return jsonify(dict(r, por=por))
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/acompanhamento/descarga/desvincular', methods=['POST'])
+@page_required('acompanhamento')
+def api_acompanhamento_desc_desvincular():
+    """{tipo, doc, cte} → tira o documento do CT-e (o automático fica bloqueado; vai para a caixa de entrada)."""
+    import acompanhamento as ac
+    d = request.get_json(silent=True) or {}
+    try:
+        por = session.get('nome') or 'usuário'
+        _acomp_db(lambda cur: ac.desvincular(cur, d.get('tipo'), str(d.get('doc') or ''), str(d.get('cte') or ''), por))
+        return jsonify({'ok': True, 'por': por})
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/acompanhamento/descarga/buscar')
+@page_required('acompanhamento')
+def api_acompanhamento_desc_buscar():
+    """?tipo=cobr|pago&q= → documentos para vincular (último ano)."""
+    import acompanhamento as ac
+    try:
+        r = ac.buscar_documentos(_crm_dax_op, _crm_dax_dre, request.args.get('tipo'), request.args.get('q'))
+        return jsonify({'ok': True, 'docs': r})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/acompanhamento/descarga/soltas')
+@page_required('acompanhamento')
+def api_acompanhamento_desc_soltas():
+    """?mes= → caixa de entrada: cobranças de descarga e pagamentos 5100 do mês que não ligam a CT-e nenhum."""
+    import time as _t
+    import acompanhamento as ac
+    try:
+        d = ac.dados_bi(_crm_dax_op, request.args.get('mes'), dax_dre=_crm_dax_dre)
+        c = _ACOMP_SOLTAS.get(d['mes'])
+        if not c or _t.time() - c['t'] > ac.CACHE_S:
+            ini = ac.date.fromisoformat(d['ini'])
+            janela = _crm_dax_op(ac.dax_ctes_janela(ini - ac.timedelta(days=150), ac.date.fromisoformat(d['fim'])))
+            c = _ACOMP_SOLTAS[d['mes']] = {'t': _t.time(), 'janela': janela}
+        vinc = _acomp_db(lambda cur: ac.vinculos_descarga(cur))
+        return jsonify(dict(ac.documentos_soltos(d, vinc, c['janela']), ok=True))
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
 
